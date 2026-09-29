@@ -21,7 +21,7 @@ export default defineConfig({
   resolve: {
     alias: {
       "next/link": fileURLToPath(
-        new URL("./apps/web/src/test/next-link.civet", import.meta.url)
+        new URL("./apps/web/src/test/next-link.tsx", import.meta.url)
       ),
     },
   },
@@ -47,7 +47,7 @@ export default defineConfig({
         "**/*.{test,spec}.{civet,js,jsx,ts,tsx,mjs,cjs,mts,cts}",
         "**/*.d.ts",
         "**/generated/**",
-        "apps/web/src/features/generated-navigation.civet",
+        "apps/web/src/features/generated-navigation.ts",
       ],
     },
     projects: [
@@ -56,7 +56,7 @@ export default defineConfig({
         test: {
           name: "unit",
           include: [
-            "**/*.test.civet",
+            "**/*.test.{ts,tsx}",
             "**/*.spec.civet",
             "**/*.{test,spec}.{js,jsx,ts,tsx,mjs,cjs,mts,cts}",
           ],
@@ -67,7 +67,7 @@ export default defineConfig({
             "**/dist/**",
             "**/tests/e2e/**",
             "**/tests/integration/**",
-            "**/*contract.test.civet",
+            "**/*contract.test.ts",
             "**/scripts/**",
           ],
         },
@@ -76,7 +76,7 @@ export default defineConfig({
         extends: true,
         test: {
           name: "contract",
-          include: ["**/*contract.test.civet"],
+          include: ["**/*contract.test.ts"],
           exclude: [
             "**/node_modules/**",
             "**/.git/**",
@@ -91,7 +91,7 @@ export default defineConfig({
         extends: true,
         test: {
           name: "operations",
-          include: ["scripts/**/*.test.civet"],
+          include: ["scripts/**/*.test.ts"],
           exclude: [
             "**/node_modules/**",
             "**/.git/**",
@@ -105,7 +105,7 @@ export default defineConfig({
         test: {
           name: "e2e-helpers",
           include: [
-            "tests/e2e/helpers/*.test.civet",
+            "tests/e2e/helpers/*.test.ts",
             "tests/e2e/helpers/*.test.ts",
           ],
           exclude: [
@@ -120,7 +120,7 @@ export default defineConfig({
         extends: true,
         test: {
           name: "integration",
-          include: ["tests/integration/**/*.test.civet"],
+          include: ["tests/integration/**/*.test.ts"],
           exclude: [
             "**/node_modules/**",
             "**/.git/**",

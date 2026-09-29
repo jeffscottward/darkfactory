@@ -1,0 +1,455 @@
+import { afterEach, describe, expect, it, vi } from "vitest"
+
+import { createAuthenticatedDashboardFetch } from "./dashboard-transport.ts"
+
+describe("authenticated dashboard transport", function() {
+  afterEach(function() {
+    vi.useRealTimers()
+    return vi.unstubAllGlobals()
+  })
+
+  it("cancels an oversized chunked oRPC response without relying on content-length", async function() {
+    const cancel = vi.fn()
+    const oversized = new ReadableStream<Uint8Array>({
+      start: (controller) => {
+        controller.enqueue(new Uint8Array(40_000))
+        return controller.enqueue(new Uint8Array(40_000))
+      },
+      cancel,
+    })
+    const fetcher = vi.fn(async (request: Request) => {
+      expect(request.headers.get("cookie")).toBe("better-auth.session_token=opaque")
+      expect(request.headers.get("origin")).toBe("https://darkfactory.localhost")
+      expect(request.headers.get("sec-fetch-site")).toBe("same-origin")
+      expect(request.redirect).toBe("manual")
+      return new Response(oversized, { headers: { "content-type": "application/json" } })
+    }
+    )
+    const fetchDashboard = createAuthenticatedDashboardFetch(
+      "better-auth.session_token=opaque",
+      "https://darkfactory.localhost",
+      fetcher,
+    )
+
+    await expect(fetchDashboard(new Request("https://darkfactory.localhost/api/orpc/dashboard/summary"))).rejects.toThrow(
+      "Dashboard response exceeded the safe size limit",
+    )
+    return expect(cancel).toHaveBeenCalledOnce()
+  })
+
+  it.each([null, "", "   "])(
+    "removes a request-supplied Cookie when the trusted cookie is %j",
+    async function(cookieHeader) {
+      let forwarded: Request | undefined
+      const fetchDashboard = createAuthenticatedDashboardFetch(
+        cookieHeader,
+        "https://darkfactory.localhost",
+        async (request) => {
+          forwarded = request
+          return new Response("{}")
+        }
+      )
+
+      await fetchDashboard(new Request(
+        "https://darkfactory.localhost/api/orpc/dashboard/summary",
+        { headers: { cookie: "attacker=untrusted" } },
+      ))
+
+      expect(forwarded?.headers.get("cookie")).toBeNull()
+      expect(forwarded?.headers.get("origin")).toBe(
+        "https://darkfactory.localhost",
+      )
+      expect(forwarded?.cache).toBe("no-store")
+      return expect(forwarded?.redirect).toBe("manual")
+    }
+  )
+
+  it("aborts a stalled internal oRPC request at the configured deadline", async function() {
+    const fetcher = vi.fn((request: Request) => new Promise<Response>((resolve) => {
+      return request.signal.addEventListener("abort", () => resolve(new Response(null, { status: 504 })), { once: true })
+    }
+    ))
+    const fetchDashboard = createAuthenticatedDashboardFetch(
+      "better-auth.session_token=opaque",
+      "https://darkfactory.localhost",
+      fetcher,
+      5,
+    )
+
+    return await expect(fetchDashboard(new Request("https://darkfactory.localhost/api/orpc/dashboard/summary"))).rejects.toThrow(
+      "Dashboard request exceeded the safe deadline",
+    )
+  })
+
+  it("cancels a declared-oversized response before rejecting it", async function() {
+    const cancel = vi.fn()
+    const oversized = new ReadableStream<Uint8Array>({ cancel })
+    const fetcher = vi.fn(async () => {
+      return new Response(oversized, {
+        headers: { "content-length": "70000", "content-type": "application/json" },
+      })
+    }
+    )
+    const fetchDashboard = createAuthenticatedDashboardFetch(
+      "better-auth.session_token=opaque",
+      "https://darkfactory.localhost",
+      fetcher,
+    )
+
+    await expect(fetchDashboard(new Request("https://darkfactory.localhost/api/orpc/dashboard/summary"))).rejects.toThrow(
+      "Dashboard response exceeded the safe size limit",
+    )
+    return expect(cancel).toHaveBeenCalledOnce()
+  })
+
+  it("cancels a stalled response body at the same request deadline", async function() {
+    const cancel = vi.fn()
+    const stalledBody = new ReadableStream<Uint8Array>({ cancel })
+    const fetcher = vi.fn(async () => {
+      return new Response(stalledBody, { headers: { "content-type": "application/json" } })
+    }
+    )
+    const fetchDashboard = createAuthenticatedDashboardFetch(
+      "better-auth.session_token=opaque",
+      "https://darkfactory.localhost",
+      fetcher,
+      5,
+    )
+
+    await expect(fetchDashboard(new Request("https://darkfactory.localhost/api/orpc/dashboard/summary"))).rejects.toThrow(
+      "Dashboard request exceeded the safe deadline",
+    )
+    return expect(cancel).toHaveBeenCalledOnce()
+  })
+
+
+  it("cancels when the caller aborts while the response body is being acquired", async function() {
+    const caller = new AbortController()
+    const cancel = vi.fn(async () => undefined)
+    const body = new ReadableStream<Uint8Array>({ cancel })
+    const response = new Response(body)
+    let bodyReads = 0
+    Object.defineProperty(response, "body", {
+      configurable: true,
+      get: () => {
+        bodyReads += 1
+        if (bodyReads === 1) caller.abort("caller cancelled during body acquisition")
+        return body
+      }
+    })
+    const fetchDashboard = createAuthenticatedDashboardFetch(
+      "better-auth.session_token=opaque",
+      "https://darkfactory.localhost",
+      async () => response,
+    )
+
+    await expect(fetchDashboard(new Request(
+      "https://darkfactory.localhost/api/orpc/dashboard/summary",
+      { signal: caller.signal },
+    ))).rejects.toThrow("Dashboard request exceeded the safe deadline")
+    expect(cancel).toHaveBeenCalledOnce()
+    return expect(bodyReads).toBeGreaterThanOrEqual(2)
+  })
+
+  it("does not fetch when the caller signal is already aborted", async function() {
+    const fetcher = vi.fn(async () => new Response("{}"))
+    const fetchDashboard = createAuthenticatedDashboardFetch(
+      "better-auth.session_token=opaque",
+      "https://darkfactory.localhost",
+      fetcher,
+    )
+    const controller = new AbortController()
+    controller.abort()
+
+    await expect(fetchDashboard(new Request(
+      "https://darkfactory.localhost/api/orpc/dashboard/summary",
+      { signal: controller.signal },
+    ))).rejects.toThrow("Dashboard request was cancelled")
+    return expect(fetcher).not.toHaveBeenCalled()
+  })
+
+  it("does not forward the session cookie to a request outside the configured app origin", async function() {
+    const fetcher = vi.fn(async () => new Response("{}"))
+    const fetchDashboard = createAuthenticatedDashboardFetch(
+      "better-auth.session_token=opaque",
+      "https://darkfactory.localhost",
+      fetcher,
+    )
+
+    await expect(fetchDashboard(new Request("https://attacker.invalid/api/orpc/dashboard/summary"))).rejects.toThrow(
+      "Dashboard request origin did not match the configured app origin",
+    )
+    return expect(fetcher).not.toHaveBeenCalled()
+  })
+
+  it("forwards a same-origin request and reconstructs a bounded response", async function() {
+    let forwarded: Request | undefined
+    const encoder = new TextEncoder()
+    const fetcher = vi.fn(async (request: Request) => {
+      forwarded = request
+      return new Response(new ReadableStream<Uint8Array>({
+        start(controller) {
+          controller.enqueue(encoder.encode('{"json":'))
+          controller.enqueue(encoder.encode('{"total":1}}'))
+          return controller.close()
+        }
+      }), {
+        headers: {
+          "content-length": "not-declared",
+          "content-type": "application/json",
+        },
+        status: 206,
+        statusText: "Partial Content",
+      })
+    }
+    )
+    const fetchDashboard = createAuthenticatedDashboardFetch(
+      "better-auth.session_token=trusted",
+      "https://darkfactory.localhost",
+      fetcher,
+    )
+
+    const response = await fetchDashboard(new Request(
+      "https://darkfactory.localhost/api/orpc/dashboard/summary",
+      { headers: { cookie: "attacker=untrusted", "x-client": "web" } },
+    ))
+
+    expect(forwarded?.cache).toBe("no-store")
+    expect(forwarded?.redirect).toBe("manual")
+    expect(forwarded?.headers.get("cookie")).toBe(
+      "better-auth.session_token=trusted",
+    )
+    expect(forwarded?.headers.get("origin")).toBe(
+      "https://darkfactory.localhost",
+    )
+    expect(forwarded?.headers.get("sec-fetch-site")).toBe("same-origin")
+    expect(forwarded?.headers.get("x-client")).toBe("web")
+    expect(response.status).toBe(206)
+    expect(response.statusText).toBe("Partial Content")
+    return expect(await response.text()).toBe('{"json":{"total":1}}')
+  })
+
+  it("returns a bodyless response without replacing it", async function() {
+    const source = new Response(null, { status: 204 })
+    const fetchDashboard = createAuthenticatedDashboardFetch(
+      "better-auth.session_token=opaque",
+      "https://darkfactory.localhost",
+      async () => source,
+    )
+
+    return await expect(fetchDashboard(new Request(
+      "https://darkfactory.localhost/api/orpc/dashboard/summary",
+    ))).resolves.toBe(source)
+  })
+
+  it("rejects malformed, non-HTTPS, and path-bearing configured origins", async function() {
+    const fetcher = vi.fn(async () => new Response("{}"))
+    for (const trustedOrigin of [
+      "not a URL",
+      "http://darkfactory.localhost",
+      "https://darkfactory.localhost/path",
+    ]) {
+      const fetchDashboard = createAuthenticatedDashboardFetch(
+        "better-auth.session_token=opaque",
+        trustedOrigin,
+        fetcher,
+      )
+      await expect(fetchDashboard(new Request(
+        "https://darkfactory.localhost/api/orpc/dashboard/summary",
+      ))).rejects.toBeInstanceOf(TypeError)
+    }
+    return expect(fetcher).not.toHaveBeenCalled()
+  })
+
+  it("propagates caller cancellation after transport has started", async function() {
+    const caller = new AbortController()
+    const fetcher = vi.fn((request: Request) => new Promise<Response>(
+      (_resolve, reject) => {
+        request.signal.addEventListener(
+          "abort",
+          () => reject(request.signal.reason),
+          { once: true },
+        )
+        return
+      }
+    ))
+    const fetchDashboard = createAuthenticatedDashboardFetch(
+      "better-auth.session_token=opaque",
+      "https://darkfactory.localhost",
+      fetcher,
+    )
+    const pending = fetchDashboard(new Request(
+      "https://darkfactory.localhost/api/orpc/dashboard/summary",
+      { signal: caller.signal },
+    ))
+
+    caller.abort()
+
+    await expect(pending).rejects.toMatchObject({ name: "AbortError" })
+    return expect(fetcher).toHaveBeenCalledOnce()
+  })
+
+  it("preserves a transport failure unrelated to cancellation", async function() {
+    const failure = new Error("internal transport unavailable")
+    const fetchDashboard = createAuthenticatedDashboardFetch(
+      "better-auth.session_token=opaque",
+      "https://darkfactory.localhost",
+      async () => {
+        throw failure
+      }
+    )
+
+    return await expect(fetchDashboard(new Request(
+      "https://darkfactory.localhost/api/orpc/dashboard/summary",
+    ))).rejects.toBe(failure)
+  })
+
+  it("fails closed when oversized-response cancellation rejects", async function() {
+    const declaredCancel = vi.fn(async () => {
+      throw new Error("declared cancellation unavailable")
+    }
+    )
+    const declaredFetch = createAuthenticatedDashboardFetch(
+      "better-auth.session_token=opaque",
+      "https://darkfactory.localhost",
+      async () => new Response(new ReadableStream<Uint8Array>({
+        cancel: declaredCancel,
+      }), { headers: { "content-length": "65537" } }),
+    )
+    await expect(declaredFetch(new Request(
+      "https://darkfactory.localhost/api/orpc/dashboard/summary",
+    ))).rejects.toThrow("Dashboard response exceeded the safe size limit")
+    expect(declaredCancel).toHaveBeenCalledOnce()
+
+    const streamedCancel = vi.fn(async () => {
+      throw new Error("stream cancellation unavailable")
+    }
+    )
+    const streamedFetch = createAuthenticatedDashboardFetch(
+      "better-auth.session_token=opaque",
+      "https://darkfactory.localhost",
+      async () => new Response(new ReadableStream<Uint8Array>({
+        start(controller) {
+          return controller.enqueue(new Uint8Array(65_537))
+        },
+        cancel: streamedCancel,
+      })),
+    )
+    await expect(streamedFetch(new Request(
+      "https://darkfactory.localhost/api/orpc/dashboard/summary",
+    ))).rejects.toThrow("Dashboard response exceeded the safe size limit")
+    return expect(streamedCancel).toHaveBeenCalledOnce()
+  })
+
+  it("propagates a primitive streamed-response cancellation failure", async function() {
+    const failure = "primitive stream cancellation failure"
+    const cancel = vi.fn(async () => {
+      throw failure
+    }
+    )
+    const fetchDashboard = createAuthenticatedDashboardFetch(
+      "better-auth.session_token=opaque",
+      "https://darkfactory.localhost",
+      async () => new Response(new ReadableStream<Uint8Array>({
+        start(controller) {
+          return controller.enqueue(new Uint8Array(65_537))
+        },
+        cancel,
+      })),
+    )
+
+    await expect(fetchDashboard(new Request(
+      "https://darkfactory.localhost/api/orpc/dashboard/summary",
+    ))).rejects.toBe(failure)
+    return expect(cancel).toHaveBeenCalledOnce()
+  })
+
+  it("absorbs failed deadline cancellation and reports the bounded timeout", async function() {
+    vi.useFakeTimers()
+    const cancel = vi.fn(async () => {
+      throw new Error("deadline cancellation unavailable")
+    }
+    )
+    const fetchDashboard = createAuthenticatedDashboardFetch(
+      "better-auth.session_token=opaque",
+      "https://darkfactory.localhost",
+      async () => new Response(new ReadableStream<Uint8Array>({ cancel })),
+      5,
+    )
+    const pending = fetchDashboard(new Request(
+      "https://darkfactory.localhost/api/orpc/dashboard/summary",
+    ))
+    const rejection = expect(pending).rejects.toThrow(
+      "Dashboard request exceeded the safe deadline",
+    )
+
+    await vi.advanceTimersByTimeAsync(5)
+
+    await rejection
+    expect(cancel).toHaveBeenCalledOnce()
+    return expect(vi.getTimerCount()).toBe(0)
+  })
+
+  it("uses the injected global fetch default when no transport is supplied", async function() {
+    const fetcher = vi.fn(async () => new Response("default transport"))
+    vi.stubGlobal("fetch", fetcher)
+    const fetchDashboard = createAuthenticatedDashboardFetch(
+      "better-auth.session_token=opaque",
+      "https://darkfactory.localhost",
+    )
+
+    const response = await fetchDashboard(new Request(
+      "https://darkfactory.localhost/api/orpc/dashboard/summary",
+    ))
+
+    expect(await response.text()).toBe("default transport")
+    return expect(fetcher).toHaveBeenCalledOnce()
+  })
+
+  it("cancels a response body that arrives only after the deadline aborts", async function() {
+    vi.useFakeTimers()
+    const cancel = vi.fn(async () => {
+      throw new Error("late cancellation unavailable")
+    }
+    )
+    const fetchDashboard = createAuthenticatedDashboardFetch(
+      "better-auth.session_token=opaque",
+      "https://darkfactory.localhost",
+      (request) => new Promise<Response>((resolve) => {
+        request.signal.addEventListener(
+          "abort",
+          () => void resolve(new Response(new ReadableStream<Uint8Array>({ cancel }))),
+          { once: true },
+        )
+        return
+      }
+      ),
+      5,
+    )
+    const pending = fetchDashboard(new Request(
+      "https://darkfactory.localhost/api/orpc/dashboard/summary",
+    ))
+    const rejection = expect(pending).rejects.toThrow(
+      "Dashboard request exceeded the safe deadline",
+    )
+
+    await vi.advanceTimersByTimeAsync(5)
+
+    await rejection
+    return expect(cancel).toHaveBeenCalledOnce()
+  })
+
+  return it("rejects declared excess without requiring a response body", async function() {
+    const fetchDashboard = createAuthenticatedDashboardFetch(
+      "better-auth.session_token=opaque",
+      "https://darkfactory.localhost",
+      async () => new Response(null, {
+        headers: { "content-length": "65537" },
+      }),
+    )
+
+    return await expect(fetchDashboard(new Request(
+      "https://darkfactory.localhost/api/orpc/dashboard/summary",
+    ))).rejects.toThrow("Dashboard response exceeded the safe size limit")
+  })
+})

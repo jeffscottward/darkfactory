@@ -1,0 +1,20 @@
+export default function robots() {
+  return {
+    rules: {
+      userAgent: "*",
+      allow: "/",
+      disallow: [
+        "/account",
+        "/account/",
+        "/admin/",
+        "/api/",
+        "/dashboard",
+        "/feature-items",
+        "/forgot-password",
+        "/reset-password",
+        "/sign-in",
+        "/sign-up",
+      ],
+    },
+  }
+}

@@ -1,0 +1,8 @@
+export type AuthSearchParams = Promise<
+  Readonly<Record<string, string | readonly string[] | undefined>>
+>
+export const firstSearchParam = (
+  value: string | readonly string[] | undefined,
+): string | undefined => {
+  return typeof value === "string" ? value : value?.[0]
+}

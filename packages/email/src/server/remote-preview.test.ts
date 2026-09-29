@@ -1,0 +1,198 @@
+import { afterEach, describe, expect, it, vi } from "vitest"
+
+import {
+  createRemotePreviewContactEmailPort,
+  createRemotePreviewEmailPort,
+  type PreviewCaptureFetch,
+} from "./remote-preview.ts"
+
+const binding = {
+  runId: "run_remote_preview",
+  hmacKey: Buffer.alloc(32, 7).toString("base64url"),
+}
+const endpoint = "http://127.0.0.1:43123/v1/capture"
+const resetInput = {
+  to: "member@domain.test",
+  recipientName: "Member Example",
+  resetUrl: "https://darkfactory.localhost/api/auth/reset-password/reset_token",
+  expiresInMinutes: 60,
+}
+
+const createFetch = (status = 201) => vi.fn<PreviewCaptureFetch>(
+  async () => new Response(null, { status }),
+)
+
+afterEach(function() {
+  return vi.restoreAllMocks()
+})
+
+describe("remote preview transport", function() {
+  it("posts a bounded authenticated reset capture to the exact loopback endpoint", async function() {
+    const fetcher = createFetch()
+    const email = createRemotePreviewEmailPort({
+      environment: "test",
+      endpoint,
+      binding,
+      fetcher,
+    })
+
+    await expect(email.sendPasswordReset(resetInput)).resolves.toEqual({
+      status: "previewed",
+      provider: "preview",
+      artifactPath: "e2e-preview-capture",
+    })
+    expect(fetcher).toHaveBeenCalledOnce()
+    const [url, request] = fetcher.mock.calls[0]!
+    expect(url.toString()).toBe(endpoint)
+    expect(request).toMatchObject({ method: "POST", redirect: "manual" })
+    expect(request?.headers).toEqual({
+      authorization: `Bearer ${binding.hmacKey}`,
+      "content-type": "application/json",
+    })
+    return expect(JSON.parse(String(request?.body))).toEqual({
+      version: 1,
+      runId: binding.runId,
+      operation: "reset-password",
+      input: resetInput,
+    })
+  })
+
+  it("fails closed on a rejected capture and never retries", async function() {
+    const fetcher = createFetch(503)
+    const email = createRemotePreviewEmailPort({
+      environment: "test",
+      endpoint,
+      binding,
+      fetcher,
+    })
+
+    await expect(email.sendEmailVerification({
+      to: "member@domain.test",
+      verificationUrl: "https://darkfactory.localhost/api/auth/verify-email?token=header.payload.signature&callbackURL=%2Fverify-email%3Fverified%3D1",
+      expiresInMinutes: 60,
+    })).resolves.toMatchObject({
+      status: "failed",
+      code: "EMAIL_PREVIEW_WRITE_FAILED",
+      retryable: false,
+    })
+    return expect(fetcher).toHaveBeenCalledOnce()
+  })
+
+  it("uses the global fetch fallback and fails closed when capture rejects", async function() {
+    const providerSecret = "remote-provider-secret"
+    const fetcher = vi.spyOn(globalThis, "fetch").mockRejectedValue(
+      new Error(providerSecret),
+    )
+    const email = createRemotePreviewEmailPort({
+      environment: "test",
+      endpoint,
+      binding,
+    })
+
+    const result = await email.sendPasswordReset(resetInput)
+    expect(result).toEqual({
+      status: "failed",
+      provider: "preview",
+      code: "EMAIL_PREVIEW_WRITE_FAILED",
+      retryable: false,
+    })
+    expect(JSON.stringify(result)).not.toContain(providerSecret)
+    return expect(fetcher).toHaveBeenCalledOnce()
+  })
+
+  it("captures contact input through the same authenticated channel", async function() {
+    const fetcher = createFetch()
+    const email = createRemotePreviewContactEmailPort({
+      environment: "test",
+      endpoint,
+      binding,
+      fetcher,
+    })
+    const input = {
+      name: "Ada Lovelace",
+      email: "ada@example.test",
+      subject: "Architecture review",
+      message: "Please review the deployment boundary.",
+    }
+
+    await expect(email.sendContact(input)).resolves.toMatchObject({
+      status: "previewed",
+      provider: "preview",
+    })
+    const body = JSON.parse(String(fetcher.mock.calls[0]?.[1]?.body))
+    return expect(body).toMatchObject({ operation: "contact", input })
+  })
+
+  it("returns the contact-specific failure when capture does not accept the request", async function() {
+    const fetcher = createFetch(429)
+    const email = createRemotePreviewContactEmailPort({
+      environment: "test",
+      endpoint,
+      binding,
+      fetcher,
+    })
+
+    await expect(email.sendContact({
+      name: "Ada Lovelace",
+      email: "ada@example.test",
+      subject: "Architecture review",
+      message: "Please review the deployment boundary.",
+    })).resolves.toEqual({
+      status: "not-delivered",
+      provider: "preview",
+      code: "CONTACT_PREVIEW_WRITE_FAILED",
+      retryable: false,
+    })
+    return expect(fetcher).toHaveBeenCalledOnce()
+  })
+
+  it.each([
+    "https://127.0.0.1:43123/v1/capture",
+    "http://localhost:43123/v1/capture",
+    "http://127.0.0.1:43123/other",
+    "http://127.0.0.1:43123/v1/capture?redirect=1",
+  ])("rejects an untrusted capture endpoint: %s", function(untrustedEndpoint) {
+    return expect(() => createRemotePreviewEmailPort({
+      environment: "test",
+      endpoint: untrustedEndpoint,
+      binding,
+    })).toThrowError("exact loopback")
+  }
+  )
+
+  it.each([
+    "http://127.0.0.1/v1/capture",
+    "http://user@127.0.0.1:43123/v1/capture",
+    "http://:password@127.0.0.1:43123/v1/capture",
+    "http://127.0.0.1:43123/v1/capture#fragment",
+  ])("rejects an incomplete or credentialed capture endpoint: %s", function(untrustedEndpoint) {
+    return expect(() => createRemotePreviewEmailPort({
+      environment: "test",
+      endpoint: untrustedEndpoint,
+      binding,
+    })).toThrowError("exact loopback")
+  }
+  )
+
+  it.each([
+    { runId: "", hmacKey: binding.hmacKey },
+    { runId: "contains spaces", hmacKey: binding.hmacKey },
+    { runId: "a".repeat(129), hmacKey: binding.hmacKey },
+    { runId: binding.runId, hmacKey: "short" },
+  ])("rejects a malformed remote binding", function(malformedBinding) {
+    return expect(() => createRemotePreviewEmailPort({
+      environment: "test",
+      endpoint,
+      binding: malformedBinding,
+    })).toThrowError("Remote preview binding is invalid")
+  }
+  )
+
+  return it("rejects remote capture outside tests", function() {
+    return expect(() => createRemotePreviewEmailPort({
+      environment: "development",
+      endpoint,
+      binding,
+    })).toThrowError("only in tests")
+  })
+})

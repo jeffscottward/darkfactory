@@ -28,8 +28,8 @@ COPY --from=dependencies /opt/darkfactory-verifier/dependencies ./
 
 WORKDIR /opt/darkfactory-verifier
 COPY infra/docker/verifier/checks.json ./checks.json
-COPY infra/docker/verifier/runner.civet ./runner.civet
-RUN chmod 0555 ./runner.civet \
+COPY infra/docker/verifier/runner.ts ./runner.ts
+RUN chmod 0555 ./runner.ts \
   && chmod 0444 ./checks.json \
   && chmod -R a-w /opt/darkfactory-verifier
 

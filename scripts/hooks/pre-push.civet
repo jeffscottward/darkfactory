@@ -1,3 +1,0 @@
-import { runPrePush } from "./index.civet"
-
-process.exitCode = runPrePush(process.argv.slice(2))

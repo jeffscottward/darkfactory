@@ -1,0 +1,202 @@
+import { describe, expect, it } from "vitest"
+
+import type { SemanticEvent } from "./port.ts"
+import {
+  createRecordingEventSink,
+  createRecordingTelemetry,
+} from "./test.ts"
+
+const semanticEvent: SemanticEvent = {
+  eventId: "event_01",
+  name: "feature-item.created",
+  occurredAt: "2026-07-23T12:00:00.000Z",
+  correlation: {
+    requestId: "request_01",
+    actorId: "actor_opaque_01",
+    route: "/rpc/feature.create",
+    procedure: "feature.create",
+  },
+  action: "create",
+  entityId: "feature_01",
+  entityType: "feature-item",
+  outcome: "success",
+  source: "api",
+  attributes: { status: "draft" },
+}
+
+describe("recording observability ports", function() {
+  it("records deterministic correlated spans, events, metrics, duration, and outcome", async function() {
+    let now = 100
+    const telemetry = createRecordingTelemetry({
+      now: function() { return now },
+      createTraceId: function() { return "11111111111111111111111111111111" },
+      createSpanId: function() { return "2222222222222222" },
+    })
+    const spanAttributes = { phase: "start" }
+
+    const result = await telemetry.withSpan(
+      {
+        name: "rpc.feature.create",
+        correlation: semanticEvent.correlation,
+        procedure: "feature.create",
+        attributes: spanAttributes,
+      },
+      async function(span) {
+        expect(span.correlation).toEqual({
+          ...semanticEvent.correlation,
+          traceId: "11111111111111111111111111111111",
+          spanId: "2222222222222222",
+        })
+        spanAttributes.phase = "mutated"
+        span.addEvent(semanticEvent)
+        span.recordMetric({
+          name: "darkfactory.semantic_event",
+          value: 1,
+          attributes: { eventName: semanticEvent.name },
+        })
+        now = 125
+        return "created"
+      }
+    )
+
+    expect(result).toBe("created")
+    expect(telemetry.spans).toEqual([
+      expect.objectContaining({
+        name: "rpc.feature.create",
+        requestId: "request_01",
+        procedure: "feature.create",
+        traceId: "11111111111111111111111111111111",
+        spanId: "2222222222222222",
+        durationMs: 25,
+        outcome: "success",
+        attributes: { phase: "start" },
+        events: [semanticEvent],
+      }),
+    ])
+    expect(telemetry.metrics).toEqual([
+      expect.objectContaining({
+        name: "darkfactory.semantic_event",
+        value: 1,
+        requestId: "request_01",
+        traceId: "11111111111111111111111111111111",
+        spanId: "2222222222222222",
+      }),
+    ])
+    expect(telemetry.state).toEqual({ status: "in-memory" })
+
+    await telemetry.forceFlush()
+    await telemetry.dispose()
+    await telemetry.dispose()
+    return expect(telemetry.disposed).toBe(true)
+  })
+
+  it("records a safe failure category and rethrows without copying error details into telemetry", async function() {
+    let now = 5
+    const telemetry = createRecordingTelemetry({ now: function() { return now } })
+    const providerError = new Error("raw-provider-response password=secret")
+
+    await expect(
+      telemetry.withSpan(
+        {
+          name: "rpc.feature.create",
+          correlation: { requestId: "request_failure" },
+          procedure: "feature.create",
+        },
+        function() {
+          now = 12
+          throw providerError
+        }
+      )
+    ).rejects.toBe(providerError)
+
+    expect(telemetry.spans[0]).toMatchObject({
+      outcome: "failure",
+      errorCategory: "application",
+      durationMs: 7,
+    })
+    return expect(JSON.stringify(telemetry.spans)).not.toMatch(
+      /raw-provider-response|password=secret/
+    )
+  })
+
+  it("records immutable structured event snapshots", async function() {
+    const sink = createRecordingEventSink()
+    const input = {
+      ...semanticEvent,
+      attributes: { status: "draft" },
+    }
+
+    await sink.emit(input)
+    input.attributes.status = "published"
+
+    expect(sink.events).toEqual([semanticEvent])
+    return expect(Object.isFrozen(sink.events[0])).toBe(true)
+  })
+
+  it.each([
+    [new DOMException("private abort detail", "AbortError"), "aborted"],
+    [new DOMException("private DOM detail", "DataError"), "application"],
+    [new TypeError("private type detail"), "type"],
+    [new RangeError("private range detail"), "range"],
+  ] as const)("records the safe $expectedCategory failure category", async (error, expectedCategory) => {
+    const telemetry = createRecordingTelemetry()
+
+    await expect(
+      telemetry.withSpan(
+        {
+          name: "failure.category",
+          correlation: { requestId: `request_${expectedCategory}` },
+        },
+        () => {
+          throw error
+        }
+      ),
+    ).rejects.toBe(error)
+
+    expect(telemetry.spans[0]).toMatchObject({
+      outcome: "failure",
+      errorCategory: expectedCategory,
+    })
+    return expect(JSON.stringify(telemetry.spans)).not.toContain("private")
+  }
+  )
+
+  return it("preserves a parent, falls back to correlation procedure, and clamps negative duration", async function() {
+    const times = [20, 10]
+    const telemetry = createRecordingTelemetry({
+      now: () => times.shift() ?? 10,
+      createTraceId: () => "unused-trace",
+      createSpanId: () => "3333333333333333",
+    })
+
+    await telemetry.withSpan(
+      {
+        name: "child.operation",
+        correlation: {
+          requestId: "request_child",
+          traceId: "11111111111111111111111111111111",
+          spanId: "2222222222222222",
+          procedure: "feature.child",
+        },
+      },
+      () => undefined,
+    )
+    await telemetry.withSpan(
+      {
+        name: "procedure.omitted",
+        correlation: { requestId: "request_without_procedure" },
+      },
+      () => undefined,
+    )
+
+    expect(telemetry.spans[0]).toMatchObject({
+      traceId: "11111111111111111111111111111111",
+      parentSpanId: "2222222222222222",
+      procedure: "feature.child",
+      durationMs: 0,
+      outcome: "success",
+    })
+    expect(telemetry.spans[0]).not.toHaveProperty("attributes")
+    return expect(telemetry.spans[1]).not.toHaveProperty("procedure")
+  })
+})

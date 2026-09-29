@@ -1,0 +1,146 @@
+import { createElement } from "react"
+import { renderToStaticMarkup } from "react-dom/server"
+import { describe, expect, it, vi } from "vitest"
+
+import {
+  PALETTE_OPTIONS,
+  THEME_MODE_OPTIONS,
+  ThemePicker,
+  ThemeProvider,
+  type ThemePreference,
+  useTheme,
+} from "./theme.ts"
+
+const ThemeProbe = () => {
+  const { preference } = useTheme()
+  return (
+    <output data-mode={preference.themeMode} data-palette={preference.palette}>
+      {preference.themeMode}:{preference.palette}
+  </output>
+  )
+}
+
+describe("semantic theme components", function() {
+  it("provides the controlled semantic theme contract to descendants", function() {
+    const preference = { themeMode: "dark", palette: "rose" } as const
+    const markup = renderToStaticMarkup(
+      createElement(ThemeProvider, {
+        children: createElement(ThemeProbe),
+        onPreferenceChange: vi.fn(),
+        preference,
+      }),
+    )
+
+    expect(markup).toContain('data-mode="dark"')
+    expect(markup).toContain('data-palette="rose"')
+    return expect(markup).toContain("dark:rose")
+  })
+
+  it("delegates preference changes without owning persistence policy", function() {
+    const onPreferenceChange = vi.fn()
+    let selectPreference: ((preference: ThemePreference) => void) | undefined
+    const SelectionProbe = () => {
+      selectPreference = useTheme().onPreferenceChange
+      return null
+    }
+    renderToStaticMarkup(
+      createElement(ThemeProvider, {
+        children: createElement(SelectionProbe),
+        onPreferenceChange,
+        preference: { themeMode: "system", palette: "neutral" },
+      }),
+    )
+
+    selectPreference?.({ themeMode: "light", palette: "blue" })
+
+    expect(onPreferenceChange).toHaveBeenCalledOnce()
+    return expect(onPreferenceChange).toHaveBeenCalledWith({
+      themeMode: "light",
+      palette: "blue",
+    })
+  })
+
+  it("requires provider composition", function() {
+    return expect(() => renderToStaticMarkup(createElement(ThemeProbe))).toThrow(
+      "ThemeProvider is required.",
+    )
+  })
+
+  it("exports exactly three modes and ten labeled palettes", function() {
+    expect(THEME_MODE_OPTIONS).toEqual([
+      { label: "Light", value: "light" },
+      { label: "Dark", value: "dark" },
+      { label: "System", value: "system" },
+    ])
+    expect(PALETTE_OPTIONS).toHaveLength(10)
+    return expect(PALETTE_OPTIONS.map(({ value }) => value)).toEqual([
+      "neutral",
+      "slate",
+      "blue",
+      "cyan",
+      "green",
+      "amber",
+      "orange",
+      "red",
+      "rose",
+      "violet",
+    ])
+  })
+
+  it("keeps the picker trigger discoverable when selections are disabled", function() {
+    const markup = renderToStaticMarkup(
+      createElement(ThemeProvider, {
+        children: createElement(ThemePicker, {
+          disabled: true,
+          idPrefix: "disabled-theme",
+          triggerLabel: "Theme settings unavailable",
+        }),
+        onPreferenceChange: vi.fn(),
+        preference: { themeMode: "system", palette: "neutral" },
+      }),
+    )
+
+    expect(markup).toContain('aria-label="Theme settings unavailable"')
+    return expect(markup).not.toMatch(/<button[^>]*\sdisabled(?:=| |>)/u)
+  })
+  it("uses unique caller-owned trigger identifiers without closed ARIA references", function() {
+    const markup = renderToStaticMarkup(
+      createElement(ThemeProvider, {
+        children: createElement(
+          "div",
+          {},
+          createElement(ThemePicker, { idPrefix: "application-theme" }),
+          createElement(ThemePicker, { idPrefix: "secondary-theme" }),
+        ),
+        onPreferenceChange: vi.fn(),
+        preference: { themeMode: "system", palette: "neutral" },
+      }),
+    )
+
+    expect(markup.match(/id="application-theme-trigger"/g)).toHaveLength(1)
+    expect(markup.match(/id="secondary-theme-trigger"/g)).toHaveLength(1)
+    expect(markup).not.toContain('aria-controls="application-theme-content"')
+    return expect(markup).not.toContain('aria-controls="secondary-theme-content"')
+  })
+
+  return it("keeps async status and errors mounted while the menu is closed", function() {
+    const markup = renderToStaticMarkup(
+      createElement(ThemeProvider, {
+        children: createElement(ThemePicker, {
+          error: "Could not save theme settings.",
+          idPrefix: "status-theme",
+          statusMessage: "Saving theme settings.",
+        }),
+        onPreferenceChange: vi.fn(),
+        preference: { themeMode: "dark", palette: "rose" },
+      }),
+    )
+
+    expect(markup).toContain("Saving theme settings.")
+    expect(markup).toContain("Could not save theme settings.")
+    expect(markup).toContain('aria-live="polite"')
+    expect(markup).toContain('role="alert"')
+    return expect(markup.match(/class="sr-only"/g)).toHaveLength(2)
+  })
+})
+

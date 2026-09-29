@@ -38,7 +38,7 @@ const runWebServer = (
       "--experimental-strip-types",
       "--import",
       "./tests/e2e/helpers/register-civet-loader.mjs",
-      "./tests/e2e/helpers/web-server.civet",
+      "./tests/e2e/helpers/web-server.ts",
     ],
     {
       cwd: repositoryPath,
@@ -261,7 +261,7 @@ describe("Civet E2E loader boundary", () => {
         "./tests/e2e/helpers/register-civet-loader.mjs",
         "--input-type=module",
         "--eval",
-        'await import("./tests/e2e/helpers/preview-capture.civet"); process.stdout.write("loaded\\n");',
+        'await import("./tests/e2e/helpers/preview-capture.ts"); process.stdout.write("loaded\\n");',
       ],
       {
         cwd: repositoryPath,

@@ -12,29 +12,29 @@
   "exports": {
     ".": {
       "types": "./src/index.civet.d.ts",
-      "import": "./src/index.civet",
-      "default": "./src/index.civet"
+      "import": "./src/index.ts",
+      "default": "./src/index.ts"
     },
     "./client": {
       "types": "./src/client.civet.d.ts",
-      "import": "./src/client.civet",
-      "default": "./src/client.civet"
+      "import": "./src/client.ts",
+      "default": "./src/client.ts"
     },
     "./flow": {
       "types": "./src/setup-flow.civet.d.ts",
-      "import": "./src/setup-flow.civet",
-      "default": "./src/setup-flow.civet"
+      "import": "./src/setup-flow.ts",
+      "default": "./src/setup-flow.ts"
     },
     "./workflow": {
       "types": "./src/workflow/index.civet.d.ts",
-      "import": "./src/workflow/index.civet",
-      "default": "./src/workflow/index.civet"
+      "import": "./src/workflow/index.ts",
+      "default": "./src/workflow/index.ts"
     }
   },
   "scripts": {
-    "types": "bunx --bun --no-install civet --config civet.types.json --emit-declaration src/index.civet && bunx --bun --no-install civet --config civet.types.json --emit-declaration src/client.civet && bunx --bun --no-install civet --config civet.types.json --emit-declaration src/setup-flow.civet && bunx --bun --no-install civet --config civet.types.json --emit-declaration src/workflow/index.civet src/workflow/types.civet src/workflow/canonical.civet src/workflow/guards.civet src/workflow/grants.civet src/workflow/approval.civet src/workflow/machine.civet src/workflow/projection.civet && bun --preload @danielx/civet/bun-civet scripts/normalize-type-declarations.civet",
+    "types": "bunx --bun --no-install civet --config civet.types.json --emit-declaration src/index.ts && bunx --bun --no-install civet --config civet.types.json --emit-declaration src/client.ts && bunx --bun --no-install civet --config civet.types.json --emit-declaration src/setup-flow.ts && bunx --bun --no-install civet --config civet.types.json --emit-declaration src/workflow/index.ts src/workflow/types.ts src/workflow/canonical.ts src/workflow/guards.ts src/workflow/grants.ts src/workflow/approval.ts src/workflow/machine.ts src/workflow/projection.ts && bun --preload @danielx/civet/bun-civet scripts/normalize-type-declarations.ts",
     "typecheck": "bunx --bun --no-install civet --config civet.typecheck.json --typecheck",
-    "test": "corepack pnpm exec vitest run --config ../../vitest.config.ts --project unit src/**/*.test.civet",
+    "test": "corepack pnpm exec vitest run --config ../../vitest.config.ts --project unit src/**/*.test.ts",
     "test:unit": "corepack pnpm exec vitest run --config ../../vitest.config.ts --project unit ."
   },
   "dependencies": {

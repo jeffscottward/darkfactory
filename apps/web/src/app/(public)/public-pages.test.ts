@@ -1,0 +1,309 @@
+import { access } from "node:fs/promises"
+import {
+  Children,
+  createElement,
+  isValidElement,
+  type ReactElement,
+  type ReactNode,
+} from "react"
+import { renderToStaticMarkup } from "react-dom/server"
+import { notFound, redirect } from "next/navigation"
+import { afterEach, describe, expect, it, vi } from "vitest"
+
+import { Button } from "@darkfactory/ui"
+
+vi.mock("next/navigation", () => ({
+  redirect: vi.fn((href: string): never => {
+    throw new Error(`redirect:${href}`)
+  }
+  ),
+  notFound: vi.fn((): never => {
+    throw new Error("not-found")
+  }
+  ),
+}))
+vi.mock("next/link", () => ({ default: "a" }))
+
+import AboutPage from "./about/page.tsx"
+import FeaturesPage from "./features/page.tsx"
+import HomePage from "./page.tsx"
+import ResourcesPage from "./resources/page.tsx"
+import SolutionsPage from "./solutions/page.tsx"
+import PrivacyPage from "./privacy/page.ts"
+import TermsPage from "./terms/page.ts"
+import LegalPrivacyPage from "./legal/privacy/page.tsx"
+import LegalTermsPage from "./legal/terms/page.tsx"
+import PublicLoading from "./loading.tsx"
+import PublicNotFound from "./not-found.tsx"
+import PublicError, { PublicErrorContent } from "./error.tsx"
+import PublicLayout from "./layout.tsx"
+import ErrorSmokePage from "./error-smoke/page.tsx"
+import LoadingSmokePage from "./loading-smoke/page.tsx"
+import { RecoverableErrorFixture } from "./error-smoke/recoverable-error-fixture.tsx"
+import { PublicShell } from "../../components/public-shell.tsx"
+
+const markup = (component: Parameters<typeof renderToStaticMarkup>[0]): string => {
+  return renderToStaticMarkup(component)
+}
+
+afterEach(function() {
+  vi.useRealTimers()
+  vi.unstubAllEnvs()
+  return vi.clearAllMocks()
+})
+
+const renderPage = (Page: () => ReturnType<typeof createElement>): string => {
+  return markup(createElement(Page))
+}
+
+type InteractiveElement = ReactElement<{
+  readonly children?: ReactNode
+  readonly onClick?: () => void
+  readonly ref?: ((element: HTMLElement | null) => void) | undefined
+  readonly tabIndex?: number
+}>
+
+const findButton = (node: ReactNode): InteractiveElement | undefined => {
+  if (!isValidElement<InteractiveElement["props"]>(node)) return undefined
+  if (node.type === Button) return node
+  for (const child of Children.toArray(node.props.children)) {
+    const match = findButton(child)
+    if (match !== undefined) return match
+  }
+  return undefined
+}
+
+const findFocusableSection = (
+  node: ReactNode,
+): InteractiveElement | undefined => {
+  if (!isValidElement<InteractiveElement["props"]>(node)) return undefined
+  if (node.type === "section" && node.props.tabIndex === -1) return node
+  for (const child of Children.toArray(node.props.children)) {
+    const match = findFocusableSection(child)
+    if (match !== undefined) return match
+  }
+  return undefined
+}
+
+const publicPages = [
+  { route: "/", Page: HomePage },
+  { route: "/features", Page: FeaturesPage },
+  { route: "/solutions", Page: SolutionsPage },
+  { route: "/resources", Page: ResourcesPage },
+  { route: "/about", Page: AboutPage },
+] as const
+
+const legalPages = [
+  { route: "/legal/privacy", Page: LegalPrivacyPage },
+  { route: "/legal/terms", Page: LegalTermsPage },
+] as const
+
+const internalDestinations = new Set([
+  "/",
+  "/about",
+  "/features",
+  "/legal/privacy",
+  "/legal/terms",
+  "/privacy",
+  "/resources",
+  "/sign-in",
+  "/solutions",
+  "/terms",
+])
+
+const headingLevels = (html: string): number[] => {
+  return [...html.matchAll(/<h([1-6])\b/g)].map((match) => Number(match[1]))
+}
+
+const assertHeadingHierarchy = (html: string): void => {
+  const levels = headingLevels(html)
+  expect(levels[0]).toBe(1)
+  expect(levels.filter((level) => level === 1)).toHaveLength(1)
+  for (let index = 1; index < levels.length; index += 1) {
+    expect(levels[index]).toBeLessThanOrEqual(levels[index - 1]! + 1)
+  }
+}
+
+const assertLinksResolve = (html: string): void => {
+  const ids = new Set([...html.matchAll(/\sid="([^"]+)"/g)].map((match) => match[1]))
+  const hrefs = [...html.matchAll(/\shref="([^"]+)"/g)].map((match) => match[1]!)
+  expect(hrefs.length).toBeGreaterThan(0)
+  for (const href of hrefs) {
+    if (href.startsWith("#")) {
+      expect(ids.has(href.slice(1)), `missing in-page target ${href}`).toBe(true)
+    }
+    else if (href.startsWith("/")) {
+      expect(internalDestinations.has(href), `undeclared internal target ${href}`).toBe(true)
+    }
+    else {
+      expect(href.startsWith("https://github.com/jeffscottward/darkfactory"), `unexpected external target ${href}`).toBe(true)
+    }
+  }
+}
+
+describe("public route identity and semantics", function() {
+  it("renders a distinct, hierarchical page identity for every non-legal route", function() {
+    const identities = publicPages.map(({ Page, route }) => {
+      const html = renderPage(Page)
+      assertHeadingHierarchy(html)
+      assertLinksResolve(html)
+      expect(html).toContain("<section")
+      expect(html).toMatch(/aria-labelledby=/)
+      expect(html).not.toMatch(/\bplaceholder\b/i)
+      const heading = html.match(/<h1[^>]*>(.*?)<\/h1>/s)?.[1]
+      expect(heading, `missing page identity for ${route}`).toBeTruthy()
+      return heading
+    })
+
+    return expect(new Set(identities).size).toBe(publicPages.length)
+  })
+
+  it("keeps the home story substantive and every CTA on a real destination", function() {
+    const html = renderPage(HomePage)
+    expect(html).toContain("Build the product. Keep the foundation legible.")
+    expect(html).toContain("Stable core")
+    expect(html).toContain("Explicit capabilities")
+    expect(html).toContain("Safe adaptation")
+    expect(html).toContain('href="#request-path"')
+    expect(html).toContain('id="request-path"')
+    expect(html).toContain('tabindex="-1"')
+    return expect(html).toContain('href="/sign-in"')
+  })
+
+  return it("labels example archetypes instead of presenting fictional solutions as shipped products", function() {
+    const html = renderPage(SolutionsPage)
+    expect(html.match(/Example archetype/g)).toHaveLength(3)
+    expect(html).toContain("not finished products, customer stories, or promised integrations")
+    return expect(html).not.toMatch(/testimonial|customer logo|trusted by/i)
+  })
+})
+
+describe("public resource and legal contracts", function() {
+  it("declares stable GitHub URLs for locally tracked repository artifacts", async function() {
+    const html = renderPage(ResourcesPage)
+    const requiredDestinations = [
+      "https://github.com/jeffscottward/darkfactory/blob/main/ARCHITECTURE.md",
+      "https://github.com/jeffscottward/darkfactory/blob/main/packages/api/openapi.json",
+      "https://github.com/jeffscottward/darkfactory/blob/main/capabilities.yaml",
+      "https://github.com/jeffscottward/darkfactory",
+    ]
+    const trackedArtifacts = [
+      new URL("../../../../../ARCHITECTURE.md", import.meta.url),
+      new URL("../../../../../packages/api/openapi.json", import.meta.url),
+      new URL("../../../../../capabilities.yaml", import.meta.url),
+    ]
+    for (const artifact of trackedArtifacts) {
+      await expect(access(artifact)).resolves.toBeUndefined()
+    }
+    for (const destination of requiredDestinations) {
+      expect(html).toContain(`href="${destination}"`)
+    }
+    expect(html).toContain("Architecture example")
+    expect(html).toContain("Product example")
+    expect(html).toContain("Generated contract artifact")
+    expect(html.match(/target="_blank"/g)?.length).toBeGreaterThanOrEqual(4)
+    expect(html).toContain("opens in a new tab")
+    const pageHeader = html.match(/<header[\s\S]*?<\/header>/)?.[0]
+    expect(pageHeader).toContain('href="https://github.com/jeffscottward/darkfactory"')
+    return expect(pageHeader).not.toContain('target="_blank"')
+  })
+
+  it("marks both canonical legal documents as starters requiring legal review", function() {
+    for (const { Page, route } of legalPages) {
+      const html = renderPage(Page)
+      assertHeadingHierarchy(html)
+      assertLinksResolve(html)
+      expect(html, route).toContain("Starter placeholder — legal review required")
+      expect(html, route).toContain("not legal advice")
+      expect(html, route).toContain("Before publishing")
+    }
+    return expect(renderPage(LegalPrivacyPage)).not.toBe(renderPage(LegalTermsPage))
+  })
+
+  return it("redirects short legal aliases to one canonical page each", function() {
+    const redirectMock = vi.mocked(redirect)
+    redirectMock.mockClear()
+    expect(() => PrivacyPage()).toThrow("redirect:/legal/privacy")
+    expect(redirectMock).toHaveBeenLastCalledWith("/legal/privacy")
+    expect(() => TermsPage()).toThrow("redirect:/legal/terms")
+    return expect(redirectMock).toHaveBeenLastCalledWith("/legal/terms")
+  })
+})
+
+describe("public route states", function() {
+  it("announces loading and marks its visual skeleton as decorative", function() {
+    const html = renderPage(PublicLoading)
+    expect(html).toContain('role="status"')
+    expect(html).toContain('aria-live="polite"')
+    expect(html).toContain("Loading this page")
+    return expect(html).toContain('aria-hidden="true"')
+  })
+
+  it("autofocuses and announces failure while wiring real recovery actions", function() {
+    const reset = vi.fn()
+    const errorContent = PublicErrorContent({ reset })
+    const resetButton = findButton(errorContent)
+    expect(resetButton).toBeDefined()
+    resetButton?.props.onClick?.()
+    expect(reset).toHaveBeenCalledOnce()
+    const focus = vi.fn()
+    const focusableSection = findFocusableSection(errorContent)
+    expect(focusableSection).toBeDefined()
+    focusableSection?.props.ref?.({ focus } as unknown as HTMLElement)
+    focusableSection?.props.ref?.(null)
+    expect(focus).toHaveBeenCalledOnce()
+
+    const notFound = renderPage(PublicNotFound)
+    const error = markup(errorContent)
+    const guardedError = markup(createElement(PublicError, {
+      error: new Error("private provider payload"),
+      reset,
+    }))
+    assertHeadingHierarchy(notFound)
+    assertHeadingHierarchy(error)
+    assertLinksResolve(notFound)
+    assertLinksResolve(error)
+    expect(notFound).toContain("404")
+    expect(error).toContain('role="alert"')
+    expect(error).toContain("Recovery options are ready.")
+    expect(error).toContain('tabindex="-1"')
+    expect(error).toContain('autofocus=""')
+    expect(error).toContain("<button")
+    return expect(guardedError).not.toContain("private provider payload")
+  })
+
+  it("composes public children through the shared shell", function() {
+    const result = PublicLayout({ children: "public content" })
+
+    expect(result.type).toBe(PublicShell)
+    return expect(result.props.children).toBe("public content")
+  })
+
+  it("hides smoke fixtures outside the isolated E2E process", async function() {
+    vi.stubEnv("APP_ENV", "production")
+    vi.stubEnv("E2E_FIXTURES", "0")
+    vi.stubEnv("NODE_ENV", "production")
+
+    expect(() => ErrorSmokePage()).toThrow("not-found")
+    await expect(LoadingSmokePage()).rejects.toThrow("not-found")
+    return expect(vi.mocked(notFound)).toHaveBeenCalledTimes(2)
+  })
+
+  return it("renders enabled error and delayed loading smoke fixtures", async function() {
+    vi.useFakeTimers()
+    vi.stubEnv("APP_ENV", "test")
+    vi.stubEnv("E2E_FIXTURES", "1")
+    vi.stubEnv("NODE_ENV", "test")
+
+    const error = ErrorSmokePage()
+    expect(error.type).toBe(RecoverableErrorFixture)
+
+    const pending = LoadingSmokePage()
+    await vi.advanceTimersByTimeAsync(1_500)
+    const loading = markup(await pending)
+    expect(loading).toContain("The loading fixture completed.")
+    return expect(loading).toContain(
+      "This route is available only to the isolated end-to-end server.",
+    )
+  })
+})

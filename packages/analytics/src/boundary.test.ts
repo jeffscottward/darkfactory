@@ -1,0 +1,107 @@
+import { spawnSync } from "node:child_process"
+import { readFile } from "node:fs/promises"
+import { fileURLToPath } from "node:url"
+import { describe, expect, it } from "vitest"
+
+const workspaceRoot = fileURLToPath(new URL("../../..", import.meta.url))
+const serverSpecifier = "@darkfactory/analytics/server/posthog"
+const browserError =
+  "@darkfactory/analytics/server/posthog is unavailable in browser bundles"
+const forbiddenVendorSurface =
+  /POSTHOG|api_key|distinct_id|\$insert_id|\/i\/v0\/e\/|\bfetch\b/i
+
+const runWithConditions = (
+  expression: string,
+  conditions: readonly string[],
+) => {
+  return spawnSync(
+    process.execPath,
+    [
+      ...conditions.flatMap((condition) => ["--conditions", condition]),
+      "--input-type=module",
+      "--eval",
+      expression,
+    ],
+    { cwd: workspaceRoot, encoding: "utf8" },
+  )
+}
+
+describe("analytics package boundaries", () => {
+  it("keeps root and test exports provider-safe", async () => {
+    const manifest = JSON.parse(
+      await readFile(new URL("../package.json", import.meta.url), "utf8"),
+    )
+    const [rootSource, testSource] = await Promise.all([
+      readFile(new URL("./index.ts", import.meta.url), "utf8"),
+      readFile(new URL("./test.ts", import.meta.url), "utf8"),
+    ])
+
+    expect(Object.keys(manifest.exports)).toEqual([
+      ".",
+      "./server/posthog",
+      "./test",
+    ])
+    expect(rootSource).not.toMatch(forbiddenVendorSurface)
+    return expect(testSource).not.toMatch(forbiddenVendorSurface)
+  }
+  )
+
+  it("orders real Worker conditions before browser poison and fallbacks", async () => {
+    const manifest = JSON.parse(
+      await readFile(new URL("../package.json", import.meta.url), "utf8"),
+    )
+
+    return expect(Object.keys(manifest.exports["./server/posthog"])).toEqual([
+      "types",
+      "workerd",
+      "worker",
+      "browser",
+      "import",
+      "default",
+    ])
+  }
+  )
+
+  it("fails closed for browser-only server resolution", async () => {
+    const poisonSource = await readFile(
+      new URL("./server/unsupported.js", import.meta.url),
+      "utf8",
+    )
+    const result = runWithConditions(
+      `await import(${JSON.stringify(serverSpecifier)})`,
+      ["browser"],
+    )
+    const output = `${result.stdout}\n${result.stderr}`
+
+    expect(poisonSource).not.toMatch(/^\s*import\s/m)
+    expect(poisonSource).not.toMatch(/api_key|phc_|fetch\s*\(/i)
+    expect(result.status).toBe(1)
+    expect(output).toContain(browserError)
+    return expect(output).not.toMatch(/api_key|phc_|POSTHOG_KEY/i)
+  }
+  )
+
+  it.each(["workerd", "worker"])(
+    "resolves the real module for simultaneous %s and browser conditions",
+    (workerCondition) => {
+      const result = runWithConditions(
+        `process.stdout.write(import.meta.resolve(${JSON.stringify(serverSpecifier)}))`,
+        [workerCondition, "browser"],
+      )
+
+      expect({ status: result.status, stderr: result.stderr }).toEqual({
+        status: 0,
+        stderr: "",
+      })
+      return expect(result.stdout.replaceAll("\\", "/")).toMatch(
+        /\/packages\/analytics\/src\/server\/posthog\.ts$/,
+      )
+    }
+  )
+  return it("executes the browser poison module as a fail-closed boundary", async () => {
+    return await expect(import("./server/unsupported.js")).rejects.toThrow(browserError)
+  }
+  )
+}
+
+)

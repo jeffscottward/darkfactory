@@ -1,0 +1,3297 @@
+import { describe, expect, it, vi } from "vitest"
+import type { SQL } from "drizzle-orm"
+import { PgDialect } from "drizzle-orm/pg-core"
+import { DrizzleQueryError } from "drizzle-orm/errors"
+import {
+  COLOR_SCHEMES,
+  PREFERENCE_MODES,
+  addresses,
+  auditRecords,
+  featureItems,
+  outboxEvents,
+  profiles,
+  userPreferences,
+  type Address,
+} from "../schema/index.ts"
+import type { Database } from "./client.ts"
+import {
+  DatabaseConflictError,
+  DatabasePersistenceError,
+  InvalidRepositoryInputError,
+  OptimisticConcurrencyError,
+  createAddressRepository,
+  createFeatureItemRepository,
+  createProfileRepository,
+  createRepositories,
+  createUserPreferencesRepository,
+} from "./repositories.ts"
+
+const FIXED_NOW = new Date("2026-01-02T03:04:05.000Z")
+const QUERY_DIALECT = new PgDialect()
+
+const tableName = (table: unknown): string => {
+  if (table === featureItems) return "feature_items"
+  if (table === auditRecords) return "audit_records"
+  if (table === outboxEvents) return "outbox_events"
+  if (table === profiles) return "profiles"
+  if (table === addresses) return "addresses"
+  if (table === userPreferences) return "user_preferences"
+  return "unknown"
+}
+
+type InsertOperation = {
+  table: string
+  value: Record<string, unknown>
+}
+
+type DatabaseDoubleOptions = {
+  failOnTable?: string
+  transactionError?: unknown
+  beforeTransaction?: () => void | Promise<void>
+}
+
+const createDatabaseDouble = (options: DatabaseDoubleOptions = {}) => {
+  const lifecycle: string[] = []
+  const inserts: InsertOperation[] = []
+
+  const transaction = {
+    insert: (table: unknown) => ({
+      values: (value: Record<string, unknown>) => {
+        const name = tableName(table)
+        inserts.push({ table: name, value })
+        lifecycle.push(`insert:${name}`)
+        if (options.failOnTable === name) throw new Error(`failed ${name}`)
+
+        return {
+          returning: async () => [
+            {
+              ...value,
+              createdAt: value["createdAt"] ?? FIXED_NOW,
+              updatedAt: value["updatedAt"] ?? FIXED_NOW,
+            },
+          ],
+        }
+      }
+    }),
+  }
+
+  const database = {
+    transaction: vi.fn(async (operation: (tx: typeof transaction) => unknown) => {
+      lifecycle.push("begin")
+      try {
+        if (options.transactionError) throw options.transactionError
+        await options.beforeTransaction?.()
+        const result = await operation(transaction)
+        lifecycle.push("commit")
+        return result
+      }
+      catch (error) {
+        lifecycle.push("rollback")
+        throw error
+      }
+    }
+    ),
+  } as unknown as Database
+
+  return { database, inserts, lifecycle }
+}
+
+const mutationContext = {
+  actorUserId: "user_alice",
+  requestId: "request_123",
+} as const
+
+const wrappedDatabaseError = (
+  code: string,
+  constraint: string,
+): DrizzleQueryError => {
+  return new DrizzleQueryError(
+    "insert secret_table values ($1)",
+    ["secret parameter"],
+    Object.assign(new Error("provider detail"), { code, constraint }),
+  )
+}
+
+type QueryKind = "select" | "insert" | "update" | "delete"
+type QueryScope = "database" | "transaction"
+type QueryRows = ReadonlyArray<Record<string, unknown>>
+type QueryOutcome = QueryRows | Error
+
+type QueryOperation = {
+  kind: QueryKind | "execute"
+  scope: QueryScope
+  table?: string
+  selection?: unknown
+  value?: Record<string, unknown>
+  where?: unknown
+  orderBy?: unknown[]
+  limit?: number
+  conflict?: unknown
+  returning?: unknown
+  statement?: unknown
+}
+
+type QueryBuilder = {
+  from: (table: unknown) => QueryBuilder
+  where: (condition: unknown) => QueryBuilder
+  orderBy: (...clauses: unknown[]) => QueryBuilder
+  limit: (value: number) => QueryBuilder
+  values: (value: Record<string, unknown>) => QueryBuilder
+  set: (value: Record<string, unknown>) => QueryBuilder
+  onConflictDoNothing: () => QueryBuilder
+  onConflictDoUpdate: (config: unknown) => QueryBuilder
+  returning: (selection?: unknown) => QueryBuilder
+  then: (
+    onFulfilled: (rows: QueryRows) => unknown,
+    onRejected?: (error: unknown) => unknown,
+  ) => Promise<unknown>
+}
+
+type QueryDatabaseDoubleOptions = Partial<
+  Record<QueryKind, QueryOutcome[]>
+> & {
+  executeError?: unknown
+}
+
+const createQueryDatabaseDouble = (
+  options: QueryDatabaseDoubleOptions = {},
+) => {
+  const operations: QueryOperation[] = []
+  const lifecycle: string[] = []
+  const outcomes: Record<QueryKind, QueryOutcome[]> = {
+    select: [...(options.select ?? [])],
+    insert: [...(options.insert ?? [])],
+    update: [...(options.update ?? [])],
+    delete: [...(options.delete ?? [])],
+  }
+
+  const resolveOutcome = async (outcome: QueryOutcome): Promise<QueryRows> => {
+    if (outcome instanceof Error) throw outcome
+    return outcome
+  }
+
+  const createBuilder = (
+    operation: QueryOperation,
+    outcome: QueryOutcome,
+  ): QueryBuilder => {
+    let builder = {} as QueryBuilder
+    builder.from = vi.fn((table: unknown) => {
+      operation.table = tableName(table)
+      return builder
+    }
+    )
+    builder.where = vi.fn((condition: unknown) => {
+      operation.where = condition
+      return builder
+    }
+    )
+    builder.orderBy = vi.fn((...clauses: unknown[]) => {
+      operation.orderBy = clauses
+      return builder
+    }
+    )
+    builder.limit = vi.fn((value: number) => {
+      operation.limit = value
+      return builder
+    }
+    )
+    builder.values = vi.fn((value: Record<string, unknown>) => {
+      operation.value = value
+      return builder
+    }
+    )
+    builder.set = vi.fn((value: Record<string, unknown>) => {
+      operation.value = value
+      return builder
+    }
+    )
+    builder.onConflictDoNothing = vi.fn(() => {
+      operation.conflict = "nothing"
+      return builder
+    }
+    )
+    builder.onConflictDoUpdate = vi.fn((config: unknown) => {
+      operation.conflict = config
+      return builder
+    }
+    )
+    builder.returning = vi.fn((selection?: unknown) => {
+      operation.returning = selection ?? true
+      return builder
+    }
+    )
+    builder.then = (onFulfilled, onRejected) => {
+      return resolveOutcome(outcome).then(onFulfilled, onRejected)
+    }
+    return builder
+  }
+
+  const query = (
+    kind: QueryKind,
+    scope: QueryScope,
+    table?: unknown,
+    selection?: unknown,
+  ): QueryBuilder => {
+    const operation: QueryOperation = {
+      kind,
+      scope,
+      ...(table === undefined ? {} : { table: tableName(table) }),
+      ...(selection === undefined ? {} : { selection }),
+    }
+    operations.push(operation)
+    return createBuilder(operation, outcomes[kind].shift() ?? [])
+  }
+
+  let transactionExecutor: Database
+  const transaction = vi.fn(
+    async (operation: (transaction: Database) => Promise<unknown>) => {
+      lifecycle.push("begin")
+      try {
+        const result = await operation(transactionExecutor)
+        lifecycle.push("commit")
+        return result
+      }
+      catch (error) {
+        lifecycle.push("rollback")
+        throw error
+      }
+    }
+  )
+
+  const createExecutor = (scope: QueryScope) => ({
+    select: vi.fn((selection?: unknown) => {
+      return query("select", scope, undefined, selection)
+    }
+    ),
+    insert: vi.fn((table: unknown) => query("insert", scope, table)),
+    update: vi.fn((table: unknown) => query("update", scope, table)),
+    delete: vi.fn((table: unknown) => query("delete", scope, table)),
+    execute: vi.fn(async (statement: unknown) => {
+      operations.push({ kind: "execute", scope, statement })
+      if (options.executeError !== undefined) throw options.executeError
+      return []
+    }
+    ),
+    transaction,
+  })
+
+  transactionExecutor = createExecutor("transaction") as unknown as Database
+  const database = createExecutor("database") as unknown as Database
+  return { database, lifecycle, operations, transaction }
+}
+
+const queryParameters = (operation: QueryOperation): unknown[] => {
+  return operation.where === undefined
+    ? []
+    : QUERY_DIALECT.sqlToQuery(operation.where as SQL).params
+}
+
+const cloneAddressRows = (rows: readonly Address[]): Address[] => {
+  return rows.map((row) => ({ ...row }))
+}
+
+const createStatefulAddressDatabaseDouble = (
+  initialRows: readonly Address[],
+) => {
+  const lifecycle: string[] = []
+  const operations: QueryOperation[] = []
+  let rows = cloneAddressRows(initialRows)
+
+  const resolveOperation = (
+    operation: QueryOperation,
+    currentRows: Address[],
+  ): QueryRows => {
+    const parameters = queryParameters(operation)
+    if (operation.kind === "select") {
+      if (operation.selection === undefined) {
+        const [id, userId] = parameters
+        return currentRows
+          .filter((row) => row.id === id && row.userId === userId)
+          .slice(0, operation.limit)
+          .map((row) => ({ ...row }))
+      }
+
+      const [userId, isPrimary] = parameters
+      const primary = currentRows.find(
+        (row) => row.userId === userId && row.isPrimary === isPrimary,
+      )
+      return primary === undefined ? [] : [{ updatedAt: primary.updatedAt }]
+    }
+
+    if (operation.kind !== "update") {
+      throw new Error(`unsupported stateful query: ${operation.kind}`)
+    }
+
+    const values = operation.value ?? {}
+    if (values["isPrimary"] === false) {
+      const [userId, isPrimary, excludedId] = parameters
+      for (const row of currentRows) {
+        if (
+          row.userId === userId &&
+          row.isPrimary === isPrimary &&
+          row.id !== excludedId
+        ) {
+          Object.assign(row, values)
+        }
+      }
+      return []
+    }
+
+    const [id, userId, expectedUpdatedAt] = parameters
+    const address = currentRows.find(
+      (row) => row.id === id && row.userId === userId,
+    )
+    if (
+      address === undefined ||
+      !(expectedUpdatedAt instanceof Date) ||
+      address.updatedAt.getTime() !== expectedUpdatedAt.getTime()
+    ) {
+      return []
+    }
+    Object.assign(address, values)
+    return operation.returning === undefined ? [] : [{ ...address }]
+  }
+
+  const createBuilder = (
+    operation: QueryOperation,
+    currentRows: () => Address[],
+  ): QueryBuilder => {
+    let builder = {} as QueryBuilder
+    builder.from = vi.fn((table: unknown) => {
+      operation.table = tableName(table)
+      return builder
+    }
+    )
+    builder.where = vi.fn((condition: unknown) => {
+      operation.where = condition
+      return builder
+    }
+    )
+    builder.orderBy = vi.fn((...clauses: unknown[]) => {
+      operation.orderBy = clauses
+      return builder
+    }
+    )
+    builder.limit = vi.fn((value: number) => {
+      operation.limit = value
+      return builder
+    }
+    )
+    builder.values = vi.fn((value: Record<string, unknown>) => {
+      operation.value = value
+      return builder
+    }
+    )
+    builder.set = vi.fn((value: Record<string, unknown>) => {
+      operation.value = value
+      return builder
+    }
+    )
+    builder.onConflictDoNothing = vi.fn(() => {
+      operation.conflict = "nothing"
+      return builder
+    }
+    )
+    builder.onConflictDoUpdate = vi.fn((config: unknown) => {
+      operation.conflict = config
+      return builder
+    }
+    )
+    builder.returning = vi.fn((selection?: unknown) => {
+      operation.returning = selection ?? true
+      return builder
+    }
+    )
+    builder.then = (onFulfilled, onRejected) => {
+      return Promise.resolve()
+        .then(() => resolveOperation(operation, currentRows()))
+        .then(onFulfilled, onRejected)
+    }
+    return builder
+  }
+
+  const query = (
+    kind: QueryKind,
+    scope: QueryScope,
+    currentRows: () => Address[],
+    table?: unknown,
+    selection?: unknown,
+  ): QueryBuilder => {
+    const operation: QueryOperation = {
+      kind,
+      scope,
+      ...(table === undefined ? {} : { table: tableName(table) }),
+      ...(selection === undefined ? {} : { selection }),
+    }
+    operations.push(operation)
+    return createBuilder(operation, currentRows)
+  }
+
+  let createExecutor: (
+    scope: QueryScope,
+    currentRows: () => Address[],
+  ) => Database
+  const transaction = vi.fn(
+    async (operation: (transaction: Database) => Promise<unknown>) => {
+      lifecycle.push("begin")
+      const transactionRows = cloneAddressRows(rows)
+      try {
+        const result = await operation(
+          createExecutor("transaction", () => transactionRows),
+        )
+        rows = transactionRows
+        lifecycle.push("commit")
+        return result
+      }
+      catch (error) {
+        lifecycle.push("rollback")
+        throw error
+      }
+    }
+  )
+  createExecutor = (scope, currentRows) => {
+    return ({
+      select: vi.fn((selection?: unknown) => {
+        return query("select", scope, currentRows, undefined, selection)
+      }
+      ),
+      update: vi.fn((table: unknown) => {
+        return query("update", scope, currentRows, table)
+      }
+      ),
+      execute: vi.fn(async (statement: unknown) => {
+        operations.push({ kind: "execute", scope, statement })
+        return []
+      }
+      ),
+      transaction,
+    }) as unknown as Database
+  }
+
+  return {
+    database: createExecutor("database", () => rows),
+    lifecycle,
+    operations,
+    addresses: () => cloneAddressRows(rows),
+  }
+}
+
+const PREVIOUS_VERSION = new Date("2026-01-01T03:04:05.000Z")
+const NEXT_VERSION = new Date(FIXED_NOW.getTime() + 1)
+
+const PROFILE_INPUT = {
+  userId: "user_alice",
+  firstName: "Alice",
+  lastName: null,
+  displayName: "Alice A.",
+  avatarUrl: null,
+  phone: null,
+  businessName: null,
+  jobTitle: "Engineer",
+  biography: null,
+  timezone: "America/New_York",
+  locale: "en-US",
+  dateOfBirth: null,
+} as const
+
+const PROFILE_ROW = {
+  ...PROFILE_INPUT,
+  createdAt: PREVIOUS_VERSION,
+  updatedAt: FIXED_NOW,
+}
+
+const ADDRESS_ROW = {
+  id: "address_home",
+  userId: "user_alice",
+  type: "home" as const,
+  line1: "123 Main Street",
+  line2: null,
+  city: "Springfield",
+  region: "IL",
+  postalCode: "62701",
+  country: "US",
+  isPrimary: false,
+  createdAt: PREVIOUS_VERSION,
+  updatedAt: FIXED_NOW,
+}
+
+const PREFERENCES_ROW = {
+  userId: "user_alice",
+  mode: "system" as const,
+  colorScheme: "neutral" as const,
+  emailNotifications: true,
+  productUpdates: false,
+  analyticsConsent: false,
+  personalizationConsent: true,
+  profileVisibility: "members" as const,
+  createdAt: PREVIOUS_VERSION,
+  updatedAt: FIXED_NOW,
+}
+
+const FEATURE_ROW = {
+  id: "feature_123",
+  ownerId: "user_alice",
+  name: "Domain-neutral item",
+  description: "A removable vertical slice",
+  status: "draft" as const,
+  metadata: {},
+  createdAt: FIXED_NOW,
+  updatedAt: FIXED_NOW,
+}
+
+describe("feature item mutation repository", function() {
+  it("writes feature state, redacted audit context, and an outbox event atomically", async function() {
+    const double = createDatabaseDouble()
+    const repository = createFeatureItemRepository(double.database, {
+      now: () => FIXED_NOW,
+      generateId: () => "generated_event_id",
+    })
+
+    const created = await repository.create(
+      {
+        id: "feature_123",
+        ownerId: "user_alice",
+        name: "Domain-neutral item",
+        description: "A removable vertical slice",
+        status: "draft",
+        metadata: { priority: "normal" },
+      },
+      mutationContext,
+    )
+
+    expect(created).toMatchObject({
+      id: "feature_123",
+      ownerId: "user_alice",
+      status: "draft",
+      metadata: { priority: "normal" },
+    })
+    expect(double.lifecycle).toEqual([
+      "begin",
+      "insert:feature_items",
+      "insert:audit_records",
+      "insert:outbox_events",
+      "commit",
+    ])
+
+    const audit = double.inserts.find(
+      (operation) => operation.table === "audit_records",
+    )!.value
+    expect(audit).toMatchObject({
+      actorUserId: "user_alice",
+      action: "feature_item.created",
+      entityType: "feature_item",
+      entityId: "feature_123",
+      metadata: { status: "draft" },
+      requestId: "request_123",
+    })
+    expect(JSON.stringify(audit)).not.toContain("Domain-neutral item")
+    expect(JSON.stringify(audit)).not.toContain("removable vertical slice")
+
+    const outbox = double.inserts.find(
+      (operation) => operation.table === "outbox_events",
+    )!.value
+    return expect(outbox).toMatchObject({
+      eventType: "feature_item.created",
+      aggregateType: "feature_item",
+      aggregateId: "feature_123",
+      payload: {
+        id: "feature_123",
+        ownerId: "user_alice",
+        status: "draft",
+      },
+      attemptCount: 0,
+    })
+  })
+
+  it("rolls back the whole mutation when a companion write fails", async function() {
+    const double = createDatabaseDouble({ failOnTable: "outbox_events" })
+    const repository = createFeatureItemRepository(double.database, {
+      now: () => FIXED_NOW,
+      generateId: () => "generated_event_id",
+    })
+
+    await expect(
+      repository.create(
+        {
+          id: "feature_rollback",
+          ownerId: "user_alice",
+          name: "Rollback item",
+          description: "Must not partially persist",
+        },
+        mutationContext,
+      ),
+    ).rejects.toThrow("failed outbox_events")
+    expect(double.lifecycle.at(-1)).toBe("rollback")
+    return expect(double.lifecycle).not.toContain("commit")
+  })
+
+  it("maps unique violations without exposing a driver-specific public error", async function() {
+    const double = createDatabaseDouble({
+      transactionError: wrappedDatabaseError(
+        "23505",
+        "feature_items_pkey",
+      ),
+    })
+    const repository = createFeatureItemRepository(double.database)
+
+    await expect(
+      repository.create(
+        {
+          id: "feature_duplicate",
+          ownerId: "user_alice",
+          name: "Duplicate",
+          description: "Duplicate stable identifier",
+        },
+        mutationContext,
+      ),
+    ).rejects.toThrow(DatabaseConflictError)
+    return await expect(
+      repository.create(
+        {
+          id: "feature_duplicate",
+          ownerId: "user_alice",
+          name: "Duplicate",
+          description: "Duplicate stable identifier",
+        },
+        mutationContext,
+      ),
+    ).rejects.not.toThrow("provider detail")
+  })
+
+  it("does not misreport companion-write conflicts as feature conflicts", async function() {
+    const double = createDatabaseDouble({
+      transactionError: wrappedDatabaseError(
+        "23505",
+        "outbox_events_pkey",
+      ),
+    })
+    const repository = createFeatureItemRepository(double.database)
+
+    await expect(
+      repository.create(
+        {
+          id: "feature_companion_conflict",
+          ownerId: "user_alice",
+          name: "Companion conflict",
+          description: "Outbox identifiers are infrastructure-owned",
+        },
+        mutationContext,
+      ),
+    ).rejects.toThrow(DatabasePersistenceError)
+    return await expect(
+      repository.create(
+        {
+          id: "feature_companion_conflict",
+          ownerId: "user_alice",
+          name: "Companion conflict",
+          description: "Outbox identifiers are infrastructure-owned",
+        },
+        mutationContext,
+      ),
+    ).rejects.not.toThrow("provider detail")
+  })
+
+  it("maps wrapped metadata checks without leaking query parameters", async function() {
+    const double = createDatabaseDouble({
+      transactionError: wrappedDatabaseError(
+        "23514",
+        "feature_items_metadata_check",
+      ),
+    })
+    const repository = createFeatureItemRepository(double.database)
+
+    let thrown: unknown
+    try {
+      await repository.create(
+        {
+          id: "feature_metadata_check",
+          ownerId: "user_alice",
+          name: "Metadata check",
+          description: "Database remains authoritative",
+        },
+        mutationContext,
+      )
+    }
+    catch (error) {
+      thrown = error
+    }
+    expect(thrown).toBeInstanceOf(InvalidRepositoryInputError)
+    expect(String(thrown)).not.toContain("secret_table")
+    expect(String(thrown)).not.toContain("secret parameter")
+    return expect(String(thrown)).not.toContain("provider detail")
+  })
+
+  it("rejects empty feature patches without writing audit or outbox events", async function() {
+    const double = createDatabaseDouble()
+    const repository = createFeatureItemRepository(double.database)
+
+    await expect(
+      repository.update(
+        {
+          id: "feature_123",
+          ownerId: "user_alice",
+        },
+        mutationContext,
+      ),
+    ).rejects.toThrow("must change at least one field")
+    return expect(double.lifecycle).toEqual([])
+  })
+
+  it("rejects non-object or oversized metadata before opening a transaction", async function() {
+    const double = createDatabaseDouble()
+    const repository = createFeatureItemRepository(double.database)
+
+    await expect(
+      repository.create(
+        {
+          ownerId: "user_alice",
+          name: "Invalid metadata",
+          description: "Top-level arrays are not supported",
+          metadata: [] as never,
+        },
+        mutationContext,
+      ),
+    ).rejects.toThrow(InvalidRepositoryInputError)
+
+    await expect(
+      repository.create(
+        {
+          ownerId: "user_alice",
+          name: "Oversized metadata",
+          description: "Payload is bounded",
+          metadata: { value: "x".repeat(17_000) },
+        },
+        mutationContext,
+      ),
+    ).rejects.toThrow("16 KiB")
+    return expect(double.lifecycle).toEqual([])
+  })
+
+  it("uses canonical jsonb text size for punctuation and exponent numbers", async function() {
+    const double = createDatabaseDouble()
+    const repository = createFeatureItemRepository(double.database)
+    const punctuationHeavy: Record<string, [number, number]> = {}
+    for (let index = 0; index < 1_030; index += 1) {
+      punctuationHeavy[`key_${index}`] = [0, 1]
+    }
+
+    for (const metadata of [
+      punctuationHeavy,
+      { number: 1e308, padding: "x".repeat(16_100) },
+      { number: 1e-308, padding: "x".repeat(16_100) },
+    ]) {
+      await expect(
+        repository.create(
+          {
+            ownerId: "user_alice",
+            name: "Canonical size",
+            description: "Compact JSON would undercount this payload",
+            metadata,
+          },
+          mutationContext,
+        ),
+      ).rejects.toThrow("16 KiB")
+    }
+
+    return expect(double.lifecycle).toEqual([])
+  })
+
+  it("accepts nested strict JSON metadata without coercion", async function() {
+    const double = createDatabaseDouble()
+    const repository = createFeatureItemRepository(double.database, {
+      now: () => FIXED_NOW,
+      generateId: () => "generated_json_id",
+    })
+    const nullPrototype = Object.assign(Object.create(null), {
+      value: "supported",
+    })
+    const metadata = {
+      enabled: true,
+      ratio: 1.5,
+      fractionalExponent: -1.2345678901234567e100,
+      nested: {
+        values: [null, "value", 0, false],
+        nullPrototype,
+        label: "é".repeat(8_000),
+      },
+    } as const
+
+    const created = await repository.create(
+      {
+        id: "feature_json",
+        ownerId: "user_alice",
+        name: "Strict JSON",
+        description: "Metadata is preserved",
+        metadata,
+      },
+      mutationContext,
+    )
+
+    expect(created.metadata).toEqual(metadata)
+    return expect(double.lifecycle.at(-1)).toBe("commit")
+  })
+
+  it("preserves the live finite-number and top-level object normalization paths", async function() {
+    const double = createDatabaseDouble()
+    const repository = createFeatureItemRepository(double.database, {
+      now: () => FIXED_NOW,
+      generateId: () => "generated_numeric_metadata_id",
+    })
+    const metadata = Object.assign(Object.create(null), {
+      positiveExponent: 1e308,
+      negativeExponent: 1e-308,
+      ordinaryNumber: 42.5,
+    })
+
+    const created = await repository.create(
+      {
+        id: "feature_numeric_metadata",
+        ownerId: "user_alice",
+        name: "Numeric metadata",
+        description: "Finite numeric forms remain supported",
+        metadata,
+      },
+      mutationContext,
+    )
+
+    expect(created.metadata).toEqual({
+      positiveExponent: 1e308,
+      negativeExponent: 1e-308,
+      ordinaryNumber: 42.5,
+    })
+    return expect(double.lifecycle).toEqual([
+      "begin",
+      "insert:feature_items",
+      "insert:audit_records",
+      "insert:outbox_events",
+      "commit",
+    ])
+  })
+
+
+  it("persists a detached metadata snapshot across deferred proxy mutation", async function() {
+    const target = { nested: { value: "before" } }
+    const metadata = new Proxy(target, {})
+    const double = createDatabaseDouble({
+      beforeTransaction: () => {
+        target.nested.value = "after";
+      }
+    })
+    const repository = createFeatureItemRepository(double.database, {
+      now: () => FIXED_NOW,
+      generateId: () => "generated_snapshot_id",
+    })
+
+    const created = await repository.create(
+      {
+        id: "feature_snapshot",
+        ownerId: "user_alice",
+        name: "Snapshot",
+        description: "Caller mutation cannot change persisted metadata",
+        metadata,
+      },
+      mutationContext,
+    )
+
+    expect(created.metadata).toEqual({ nested: { value: "before" } })
+    return expect(target.nested.value).toBe("after")
+  })
+
+  it("rejects coercive, non-finite, sparse, cyclic, and non-JSON metadata", async function() {
+    const double = createDatabaseDouble()
+    const repository = createFeatureItemRepository(double.database)
+    const cyclic: Record<string, unknown> = {}
+    cyclic["self"] = cyclic
+    const sparse: unknown[] = []
+    sparse.length = 1
+    const nonPlain = Object.assign(Object.create({ inherited: true }), {
+      value: "not plain",
+    })
+    const misindexedArray = new Proxy([0], {
+      ownKeys: () => ["wrong", "length"],
+    })
+    const missingArrayDescriptor = new Proxy(new Array(1), {
+      ownKeys: () => ["0", "length"],
+    })
+    const accessorArray: unknown[] = []
+    Object.defineProperty(accessorArray, "0", {
+      configurable: true,
+      enumerable: true,
+      get: () => "accessor",
+    })
+    const hiddenArray = [0]
+    Object.defineProperty(hiddenArray, "0", { enumerable: false })
+    const missingObjectDescriptor = new Proxy({}, {
+      ownKeys: () => ["value"],
+    })
+    const accessorObject = {}
+    Object.defineProperty(accessorObject, "value", {
+      configurable: true,
+      enumerable: true,
+      get: () => "accessor",
+    })
+    const hiddenObject = {}
+    Object.defineProperty(hiddenObject, "value", {
+      configurable: true,
+      enumerable: false,
+      value: "hidden",
+    })
+    const invalidMetadata: unknown[] = [
+      new Date(),
+      { nested: undefined },
+      { nested: () => "ignored" },
+      { nested: Symbol("ignored") },
+      { numeric: Number.NaN },
+      { numeric: Number.POSITIVE_INFINITY },
+      { toJSON: () => ({ coerced: true }) },
+      { nested: sparse },
+      { nested: nonPlain },
+      { [Symbol("ignored")]: "value" },
+      cyclic,
+      JSON.parse('{"constructor":"unsafe"}'),
+      JSON.parse('{"__proto__":"unsafe"}'),
+      { prototype: "unsafe" },
+      { nested: misindexedArray },
+      { nested: missingArrayDescriptor },
+      { nested: accessorArray },
+      { nested: hiddenArray },
+      { nested: missingObjectDescriptor },
+      { nested: accessorObject },
+      { nested: hiddenObject },
+      new Proxy({}, {
+        ownKeys: () => {
+          throw new Error("proxy trap")
+        }
+      }),
+    ]
+
+    for (const metadata of invalidMetadata) {
+      await expect(
+        repository.create(
+          {
+            ownerId: "user_alice",
+            name: "Invalid JSON",
+            description: "Must fail before persistence",
+            metadata: metadata as never,
+          },
+          mutationContext,
+        ),
+      ).rejects.toThrow("strict JSON values")
+    }
+
+    return expect(double.lifecycle).toEqual([])
+  })
+
+  it("projects only theme fields and returns null when preferences are missing", async function() {
+    const limit = vi.fn(async () => [])
+    const where = vi.fn(() => ({ limit }))
+    const from = vi.fn(() => ({ where }))
+    const select = vi.fn(() => ({ from }))
+    const database = { select } as unknown as Database
+    const repository = createUserPreferencesRepository(database)
+
+    await expect(repository.findThemeByUserId("user_alice")).resolves.toBeNull()
+    expect(select).toHaveBeenCalledWith({
+      mode: userPreferences.mode,
+      colorScheme: userPreferences.colorScheme,
+      updatedAt: userPreferences.updatedAt,
+    })
+    expect(from).toHaveBeenCalledWith(userPreferences)
+    return expect(limit).toHaveBeenCalledWith(1)
+  })
+
+  it("creates versioned theme fields without touching unrelated preferences", async function() {
+    const returning = vi.fn(async () => [{
+      mode: "dark" as const,
+      colorScheme: "violet" as const,
+      updatedAt: FIXED_NOW,
+    }])
+    const onConflictDoNothing = vi.fn(() => ({ returning }))
+    const values = vi.fn(() => ({ onConflictDoNothing }))
+    const insert = vi.fn(() => ({ values }))
+    const database = { insert } as unknown as Database
+    const repository = createUserPreferencesRepository(database, {
+      now: () => FIXED_NOW,
+    })
+
+    await expect(
+      repository.upsertTheme({
+        userId: "user_alice",
+        mode: "dark",
+        colorScheme: "violet",
+        expectedUpdatedAt: null,
+      }),
+    ).resolves.toEqual({
+      mode: "dark",
+      colorScheme: "violet",
+      updatedAt: FIXED_NOW,
+    })
+    expect(insert).toHaveBeenCalledWith(userPreferences)
+    expect(values).toHaveBeenCalledWith({
+      userId: "user_alice",
+      mode: "dark",
+      colorScheme: "violet",
+      updatedAt: FIXED_NOW,
+    })
+    expect(onConflictDoNothing).toHaveBeenCalledOnce()
+    return expect(returning).toHaveBeenCalledWith({
+      mode: userPreferences.mode,
+      colorScheme: userPreferences.colorScheme,
+      updatedAt: userPreferences.updatedAt,
+    })
+  })
+
+  it("rejects blank owners and non-canonical theme values before persistence", async function() {
+    const insert = vi.fn()
+    const database = { insert } as unknown as Database
+    const repository = createUserPreferencesRepository(database)
+    const invalidInputs = [
+      { userId: " ", mode: "dark", colorScheme: "violet" },
+      { userId: "user_alice", mode: "sepia", colorScheme: "violet" },
+      { userId: "user_alice", mode: "dark", colorScheme: "purple" },
+    ]
+
+    for (const input of invalidInputs) {
+      await expect(repository.upsertTheme(input as never)).rejects.toBeInstanceOf(
+        InvalidRepositoryInputError,
+      )
+    }
+
+    expect(insert).not.toHaveBeenCalled()
+    expect(PREFERENCE_MODES).toEqual(["light", "dark", "system"])
+    return expect(COLOR_SCHEMES).toEqual([
+      "neutral",
+      "slate",
+      "blue",
+      "cyan",
+      "green",
+      "amber",
+      "orange",
+      "red",
+      "rose",
+      "violet",
+    ])
+  })
+
+  return it("constructs the complete repository set without exposing drivers", function() {
+    const double = createDatabaseDouble()
+    const repositories = createRepositories(double.database)
+
+    expect(Object.keys(repositories)).toEqual([
+      "profiles",
+      "addresses",
+      "userPreferences",
+      "featureItems",
+      "adminUsers",
+      "dashboard",
+      "generated",
+      "workflows"
+    ])
+    return expect(repositories.generated).toEqual({})
+  })
+})
+
+describe("profile repository", function() {
+  it("returns null for a missing profile and scopes the lookup to the owner", async function() {
+    const double = createQueryDatabaseDouble({ select: [[]] })
+    const repository = createProfileRepository(double.database)
+
+    await expect(repository.findByUserId("user_missing")).resolves.toBeNull()
+
+    const lookup = double.operations[0]!
+    expect(lookup).toMatchObject({
+      kind: "select",
+      scope: "database",
+      table: "profiles",
+      limit: 1,
+    })
+    return expect(queryParameters(lookup)).toEqual(["user_missing"])
+  })
+
+  it("upserts nullable profile fields on the user conflict", async function() {
+    const double = createQueryDatabaseDouble({ insert: [[PROFILE_ROW]] })
+    const repository = createProfileRepository(double.database, {
+      now: () => FIXED_NOW,
+    })
+
+    await expect(repository.upsert(PROFILE_INPUT)).resolves.toEqual(PROFILE_ROW)
+
+    const insertion = double.operations[0]!
+    expect(insertion).toMatchObject({
+      kind: "insert",
+      scope: "database",
+      table: "profiles",
+      value: PROFILE_INPUT,
+    })
+    return expect(insertion.conflict).toMatchObject({
+      target: profiles.userId,
+      set: {
+        firstName: "Alice",
+        lastName: null,
+        avatarUrl: null,
+        timezone: "America/New_York",
+        locale: "en-US",
+        dateOfBirth: null,
+        updatedAt: FIXED_NOW,
+      },
+    })
+  })
+
+  it("creates a profile only when the optimistic initial version is still absent", async function() {
+    const createdDouble = createQueryDatabaseDouble({
+      insert: [[PROFILE_ROW]],
+    })
+    const createdRepository = createProfileRepository(createdDouble.database, {
+      now: () => FIXED_NOW,
+    })
+
+    await expect(
+      createdRepository.updateOptimistic({
+        ...PROFILE_INPUT,
+        expectedUpdatedAt: null,
+      }),
+    ).resolves.toEqual(PROFILE_ROW)
+    expect(createdDouble.operations[0]).toMatchObject({
+      kind: "insert",
+      table: "profiles",
+      value: { ...PROFILE_INPUT, updatedAt: FIXED_NOW },
+      conflict: "nothing",
+    })
+
+    const conflictDouble = createQueryDatabaseDouble({ insert: [[]] })
+    const conflictRepository = createProfileRepository(conflictDouble.database, {
+      now: () => FIXED_NOW,
+    })
+    return await expect(
+      conflictRepository.updateOptimistic({
+        ...PROFILE_INPUT,
+        expectedUpdatedAt: null,
+      }),
+    ).rejects.toBeInstanceOf(OptimisticConcurrencyError)
+  })
+
+  it("advances the profile version and scopes optimistic updates to owner and version", async function() {
+    const updatedProfile = { ...PROFILE_ROW, updatedAt: NEXT_VERSION }
+    const double = createQueryDatabaseDouble({ update: [[updatedProfile]] })
+    const repository = createProfileRepository(double.database, {
+      now: () => FIXED_NOW,
+    })
+
+    await expect(
+      repository.updateOptimistic({
+        ...PROFILE_INPUT,
+        expectedUpdatedAt: FIXED_NOW,
+      }),
+    ).resolves.toEqual(updatedProfile)
+
+    const update = double.operations[0]!
+    expect(update).toMatchObject({
+      kind: "update",
+      scope: "database",
+      table: "profiles",
+      value: { ...PROFILE_INPUT, updatedAt: NEXT_VERSION },
+    })
+    return expect(queryParameters(update)).toEqual(["user_alice", FIXED_NOW])
+  })
+
+  it("rejects stale profile versions without returning another owner's row", async function() {
+    const double = createQueryDatabaseDouble({ update: [[]] })
+    const repository = createProfileRepository(double.database, {
+      now: () => FIXED_NOW,
+    })
+
+    await expect(
+      repository.updateOptimistic({
+        ...PROFILE_INPUT,
+        expectedUpdatedAt: PREVIOUS_VERSION,
+      }),
+    ).rejects.toBeInstanceOf(OptimisticConcurrencyError)
+    return expect(queryParameters(double.operations[0]!)).toEqual([
+      "user_alice",
+      PREVIOUS_VERSION,
+    ])
+  })
+
+  return it("rejects blank profile identity and locale fields before querying", async function() {
+    const double = createQueryDatabaseDouble()
+    const repository = createProfileRepository(double.database)
+    const invalidProfiles = [
+      { ...PROFILE_INPUT, userId: " " },
+      { ...PROFILE_INPUT, timezone: "\t" },
+      { ...PROFILE_INPUT, locale: "" },
+    ]
+
+    for (const input of invalidProfiles) {
+      await expect(repository.upsert(input)).rejects.toBeInstanceOf(
+        InvalidRepositoryInputError,
+      )
+      await expect(
+        repository.updateOptimistic({
+          ...input,
+          expectedUpdatedAt: null,
+        }),
+      ).rejects.toBeInstanceOf(InvalidRepositoryInputError)
+    }
+    return expect(double.operations).toEqual([])
+  })
+})
+
+describe("address repository", function() {
+  it("caps and scopes address reads and returns null for a missing owned address", async function() {
+    const double = createQueryDatabaseDouble({
+      select: [[ADDRESS_ROW], []],
+    })
+    const repository = createAddressRepository(double.database)
+
+    await expect(repository.listByUserId("user_alice")).resolves.toEqual([
+      ADDRESS_ROW,
+    ])
+    await expect(
+      repository.findByIdForUser("address_missing", "user_alice"),
+    ).resolves.toBeNull()
+
+    const [list, lookup] = double.operations
+    expect(list).toMatchObject({
+      kind: "select",
+      table: "addresses",
+      limit: 20,
+    })
+    expect(list!.orderBy).toHaveLength(3)
+    expect(queryParameters(list!)).toEqual(["user_alice"])
+    expect(lookup).toMatchObject({
+      kind: "select",
+      table: "addresses",
+      limit: 1,
+    })
+    return expect(queryParameters(lookup!)).toEqual([
+      "address_missing",
+      "user_alice",
+    ])
+  })
+
+  it("creates default address fields inside the propagated transaction", async function() {
+    const createdAddress = {
+      ...ADDRESS_ROW,
+      id: "generated_address",
+      line1: "45 State Street",
+      country: "US",
+      createdAt: FIXED_NOW,
+      updatedAt: FIXED_NOW,
+    }
+    const double = createQueryDatabaseDouble({
+      select: [[]],
+      insert: [[createdAddress]],
+    })
+    const repository = createAddressRepository(double.database, {
+      generateId: () => "generated_address",
+      now: () => FIXED_NOW,
+    })
+
+    await expect(
+      repository.create({
+        userId: "user_alice",
+        type: "home",
+        line1: "45 State Street",
+        city: "Springfield",
+        region: "IL",
+        postalCode: "62701",
+        country: "us",
+      }),
+    ).resolves.toEqual(createdAddress)
+
+    expect(double.lifecycle).toEqual(["begin", "commit"])
+    expect(
+      double.operations.every((operation) => operation.scope === "transaction"),
+    ).toBe(true)
+    const count = double.operations.find(
+      (operation) => operation.kind === "select",
+    )!
+    expect(queryParameters(count)).toEqual(["user_alice"])
+    const insertion = double.operations.find(
+      (operation) => operation.kind === "insert",
+    )!
+    return expect(insertion).toMatchObject({
+      table: "addresses",
+      value: {
+        id: "generated_address",
+        userId: "user_alice",
+        type: "home",
+        line1: "45 State Street",
+        line2: null,
+        city: "Springfield",
+        region: "IL",
+        postalCode: "62701",
+        country: "US",
+        isPrimary: false,
+        createdAt: FIXED_NOW,
+        updatedAt: FIXED_NOW,
+      },
+    })
+  })
+
+  it("moves a primary address version past the current primary before replacement", async function() {
+    const primaryVersion = new Date(NEXT_VERSION.getTime() + 1)
+    const createdAddress = {
+      ...ADDRESS_ROW,
+      id: "address_new_primary",
+      type: "work" as const,
+      line1: "1 Work Plaza",
+      isPrimary: true,
+      createdAt: primaryVersion,
+      updatedAt: primaryVersion,
+    }
+    const double = createQueryDatabaseDouble({
+      select: [[{ value: 1 }], [{ updatedAt: NEXT_VERSION }]],
+      update: [[]],
+      insert: [[createdAddress]],
+    })
+    const repository = createAddressRepository(double.database, {
+      now: () => FIXED_NOW,
+    })
+
+    await expect(
+      repository.create({
+        id: "address_new_primary",
+        userId: "user_alice",
+        type: "work",
+        line1: "1 Work Plaza",
+        city: "Springfield",
+        region: "IL",
+        postalCode: "62701",
+        country: "US",
+        isPrimary: true,
+      }),
+    ).resolves.toEqual(createdAddress)
+
+    const clear = double.operations.find(
+      (operation) => operation.kind === "update",
+    )!
+    expect(clear.value).toEqual({
+      isPrimary: false,
+      updatedAt: primaryVersion,
+    })
+    expect(queryParameters(clear)).toEqual(["user_alice", true])
+    const insertion = double.operations.find(
+      (operation) => operation.kind === "insert",
+    )!
+    expect(insertion.value).toMatchObject({
+      id: "address_new_primary",
+      isPrimary: true,
+      createdAt: primaryVersion,
+      updatedAt: primaryVersion,
+    })
+    return expect(double.lifecycle).toEqual(["begin", "commit"])
+  })
+
+  it("enforces the per-owner address quota and rolls back without inserting", async function() {
+    const double = createQueryDatabaseDouble({
+      select: [[{ value: 20 }]],
+    })
+    const repository = createAddressRepository(double.database)
+
+    await expect(
+      repository.create({
+        userId: "user_alice",
+        type: "other",
+        line1: "Overflow",
+        city: "Springfield",
+        region: "IL",
+        postalCode: "62701",
+        country: "US",
+      }),
+    ).rejects.toThrow("address limit reached")
+
+    expect(double.lifecycle).toEqual(["begin", "rollback"])
+    expect(
+      double.operations.some((operation) => operation.kind === "insert"),
+    ).toBe(false)
+    const count = double.operations.find(
+      (operation) => operation.kind === "select",
+    )!
+    return expect(queryParameters(count)).toEqual(["user_alice"])
+  })
+
+  it("maps unique address conflicts after the transaction rolls back", async function() {
+    const double = createQueryDatabaseDouble({
+      select: [[{ value: 0 }]],
+      insert: [wrappedDatabaseError("23505", "addresses_pkey")],
+    })
+    const repository = createAddressRepository(double.database, {
+      now: () => FIXED_NOW,
+    })
+
+    await expect(
+      repository.create({
+        id: "address_duplicate",
+        userId: "user_alice",
+        type: "home",
+        line1: "Duplicate",
+        city: "Springfield",
+        region: "IL",
+        postalCode: "62701",
+        country: "US",
+      }),
+    ).rejects.toBeInstanceOf(DatabaseConflictError)
+    return expect(double.lifecycle).toEqual(["begin", "rollback"])
+  })
+
+  it("propagates non-conflict transaction failures unchanged", async function() {
+    const failure = new Error("advisory lock unavailable")
+    const double = createQueryDatabaseDouble({ executeError: failure })
+    const repository = createAddressRepository(double.database)
+
+    await expect(
+      repository.create({
+        userId: "user_alice",
+        type: "home",
+        line1: "123 Main Street",
+        city: "Springfield",
+        region: "IL",
+        postalCode: "62701",
+        country: "US",
+      }),
+    ).rejects.toBe(failure)
+    expect(double.lifecycle).toEqual(["begin", "rollback"])
+    expect(double.operations).toHaveLength(1)
+    return expect(double.operations[0]).toMatchObject({
+      kind: "execute",
+      scope: "transaction",
+    })
+  })
+
+  it("rejects invalid create and update fields before opening a transaction", async function() {
+    const double = createQueryDatabaseDouble()
+    const repository = createAddressRepository(double.database)
+    const validCreate = {
+      userId: "user_alice",
+      type: "home",
+      line1: "123 Main Street",
+      city: "Springfield",
+      region: "IL",
+      postalCode: "62701",
+      country: "US",
+    } as const
+
+    for (const input of [
+      { ...validCreate, userId: " " },
+      { ...validCreate, line1: "\t" },
+      { ...validCreate, country: "USA" },
+    ]) {
+      await expect(repository.create(input)).rejects.toBeInstanceOf(
+        InvalidRepositoryInputError,
+      )
+    }
+
+    for (const input of [
+      { id: " ", userId: "user_alice" },
+      { id: "address_home", userId: "" },
+      { id: "address_home", userId: "user_alice", line1: " " },
+      { id: "address_home", userId: "user_alice", country: "U" },
+    ]) {
+      await expect(repository.update(input)).rejects.toBeInstanceOf(
+        InvalidRepositoryInputError,
+      )
+    }
+
+    await expect(
+      repository.updateOptimistic({
+        id: " ",
+        userId: "user_alice",
+        expectedUpdatedAt: PREVIOUS_VERSION,
+      }),
+    ).rejects.toBeInstanceOf(InvalidRepositoryInputError)
+    await expect(
+      repository.updateOptimistic({
+        id: "address_home",
+        userId: " ",
+        expectedUpdatedAt: PREVIOUS_VERSION,
+      }),
+    ).rejects.toBeInstanceOf(InvalidRepositoryInputError)
+    await expect(
+      repository.updateOptimistic({
+        id: "address_home",
+        userId: "user_alice",
+        line1: "\t",
+        expectedUpdatedAt: PREVIOUS_VERSION,
+      }),
+    ).rejects.toBeInstanceOf(InvalidRepositoryInputError)
+    await expect(
+      repository.updateOptimistic({
+        id: "address_home",
+        userId: "user_alice",
+        country: "USA",
+        expectedUpdatedAt: PREVIOUS_VERSION,
+      }),
+    ).rejects.toBeInstanceOf(InvalidRepositoryInputError)
+
+    expect(double.transaction).not.toHaveBeenCalled()
+    return expect(double.operations).toEqual([])
+  })
+
+  it("returns null when an address update cannot find that owner's row", async function() {
+    const double = createQueryDatabaseDouble({ select: [[]] })
+    const repository = createAddressRepository(double.database)
+
+    await expect(
+      repository.update({
+        id: "address_missing",
+        userId: "user_alice",
+        city: "Elsewhere",
+      }),
+    ).resolves.toBeNull()
+
+    expect(double.lifecycle).toEqual(["begin", "commit"])
+    const lookup = double.operations.find(
+      (operation) => operation.kind === "select",
+    )!
+    expect(lookup.scope).toBe("transaction")
+    expect(queryParameters(lookup)).toEqual([
+      "address_missing",
+      "user_alice",
+    ])
+    return expect(
+      double.operations.some((operation) => operation.kind === "update"),
+    ).toBe(false)
+  })
+
+  it("updates only supplied address fields within the owner's transaction", async function() {
+    const updatedAddress = {
+      ...ADDRESS_ROW,
+      line2: "Suite 5",
+      country: "CA",
+      updatedAt: FIXED_NOW,
+    }
+    const double = createQueryDatabaseDouble({
+      select: [[ADDRESS_ROW]],
+      update: [[updatedAddress]],
+    })
+    const repository = createAddressRepository(double.database, {
+      now: () => FIXED_NOW,
+    })
+
+    await expect(
+      repository.update({
+        id: "address_home",
+        userId: "user_alice",
+        line2: "Suite 5",
+        country: "ca",
+        isPrimary: false,
+      }),
+    ).resolves.toEqual(updatedAddress)
+
+    const update = double.operations.find(
+      (operation) => operation.kind === "update",
+    )!
+    expect(update.scope).toBe("transaction")
+    expect(update.value).toEqual({
+      line2: "Suite 5",
+      country: "CA",
+      isPrimary: false,
+      updatedAt: FIXED_NOW,
+    })
+    expect(update.value).not.toHaveProperty("line1")
+    return expect(queryParameters(update)).toEqual([
+      "address_home",
+      "user_alice",
+    ])
+  })
+
+  it("clears the prior primary before atomically applying a normal primary patch", async function() {
+    const primaryVersion = new Date(NEXT_VERSION.getTime() + 1)
+    const primaryAddress = {
+      ...ADDRESS_ROW,
+      line1: "456 Oak Avenue",
+      city: "New City",
+      country: "CA",
+      isPrimary: true,
+      updatedAt: primaryVersion,
+    }
+    const double = createQueryDatabaseDouble({
+      select: [[ADDRESS_ROW], [{ updatedAt: NEXT_VERSION }]],
+      update: [[], [primaryAddress]],
+    })
+    const repository = createAddressRepository(double.database, {
+      now: () => FIXED_NOW,
+    })
+
+    await expect(
+      repository.update({
+        id: "address_home",
+        userId: "user_alice",
+        line1: "456 Oak Avenue",
+        city: "New City",
+        country: "ca",
+        isPrimary: true,
+      }),
+    ).resolves.toEqual(primaryAddress)
+
+    expect(double.lifecycle).toEqual(["begin", "commit"])
+    expect(
+      double.operations.every((operation) => operation.scope === "transaction"),
+    ).toBe(true)
+    const updates = double.operations.filter(
+      (operation) => operation.kind === "update",
+    )
+    expect(updates).toHaveLength(2)
+    expect(updates[0]!.value).toEqual({
+      isPrimary: false,
+      updatedAt: primaryVersion,
+    })
+    expect(queryParameters(updates[0]!)).toEqual([
+      "user_alice",
+      true,
+      "address_home",
+    ])
+    expect(updates[1]!.value).toEqual({
+      line1: "456 Oak Avenue",
+      city: "New City",
+      country: "CA",
+      isPrimary: true,
+      updatedAt: primaryVersion,
+    })
+    return expect(queryParameters(updates[1]!)).toEqual([
+      "address_home",
+      "user_alice",
+    ])
+  })
+
+  it("advances, normalizes, and owner-scopes a false optimistic address update", async function() {
+    const updatedAddress = {
+      ...ADDRESS_ROW,
+      line1: "456 Oak Avenue",
+      country: "CA",
+      isPrimary: false,
+      city: "New City",
+      updatedAt: NEXT_VERSION,
+    }
+    const double = createQueryDatabaseDouble({
+      update: [[updatedAddress]],
+    })
+    const repository = createAddressRepository(double.database, {
+      now: () => FIXED_NOW,
+    })
+
+    await expect(
+      repository.updateOptimistic({
+        id: "address_home",
+        userId: "user_alice",
+        line1: "456 Oak Avenue",
+        country: "ca",
+        isPrimary: false,
+        city: "New City",
+        expectedUpdatedAt: FIXED_NOW,
+      }),
+    ).resolves.toEqual(updatedAddress)
+
+    const update = double.operations[0]!
+    expect(update.value).toEqual({
+      city: "New City",
+      line1: "456 Oak Avenue",
+      country: "CA",
+      isPrimary: false,
+      updatedAt: NEXT_VERSION,
+    })
+    return expect(queryParameters(update)).toEqual([
+      "address_home",
+      "user_alice",
+      FIXED_NOW,
+    ])
+  })
+
+  it("distinguishes a missing optimistic address from a stale owned address", async function() {
+    const missingDouble = createQueryDatabaseDouble({
+      update: [[]],
+      select: [[]],
+    })
+    const missingRepository = createAddressRepository(missingDouble.database, {
+      now: () => FIXED_NOW,
+    })
+    await expect(
+      missingRepository.updateOptimistic({
+        id: "address_missing",
+        userId: "user_alice",
+        city: "New City",
+        expectedUpdatedAt: PREVIOUS_VERSION,
+      }),
+    ).resolves.toBeNull()
+
+    const staleDouble = createQueryDatabaseDouble({
+      update: [[]],
+      select: [[ADDRESS_ROW]],
+    })
+    const staleRepository = createAddressRepository(staleDouble.database, {
+      now: () => FIXED_NOW,
+    })
+    await expect(
+      staleRepository.updateOptimistic({
+        id: "address_home",
+        userId: "user_alice",
+        city: "New City",
+        expectedUpdatedAt: PREVIOUS_VERSION,
+      }),
+    ).rejects.toBeInstanceOf(OptimisticConcurrencyError)
+
+    const results=[];for (const double of [missingDouble, staleDouble]) {
+      expect(queryParameters(double.operations[0]!)).toEqual([
+        double === missingDouble ? "address_missing" : "address_home",
+        "user_alice",
+        PREVIOUS_VERSION,
+      ])
+      results.push(expect(queryParameters(double.operations[1]!)).toEqual([
+        double === missingDouble ? "address_missing" : "address_home",
+        "user_alice",
+      ]))
+    };return results;
+  })
+
+  it("atomically applies every supplied field while replacing the primary optimistically", async function() {
+    const primaryVersion = new Date(NEXT_VERSION.getTime() + 1)
+    const primaryAddress = {
+      ...ADDRESS_ROW,
+      type: "work" as const,
+      line1: "456 Oak Avenue",
+      line2: "Floor 4",
+      city: "New City",
+      region: "NY",
+      postalCode: "10001",
+      country: "CA",
+      isPrimary: true,
+      updatedAt: primaryVersion,
+    }
+    const double = createQueryDatabaseDouble({
+      select: [[ADDRESS_ROW], [{ updatedAt: NEXT_VERSION }]],
+      update: [[], [primaryAddress]],
+    })
+    const repository = createAddressRepository(double.database, {
+      now: () => FIXED_NOW,
+    })
+
+    await expect(
+      repository.updateOptimistic({
+        id: "address_home",
+        userId: "user_alice",
+        type: "work",
+        line1: "456 Oak Avenue",
+        line2: "Floor 4",
+        city: "New City",
+        region: "NY",
+        postalCode: "10001",
+        country: "ca",
+        isPrimary: true,
+        expectedUpdatedAt: FIXED_NOW,
+      }),
+    ).resolves.toEqual(primaryAddress)
+
+    expect(double.lifecycle).toEqual(["begin", "commit"])
+    expect(
+      double.operations.every((operation) => operation.scope === "transaction"),
+    ).toBe(true)
+    expect(double.operations[0]).toMatchObject({
+      kind: "execute",
+      scope: "transaction",
+    })
+    const updates = double.operations.filter(
+      (operation) => operation.kind === "update",
+    )
+    expect(updates).toHaveLength(2)
+    expect(updates[0]!.value).toEqual({
+      isPrimary: false,
+      updatedAt: primaryVersion,
+    })
+    expect(queryParameters(updates[0]!)).toEqual([
+      "user_alice",
+      true,
+      "address_home",
+    ])
+    expect(updates[1]!.value).toEqual({
+      type: "work",
+      line1: "456 Oak Avenue",
+      line2: "Floor 4",
+      city: "New City",
+      region: "NY",
+      postalCode: "10001",
+      country: "CA",
+      isPrimary: true,
+      updatedAt: primaryVersion,
+    })
+    return expect(queryParameters(updates[1]!)).toEqual([
+      "address_home",
+      "user_alice",
+      FIXED_NOW,
+    ])
+  })
+
+  it("keeps an already-primary optimistic target primary without invalidating its version", async function() {
+    const alreadyPrimary: Address = {
+      ...ADDRESS_ROW,
+      isPrimary: true,
+    }
+    const secondary: Address = {
+      ...ADDRESS_ROW,
+      id: "address_work",
+      type: "work",
+      line1: "1 Work Plaza",
+      isPrimary: false,
+      updatedAt: PREVIOUS_VERSION,
+    }
+    const updatedAddress: Address = {
+      ...alreadyPrimary,
+      city: "Updated City",
+      updatedAt: NEXT_VERSION,
+    }
+    const double = createStatefulAddressDatabaseDouble([
+      alreadyPrimary,
+      secondary,
+    ])
+    const repository = createAddressRepository(double.database, {
+      now: () => FIXED_NOW,
+    })
+
+    await expect(
+      repository.updateOptimistic({
+        id: "address_home",
+        userId: "user_alice",
+        city: "Updated City",
+        isPrimary: true,
+        expectedUpdatedAt: FIXED_NOW,
+      }),
+    ).resolves.toEqual(updatedAddress)
+
+    expect(double.lifecycle).toEqual(["begin", "commit"])
+    const persisted = double.addresses()
+    expect(persisted).toHaveLength(2)
+    expect(persisted.filter(({ isPrimary }) => isPrimary)).toEqual([
+      updatedAddress,
+    ])
+    const clear = double.operations.find(
+      ({ kind, value }) => kind === "update" && value?.["isPrimary"] === false,
+    )!
+    return expect(queryParameters(clear)).toEqual([
+      "user_alice",
+      true,
+      "address_home",
+    ])
+  })
+
+  it("returns null without mutation for a missing optimistic primary target", async function() {
+    const double = createQueryDatabaseDouble({ select: [[]] })
+    const repository = createAddressRepository(double.database)
+
+    await expect(
+      repository.updateOptimistic({
+        id: "address_missing",
+        userId: "user_alice",
+        city: "New City",
+        isPrimary: true,
+        expectedUpdatedAt: PREVIOUS_VERSION,
+      }),
+    ).resolves.toBeNull()
+
+    expect(double.lifecycle).toEqual(["begin", "commit"])
+    expect(
+      double.operations.every((operation) => operation.scope === "transaction"),
+    ).toBe(true)
+    expect(
+      double.operations.some((operation) => operation.kind === "update"),
+    ).toBe(false)
+    const lookup = double.operations.find(
+      (operation) => operation.kind === "select",
+    )!
+    return expect(queryParameters(lookup)).toEqual([
+      "address_missing",
+      "user_alice",
+    ])
+  })
+
+  it("rolls back optimistic primary patches for stale and raced versions", async function() {
+    const staleDouble = createQueryDatabaseDouble({
+      select: [[ADDRESS_ROW]],
+    })
+    const staleRepository = createAddressRepository(staleDouble.database)
+    await expect(
+      staleRepository.updateOptimistic({
+        id: "address_home",
+        userId: "user_alice",
+        city: "New City",
+        isPrimary: true,
+        expectedUpdatedAt: PREVIOUS_VERSION,
+      }),
+    ).rejects.toBeInstanceOf(OptimisticConcurrencyError)
+    expect(staleDouble.lifecycle).toEqual(["begin", "rollback"])
+    expect(
+      staleDouble.operations.some((operation) => operation.kind === "update"),
+    ).toBe(false)
+
+    const racedDouble = createQueryDatabaseDouble({
+      select: [[ADDRESS_ROW], []],
+      update: [[], []],
+    })
+    const racedRepository = createAddressRepository(racedDouble.database, {
+      now: () => FIXED_NOW,
+    })
+    await expect(
+      racedRepository.updateOptimistic({
+        id: "address_home",
+        userId: "user_alice",
+        city: "New City",
+        isPrimary: true,
+        expectedUpdatedAt: FIXED_NOW,
+      }),
+    ).rejects.toBeInstanceOf(OptimisticConcurrencyError)
+    expect(racedDouble.lifecycle).toEqual(["begin", "rollback"])
+    const racedUpdates = racedDouble.operations.filter(
+      (operation) => operation.kind === "update",
+    )
+    expect(racedUpdates).toHaveLength(2)
+    expect(racedUpdates[0]!.value).toEqual({
+      isPrimary: false,
+      updatedAt: NEXT_VERSION,
+    })
+    expect(racedUpdates[1]!.value).toEqual({
+      city: "New City",
+      isPrimary: true,
+      updatedAt: NEXT_VERSION,
+    })
+    return expect(queryParameters(racedUpdates[1]!)).toEqual([
+      "address_home",
+      "user_alice",
+      FIXED_NOW,
+    ])
+  })
+
+  it("maps provider conflicts for normal and optimistic primary patches", async function() {
+    const normalDouble = createQueryDatabaseDouble({
+      select: [[ADDRESS_ROW], []],
+      update: [
+        [],
+        wrappedDatabaseError("23505", "addresses_owner_primary_idx"),
+      ],
+    })
+    const normalRepository = createAddressRepository(normalDouble.database, {
+      now: () => FIXED_NOW,
+    })
+    await expect(
+      normalRepository.update({
+        id: "address_home",
+        userId: "user_alice",
+        isPrimary: true,
+      }),
+    ).rejects.toBeInstanceOf(DatabaseConflictError)
+    expect(normalDouble.lifecycle).toEqual(["begin", "rollback"])
+
+    const optimisticDouble = createQueryDatabaseDouble({
+      select: [[ADDRESS_ROW], []],
+      update: [
+        [],
+        wrappedDatabaseError("23505", "addresses_owner_primary_idx"),
+      ],
+    })
+    const optimisticRepository = createAddressRepository(
+      optimisticDouble.database,
+      { now: () => FIXED_NOW },
+    )
+    await expect(
+      optimisticRepository.updateOptimistic({
+        id: "address_home",
+        userId: "user_alice",
+        isPrimary: true,
+        expectedUpdatedAt: FIXED_NOW,
+      }),
+    ).rejects.toBeInstanceOf(DatabaseConflictError)
+    return expect(optimisticDouble.lifecycle).toEqual(["begin", "rollback"])
+  })
+
+  it("returns removal status while keeping deletes owner-scoped", async function() {
+    const double = createQueryDatabaseDouble({
+      delete: [[{ id: "address_home" }], []],
+    })
+    const repository = createAddressRepository(double.database)
+
+    await expect(
+      repository.remove("address_home", "user_alice"),
+    ).resolves.toBe(true)
+    await expect(
+      repository.remove("address_home", "user_bob"),
+    ).resolves.toBe(false)
+
+    expect(queryParameters(double.operations[0]!)).toEqual([
+      "address_home",
+      "user_alice",
+    ])
+    return expect(queryParameters(double.operations[1]!)).toEqual([
+      "address_home",
+      "user_bob",
+    ])
+  })
+
+  it("distinguishes successful, missing, and stale optimistic removals", async function() {
+    const removedDouble = createQueryDatabaseDouble({
+      delete: [[{ id: "address_home" }]],
+    })
+    const removedRepository = createAddressRepository(removedDouble.database)
+    await expect(
+      removedRepository.removeOptimistic({
+        id: "address_home",
+        userId: "user_alice",
+        expectedUpdatedAt: FIXED_NOW,
+      }),
+    ).resolves.toBe(true)
+    expect(removedDouble.operations).toHaveLength(1)
+    expect(queryParameters(removedDouble.operations[0]!)).toEqual([
+      "address_home",
+      "user_alice",
+      FIXED_NOW,
+    ])
+
+    const missingDouble = createQueryDatabaseDouble({
+      delete: [[]],
+      select: [[]],
+    })
+    const missingRepository = createAddressRepository(missingDouble.database)
+    await expect(
+      missingRepository.removeOptimistic({
+        id: "address_missing",
+        userId: "user_alice",
+        expectedUpdatedAt: PREVIOUS_VERSION,
+      }),
+    ).resolves.toBe(false)
+
+    const staleDouble = createQueryDatabaseDouble({
+      delete: [[]],
+      select: [[ADDRESS_ROW]],
+    })
+    const staleRepository = createAddressRepository(staleDouble.database)
+    await expect(
+      staleRepository.removeOptimistic({
+        id: "address_home",
+        userId: "user_alice",
+        expectedUpdatedAt: PREVIOUS_VERSION,
+      }),
+    ).rejects.toBeInstanceOf(OptimisticConcurrencyError)
+
+    expect(queryParameters(staleDouble.operations[0]!)).toEqual([
+      "address_home",
+      "user_alice",
+      PREVIOUS_VERSION,
+    ])
+    return expect(queryParameters(staleDouble.operations[1]!)).toEqual([
+      "address_home",
+      "user_alice",
+    ])
+  })
+
+  it("returns null when primary selection cannot find the owner's address", async function() {
+    const double = createQueryDatabaseDouble({ select: [[]] })
+    const repository = createAddressRepository(double.database)
+
+    await expect(
+      repository.setPrimary("address_missing", "user_alice"),
+    ).resolves.toBeNull()
+    expect(double.lifecycle).toEqual(["begin", "commit"])
+    expect(
+      double.operations.some((operation) => operation.kind === "update"),
+    ).toBe(false)
+    const lookup = double.operations.find(
+      (operation) => operation.kind === "select",
+    )!
+    expect(queryParameters(lookup)).toEqual([
+      "address_missing",
+      "user_alice",
+    ])
+
+    const optimisticDouble = createQueryDatabaseDouble({ select: [[]] })
+    const optimisticRepository = createAddressRepository(
+      optimisticDouble.database,
+    )
+    await expect(
+      optimisticRepository.setPrimaryOptimistic({
+        id: "address_missing",
+        userId: "user_alice",
+        expectedUpdatedAt: PREVIOUS_VERSION,
+      }),
+    ).resolves.toBeNull()
+    expect(optimisticDouble.lifecycle).toEqual(["begin", "commit"])
+    expect(
+      optimisticDouble.operations.some(
+        (operation) => operation.kind === "update",
+      ),
+    ).toBe(false)
+    const optimisticLookup = optimisticDouble.operations.find(
+      (operation) => operation.kind === "select",
+    )!
+    return expect(queryParameters(optimisticLookup)).toEqual([
+      "address_missing",
+      "user_alice",
+    ])
+  })
+
+  it("sets the owner's primary address with monotonic versioning", async function() {
+    const primaryAddress = {
+      ...ADDRESS_ROW,
+      isPrimary: true,
+      updatedAt: NEXT_VERSION,
+    }
+    const double = createQueryDatabaseDouble({
+      select: [[ADDRESS_ROW], []],
+      update: [[], [primaryAddress]],
+    })
+    const repository = createAddressRepository(double.database, {
+      now: () => FIXED_NOW,
+    })
+
+    await expect(
+      repository.setPrimary("address_home", "user_alice"),
+    ).resolves.toEqual(primaryAddress)
+
+    expect(double.lifecycle).toEqual(["begin", "commit"])
+    const updates = double.operations.filter(
+      (operation) => operation.kind === "update",
+    )
+    expect(updates[0]!.value).toEqual({
+      isPrimary: false,
+      updatedAt: NEXT_VERSION,
+    })
+    expect(queryParameters(updates[0]!)).toEqual([
+      "user_alice",
+      true,
+      "address_home",
+    ])
+    expect(updates[1]!.value).toEqual({
+      isPrimary: true,
+      updatedAt: NEXT_VERSION,
+    })
+    return expect(queryParameters(updates[1]!)).toEqual([
+      "address_home",
+      "user_alice",
+    ])
+  })
+
+  it("maps a primary-selection uniqueness failure after rolling back", async function() {
+    const providerFailure = wrappedDatabaseError(
+      "23505",
+      "addresses_one_primary_per_user_idx",
+    )
+    const double = createQueryDatabaseDouble({
+      select: [providerFailure],
+    })
+    const repository = createAddressRepository(double.database)
+
+    await expect(
+      repository.setPrimary("address_home", "user_alice"),
+    ).rejects.toMatchObject({
+      name: "DatabaseConflictError",
+      message: "address conflicts with an existing record",
+    })
+    expect(double.lifecycle).toEqual(["begin", "rollback"])
+    return expect(
+      double.operations.filter(({ kind }) => kind === "update"),
+    ).toEqual([])
+  })
+
+  it("sets primary optimistically with monotonic versioning in one transaction", async function() {
+    const primaryAddress = {
+      ...ADDRESS_ROW,
+      isPrimary: true,
+      updatedAt: NEXT_VERSION,
+    }
+    const double = createQueryDatabaseDouble({
+      select: [[ADDRESS_ROW], [{ updatedAt: FIXED_NOW }]],
+      update: [[], [primaryAddress]],
+    })
+    const repository = createAddressRepository(double.database, {
+      now: () => FIXED_NOW,
+    })
+
+    await expect(
+      repository.setPrimaryOptimistic({
+        id: "address_home",
+        userId: "user_alice",
+        expectedUpdatedAt: FIXED_NOW,
+      }),
+    ).resolves.toEqual(primaryAddress)
+
+    expect(double.lifecycle).toEqual(["begin", "commit"])
+    expect(
+      double.operations.every((operation) => operation.scope === "transaction"),
+    ).toBe(true)
+    const updates = double.operations.filter(
+      (operation) => operation.kind === "update",
+    )
+    expect(updates[0]!.value).toEqual({
+      isPrimary: false,
+      updatedAt: NEXT_VERSION,
+    })
+    expect(queryParameters(updates[0]!)).toEqual([
+      "user_alice",
+      true,
+      "address_home",
+    ])
+    expect(updates[1]!.value).toEqual({
+      isPrimary: true,
+      updatedAt: NEXT_VERSION,
+    })
+    return expect(queryParameters(updates[1]!)).toEqual([
+      "address_home",
+      "user_alice",
+      FIXED_NOW,
+    ])
+  })
+
+  return it("rolls back optimistic primary changes for stale and raced versions", async function() {
+    const staleDouble = createQueryDatabaseDouble({
+      select: [[ADDRESS_ROW]],
+    })
+    const staleRepository = createAddressRepository(staleDouble.database)
+    await expect(
+      staleRepository.setPrimaryOptimistic({
+        id: "address_home",
+        userId: "user_alice",
+        expectedUpdatedAt: PREVIOUS_VERSION,
+      }),
+    ).rejects.toBeInstanceOf(OptimisticConcurrencyError)
+    expect(staleDouble.lifecycle).toEqual(["begin", "rollback"])
+    expect(
+      staleDouble.operations.some((operation) => operation.kind === "update"),
+    ).toBe(false)
+
+    const racedDouble = createQueryDatabaseDouble({
+      select: [[ADDRESS_ROW], []],
+      update: [[], []],
+    })
+    const racedRepository = createAddressRepository(racedDouble.database, {
+      now: () => FIXED_NOW,
+    })
+    await expect(
+      racedRepository.setPrimaryOptimistic({
+        id: "address_home",
+        userId: "user_alice",
+        expectedUpdatedAt: FIXED_NOW,
+      }),
+    ).rejects.toBeInstanceOf(OptimisticConcurrencyError)
+    expect(racedDouble.lifecycle).toEqual(["begin", "rollback"])
+    const racedUpdates = racedDouble.operations.filter(
+      (operation) => operation.kind === "update",
+    )
+    return expect(queryParameters(racedUpdates[1]!)).toEqual([
+      "address_home",
+      "user_alice",
+      FIXED_NOW,
+    ])
+  })
+})
+
+describe("user preferences repository", function() {
+  it("returns null for missing preferences and scopes the lookup to the user", async function() {
+    const double = createQueryDatabaseDouble({ select: [[]] })
+    const repository = createUserPreferencesRepository(double.database)
+
+    await expect(repository.findByUserId("user_missing")).resolves.toBeNull()
+
+    const lookup = double.operations[0]!
+    expect(lookup).toMatchObject({
+      kind: "select",
+      scope: "database",
+      table: "user_preferences",
+      limit: 1,
+    })
+    return expect(queryParameters(lookup)).toEqual(["user_missing"])
+  })
+
+  it("rejects a blank theme owner and maps provider read failures", async function() {
+    const blankDouble = createQueryDatabaseDouble()
+    const blankRepository = createUserPreferencesRepository(blankDouble.database)
+    await expect(
+      blankRepository.findThemeByUserId(" "),
+    ).rejects.toBeInstanceOf(InvalidRepositoryInputError)
+    expect(blankDouble.operations).toEqual([])
+
+    const failedDouble = createQueryDatabaseDouble({
+      select: [new Error("provider query detail")],
+    })
+    const failedRepository = createUserPreferencesRepository(
+      failedDouble.database,
+    )
+    let thrown: unknown
+    try {
+      await failedRepository.findThemeByUserId("user_alice")
+    }
+    catch (error) {
+      thrown = error
+    }
+    expect(thrown).toBeInstanceOf(DatabasePersistenceError)
+    expect(String(thrown)).toBe(
+      "DatabasePersistenceError: Database operation failed: theme preference query",
+    )
+    return expect(queryParameters(failedDouble.operations[0]!)).toEqual([
+      "user_alice",
+    ])
+  })
+
+  it("advances and user-scopes an optimistic theme update", async function() {
+    const updatedTheme = {
+      mode: "light" as const,
+      colorScheme: "blue" as const,
+      updatedAt: NEXT_VERSION,
+    }
+    const double = createQueryDatabaseDouble({
+      update: [[updatedTheme]],
+    })
+    const repository = createUserPreferencesRepository(double.database, {
+      now: () => FIXED_NOW,
+    })
+
+    await expect(
+      repository.upsertTheme({
+        userId: "user_alice",
+        mode: "light",
+        colorScheme: "blue",
+        expectedUpdatedAt: FIXED_NOW,
+      }),
+    ).resolves.toEqual(updatedTheme)
+
+    const update = double.operations[0]!
+    expect(update).toMatchObject({
+      kind: "update",
+      table: "user_preferences",
+      value: {
+        mode: "light",
+        colorScheme: "blue",
+        updatedAt: NEXT_VERSION,
+      },
+    })
+    expect(queryParameters(update)).toEqual(["user_alice", FIXED_NOW])
+    return expect(update.returning).toEqual({
+      mode: userPreferences.mode,
+      colorScheme: userPreferences.colorScheme,
+      updatedAt: userPreferences.updatedAt,
+    })
+  })
+
+  it("reports both initial theme conflicts and stale theme versions", async function() {
+    const initialConflictDouble = createQueryDatabaseDouble({ insert: [[]] })
+    const initialRepository = createUserPreferencesRepository(
+      initialConflictDouble.database,
+      { now: () => FIXED_NOW },
+    )
+    await expect(
+      initialRepository.upsertTheme({
+        userId: "user_alice",
+        mode: "dark",
+        colorScheme: "violet",
+        expectedUpdatedAt: null,
+      }),
+    ).rejects.toBeInstanceOf(OptimisticConcurrencyError)
+    expect(initialConflictDouble.operations[0]).toMatchObject({
+      kind: "insert",
+      table: "user_preferences",
+      conflict: "nothing",
+    })
+
+    const staleDouble = createQueryDatabaseDouble({ update: [[]] })
+    const staleRepository = createUserPreferencesRepository(
+      staleDouble.database,
+      { now: () => FIXED_NOW },
+    )
+    await expect(
+      staleRepository.upsertTheme({
+        userId: "user_alice",
+        mode: "dark",
+        colorScheme: "violet",
+        expectedUpdatedAt: PREVIOUS_VERSION,
+      }),
+    ).rejects.toBeInstanceOf(OptimisticConcurrencyError)
+    return expect(queryParameters(staleDouble.operations[0]!)).toEqual([
+      "user_alice",
+      PREVIOUS_VERSION,
+    ])
+  })
+
+  it("maps theme write failures without leaking provider details", async function() {
+    const double = createQueryDatabaseDouble({
+      insert: [new Error("provider insert detail")],
+    })
+    const repository = createUserPreferencesRepository(double.database, {
+      now: () => FIXED_NOW,
+    })
+
+    let thrown: unknown
+    try {
+      await repository.upsertTheme({
+        userId: "user_alice",
+        mode: "dark",
+        colorScheme: "violet",
+        expectedUpdatedAt: null,
+      })
+    }
+    catch (error) {
+      thrown = error
+    }
+    expect(thrown).toBeInstanceOf(DatabasePersistenceError)
+    return expect(String(thrown)).toBe(
+      "DatabasePersistenceError: Database operation failed: theme preference upsert",
+    )
+  })
+
+  it("upserts all preference and consent fields on the user conflict", async function() {
+    const input = {
+      userId: "user_alice",
+      mode: "system" as const,
+      colorScheme: "neutral" as const,
+      emailNotifications: true,
+      productUpdates: false,
+      analyticsConsent: false,
+      personalizationConsent: true,
+      profileVisibility: "members" as const,
+    }
+    const double = createQueryDatabaseDouble({
+      insert: [[PREFERENCES_ROW]],
+    })
+    const repository = createUserPreferencesRepository(double.database, {
+      now: () => FIXED_NOW,
+    })
+
+    await expect(repository.upsert(input)).resolves.toEqual(PREFERENCES_ROW)
+
+    const insertion = double.operations[0]!
+    expect(insertion.value).toEqual(input)
+    return expect(insertion.conflict).toMatchObject({
+      target: userPreferences.userId,
+      set: {
+        mode: "system",
+        colorScheme: "neutral",
+        emailNotifications: true,
+        productUpdates: false,
+        analyticsConsent: false,
+        personalizationConsent: true,
+        profileVisibility: "members",
+        updatedAt: FIXED_NOW,
+      },
+    })
+  })
+
+  it("creates consent preferences only while the initial version is absent", async function() {
+    const initialInput = {
+      userId: "user_alice",
+      emailNotifications: true,
+      productUpdates: false,
+      analyticsConsent: false,
+      personalizationConsent: true,
+      profileVisibility: "members" as const,
+      expectedUpdatedAt: null,
+    }
+    const createdDouble = createQueryDatabaseDouble({
+      insert: [[PREFERENCES_ROW]],
+    })
+    const createdRepository = createUserPreferencesRepository(
+      createdDouble.database,
+      { now: () => FIXED_NOW },
+    )
+
+    await expect(
+      createdRepository.updateOptimistic(initialInput),
+    ).resolves.toEqual(PREFERENCES_ROW)
+    expect(createdDouble.operations[0]).toMatchObject({
+      kind: "insert",
+      table: "user_preferences",
+      value: {
+        userId: "user_alice",
+        emailNotifications: true,
+        productUpdates: false,
+        analyticsConsent: false,
+        personalizationConsent: true,
+        profileVisibility: "members",
+        updatedAt: FIXED_NOW,
+      },
+      conflict: "nothing",
+    })
+    expect(createdDouble.operations[0]!.value).not.toHaveProperty("mode")
+    expect(createdDouble.operations[0]!.value).not.toHaveProperty("colorScheme")
+
+    const conflictDouble = createQueryDatabaseDouble({ insert: [[]] })
+    const conflictRepository = createUserPreferencesRepository(
+      conflictDouble.database,
+      { now: () => FIXED_NOW },
+    )
+    return await expect(
+      conflictRepository.updateOptimistic(initialInput),
+    ).rejects.toBeInstanceOf(OptimisticConcurrencyError)
+  })
+
+  it("advances and user-scopes optimistic consent updates", async function() {
+    const updatedPreferences = {
+      ...PREFERENCES_ROW,
+      emailNotifications: false,
+      analyticsConsent: true,
+      updatedAt: NEXT_VERSION,
+    }
+    const double = createQueryDatabaseDouble({
+      update: [[updatedPreferences]],
+    })
+    const repository = createUserPreferencesRepository(double.database, {
+      now: () => FIXED_NOW,
+    })
+
+    await expect(
+      repository.updateOptimistic({
+        userId: "user_alice",
+        emailNotifications: false,
+        productUpdates: false,
+        analyticsConsent: true,
+        personalizationConsent: true,
+        profileVisibility: "members",
+        expectedUpdatedAt: FIXED_NOW,
+      }),
+    ).resolves.toEqual(updatedPreferences)
+
+    const update = double.operations[0]!
+    expect(update.value).toEqual({
+      emailNotifications: false,
+      productUpdates: false,
+      analyticsConsent: true,
+      personalizationConsent: true,
+      profileVisibility: "members",
+      updatedAt: NEXT_VERSION,
+    })
+    return expect(queryParameters(update)).toEqual(["user_alice", FIXED_NOW])
+  })
+
+  return it("rejects stale consent versions and blank owners before persistence", async function() {
+    const staleDouble = createQueryDatabaseDouble({ update: [[]] })
+    const staleRepository = createUserPreferencesRepository(
+      staleDouble.database,
+      { now: () => FIXED_NOW },
+    )
+    await expect(
+      staleRepository.updateOptimistic({
+        userId: "user_alice",
+        emailNotifications: true,
+        productUpdates: true,
+        analyticsConsent: false,
+        personalizationConsent: false,
+        profileVisibility: "private",
+        expectedUpdatedAt: PREVIOUS_VERSION,
+      }),
+    ).rejects.toBeInstanceOf(OptimisticConcurrencyError)
+    expect(queryParameters(staleDouble.operations[0]!)).toEqual([
+      "user_alice",
+      PREVIOUS_VERSION,
+    ])
+
+    const blankDouble = createQueryDatabaseDouble()
+    const blankRepository = createUserPreferencesRepository(blankDouble.database)
+    await expect(
+      blankRepository.upsert({
+        userId: " ",
+        mode: "system",
+        colorScheme: "neutral",
+        emailNotifications: true,
+        productUpdates: false,
+        analyticsConsent: false,
+        personalizationConsent: true,
+        profileVisibility: "members",
+      }),
+    ).rejects.toBeInstanceOf(InvalidRepositoryInputError)
+    await expect(
+      blankRepository.updateOptimistic({
+        userId: "\t",
+        emailNotifications: true,
+        productUpdates: true,
+        analyticsConsent: false,
+        personalizationConsent: false,
+        profileVisibility: "private",
+        expectedUpdatedAt: null,
+      }),
+    ).rejects.toBeInstanceOf(InvalidRepositoryInputError)
+    return expect(blankDouble.operations).toEqual([])
+  })
+})
+
+describe("feature item query and mutation contracts", function() {
+  it("uses the default list cap and owner-scopes escaped search and status filters", async function() {
+    const double = createQueryDatabaseDouble({
+      select: [[FEATURE_ROW], [FEATURE_ROW]],
+    })
+    const repository = createFeatureItemRepository(double.database)
+
+    await expect(repository.listByOwner("user_alice")).resolves.toEqual([
+      FEATURE_ROW,
+    ])
+    await expect(
+      repository.listByOwner("user_alice", {
+        query: "50%_off\\today",
+        status: "active",
+        limit: 25,
+      }),
+    ).resolves.toEqual([FEATURE_ROW])
+
+    const [defaultList, filteredList] = double.operations
+    expect(defaultList).toMatchObject({
+      kind: "select",
+      table: "feature_items",
+      limit: 50,
+    })
+    expect(queryParameters(defaultList!)).toEqual(["user_alice"])
+    expect(filteredList).toMatchObject({
+      kind: "select",
+      table: "feature_items",
+      limit: 25,
+    })
+    expect(filteredList!.orderBy).toHaveLength(2)
+    return expect(queryParameters(filteredList!)).toEqual([
+      "user_alice",
+      "%50\\%\\_off\\\\today%",
+      "%50\\%\\_off\\\\today%",
+      "active",
+    ])
+  })
+
+  it("rejects invalid feature list bounds and queries before touching the database", async function() {
+    const double = createQueryDatabaseDouble()
+    const repository = createFeatureItemRepository(double.database)
+
+    for (const limit of [0, 101, 1.5]) {
+      await expect(
+        repository.listByOwner("user_alice", { limit }),
+      ).rejects.toBeInstanceOf(InvalidRepositoryInputError)
+    }
+    for (const query of [" ", "x".repeat(201)]) {
+      await expect(
+        repository.listByOwner("user_alice", { query }),
+      ).rejects.toBeInstanceOf(InvalidRepositoryInputError)
+    }
+
+    return expect(double.operations).toEqual([])
+  })
+
+  it("returns null when an owner-scoped feature lookup has no row", async function() {
+    const double = createQueryDatabaseDouble({ select: [[]] })
+    const repository = createFeatureItemRepository(double.database)
+
+    await expect(
+      repository.findByIdForOwner("feature_missing", "user_alice"),
+    ).resolves.toBeNull()
+
+    const lookup = double.operations[0]!
+    expect(lookup).toMatchObject({
+      kind: "select",
+      table: "feature_items",
+      limit: 1,
+    })
+    return expect(queryParameters(lookup)).toEqual([
+      "feature_missing",
+      "user_alice",
+    ])
+  })
+
+  it("creates default feature state and companion records in one transaction", async function() {
+    const createdFeature = {
+      ...FEATURE_ROW,
+      id: "feature_generated",
+      name: "Generated defaults",
+      description: "Defaults stay explicit",
+    }
+    const generatedIds = [
+      "feature_generated",
+      "audit_generated",
+      "outbox_generated",
+    ]
+    const double = createQueryDatabaseDouble({
+      insert: [[createdFeature], [], []],
+    })
+    const repository = createFeatureItemRepository(double.database, {
+      generateId: () => generatedIds.shift()!,
+      now: () => FIXED_NOW,
+    })
+
+    await expect(
+      repository.create(
+        {
+          ownerId: "user_alice",
+          name: "Generated defaults",
+          description: "Defaults stay explicit",
+        },
+        { actorUserId: null, requestId: "request_defaults" },
+      ),
+    ).resolves.toEqual(createdFeature)
+
+    expect(double.lifecycle).toEqual(["begin", "commit"])
+    expect(
+      double.operations.every((operation) => operation.scope === "transaction"),
+    ).toBe(true)
+    const [featureInsert, auditInsert, outboxInsert] = double.operations
+    expect(featureInsert).toMatchObject({
+      kind: "insert",
+      table: "feature_items",
+      value: {
+        id: "feature_generated",
+        ownerId: "user_alice",
+        name: "Generated defaults",
+        description: "Defaults stay explicit",
+        status: "draft",
+        metadata: {},
+        createdAt: FIXED_NOW,
+        updatedAt: FIXED_NOW,
+      },
+    })
+    expect(auditInsert).toMatchObject({
+      kind: "insert",
+      table: "audit_records",
+      value: {
+        id: "audit_generated",
+        actorUserId: null,
+        action: "feature_item.created",
+        entityId: "feature_generated",
+        metadata: { status: "draft" },
+        requestId: "request_defaults",
+      },
+    })
+    return expect(outboxInsert).toMatchObject({
+      kind: "insert",
+      table: "outbox_events",
+      value: {
+        id: "outbox_generated",
+        eventType: "feature_item.created",
+        aggregateId: "feature_generated",
+        payload: {
+          id: "feature_generated",
+          ownerId: "user_alice",
+          status: "draft",
+        },
+      },
+    })
+  })
+
+  it("rejects invalid feature owners, names, and mutation contexts before transactions", async function() {
+    const double = createQueryDatabaseDouble()
+    const repository = createFeatureItemRepository(double.database)
+    const validInput = {
+      ownerId: "user_alice",
+      name: "Valid name",
+      description: "Valid description",
+    }
+
+    await expect(
+      repository.create(
+        { ...validInput, ownerId: " " },
+        mutationContext,
+      ),
+    ).rejects.toBeInstanceOf(InvalidRepositoryInputError)
+    await expect(
+      repository.create(
+        { ...validInput, name: "\t" },
+        mutationContext,
+      ),
+    ).rejects.toBeInstanceOf(InvalidRepositoryInputError)
+    await expect(
+      repository.create(
+        validInput,
+        { ...mutationContext, requestId: "" },
+      ),
+    ).rejects.toBeInstanceOf(InvalidRepositoryInputError)
+    await expect(
+      repository.create(
+        validInput,
+        { ...mutationContext, actorUserId: " " },
+      ),
+    ).rejects.toBeInstanceOf(InvalidRepositoryInputError)
+    await expect(
+      repository.update(
+        {
+          id: " ",
+          ownerId: "user_alice",
+          description: "Changed",
+        },
+        mutationContext,
+      ),
+    ).rejects.toBeInstanceOf(InvalidRepositoryInputError)
+    await expect(
+      repository.archive("feature_123", "", mutationContext),
+    ).rejects.toBeInstanceOf(InvalidRepositoryInputError)
+
+    expect(double.transaction).not.toHaveBeenCalled()
+    return expect(double.operations).toEqual([])
+  })
+
+  it("returns null without companion writes when an owned feature update misses", async function() {
+    const double = createQueryDatabaseDouble({ update: [[]] })
+    const repository = createFeatureItemRepository(double.database, {
+      now: () => FIXED_NOW,
+    })
+
+    await expect(
+      repository.update(
+        {
+          id: "feature_missing",
+          ownerId: "user_alice",
+          description: "Changed",
+        },
+        mutationContext,
+      ),
+    ).resolves.toBeNull()
+
+    expect(double.lifecycle).toEqual(["begin", "commit"])
+    expect(double.operations).toHaveLength(1)
+    expect(double.operations[0]).toMatchObject({
+      kind: "update",
+      scope: "transaction",
+      table: "feature_items",
+      value: {
+        description: "Changed",
+        updatedAt: FIXED_NOW,
+      },
+    })
+    return expect(queryParameters(double.operations[0]!)).toEqual([
+      "feature_missing",
+      "user_alice",
+    ])
+  })
+
+  it("updates supplied feature fields and records the public change set atomically", async function() {
+    const updatedFeature = {
+      ...FEATURE_ROW,
+      name: "Updated item",
+      description: "Updated description",
+      status: "active" as const,
+      metadata: { priority: "high" },
+    }
+    const double = createQueryDatabaseDouble({
+      update: [[updatedFeature]],
+      insert: [[], []],
+    })
+    const repository = createFeatureItemRepository(double.database, {
+      generateId: () => "generated_companion_id",
+      now: () => FIXED_NOW,
+    })
+
+    await expect(
+      repository.update(
+        {
+          id: "feature_123",
+          ownerId: "user_alice",
+          name: "Updated item",
+          description: "Updated description",
+          status: "active",
+          metadata: { priority: "high" },
+        },
+        mutationContext,
+      ),
+    ).resolves.toEqual(updatedFeature)
+
+    const [featureUpdate, auditInsert, outboxInsert] = double.operations
+    expect(featureUpdate).toMatchObject({
+      kind: "update",
+      scope: "transaction",
+      table: "feature_items",
+      value: {
+        name: "Updated item",
+        description: "Updated description",
+        status: "active",
+        metadata: { priority: "high" },
+        updatedAt: FIXED_NOW,
+      },
+    })
+    expect(queryParameters(featureUpdate!)).toEqual([
+      "feature_123",
+      "user_alice",
+    ])
+    expect(auditInsert).toMatchObject({
+      table: "audit_records",
+      value: {
+        action: "feature_item.updated",
+        entityId: "feature_123",
+        metadata: {
+          changedFields: ["name", "description", "status", "metadata"],
+        },
+      },
+    })
+    expect(outboxInsert).toMatchObject({
+      table: "outbox_events",
+      value: {
+        eventType: "feature_item.updated",
+        payload: {
+          id: "feature_123",
+          ownerId: "user_alice",
+          status: "active",
+        },
+      },
+    })
+    return expect(double.lifecycle).toEqual(["begin", "commit"])
+  })
+
+  it("updates only a supplied name and records the minimal public change set", async function() {
+    const renamedFeature = {
+      ...FEATURE_ROW,
+      name: "Renamed item",
+    }
+    const double = createQueryDatabaseDouble({
+      update: [[renamedFeature]],
+      insert: [[], []],
+    })
+    const repository = createFeatureItemRepository(double.database, {
+      generateId: () => "generated_name_companion",
+      now: () => FIXED_NOW,
+    })
+
+    await expect(
+      repository.update(
+        {
+          id: "feature_123",
+          ownerId: "user_alice",
+          name: "Renamed item",
+        },
+        mutationContext,
+      ),
+    ).resolves.toEqual(renamedFeature)
+
+    const [featureUpdate, auditInsert] = double.operations
+    expect(featureUpdate?.value).toEqual({
+      name: "Renamed item",
+      updatedAt: FIXED_NOW,
+    })
+    expect(auditInsert).toMatchObject({
+      table: "audit_records",
+      value: {
+        metadata: { changedFields: ["name"] },
+      },
+    })
+    return expect(double.lifecycle).toEqual(["begin", "commit"])
+  })
+
+  it("returns null for a missing archive target and writes no companions", async function() {
+    const double = createQueryDatabaseDouble({ update: [[]] })
+    const repository = createFeatureItemRepository(double.database, {
+      now: () => FIXED_NOW,
+    })
+
+    await expect(
+      repository.archive("feature_missing", "user_alice", mutationContext),
+    ).resolves.toBeNull()
+    expect(double.lifecycle).toEqual(["begin", "commit"])
+    expect(double.operations).toHaveLength(1)
+    return expect(queryParameters(double.operations[0]!)).toEqual([
+      "feature_missing",
+      "user_alice",
+    ])
+  })
+
+  it("archives the owner's feature with audit and outbox records atomically", async function() {
+    const archivedFeature = {
+      ...FEATURE_ROW,
+      status: "archived" as const,
+    }
+    const double = createQueryDatabaseDouble({
+      update: [[archivedFeature]],
+      insert: [[], []],
+    })
+    const repository = createFeatureItemRepository(double.database, {
+      generateId: () => "generated_archive_companion",
+      now: () => FIXED_NOW,
+    })
+
+    await expect(
+      repository.archive("feature_123", "user_alice", mutationContext),
+    ).resolves.toEqual(archivedFeature)
+
+    const [featureUpdate, auditInsert, outboxInsert] = double.operations
+    expect(featureUpdate).toMatchObject({
+      kind: "update",
+      scope: "transaction",
+      table: "feature_items",
+      value: { status: "archived", updatedAt: FIXED_NOW },
+    })
+    expect(queryParameters(featureUpdate!)).toEqual([
+      "feature_123",
+      "user_alice",
+    ])
+    expect(auditInsert).toMatchObject({
+      table: "audit_records",
+      value: {
+        action: "feature_item.archived",
+        metadata: { status: "archived" },
+      },
+    })
+    expect(outboxInsert).toMatchObject({
+      table: "outbox_events",
+      value: {
+        eventType: "feature_item.archived",
+        payload: {
+          id: "feature_123",
+          ownerId: "user_alice",
+          status: "archived",
+        },
+      },
+    })
+    return expect(double.lifecycle).toEqual(["begin", "commit"])
+  })
+
+  it("maps an archive provider failure and rolls back without companion writes", async function() {
+    const providerFailure = Object.assign(
+      new Error("provider archive detail"),
+      { code: "XX000" },
+    )
+    const double = createQueryDatabaseDouble({
+      update: [providerFailure],
+    })
+    const repository = createFeatureItemRepository(double.database, {
+      now: () => FIXED_NOW,
+    })
+
+    await expect(
+      repository.archive("feature_123", "user_alice", mutationContext),
+    ).rejects.toMatchObject({
+      name: "DatabasePersistenceError",
+      message: "Database operation failed: feature item mutation",
+    })
+    expect(double.lifecycle).toEqual(["begin", "rollback"])
+    expect(double.operations).toHaveLength(1)
+    return expect(queryParameters(double.operations[0]!)).toEqual([
+      "feature_123",
+      "user_alice",
+    ])
+  })
+
+  return it("rolls back a feature update when a companion transaction write fails", async function() {
+    const failure = new Error("outbox unavailable")
+    const updatedFeature = {
+      ...FEATURE_ROW,
+      description: "Changed before rollback",
+    }
+    const double = createQueryDatabaseDouble({
+      update: [[updatedFeature]],
+      insert: [[], failure],
+    })
+    const repository = createFeatureItemRepository(double.database, {
+      now: () => FIXED_NOW,
+    })
+
+    await expect(
+      repository.update(
+        {
+          id: "feature_123",
+          ownerId: "user_alice",
+          description: "Changed before rollback",
+        },
+        mutationContext,
+      ),
+    ).rejects.toBe(failure)
+    expect(double.lifecycle).toEqual(["begin", "rollback"])
+    return expect(
+      double.operations.map((operation) => operation.table),
+    ).toEqual(["feature_items", "audit_records", "outbox_events"])
+  })
+})
+
+describe("repository residual boundaries", function() {
+  it("rejects null and primitive top-level metadata before persistence", async function() {
+    const double = createQueryDatabaseDouble()
+    const repository = createFeatureItemRepository(double.database)
+
+    for (const metadata of [null, "not-an-object"]) {
+      await expect(
+        repository.create(
+          {
+            ownerId: "user_alice",
+            name: "Invalid top-level metadata",
+            description: "Metadata must remain an object",
+            metadata: metadata as never,
+          },
+          mutationContext,
+        ),
+      ).rejects.toThrow("metadata must be a JSON object")
+    }
+    return expect(double.operations).toEqual([])
+  })
+
+  it("accepts the exact feature query and limit maxima", async function() {
+    const double = createQueryDatabaseDouble({ select: [[FEATURE_ROW]] })
+    const repository = createFeatureItemRepository(double.database)
+    const query = "x".repeat(200)
+
+    await expect(
+      repository.listByOwner("user_alice", { query, limit: 100 }),
+    ).resolves.toEqual([FEATURE_ROW])
+    expect(double.operations[0]).toMatchObject({
+      kind: "select",
+      table: "feature_items",
+      limit: 100,
+    })
+    return expect(queryParameters(double.operations[0]!)).toEqual([
+      "user_alice",
+      `%${query}%`,
+      `%${query}%`,
+    ])
+  })
+
+  it("creates the first primary address without a prior version", async function() {
+    const createdAddress = {
+      ...ADDRESS_ROW,
+      id: "address_first_primary",
+      line1: "10 First Street",
+      line2: "Unit 1",
+      isPrimary: true,
+      createdAt: FIXED_NOW,
+      updatedAt: FIXED_NOW,
+    }
+    const double = createQueryDatabaseDouble({
+      select: [[{ value: 0 }], []],
+      update: [[]],
+      insert: [[createdAddress]],
+    })
+    const repository = createAddressRepository(double.database, {
+      now: () => FIXED_NOW,
+    })
+
+    await expect(
+      repository.create({
+        id: "address_first_primary",
+        userId: "user_alice",
+        type: "home",
+        line1: "10 First Street",
+        line2: "Unit 1",
+        city: "Springfield",
+        region: "IL",
+        postalCode: "62701",
+        country: "us",
+        isPrimary: true,
+      }),
+    ).resolves.toEqual(createdAddress)
+    const insertion = double.operations.find(
+      ({ kind }) => kind === "insert",
+    )!
+    expect(insertion.value).toMatchObject({
+      id: "address_first_primary",
+      line2: "Unit 1",
+      country: "US",
+      isPrimary: true,
+      createdAt: FIXED_NOW,
+      updatedAt: FIXED_NOW,
+    })
+    return expect(double.lifecycle).toEqual(["begin", "commit"])
+  })
+
+  it("persists every supported optimistic address patch field", async function() {
+    const updatedAddress = {
+      ...ADDRESS_ROW,
+      type: "work" as const,
+      line1: "20 Updated Street",
+      line2: null,
+      city: "Updated City",
+      region: "CA",
+      postalCode: "90210",
+      country: "CA",
+      updatedAt: NEXT_VERSION,
+    }
+    const double = createQueryDatabaseDouble({
+      update: [[updatedAddress]],
+    })
+    const repository = createAddressRepository(double.database, {
+      now: () => FIXED_NOW,
+    })
+
+    await expect(
+      repository.updateOptimistic({
+        id: "address_home",
+        userId: "user_alice",
+        type: "work",
+        line1: "20 Updated Street",
+        line2: null,
+        city: "Updated City",
+        region: "CA",
+        postalCode: "90210",
+        country: "ca",
+        expectedUpdatedAt: FIXED_NOW,
+      }),
+    ).resolves.toEqual(updatedAddress)
+    return expect(double.operations[0]!.value).toEqual({
+      type: "work",
+      line1: "20 Updated Street",
+      line2: null,
+      city: "Updated City",
+      region: "CA",
+      postalCode: "90210",
+      country: "CA",
+      updatedAt: NEXT_VERSION,
+    })
+  })
+
+  it("terminates cyclic provider causes and preserves the original failure", async function() {
+    const providerFailure = new Error("cyclic provider failure") as Error & {
+      cause?: unknown
+    }
+    providerFailure.cause = providerFailure
+    const double = createQueryDatabaseDouble({
+      select: [[{ value: 0 }]],
+      insert: [providerFailure],
+    })
+    const repository = createAddressRepository(double.database, {
+      now: () => FIXED_NOW,
+    })
+
+    await expect(
+      repository.create({
+        userId: "user_alice",
+        type: "home",
+        line1: "30 Failure Street",
+        city: "Springfield",
+        region: "IL",
+        postalCode: "62701",
+        country: "US",
+      }),
+    ).rejects.toBe(providerFailure)
+    return expect(double.lifecycle).toEqual(["begin", "rollback"])
+  })
+
+  it("preserves repository input errors raised by a theme provider", async function() {
+    const providerFailure = new InvalidRepositoryInputError(
+      "provider rejected canonical input",
+    )
+    const double = createQueryDatabaseDouble({
+      insert: [providerFailure],
+    })
+    const repository = createUserPreferencesRepository(double.database, {
+      now: () => FIXED_NOW,
+    })
+
+    return await expect(
+      repository.upsertTheme({
+        userId: "user_alice",
+        mode: "dark",
+        colorScheme: "blue",
+        expectedUpdatedAt: null,
+      }),
+    ).rejects.toBe(providerFailure)
+  })
+
+  return it("returns null when non-optimistic address writes lose a row after lookup", async function() {
+    const updateDouble = createQueryDatabaseDouble({
+      select: [[ADDRESS_ROW]],
+      update: [[]],
+    })
+    const updateRepository = createAddressRepository(updateDouble.database, {
+      now: () => FIXED_NOW,
+    })
+    await expect(
+      updateRepository.update({
+        id: "address_home",
+        userId: "user_alice",
+        city: "Race City",
+      }),
+    ).resolves.toBeNull()
+    expect(updateDouble.lifecycle).toEqual(["begin", "commit"])
+
+    const primaryDouble = createQueryDatabaseDouble({
+      select: [[ADDRESS_ROW], []],
+      update: [[], []],
+    })
+    const primaryRepository = createAddressRepository(primaryDouble.database, {
+      now: () => FIXED_NOW,
+    })
+    await expect(
+      primaryRepository.setPrimary("address_home", "user_alice"),
+    ).resolves.toBeNull()
+    expect(primaryDouble.lifecycle).toEqual(["begin", "commit"])
+    return expect(
+      primaryDouble.operations.filter(({ kind }) => kind === "update"),
+    ).toHaveLength(2)
+  })
+})

@@ -1,0 +1,171 @@
+"use client"
+
+import { createStore, type StoreApi } from "zustand/vanilla"
+
+import {
+  DEFAULT_UI_PREFERENCES,
+  isConsentState,
+  isPalette,
+  isThemeMode,
+  type ConsentState,
+  type Palette,
+  type SidebarState,
+  type ThemeMode,
+  type UiPreferences,
+} from "./index.ts"
+
+export const UI_STATE_VERSION = 1 as const
+
+export interface UiStateSnapshot {
+  readonly version: typeof UI_STATE_VERSION
+  readonly state: Readonly<UiPreferences>
+}
+
+export interface UiState extends UiPreferences {
+  readonly setSidebar: (sidebar: SidebarState) => void
+  readonly toggleSidebar: () => void
+  readonly setMobileNavigationOpen: (isOpen: boolean) => void
+  readonly closeMobileNavigation: () => void
+  readonly setThemeMode: (themeMode: ThemeMode) => void
+  readonly setPalette: (palette: Palette) => void
+  readonly setConsent: (consent: ConsentState) => void
+  readonly reset: () => void
+  readonly hydrate: (snapshot: unknown) => boolean
+  readonly dehydrate: () => UiStateSnapshot
+}
+
+export type UiStore = StoreApi<UiState>
+
+export const MAX_UI_STATE_SNAPSHOT_LENGTH = 512 as const
+
+const snapshotKeys = Object.freeze(["version", "state"] as const)
+const preferenceKeys = Object.freeze([
+  "sidebar",
+  "mobileNavigationOpen",
+  "themeMode",
+  "palette",
+  "consent",
+] as const)
+
+const isRecord = (value: unknown): value is Record<string, unknown> => {
+  return typeof value === "object" && value !== null && !Array.isArray(value)
+}
+
+const hasExactKeys = (
+  value: Record<string, unknown>,
+  keys: readonly string[],
+): boolean => {
+  const actualKeys = Object.keys(value)
+  return actualKeys.length === keys.length && keys.every(
+    (key) => Object.prototype.hasOwnProperty.call(value, key),
+  )
+}
+
+const isSidebarState = (value: unknown): value is SidebarState => {
+  return value === "expanded" || value === "collapsed"
+}
+
+const parseJsonSnapshot = (value: unknown): UiStateSnapshot | null => {
+  let snapshotValue: Record<string, unknown>
+  if (isRecord(value) && hasExactKeys(value, snapshotKeys)) {
+    snapshotValue = value
+  }
+  else {
+    return null
+  }
+  const version = snapshotValue["version"]
+  const state = snapshotValue["state"]
+  if (version !== UI_STATE_VERSION) return null
+  if (!isRecord(state)) return null
+  if (!hasExactKeys(state, preferenceKeys)) return null
+
+  const sidebar = state["sidebar"]
+  const mobileNavigationOpen = state["mobileNavigationOpen"]
+  const themeMode = state["themeMode"]
+  const palette = state["palette"]
+  const consent = state["consent"]
+
+  if (!isSidebarState(sidebar)
+    || typeof mobileNavigationOpen !== "boolean"
+    || !isThemeMode(themeMode)
+    || !isPalette(palette)
+    || !isConsentState(consent)) return null
+
+  return {
+    version: UI_STATE_VERSION,
+    state: {
+      sidebar,
+      mobileNavigationOpen,
+      themeMode,
+      palette,
+      consent,
+    },
+  }
+}
+
+export const parseUiStateSnapshot = (
+  serializedSnapshot: unknown,
+): UiStateSnapshot | null => {
+  if (typeof serializedSnapshot !== "string") return null
+  if (serializedSnapshot.length > MAX_UI_STATE_SNAPSHOT_LENGTH) return null
+
+  try {
+    return parseJsonSnapshot(JSON.parse(serializedSnapshot) as unknown)
+  }
+  catch {
+    return null
+  }
+}
+
+const copyPreferences = (
+  preferences: Readonly<UiPreferences>,
+): UiPreferences => ({
+  sidebar: preferences.sidebar,
+  mobileNavigationOpen: preferences.mobileNavigationOpen,
+  themeMode: preferences.themeMode,
+  palette: preferences.palette,
+  consent: preferences.consent,
+})
+
+export const createUiStore = (): UiStore => createStore<UiState>()((set, get) => ({
+  ...copyPreferences(DEFAULT_UI_PREFERENCES),
+  setSidebar: (sidebar) => {
+    if (isSidebarState(sidebar)) return set({ sidebar });return
+  },
+  toggleSidebar: () => set((state) => ({
+    sidebar: state.sidebar === "expanded" ? "collapsed" : "expanded",
+  })),
+  setMobileNavigationOpen: (mobileNavigationOpen) => {
+    if (typeof mobileNavigationOpen === "boolean") {
+      return set({ mobileNavigationOpen })
+    }
+    else {
+      return
+    }
+  },
+  closeMobileNavigation: () => set({ mobileNavigationOpen: false }),
+  setThemeMode: (themeMode) => {
+    if (isThemeMode(themeMode)) return set({ themeMode });return
+  },
+  setPalette: (palette) => {
+    if (isPalette(palette)) return set({ palette });return
+  },
+  setConsent: (consent) => {
+    if (isConsentState(consent)) return set({ consent });return
+  },
+  reset: () => set(copyPreferences(DEFAULT_UI_PREFERENCES)),
+  hydrate: (serializedSnapshot) => {
+    const snapshot = parseUiStateSnapshot(serializedSnapshot)
+    if (snapshot === null) {
+      return false
+    }
+    else {
+      set(copyPreferences(snapshot.state))
+      return true
+    }
+  },
+  dehydrate: () => ({
+    version: UI_STATE_VERSION,
+    state: copyPreferences(get()),
+  }),
+}))

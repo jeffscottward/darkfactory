@@ -18,120 +18,120 @@
   "exports": {
     ".": {
       "types": "./src/index.civet.d.ts",
-      "import": "./src/index.civet",
-      "default": "./src/index.civet"
+      "import": "./src/index.ts",
+      "default": "./src/index.ts"
     },
     "./avatar": {
       "types": "./src/avatar.civet.d.ts",
-      "import": "./src/avatar.civet",
-      "default": "./src/avatar.civet"
+      "import": "./src/avatar.tsx",
+      "default": "./src/avatar.tsx"
     },
     "./badge": {
       "types": "./src/badge.civet.d.ts",
-      "import": "./src/badge.civet",
-      "default": "./src/badge.civet"
+      "import": "./src/badge.tsx",
+      "default": "./src/badge.tsx"
     },
     "./button": {
       "types": "./src/button.civet.d.ts",
-      "import": "./src/button.civet",
-      "default": "./src/button.civet"
+      "import": "./src/button.tsx",
+      "default": "./src/button.tsx"
     },
     "./card": {
       "types": "./src/card.civet.d.ts",
-      "import": "./src/card.civet",
-      "default": "./src/card.civet"
+      "import": "./src/card.tsx",
+      "default": "./src/card.tsx"
     },
     "./empty-state": {
       "types": "./src/empty-state.civet.d.ts",
-      "import": "./src/empty-state.civet",
-      "default": "./src/empty-state.civet"
+      "import": "./src/empty-state.tsx",
+      "default": "./src/empty-state.tsx"
     },
     "./headings": {
       "types": "./src/headings.civet.d.ts",
-      "import": "./src/headings.civet",
-      "default": "./src/headings.civet"
+      "import": "./src/headings.tsx",
+      "default": "./src/headings.tsx"
     },
     "./icon-button": {
       "types": "./src/icon-button.civet.d.ts",
-      "import": "./src/icon-button.civet",
-      "default": "./src/icon-button.civet"
+      "import": "./src/icon-button.tsx",
+      "default": "./src/icon-button.tsx"
     },
     "./input": {
       "types": "./src/input.civet.d.ts",
-      "import": "./src/input.civet",
-      "default": "./src/input.civet"
+      "import": "./src/input.tsx",
+      "default": "./src/input.tsx"
     },
     "./label": {
       "types": "./src/label.civet.d.ts",
-      "import": "./src/label.civet",
-      "default": "./src/label.civet"
+      "import": "./src/label.tsx",
+      "default": "./src/label.tsx"
     },
     "./palettes": {
       "types": "./src/palettes.civet.d.ts",
-      "import": "./src/palettes.civet",
-      "default": "./src/palettes.civet"
+      "import": "./src/palettes.ts",
+      "default": "./src/palettes.ts"
     },
     "./separator": {
       "types": "./src/separator.civet.d.ts",
-      "import": "./src/separator.civet",
-      "default": "./src/separator.civet"
+      "import": "./src/separator.tsx",
+      "default": "./src/separator.tsx"
     },
     "./skeleton": {
       "types": "./src/skeleton.civet.d.ts",
-      "import": "./src/skeleton.civet",
-      "default": "./src/skeleton.civet"
+      "import": "./src/skeleton.tsx",
+      "default": "./src/skeleton.tsx"
     },
     "./stat-card": {
       "types": "./src/stat-card.civet.d.ts",
-      "import": "./src/stat-card.civet",
-      "default": "./src/stat-card.civet"
+      "import": "./src/stat-card.tsx",
+      "default": "./src/stat-card.tsx"
     },
     "./status-badge": {
       "types": "./src/status-badge.civet.d.ts",
-      "import": "./src/status-badge.civet",
-      "default": "./src/status-badge.civet"
+      "import": "./src/status-badge.tsx",
+      "default": "./src/status-badge.tsx"
     },
     "./textarea": {
       "types": "./src/textarea.civet.d.ts",
-      "import": "./src/textarea.civet",
-      "default": "./src/textarea.civet"
+      "import": "./src/textarea.tsx",
+      "default": "./src/textarea.tsx"
     },
     "./utilities": {
       "types": "./src/utilities.civet.d.ts",
-      "import": "./src/utilities.civet",
-      "default": "./src/utilities.civet"
+      "import": "./src/utilities.ts",
+      "default": "./src/utilities.ts"
     },
     "./client/dialog": {
       "types": "./src/client/dialog.civet.d.ts",
-      "import": "./src/client/dialog.civet",
-      "default": "./src/client/dialog.civet"
+      "import": "./src/client/dialog.ts",
+      "default": "./src/client/dialog.ts"
     },
     "./client/dropdown-menu": {
       "types": "./src/client/dropdown-menu.civet.d.ts",
-      "import": "./src/client/dropdown-menu.civet",
-      "default": "./src/client/dropdown-menu.civet"
+      "import": "./src/client/dropdown-menu.ts",
+      "default": "./src/client/dropdown-menu.ts"
     },
     "./client/tabs": {
       "types": "./src/client/tabs.civet.d.ts",
-      "import": "./src/client/tabs.civet",
-      "default": "./src/client/tabs.civet"
+      "import": "./src/client/tabs.ts",
+      "default": "./src/client/tabs.ts"
     },
     "./client/theme": {
       "types": "./src/client/theme.civet.d.ts",
-      "import": "./src/client/theme.civet",
-      "default": "./src/client/theme.civet"
+      "import": "./src/client/theme.ts",
+      "default": "./src/client/theme.ts"
     },
     "./client/toaster": {
       "types": "./src/client/toaster.civet.d.ts",
-      "import": "./src/client/toaster.civet",
-      "default": "./src/client/toaster.civet"
+      "import": "./src/client/toaster.ts",
+      "default": "./src/client/toaster.ts"
     },
     "./styles.css": "./src/styles.css"
   },
   "scripts": {
-    "types": "bunx --bun --no-install civet --config civet.types.json --emit-declaration src/index.civet src/avatar.civet src/badge.civet src/button.civet src/card.civet src/empty-state.civet src/headings.civet src/icon-button.civet src/input.civet src/label.civet src/palettes.civet src/separator.civet src/skeleton.civet src/stat-card.civet src/status-badge.civet src/textarea.civet src/utilities.civet src/client/dialog.civet src/client/dropdown-menu.civet src/client/tabs.civet src/client/theme.civet src/client/toaster.civet",
+    "types": "bunx --bun --no-install civet --config civet.types.json --emit-declaration src/index.ts src/avatar.tsx src/badge.tsx src/button.tsx src/card.tsx src/empty-state.tsx src/headings.tsx src/icon-button.tsx src/input.tsx src/label.tsx src/palettes.ts src/separator.tsx src/skeleton.tsx src/stat-card.tsx src/status-badge.tsx src/textarea.tsx src/utilities.ts src/client/dialog.ts src/client/dropdown-menu.ts src/client/tabs.ts src/client/theme.ts src/client/toaster.ts",
     "typecheck": "bunx --bun --no-install civet --config civet.typecheck.json --typecheck",
-    "test": "bun run types && corepack pnpm exec vitest run --config ../../vitest.config.ts --project unit src --exclude \"**/*contract.test.civet\"",
+    "test": "bun run types && corepack pnpm exec vitest run --config ../../vitest.config.ts --project unit src --exclude \"**/*contract.test.ts\"",
     "test:unit": "bun run types && corepack pnpm exec vitest run --config ../../vitest.config.ts --project unit ."
   },
   "engines": {

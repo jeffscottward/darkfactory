@@ -9,37 +9,37 @@
   "private": true,
   "type": "module",
   "sideEffects": [
-    "./src/server/unsupported.civet"
+    "./src/server/unsupported.ts"
   ],
   "exports": {
     ".": {
       "types": "./src/index.civet.d.ts",
-      "import": "./src/index.civet",
-      "default": "./src/index.civet"
+      "import": "./src/index.ts",
+      "default": "./src/index.ts"
     },
     "./contract": {
       "types": "./src/contract.civet.d.ts",
-      "import": "./src/contract.civet",
-      "default": "./src/contract.civet"
+      "import": "./src/contract.ts",
+      "default": "./src/contract.ts"
     },
     "./client": {
       "types": "./src/client.civet.d.ts",
-      "import": "./src/client.civet",
-      "default": "./src/client.civet"
+      "import": "./src/client.ts",
+      "default": "./src/client.ts"
     },
     "./server": {
       "types": "./src/server/index.civet.d.ts",
-      "workerd": "./src/server/unsupported.civet",
-      "worker": "./src/server/unsupported.civet",
-      "browser": "./src/server/unsupported.civet",
-      "import": "./src/server/index.civet",
-      "default": "./src/server/index.civet"
+      "workerd": "./src/server/unsupported.ts",
+      "worker": "./src/server/unsupported.ts",
+      "browser": "./src/server/unsupported.ts",
+      "import": "./src/server/index.ts",
+      "default": "./src/server/index.ts"
     }
   },
   "scripts": {
-    "types": "bunx --bun --no-install civet --config civet.types.json --emit-declaration src/index.civet src/contract.civet src/client.civet src/server/index.civet src/server/context.civet src/server/handler.civet src/server/router.civet src/server/operator-service.civet src/server/workflow-runtime.civet src/server/wayfinder-service.civet && bun --preload @danielx/civet/bun-civet scripts/normalize-type-declarations.civet",
+    "types": "bunx --bun --no-install civet --config civet.types.json --emit-declaration src/index.ts src/contract.ts src/client.ts src/server/index.ts src/server/context.ts src/server/handler.ts src/server/router.ts src/server/operator-service.ts src/server/workflow-runtime.ts src/server/wayfinder-service.ts && bun --preload @danielx/civet/bun-civet scripts/normalize-type-declarations.ts",
     "typecheck": "bunx --bun --no-install civet --config civet.typecheck.json --typecheck",
-    "test": "corepack pnpm exec vitest run --config ../../vitest.config.ts --project unit src/ --exclude \"**/*contract.test.civet\"",
+    "test": "corepack pnpm exec vitest run --config ../../vitest.config.ts --project unit src/ --exclude \"**/*contract.test.ts\"",
     "test:unit": "corepack pnpm exec vitest run --config ../../vitest.config.ts --project unit ."
   },
   "engines": {

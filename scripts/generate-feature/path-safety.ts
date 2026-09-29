@@ -1,0 +1,152 @@
+import { lstat, realpath } from "node:fs/promises"
+import { isAbsolute, join, relative, sep } from "node:path"
+
+import { GeneratorError } from "./errors.ts"
+
+export type PathIdentity = Readonly<{
+  path: string
+  device: number
+  inode: number
+}>
+
+const missing = (error: unknown): boolean => {
+  return Reflect.get(Object(error), "code") === "ENOENT"
+}
+
+const isRelativeOffsetInside = (offset: string): boolean => {
+  return offset === "" ||
+  (!offset.startsWith(`..${sep}`) && offset !== ".." && !isAbsolute(offset))
+}
+
+export const pathSafetyPredicatesForTest = Object.freeze({
+  isRelativeOffsetInside,
+})
+
+export const isPathInside = (root: string, candidate: string): boolean => {
+  return isRelativeOffsetInside(relative(root, candidate))
+}
+
+export const assertPathInside = (root: string, candidate: string): void => {
+  if (!isPathInside(root, candidate)) {
+    throw new GeneratorError("PATH_UNSAFE", "Generated path escapes its workspace")
+  }
+}
+
+export const assertSafeRelativePath = (path: string): void => {
+  if (
+    path.length === 0 ||
+    isAbsolute(path) ||
+    path.includes("\\") ||
+    path.split("/").some((segment) => segment === "" || segment === "." || segment === "..")
+  ) {
+    throw new GeneratorError("PATH_UNSAFE", "Generated path is unsafe")
+  }
+}
+
+export const identityAt = async (path: string): Promise<PathIdentity> => {
+  const stats = await lstat(path)
+  return Object.freeze({ path, device: stats.dev, inode: stats.ino })
+}
+
+export const hasIdentity = async (
+  expected: PathIdentity,
+): Promise<boolean> => {
+  try {
+    const actual = await lstat(expected.path)
+    return (
+      !actual.isSymbolicLink() &&
+      actual.dev === expected.device &&
+      actual.ino === expected.inode
+    )
+  }
+  catch (error) {
+    if (missing(error)) return false
+    throw error
+  }
+}
+
+export const canonicalWorkspaceRoot = async (targetRoot: string): Promise<string> => {
+  try {
+    const root = await realpath(targetRoot)
+    const stats = await lstat(root)
+    if (!stats.isDirectory()) {
+      throw new GeneratorError("TARGET_INVALID", "Generator target workspace is invalid")
+    }
+
+    const markerStats = await lstat(join(root, "package.json"))
+    if (!markerStats.isFile()) {
+      throw new GeneratorError("TARGET_INVALID", "Generator target workspace is invalid")
+    }
+    return root
+  }
+  catch (error) {
+    if (error instanceof GeneratorError) throw error
+    throw new GeneratorError(
+      "TARGET_INVALID",
+      "Generator target workspace is invalid",
+      { cause: error },
+    )
+  }
+}
+
+export const assertNoSymlinkPath = async (
+  root: string,
+  relativePath: string,
+): Promise<void> => {
+  assertSafeRelativePath(relativePath)
+  const segments = relativePath.split("/")
+  let current = root
+  for (const segment of segments) {
+    current = join(current, segment)
+    try {
+      const stats = await lstat(current)
+      if (stats.isSymbolicLink()) {
+        throw new GeneratorError("SYMLINK_UNSAFE", "Generated path contains a symbolic link")
+      }
+    }
+    catch (error) {
+      if (missing(error)) return
+      throw error
+    }
+  }
+}
+
+export const captureDirectoryChain = async (
+  root: string,
+  relativeDirectory: string,
+): Promise<readonly PathIdentity[]> => {
+  assertSafeRelativePath(relativeDirectory)
+  const identities: PathIdentity[] = [await identityAt(root)]
+  let current = root
+  for (const segment of relativeDirectory.split("/")) {
+    current = join(current, segment)
+    const stats = await lstat(current)
+    if (!stats.isDirectory()) {
+      throw new GeneratorError("SYMLINK_UNSAFE", "Generated ancestor is not a safe directory")
+    }
+    assertPathInside(root, await realpath(current))
+    identities.push(Object.freeze({ path: current, device: stats.dev, inode: stats.ino }))
+  }
+  return Object.freeze(identities)
+}
+
+export const assertDirectoryChain = async (
+  identities: readonly PathIdentity[],
+): Promise<void> => {
+  for (const identity of identities) {
+    if (!await hasIdentity(identity)) {
+      throw new GeneratorError("ANCESTOR_CHANGED", "Generated ancestor identity changed")
+    }
+  }
+}
+
+export const pathExists = async (path: string): Promise<boolean> => {
+  try {
+    await lstat(path)
+    return true
+  }
+  catch (error) {
+    if (missing(error)) return false
+    throw error
+  }
+}

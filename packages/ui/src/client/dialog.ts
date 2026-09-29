@@ -1,0 +1,96 @@
+"use client"
+
+import type { ComponentPropsWithRef, ReactElement, ReactNode } from "react"
+import { createElement } from "react"
+import { X } from "lucide-react"
+import { Dialog as DialogPrimitive } from "radix-ui"
+
+import { cn } from "../utilities.ts"
+
+export const Dialog = DialogPrimitive.Root
+export const DialogTrigger = DialogPrimitive.Trigger
+export const DialogClose = DialogPrimitive.Close
+
+export interface DialogContentProps
+  extends Omit<ComponentPropsWithRef<typeof DialogPrimitive.Content>, "children" | "title"> {
+  title: ReactNode
+  description?: ReactNode
+  children: ReactNode
+  closeLabel?: string
+}
+
+export const DialogContent = ({
+  children,
+  className,
+  closeLabel = "Close dialog",
+  description,
+  title,
+  ...props
+}: DialogContentProps) => {
+  return createElement(
+    DialogPrimitive.Portal,
+    null,
+    createElement(DialogPrimitive.Overlay, {
+      className: "fixed inset-0 z-overlay bg-overlay",
+    }),
+    createElement(
+      DialogPrimitive.Content,
+      {
+        className: cn(
+          "fixed left-1/2 top-1/2 z-modal grid max-h-[calc(100dvh-var(--space-8))] w-[calc(100%-var(--space-8))] max-w-lg -translate-x-1/2 -translate-y-1/2 gap-6 overflow-y-auto rounded-lg border border-border bg-surface-raised p-6 text-foreground shadow-lg focus:outline-none",
+          className,
+        ),
+        ...props,
+      },
+      createElement(
+        "div",
+        { className: "space-y-2 pr-10" },
+        createElement(
+          DialogPrimitive.Title,
+          { className: "font-heading text-xl font-semibold tracking-tight" },
+          title,
+        ),
+        description === undefined
+          ? null
+          : createElement(
+              DialogPrimitive.Description,
+              { className: "text-sm leading-5 text-muted-foreground" },
+              description,
+            ),
+      ),
+      children,
+      createElement(
+        DialogClose,
+        {
+          "aria-label": closeLabel,
+          className:
+            "absolute right-3 top-3 inline-flex size-11 items-center justify-center rounded-md border border-transparent text-muted-foreground transition-colors duration-base ease-out hover:bg-accent hover:text-foreground active:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface-raised disabled:pointer-events-none disabled:border-disabled-border disabled:bg-disabled disabled:text-disabled-foreground disabled:opacity-100",
+        },
+        createElement(X, { "aria-hidden": "true", className: "size-5" }),
+      ),
+    ),
+  )
+}
+
+export const DialogBody = ({
+  className,
+  ...props
+}: ComponentPropsWithRef<"div">): ReactElement<ComponentPropsWithRef<"div">> => {
+  return createElement("div", {
+    className: cn("text-sm leading-6 text-foreground", className),
+    ...props,
+  })
+}
+
+export const DialogFooter = ({
+  className,
+  ...props
+}: ComponentPropsWithRef<"div">): ReactElement<ComponentPropsWithRef<"div">> => {
+  return createElement("div", {
+    className: cn(
+      "flex flex-col-reverse gap-3 border-t border-border pt-5 sm:flex-row sm:justify-end",
+      className,
+    ),
+    ...props,
+  })
+}

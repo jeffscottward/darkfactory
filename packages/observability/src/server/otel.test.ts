@@ -1,0 +1,764 @@
+import { describe, expect, it } from "vitest"
+
+import type { SemanticEvent } from "../port.ts"
+import {
+  initializeTelemetry,
+  resolveOtlpSignalUrls,
+} from "./otel.ts"
+
+const event: SemanticEvent = {
+  eventId: "event_otel_01",
+  name: "feature-item.created",
+  occurredAt: "2026-07-23T12:00:00.000Z",
+  correlation: {
+    requestId: "request_otel_01",
+    traceId: "11111111111111111111111111111111",
+    spanId: "2222222222222222",
+    actorId: "actor_opaque_01",
+    route: "/rpc/feature.create",
+    procedure: "feature.create",
+  },
+  outcome: "success",
+  attributes: { password: "raw-password", safe: "kept" },
+}
+
+describe("resolveOtlpSignalUrls", function() {
+  it("constructs exact signal endpoints only for explicitly trusted collectors", function() {
+    expect(
+      resolveOtlpSignalUrls("https://collector.example.test/otlp/", {
+        allowedHosts: ["collector.example.test"],
+      })
+    ).toEqual({
+      traces: "https://collector.example.test/otlp/v1/traces",
+      metrics: "https://collector.example.test/otlp/v1/metrics",
+    })
+    return expect(
+      resolveOtlpSignalUrls("http://127.0.0.1:4318", {
+        allowedHosts: ["127.0.0.1"],
+        allowInsecureLocalhost: true,
+      })
+    ).toEqual({
+      traces: "http://127.0.0.1:4318/v1/traces",
+      metrics: "http://127.0.0.1:4318/v1/metrics",
+    })
+  })
+
+  it("fails closed for untrusted, private, credentialed, or ambiguous collector URLs", function() {
+    expect(
+      resolveOtlpSignalUrls("https://collector.example.test/otlp/")
+    ).toBeUndefined()
+    expect(
+      resolveOtlpSignalUrls("https://10.0.0.1/otlp", {
+        allowedHosts: ["10.0.0.1"],
+      })
+    ).toBeUndefined()
+    const results=[];for (const endpoint of [
+      "javascript:secret-provider-body",
+      "not a URL password=hidden",
+      "https://user:password@collector.example.test/otlp",
+      "https://collector.example.test/otlp?token=hidden",
+      "https://collector.example.test/otlp#secret",
+    ]) {
+      results.push(expect(
+        resolveOtlpSignalUrls(endpoint, {
+          allowedHosts: ["collector.example.test"],
+        })
+      ).toBeUndefined())
+    };return results;
+  })
+
+  it("supports normalized loopback forms only when explicitly enabled", function() {
+    expect(
+      resolveOtlpSignalUrls("http://localhost:4318", {
+        allowedHosts: ["LOCALHOST"],
+        allowInsecureLocalhost: true,
+      })
+    ).toEqual({
+      traces: "http://localhost:4318/v1/traces",
+      metrics: "http://localhost:4318/v1/metrics",
+    })
+    expect(
+      resolveOtlpSignalUrls("http://worker.localhost:4318/base//", {
+        allowedHosts: ["WORKER.LOCALHOST"],
+        allowInsecureLocalhost: true,
+      })
+    ).toEqual({
+      traces: "http://worker.localhost:4318/base/v1/traces",
+      metrics: "http://worker.localhost:4318/base/v1/metrics",
+    })
+    expect(
+      resolveOtlpSignalUrls("http://[::1]:4318", {
+        allowedHosts: ["::1"],
+        allowInsecureLocalhost: true,
+      })
+    ).toEqual({
+      traces: "http://[::1]:4318/v1/traces",
+      metrics: "http://[::1]:4318/v1/metrics",
+    })
+    return expect(
+      resolveOtlpSignalUrls("http://localhost:4318", {
+        allowedHosts: ["localhost"],
+      })
+    ).toBeUndefined()
+  })
+
+  it("rejects private collectors and endpoint policy boundary violations", function() {
+    const privateCollectors = [
+      ["https://0.1.2.3", "0.1.2.3"],
+      ["https://10.0.0.1", "10.0.0.1"],
+      ["https://100.64.0.1", "100.64.0.1"],
+      ["https://169.254.0.1", "169.254.0.1"],
+      ["https://172.16.0.1", "172.16.0.1"],
+      ["https://192.168.0.1", "192.168.0.1"],
+      ["https://198.18.0.1", "198.18.0.1"],
+      ["https://224.0.0.1", "224.0.0.1"],
+      ["https://service.local", "service.local"],
+      ["https://service.internal", "service.internal"],
+      ["https://collector", "collector"],
+      ["https://[fc00::1]", "fc00::1"],
+      ["https://[fd00::1]", "fd00::1"],
+      ["https://[fe80::1]", "fe80::1"],
+    ] as const
+    for (const [endpoint, allowedHost] of privateCollectors) {
+      expect(
+        resolveOtlpSignalUrls(endpoint, {
+          allowedHosts: [allowedHost],
+          allowInsecureLocalhost: true,
+        })
+      ).toBeUndefined()
+    }
+
+    expect(
+      resolveOtlpSignalUrls("https://collector.example.test", {
+        allowedHosts: ["other.example.test"],
+      })
+    ).toBeUndefined()
+    expect(
+      resolveOtlpSignalUrls("https://collector.example.test", {
+        allowedHosts: Array.from(
+          { length: 17 },
+          () => "collector.example.test"
+        ),
+      })
+    ).toBeUndefined()
+    expect(
+      resolveOtlpSignalUrls("http://collector.example.test", {
+        allowedHosts: ["collector.example.test"],
+      })
+    ).toBeUndefined()
+    expect(
+      resolveOtlpSignalUrls("ftp://localhost", {
+        allowedHosts: ["localhost"],
+        allowInsecureLocalhost: true,
+      })
+    ).toBeUndefined()
+    expect(
+      resolveOtlpSignalUrls(
+        `https://collector.example.test/${"a".repeat(1_025)}`,
+        { allowedHosts: ["collector.example.test"] }
+      )
+    ).toBeUndefined()
+    return expect(
+      resolveOtlpSignalUrls(
+        "https://:credential-marker@collector.example.test",
+        { allowedHosts: ["collector.example.test"] }
+      )
+    ).toBeUndefined()
+  })
+
+  return it("classifies every private-network boundary without treating numeric-looking public hosts as private", function() {
+    const publicCollectors = [
+      ["https://a.b.c.d", "a.b.c.d"],
+      ["https://-1.2.3.example", "-1.2.3.example"],
+      ["https://256.1.1.example", "256.1.1.example"],
+      ["https://100.63.0.1", "100.63.0.1"],
+      ["https://100.128.0.1", "100.128.0.1"],
+      ["https://169.253.0.1", "169.253.0.1"],
+      ["https://172.15.0.1", "172.15.0.1"],
+      ["https://172.32.0.1", "172.32.0.1"],
+      ["https://192.167.0.1", "192.167.0.1"],
+      ["https://198.17.0.1", "198.17.0.1"],
+      ["https://198.20.0.1", "198.20.0.1"],
+    ] as const
+    for (const [endpoint, allowedHost] of publicCollectors) {
+      expect(resolveOtlpSignalUrls(endpoint, {
+        allowedHosts: [allowedHost],
+      })).toEqual({
+        traces: `${endpoint}/v1/traces`,
+        metrics: `${endpoint}/v1/metrics`,
+      })
+    }
+
+    const results1=[];for (const [endpoint, allowedHost] of [
+      ["https://100.127.0.1", "100.127.0.1"],
+      ["https://172.31.0.1", "172.31.0.1"],
+      ["https://198.19.0.1", "198.19.0.1"],
+      ["https://[::]", "::"],
+    ] as const) {
+      results1.push(expect(resolveOtlpSignalUrls(endpoint, {
+        allowedHosts: [allowedHost],
+        allowInsecureLocalhost: true,
+      })).toBeUndefined())
+    };return results1;
+  })
+})
+
+describe("initialize telemetry edge paths", function() {
+
+  it("ignores inherited-looking header enumeration without accepting an unknown header", async function() {
+    let descriptorReads = 0
+    const headers = new Proxy({}, {
+      ownKeys: () => ["coverage-inherited-header"],
+      getOwnPropertyDescriptor: () => {
+        descriptorReads += 1
+        return descriptorReads === 1
+          ? {
+              configurable: true,
+              enumerable: true,
+              value: "ignored",
+              writable: true,
+            }
+          : undefined
+      }
+    }) as Readonly<Record<string, string>>
+    const runtime = initializeTelemetry({
+      enabled: true,
+      serviceName: "darkfactory-test",
+      otlpHeaders: headers,
+      testExport: true,
+    })
+
+    expect(runtime.state).toEqual({ status: "in-memory" })
+    expect(descriptorReads).toBe(2)
+    return await runtime.dispose()
+  })
+
+  it("applies an explicit insecure-loopback policy during initialization", async function() {
+    const runtime = initializeTelemetry({
+      enabled: true,
+      serviceName: "darkfactory-test",
+      otlpEndpoint: "http://localhost:4318",
+      otlpAllowedHosts: ["localhost"],
+      allowInsecureOtlpLocalhost: true,
+      testExport: true,
+    })
+
+    expect(runtime.state).toEqual({ status: "in-memory" })
+    return await runtime.dispose()
+  })
+
+  return it("contains non-record span attributes and accessor metric metadata", async function() {
+    const runtime = initializeTelemetry({
+      enabled: true,
+      serviceName: "darkfactory-test",
+      testExport: true,
+    })
+    let accessorReads = 0
+    const metricAttributes = {}
+    Object.defineProperties(metricAttributes, {
+      eventName: {
+        enumerable: true,
+        get: () => {
+          accessorReads += 1
+          return "feature-item.created"
+        }
+      },
+      outcome: {
+        enumerable: true,
+        get: () => {
+          accessorReads += 1
+          return "success"
+        }
+      },
+    })
+
+    for (const attributes of [null, [], "private scalar"] as const) {
+      await runtime.withSpan(
+        {
+          name: "non-record.attributes",
+          correlation: { requestId: "request_non_record" },
+          attributes: attributes as never,
+        },
+        (span) => {
+          return span.recordMetric({
+            name: "darkfactory.semantic_event",
+            value: 1,
+            attributes: metricAttributes,
+          })
+        }
+      )
+    }
+    await runtime.forceFlush()
+
+    expect(accessorReads).toBe(0)
+    expect(runtime.testExports?.traces.getFinishedSpans()).toHaveLength(3)
+    return await runtime.dispose()
+  })
+})
+describe("initializeTelemetry", function() {
+  it("reports explicit disabled, unconfigured, and no-export states", async function() {
+    const disabled = initializeTelemetry({ enabled: false })
+    const unconfigured = initializeTelemetry({ enabled: true })
+    const invalidEndpoint = initializeTelemetry({
+      enabled: true,
+      serviceName: "darkfactory-test",
+      otlpEndpoint: "not-a-url raw-secret",
+    })
+    const noExport = initializeTelemetry({
+      enabled: true,
+      serviceName: "darkfactory-test",
+    })
+
+    expect(disabled.state).toEqual({ status: "disabled" })
+    expect(unconfigured.state).toEqual({
+      status: "unconfigured",
+      reason: "service-name-missing",
+    })
+    expect(invalidEndpoint.state).toEqual({
+      status: "unconfigured",
+      reason: "endpoint-invalid",
+    })
+    expect(noExport.state).toEqual({ status: "no-export" })
+
+    const invalidHeaders = initializeTelemetry({
+      enabled: true,
+      serviceName: "darkfactory-test",
+      otlpEndpoint: "https://collector.example.test/otlp",
+      otlpAllowedHosts: ["collector.example.test"],
+      otlpHeaders: { cookie: "raw-cookie" },
+    })
+    expect(invalidHeaders.state).toEqual({
+      status: "unconfigured",
+      reason: "headers-invalid",
+    })
+
+    let callbacks = 0
+    for (const runtime of [disabled, unconfigured, invalidEndpoint, noExport]) {
+      await expect(
+        runtime.withSpan(
+          { name: "noop", correlation: { requestId: "request_noop" } },
+          function() {
+            callbacks += 1
+            return "ok"
+          }
+        )
+      ).resolves.toBe("ok")
+      await runtime.forceFlush()
+      await runtime.dispose()
+      await runtime.dispose()
+    }
+    return expect(callbacks).toBe(4)
+  })
+
+  it("exports correlated spans and metrics deterministically in memory with explicit parent context", async function() {
+    let now = 1_000
+    const runtime = initializeTelemetry({
+      enabled: true,
+      serviceName: "darkfactory-test",
+      testExport: true,
+      now: function() { return now },
+    })
+
+    expect(runtime.state).toEqual({ status: "in-memory" })
+    const value = await runtime.withSpan(
+      {
+        name: "rpc.feature.create",
+        correlation: event.correlation,
+        procedure: "feature.create",
+      },
+      function(span) {
+        expect(span.correlation.traceId).toBe(event.correlation.traceId)
+        expect(span.correlation.spanId).not.toBe(event.correlation.spanId)
+        span.addEvent(event)
+        span.recordMetric({
+          name: "darkfactory.semantic_event",
+          value: 1,
+          attributes: {
+            eventName: event.name,
+            outcome: "success",
+            requestId: "metric_unique_request",
+            custom: "metric_custom_value",
+          },
+        })
+        span.recordMetric({
+          name: `attacker.${"x".repeat(1_000)}`,
+          value: 1,
+        })
+        now = 1_037
+        return "ok"
+      }
+    )
+
+    expect(value).toBe("ok")
+    await runtime.forceFlush()
+
+    const spans = runtime.testExports?.traces.getFinishedSpans() ?? []
+    expect(spans).toHaveLength(1)
+    const span = spans[0]!
+    expect(span.name).toBe("rpc.feature.create")
+    expect(span.spanContext().traceId).toBe(event.correlation.traceId)
+    expect(span.parentSpanContext?.spanId).toBe(event.correlation.spanId)
+    expect(span.resource.attributes["service.name"]).toBe("darkfactory-test")
+    expect(span.resource.attributes["telemetry.sdk.name"]).toBe(
+      "opentelemetry"
+    )
+    expect(span.attributes).toMatchObject({
+      "service.name": "darkfactory-test",
+      "request.id": "request_otel_01",
+      "rpc.procedure": "feature.create",
+      "http.route": "/rpc/feature.create",
+      "darkfactory.outcome": "success",
+      "darkfactory.duration_ms": 37,
+    })
+    expect(span.events).toHaveLength(1)
+    expect(span.events[0]?.name).toBe("feature-item.created")
+    expect(JSON.stringify(span.events)).not.toContain("raw-password")
+
+    const metrics = runtime.testExports?.metrics.getMetrics() ?? []
+    const serializedMetrics = JSON.stringify(metrics)
+    expect(serializedMetrics).toContain("darkfactory.semantic_event")
+    expect(serializedMetrics).not.toContain("request_otel_01")
+    expect(serializedMetrics).toContain("feature-item.created")
+    expect(serializedMetrics).toContain("success")
+    expect(serializedMetrics).not.toContain("metric_unique_request")
+    expect(serializedMetrics).not.toContain("metric_custom_value")
+    expect(serializedMetrics).not.toContain("attacker.")
+    expect(metrics[0]?.resource.attributes["service.name"]).toBe(
+      "darkfactory-test"
+    )
+    expect(
+      metrics[0]?.resource.attributes["telemetry.sdk.name"]
+    ).toBe("opentelemetry")
+
+    await runtime.dispose()
+    return await runtime.dispose()
+  })
+
+  it("records a safe failure outcome without copying provider error details", async function() {
+    const runtime = initializeTelemetry({
+      enabled: true,
+      serviceName: "darkfactory-test",
+      testExport: true,
+    })
+    const providerError = new Error("raw-provider-body token=hidden")
+
+    await expect(
+      runtime.withSpan(
+        {
+          name: "rpc.feature.update",
+          correlation: { requestId: "request_failure" },
+          procedure: "feature.update",
+        },
+        function() { throw providerError }
+      )
+    ).rejects.toBe(providerError)
+    await runtime.forceFlush()
+
+    const spans = runtime.testExports?.traces.getFinishedSpans() ?? []
+    expect(spans[0]?.attributes).toMatchObject({
+      "darkfactory.outcome": "failure",
+      "error.category": "application",
+    })
+    expect(
+      JSON.stringify(
+        spans.map((finishedSpan) => ({
+          attributes: finishedSpan.attributes,
+          events: finishedSpan.events,
+          name: finishedSpan.name,
+          status: finishedSpan.status,
+        }))
+      )
+    ).not.toMatch(/raw-provider-body|token=hidden/)
+    return await runtime.dispose()
+  })
+
+
+  it("memoizes one concurrent disposal promise", async function() {
+    const runtime = initializeTelemetry({
+      enabled: true,
+      serviceName: "darkfactory-test",
+      testExport: true,
+    })
+
+    const first = runtime.dispose()
+    const second = runtime.dispose()
+    expect(second).toBe(first)
+    return await expect(first).resolves.toBeUndefined()
+  })
+
+  it("treats whitespace service names and malformed header records as unconfigured", function() {
+    expect(
+      initializeTelemetry({
+        enabled: true,
+        serviceName: "   ",
+        testExport: true,
+      }).state
+    ).toEqual({
+      status: "unconfigured",
+      reason: "service-name-missing",
+    })
+
+    const accessorHeaders: Record<string, string> = {}
+    Object.defineProperty(accessorHeaders, "authorization", {
+      enumerable: true,
+      get: () => "credential-marker",
+    })
+    const throwingHeaders = new Proxy(
+      {},
+      {
+        getPrototypeOf: () => {
+          throw new Error("header metadata unavailable")
+        }
+      }
+    )
+    let disappearingDescriptorReads = 0
+    const disappearingHeaders = new Proxy(
+      { authorization: "credential-marker" },
+      {
+        getOwnPropertyDescriptor: (target, key) => {
+          disappearingDescriptorReads += 1
+          return disappearingDescriptorReads === 3
+            ? undefined
+            : Reflect.getOwnPropertyDescriptor(target, key)
+        }
+      },
+    )
+    const invalidHeaders: unknown[] = [
+      Object.assign(Object.create({ inherited: true }), {
+        authorization: "credential-marker",
+      }),
+      {
+        Authorization: "credential-marker",
+        authorization: "credential-marker",
+      },
+      { authorization: "" },
+      { authorization: "a".repeat(4_097) },
+      { authorization: "first-line\nsecond-line" },
+      { authorization: 42 },
+      { "x-unknown": "credential-marker" },
+      Object.fromEntries([
+        ["authorization", "Bearer raw-authorization-secret"],
+        ["x-api-key", "raw-api-key-secret"],
+        ["x-honeycomb-dataset", "raw-dataset-secret"],
+        ["x-honeycomb-team", "raw-team-secret"],
+        ["x-otlp-api-key", "raw-otlp-secret"],
+        ["x-unknown-1", "raw-header-secret-1"],
+        ["x-unknown-2", "raw-header-secret-2"],
+        ["x-unknown-3", "raw-header-secret-3"],
+        ["x-unknown-4", "raw-header-secret-4"],
+      ]),
+      disappearingHeaders,
+      accessorHeaders,
+      throwingHeaders,
+    ]
+
+    const results2=[];for (const headers of invalidHeaders) {
+      results2.push(expect(
+        initializeTelemetry({
+          enabled: true,
+          serviceName: "darkfactory-test",
+          otlpHeaders: headers as Readonly<Record<string, string>>,
+          testExport: true,
+        }).state
+      ).toEqual({
+        status: "unconfigured",
+        reason: "headers-invalid",
+      }))
+    };return results2;
+  })
+
+  it("provides frozen no-op handles and preserves callback outcomes while inactive", async function() {
+    const runtime = initializeTelemetry({ enabled: false })
+    const correlation = { requestId: "request_inactive" }
+    let observedCorrelation: unknown
+
+    await expect(
+      runtime.withSpan(
+        { name: "inactive", correlation },
+        async (span) => {
+          observedCorrelation = span.correlation
+          span.addEvent(event)
+          span.recordMetric({
+            name: "darkfactory.semantic_event",
+            value: 1,
+          })
+          return "inactive-result"
+        }
+      )
+    ).resolves.toBe("inactive-result")
+    expect(observedCorrelation).not.toBe(correlation)
+    expect(observedCorrelation).toEqual(correlation)
+    expect(Object.isFrozen(observedCorrelation)).toBe(true)
+
+    const callbackError = new Error("inactive callback failed")
+    return await expect(
+      runtime.withSpan(
+        { name: "inactive.failure", correlation },
+        () => {
+          throw callbackError
+        }
+      )
+    ).rejects.toBe(callbackError)
+  })
+
+  it("starts root spans for incomplete or invalid parent correlations", async function() {
+    const validTraceId = "1".repeat(32)
+    const validSpanId = "2".repeat(16)
+    const runtime = initializeTelemetry({
+      enabled: true,
+      serviceName: "darkfactory-test",
+      testExport: true,
+      now: () => 500,
+    })
+    const correlations = [
+      { requestId: "missing-span", traceId: validTraceId },
+      { requestId: "missing-trace", spanId: validSpanId },
+      {
+        requestId: "invalid-trace",
+        traceId: "0".repeat(32),
+        spanId: validSpanId,
+      },
+      {
+        requestId: "invalid-span",
+        traceId: validTraceId,
+        spanId: "0".repeat(16),
+      },
+    ]
+
+    for (const correlation of correlations) {
+      await runtime.withSpan(
+        { name: `root.${correlation.requestId}`, correlation },
+        () => undefined
+      )
+    }
+    await runtime.forceFlush()
+
+    const spans = runtime.testExports?.traces.getFinishedSpans() ?? []
+    expect(spans).toHaveLength(correlations.length)
+    for (const span of spans) {
+      expect(span.parentSpanContext).toBeUndefined()
+      expect(span.attributes["darkfactory.duration_ms"]).toBe(0)
+    }
+    return await runtime.dispose()
+  })
+
+  return it("converts full semantic events and accepts only bounded semantic counters", async function() {
+    const runtime = initializeTelemetry({
+      enabled: true,
+      serviceName: "darkfactory-test",
+      testExport: true,
+      now: () => 700,
+    })
+    const metricMetadataFailure = new Proxy(
+      {},
+      {
+        getOwnPropertyDescriptor: () => {
+          throw new Error("metric metadata unavailable")
+        }
+      }
+    ) as Readonly<Record<string, string | number | boolean>>
+
+    await runtime.withSpan(
+      {
+        name: "rpc.feature.archive",
+        correlation: {
+          requestId: "request_archive",
+          route: "/rpc/feature.archive",
+          procedure: "feature.archive",
+        },
+        attributes: {
+          cached: true,
+          label: "archive",
+          retries: 2,
+        },
+      },
+      async function(span) {
+        span.addEvent({
+          ...event,
+          action: "archive",
+          entityId: "feature_01",
+          entityType: "feature-item",
+          source: "worker",
+        })
+        span.recordMetric({
+          name: "darkfactory.semantic_event",
+          value: 1,
+          attributes: {
+            eventName: "feature-item.archived",
+            outcome: "success",
+          },
+        })
+        span.recordMetric({
+          name: "darkfactory.semantic_event",
+          value: 2,
+        })
+        span.recordMetric({
+          name: "darkfactory.semantic_event",
+          value: 3,
+          attributes: {
+            eventName: "unsupported.event",
+            outcome: "unknown",
+          },
+        })
+        span.recordMetric({
+          name: "darkfactory.semantic_event",
+          value: 4,
+          attributes: metricMetadataFailure,
+        })
+        span.recordMetric({
+          name: "darkfactory.semantic_event",
+          value: -1,
+        })
+        return span.recordMetric({
+          name: "darkfactory.semantic_event",
+          value: Number.NaN,
+        })
+      }
+    )
+    await runtime.forceFlush()
+
+    const spans = runtime.testExports?.traces.getFinishedSpans() ?? []
+    expect(spans[0]?.attributes).toMatchObject({
+      cached: true,
+      label: "archive",
+      retries: 2,
+      "rpc.procedure": "feature.archive",
+      "darkfactory.duration_ms": 0,
+    })
+    expect(spans[0]?.events[0]?.attributes).toEqual({
+      "event.id": "event_otel_01",
+      "event.action": "archive",
+      "entity.id": "feature_01",
+      "entity.type": "feature-item",
+      "event.outcome": "success",
+      "event.source": "worker",
+    })
+
+    const exportedMetrics = runtime.testExports?.metrics.getMetrics() ?? []
+    const semanticMetric = exportedMetrics
+      .flatMap((resourceMetrics) => resourceMetrics.scopeMetrics)
+      .flatMap((scopeMetrics) => scopeMetrics.metrics)
+      .find(
+        (metricData) => {
+          return metricData.descriptor.name === "darkfactory.semantic_event"
+        }
+      )
+    const dataPoints = semanticMetric?.dataPoints ?? []
+    expect(dataPoints.map((dataPoint) => dataPoint.attributes)).toEqual(
+      expect.arrayContaining([
+        {
+          eventName: "feature-item.archived",
+          outcome: "success",
+        },
+        {},
+      ])
+    )
+    expect(
+      dataPoints.reduce(
+        (total, dataPoint) => total + (dataPoint.value as number),
+        0
+      )
+    ).toBe(10)
+    return await runtime.dispose()
+  })
+})

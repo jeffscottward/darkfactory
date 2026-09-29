@@ -203,7 +203,7 @@ describe("Vite application plugin contract", () => {
 
   it("pretransforms the protected portal client boundary during dev startup", () => {
     expect(viteConfig.server?.warmup?.clientFiles).toEqual([
-      "./src/components/portal-shell.civet",
+      "./src/components/portal-shell.tsx",
     ]);
   });
 

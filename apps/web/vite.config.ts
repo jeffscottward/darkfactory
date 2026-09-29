@@ -144,7 +144,7 @@ export default defineConfig({
     strictPort: true,
     // Reduces dev transform latency; the native popover remains the SSR fallback.
     warmup: {
-      clientFiles: ["./src/components/portal-shell.civet"],
+      clientFiles: ["./src/components/portal-shell.tsx"],
     },
   },
   preview: {

@@ -1,0 +1,28 @@
+import type { ComponentPropsWithRef, ReactNode } from "react"
+
+import { cn } from "./utilities.ts"
+
+export interface LabelProps extends ComponentPropsWithRef<"label"> {
+  optional?: boolean
+  optionalLabel?: ReactNode
+}
+
+export const Label = ({
+  children,
+  className,
+  optional = false,
+  optionalLabel = "Optional",
+  ...props
+}: LabelProps) => (
+  <label
+    className={cn("flex items-baseline justify-between gap-3 font-body text-sm font-semibold text-foreground", className)}
+    {...props}
+  >
+    <span>{children}
+    </span>
+    {optional ? (
+      <span className="font-normal text-muted-foreground">{optionalLabel}
+    </span>
+    ) : null}
+</label>
+)

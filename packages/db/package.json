@@ -9,42 +9,42 @@
   "private": true,
   "type": "module",
   "sideEffects": [
-    "./src/server/unsupported.civet"
+    "./src/server/unsupported.ts"
   ],
   "exports": {
     "./schema": {
       "types": "./src/schema/index.civet.d.ts",
-      "import": "./src/schema/index.civet",
-      "default": "./src/schema/index.civet"
+      "import": "./src/schema/index.ts",
+      "default": "./src/schema/index.ts"
     },
     "./server": {
       "types": "./src/server/index.civet.d.ts",
-      "workerd": "./src/server/index.civet",
-      "worker": "./src/server/index.civet",
-      "browser": "./src/server/unsupported.civet",
-      "import": "./src/server/index.civet",
-      "default": "./src/server/index.civet"
+      "workerd": "./src/server/index.ts",
+      "worker": "./src/server/index.ts",
+      "browser": "./src/server/unsupported.ts",
+      "import": "./src/server/index.ts",
+      "default": "./src/server/index.ts"
     },
     "./server/workflow": {
       "types": "./src/server/workflow-repository.civet.d.ts",
-      "workerd": "./src/server/workflow-repository.civet",
-      "worker": "./src/server/workflow-repository.civet",
-      "browser": "./src/server/unsupported.civet",
-      "import": "./src/server/workflow-repository.civet",
-      "default": "./src/server/workflow-repository.civet"
+      "workerd": "./src/server/workflow-repository.ts",
+      "worker": "./src/server/workflow-repository.ts",
+      "browser": "./src/server/unsupported.ts",
+      "import": "./src/server/workflow-repository.ts",
+      "default": "./src/server/workflow-repository.ts"
     },
     "./server/migration": {
       "types": "./src/server/migration.civet.d.ts",
-      "import": "./src/server/migration.civet",
-      "default": "./src/server/migration.civet"
+      "import": "./src/server/migration.ts",
+      "default": "./src/server/migration.ts"
     }
   },
   "scripts": {
-    "types": "bunx --bun --no-install civet --config civet.types.json --emit-declaration src/schema/index.civet src/server/client.civet src/server/migration.civet src/server/workflow-repository.civet src/server/repositories.civet src/reset.civet src/seeds/users.civet src/seeds/content.civet src/seeds/preferences.civet src/seeds/profiles.civet src/seeds/index.civet src/server/index.civet",
+    "types": "bunx --bun --no-install civet --config civet.types.json --emit-declaration src/schema/index.ts src/server/client.ts src/server/migration.ts src/server/workflow-repository.ts src/server/repositories.ts src/reset.ts src/seeds/users.ts src/seeds/content.ts src/seeds/preferences.ts src/seeds/profiles.ts src/seeds/index.ts src/server/index.ts",
     "typecheck": "bunx --bun --no-install civet --config civet.typecheck.json --typecheck",
-    "test": "corepack pnpm exec vitest run --config ../../vitest.config.ts --project unit src/server/boundary.test.civet src/server/server-bundle.test.civet src/server/client.test.civet src/server/repositories.test.civet src/server/workflow-repository.test.civet --exclude \"**/*contract.test.civet\"",
+    "test": "corepack pnpm exec vitest run --config ../../vitest.config.ts --project unit src/server/boundary.test.ts src/server/server-bundle.test.ts src/server/client.test.ts src/server/repositories.test.ts src/server/workflow-repository.test.ts --exclude \"**/*contract.test.ts\"",
     "test:unit": "corepack pnpm exec vitest run --config ../../vitest.config.ts --project unit .",
-    "db:schema": "bunx --bun --no-install civet --compile src/schema/index.civet --output .drizzle/src/schema/index.ts && bunx --bun --no-install civet --compile src/generated/schema-registry.civet --output .drizzle/src/generated/schema-registry.ts",
+    "db:schema": "bunx --bun --no-install civet --compile src/schema/index.ts --output .drizzle/src/schema/index.ts && bunx --bun --no-install civet --compile src/generated/schema-registry.ts --output .drizzle/src/generated/schema-registry.ts",
     "db:generate": "bun run db:schema && bunx --bun --no-install drizzle-kit generate --config drizzle.config.ts",
     "db:check": "bun run db:schema && bunx --bun --no-install drizzle-kit check --config drizzle.config.ts",
     "db:migrate": "bun run db:schema && bunx --bun --no-install drizzle-kit migrate --config drizzle.config.ts"

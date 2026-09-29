@@ -1,0 +1,48 @@
+export type BackgroundTaskScheduler = (task: Promise<unknown>) => void
+
+export type BackgroundTaskLifecycle = Readonly<{
+  schedule: BackgroundTaskScheduler
+  finalize: () => Promise<void>
+}>
+
+export const createBackgroundTaskLifecycle = (
+  scheduleExternal: BackgroundTaskScheduler,
+  close: () => Promise<void>,
+): BackgroundTaskLifecycle => {
+  const pending = new Set<Promise<unknown>>()
+  let phase: "open" | "draining" | "closing" | "closed" = "open"
+  let finalization: Promise<void> | undefined
+
+  const schedule = (task: Promise<unknown>): void => {
+    if (phase === "closing" || phase === "closed") {
+      throw new TypeError("Request background task lifecycle is closing")
+    }
+    let tracked!: Promise<unknown>
+    tracked = Promise.resolve(task).finally(() => {
+      return pending.delete(tracked)
+    }
+    )
+    pending.add(tracked)
+    scheduleExternal(tracked)
+  }
+
+  const drainAndClose = async (): Promise<void> => {
+    phase = "draining"
+    while (pending.size > 0) {
+      await Promise.allSettled([...pending])
+    }
+    phase = "closing"
+    try {
+      await close()
+    }
+    finally {
+      phase = "closed"
+    }
+  }
+
+  const finalize = (): Promise<void> => {
+    return finalization ??= drainAndClose()
+  }
+
+  return Object.freeze({ schedule, finalize })
+}

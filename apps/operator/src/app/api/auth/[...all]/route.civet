@@ -1,4 +1,0 @@
-import { handleOperatorAuthRequest } from "./handler.civet"
-
-export const GET = handleOperatorAuthRequest
-export const POST = handleOperatorAuthRequest

@@ -9,58 +9,58 @@
   "private": true,
   "type": "module",
   "sideEffects": [
-    "./src/server/unsupported.civet"
+    "./src/server/unsupported.ts"
   ],
   "exports": {
     ".": {
       "types": "./src/index.civet.d.ts",
-      "import": "./src/index.civet",
-      "default": "./src/index.civet"
+      "import": "./src/index.ts",
+      "default": "./src/index.ts"
     },
     "./port": {
       "types": "./src/port.civet.d.ts",
-      "import": "./src/port.civet",
-      "default": "./src/port.civet"
+      "import": "./src/port.ts",
+      "default": "./src/port.ts"
     },
     "./redaction": {
       "types": "./src/redaction.civet.d.ts",
-      "import": "./src/redaction.civet",
-      "default": "./src/redaction.civet"
+      "import": "./src/redaction.ts",
+      "default": "./src/redaction.ts"
     },
     "./server/otel": {
       "types": "./src/server/otel.civet.d.ts",
-      "workerd": "./src/server/otel.civet",
-      "worker": "./src/server/otel.civet",
-      "browser": "./src/server/unsupported.civet",
-      "import": "./src/server/otel.civet",
-      "default": "./src/server/otel.civet"
+      "workerd": "./src/server/otel.ts",
+      "worker": "./src/server/otel.ts",
+      "browser": "./src/server/unsupported.ts",
+      "import": "./src/server/otel.ts",
+      "default": "./src/server/otel.ts"
     },
     "./server/evlog": {
       "types": "./src/server/evlog.civet.d.ts",
-      "workerd": "./src/server/evlog.civet",
-      "worker": "./src/server/evlog.civet",
-      "browser": "./src/server/unsupported.civet",
-      "import": "./src/server/evlog.civet",
-      "default": "./src/server/evlog.civet"
+      "workerd": "./src/server/evlog.ts",
+      "worker": "./src/server/evlog.ts",
+      "browser": "./src/server/unsupported.ts",
+      "import": "./src/server/evlog.ts",
+      "default": "./src/server/evlog.ts"
     },
     "./server/fanout": {
       "types": "./src/server/fanout.civet.d.ts",
-      "workerd": "./src/server/fanout.civet",
-      "worker": "./src/server/fanout.civet",
-      "browser": "./src/server/unsupported.civet",
-      "import": "./src/server/fanout.civet",
-      "default": "./src/server/fanout.civet"
+      "workerd": "./src/server/fanout.ts",
+      "worker": "./src/server/fanout.ts",
+      "browser": "./src/server/unsupported.ts",
+      "import": "./src/server/fanout.ts",
+      "default": "./src/server/fanout.ts"
     },
     "./test": {
       "types": "./src/test.civet.d.ts",
-      "import": "./src/test.civet",
-      "default": "./src/test.civet"
+      "import": "./src/test.ts",
+      "default": "./src/test.ts"
     }
   },
   "scripts": {
-    "types": "bunx --bun --no-install civet --config civet.types.json --emit-declaration src/port.civet && bunx --bun --no-install civet --config civet.types.json --emit-declaration src/redaction.civet && bunx --bun --no-install civet --config civet.types.json --emit-declaration src/index.civet && bunx --bun --no-install civet --config civet.types.json --emit-declaration src/server/otel.civet && bunx --bun --no-install civet --config civet.types.json --emit-declaration src/server/evlog.civet && bunx --bun --no-install civet --config civet.types.json --emit-declaration src/server/fanout.civet && bunx --bun --no-install civet --config civet.types.json --emit-declaration src/test.civet",
+    "types": "bunx --bun --no-install civet --config civet.types.json --emit-declaration src/port.ts && bunx --bun --no-install civet --config civet.types.json --emit-declaration src/redaction.ts && bunx --bun --no-install civet --config civet.types.json --emit-declaration src/index.ts && bunx --bun --no-install civet --config civet.types.json --emit-declaration src/server/otel.ts && bunx --bun --no-install civet --config civet.types.json --emit-declaration src/server/evlog.ts && bunx --bun --no-install civet --config civet.types.json --emit-declaration src/server/fanout.ts && bunx --bun --no-install civet --config civet.types.json --emit-declaration src/test.ts",
     "typecheck": "bunx --bun --no-install civet --config civet.typecheck.json --typecheck",
-    "test": "corepack pnpm exec vitest run --config ../../vitest.config.ts --project unit src/*.test.civet src/server/*.test.civet",
+    "test": "corepack pnpm exec vitest run --config ../../vitest.config.ts --project unit src/*.test.ts src/server/*.test.ts",
     "test:unit": "corepack pnpm exec vitest run --config ../../vitest.config.ts --project unit ."
   },
   "dependencies": {

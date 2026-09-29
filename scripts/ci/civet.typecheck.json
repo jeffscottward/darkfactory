@@ -8,6 +8,6 @@
       "types": ["node"],
       "typeRoots": ["./node_modules/@types"]
     },
-    "include": ["scripts/ci/**/*.civet"]
+    "include": ["scripts/ci/**/*.ts"]
   }
 }

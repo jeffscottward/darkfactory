@@ -8,10 +8,10 @@
       "typeRoots": ["./node_modules/@types"]
     },
     "include": [
-      "scripts/doctor.civet",
-      "scripts/dev/lifecycle.civet",
-      "scripts/doctor/**/*.civet"
+      "scripts/doctor.ts",
+      "scripts/dev/lifecycle.ts",
+      "scripts/doctor/**/*.ts"
     ],
-    "exclude": ["scripts/doctor/**/*.test.civet"]
+    "exclude": ["scripts/doctor/**/*.test.ts"]
   }
 }

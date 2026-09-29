@@ -5,6 +5,6 @@
     "compilerOptions": {
       "types": ["node"]
     },
-    "include": ["src/**/*.civet"]
+    "include": ["src/**/*.ts"]
   }
 }

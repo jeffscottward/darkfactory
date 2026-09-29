@@ -12,14 +12,14 @@
   "exports": {
     ".": {
       "types": "./src/index.civet.d.ts",
-      "import": "./src/index.civet",
-      "default": "./src/index.civet"
+      "import": "./src/index.ts",
+      "default": "./src/index.ts"
     }
   },
   "scripts": {
-    "types": "bunx --bun --no-install civet --emit-declaration src/index.civet",
-    "typecheck": "bunx --bun --no-install civet --typecheck src/index.civet src/index.test.civet",
-    "test": "corepack pnpm exec vitest run --config ../../vitest.config.ts --project unit src/index.test.civet",
+    "types": "bunx --bun --no-install civet --emit-declaration src/index.ts",
+    "typecheck": "bunx --bun --no-install civet --typecheck src/index.ts src/index.test.ts",
+    "test": "corepack pnpm exec vitest run --config ../../vitest.config.ts --project unit src/index.test.ts",
     "test:unit": "corepack pnpm exec vitest run --config ../../vitest.config.ts --project unit ."
   },
   "devDependencies": {

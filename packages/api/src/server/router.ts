@@ -1,0 +1,883 @@
+import {
+  AuthAuthorizationError,
+  type SafeAuthSession,
+  type SafePrincipal,
+} from "@darkfactory/auth/server"
+import type { Address, FeatureItem } from "@darkfactory/db/schema"
+import type { EventOutcome, SemanticEvent } from "@darkfactory/observability/port"
+import { implement } from "@orpc/server"
+
+import {
+  appContract,
+  type FeatureItemInput,
+  type ThemePreferenceOutput,
+  type ContactSubmitInput,
+  type ContactSubmitOutput,
+} from "../contract.ts"
+import {
+  AccountServiceError,
+  createAccountService,
+  type AccountServiceErrorCode,
+} from "./account-service.ts"
+import {
+  AdminUsersServiceError,
+  createAdminUsersService,
+  type AdminUsersServiceErrorCode,
+} from "./admin-users-service.ts"
+import {
+  ContactServiceError,
+  createContactService,
+  type ContactServiceErrorCode,
+} from "./contact-service.ts"
+import {
+  DashboardServiceError,
+  createDashboardService,
+  type DashboardServiceErrorCode,
+} from "./dashboard-service.ts"
+import type { ApiContext } from "./context.ts"
+import {
+  FeatureServiceError,
+  ThemePreferenceServiceError,
+  createFeatureItemService,
+  createThemePreferenceService,
+  type FeatureServiceErrorCode,
+  type ThemePreferenceServiceErrorCode,
+} from "./service.ts"
+import { generatedFeatureRouters } from "../generated/router-registry.ts"
+
+const api = implement(appContract).$context<ApiContext>()
+
+type ExpectedErrorFactories = Record<
+  FeatureServiceErrorCode,
+  (options?: { message?: string }) => Error
+>
+
+const mapFeatureServiceError = (
+  error: unknown,
+  errors: ExpectedErrorFactories,
+): never => {
+  if (!(error instanceof FeatureServiceError)) throw error
+  throw errors[error.code]({ message: error.message })
+}
+type ThemeExpectedErrorFactories = Record<
+  ThemePreferenceServiceErrorCode,
+  (options?: { message?: string }) => Error
+>
+
+const mapThemePreferenceServiceError = (
+  error: unknown,
+  errors: ThemeExpectedErrorFactories,
+): never => {
+  if (!(error instanceof ThemePreferenceServiceError)) throw error
+  throw errors[error.code]({ message: error.message })
+}
+
+const toContractItem = (item: FeatureItem): FeatureItemInput => {
+  return item as unknown as FeatureItemInput
+}
+
+const toContractItems = (items: FeatureItem[]): FeatureItemInput[] => {
+  return items as unknown as FeatureItemInput[]
+}
+
+type ServiceErrorFactories<Code extends string> = Record<
+  Code,
+  (options?: { message?: string }) => Error
+>
+
+const mapAccountServiceError = (
+  error: unknown,
+  errors: ServiceErrorFactories<AccountServiceErrorCode>,
+): never => {
+  if (!(error instanceof AccountServiceError)) throw error
+  throw errors[error.code]({ message: error.message })
+}
+
+const mapAdminUsersServiceError = (
+  error: unknown,
+  errors: ServiceErrorFactories<AdminUsersServiceErrorCode>,
+): never => {
+  if (!(error instanceof AdminUsersServiceError)) throw error
+  throw errors[error.code]({ message: error.message })
+}
+
+const mapDashboardServiceError = (
+  error: unknown,
+  errors: ServiceErrorFactories<DashboardServiceErrorCode>,
+): never => {
+  if (!(error instanceof DashboardServiceError)) throw error
+  throw errors[error.code]({ message: error.message })
+}
+
+const mapContactServiceError = (
+  error: unknown,
+  errors: ServiceErrorFactories<ContactServiceErrorCode>,
+): never => {
+  if (!(error instanceof ContactServiceError)) throw error
+  throw errors[error.code]({ message: error.message })
+}
+
+
+const emitContactSubmittedEvent = async (
+  context: ApiContext,
+  input: ContactSubmitInput,
+  result: ContactSubmitOutput,
+): Promise<void> => {
+  if (context.semanticEvents === undefined) return
+  try {
+    const event: SemanticEvent = {
+      eventId: crypto.randomUUID(),
+      name: "contact.submitted",
+      occurredAt: new Date().toISOString(),
+      correlation: {
+        ...(context.span?.correlation ?? {}),
+        requestId: context.requestId,
+        route: "/api/orpc/contact/submit",
+        procedure: "contact.submit",
+      },
+      action: "submit",
+      entityType: "contact-request",
+      outcome: result.status === "not-delivered" ? "failure" : "success",
+      source: "api",
+      attributes: {
+        sent: result.status === "sent",
+        previewed: result.status === "previewed",
+        delivered: result.status === "sent",
+        honeypot: Boolean(input.website?.trim()),
+      },
+    }
+    await context.semanticEvents.emit(event, {
+      ...(context.span === undefined ? {} : { span: context.span }),
+      ...(context.waitUntil === undefined
+        ? {}
+        : { waitUntil: context.waitUntil }),
+    })
+  }
+  catch (_error) {
+    // Contact observability is best-effort and never exposes submission fields.
+  }
+}
+
+const toContractAddress = (address: Address) => ({
+  id: address.id,
+  type: address.type,
+  line1: address.line1,
+  line2: address.line2,
+  city: address.city,
+  region: address.region,
+  postalCode: address.postalCode,
+  country: address.country,
+  isPrimary: address.isPrimary,
+  createdAt: address.createdAt,
+  updatedAt: address.updatedAt,
+})
+
+type AccountMutationEventSpec = Readonly<{
+  name:
+    | "account.profile.updated"
+    | "account.address.created"
+    | "account.address.updated"
+    | "account.address.removed"
+    | "account.address.primary-set"
+    | "user-preferences.updated"
+  procedure:
+    | "account.profile.update"
+    | "account.addresses.create"
+    | "account.addresses.update"
+    | "account.addresses.remove"
+    | "account.addresses.setPrimary"
+    | "preferences.update"
+  action: "update" | "create" | "remove" | "set-primary"
+  entityType: "profile" | "address" | "user-preferences"
+  entityId?: string
+}>
+
+const emitAccountMutationEvent = async (
+  context: ApiContext,
+  principal: SafePrincipal,
+  spec: AccountMutationEventSpec,
+): Promise<void> => {
+  if (context.semanticEvents === undefined) return
+  try {
+    const event: SemanticEvent = {
+      eventId: crypto.randomUUID(),
+      name: spec.name,
+      occurredAt: new Date().toISOString(),
+      correlation: {
+        ...(context.span?.correlation ?? {}),
+        requestId: context.requestId,
+        actorId: principal.userId,
+        route: `/api/orpc/${spec.procedure.replaceAll(".", "/")}`,
+        procedure: spec.procedure,
+      },
+      action: spec.action,
+      entityType: spec.entityType,
+      ...(spec.entityId === undefined ? {} : { entityId: spec.entityId }),
+      outcome: "success",
+      source: "api",
+      attributes: { actorRole: principal.role },
+    }
+    await context.semanticEvents.emit(event, {
+      ...(context.span === undefined ? {} : { span: context.span }),
+      ...(context.waitUntil === undefined ? {} : { waitUntil: context.waitUntil }),
+    })
+  }
+  catch (_error) {
+    // Observability is best-effort and never changes successful account mutations.
+  }
+}
+type MutationEventSpec = Readonly<{
+  name:
+    | "feature-item.created"
+    | "feature-item.updated"
+    | "feature-item.archived"
+  procedure:
+    | "featureItems.create"
+    | "featureItems.update"
+    | "featureItems.changeStatus"
+    | "featureItems.archive"
+  route:
+    | "/api/orpc/featureItems/create"
+    | "/api/orpc/featureItems/update"
+    | "/api/orpc/featureItems/changeStatus"
+    | "/api/orpc/featureItems/archive"
+  action: "create" | "update" | "change-status" | "archive"
+  entityId?: string
+}>
+
+const mutationErrorCategory = (error: unknown): string => {
+  return error instanceof FeatureServiceError ? error.code.toLowerCase() : "unexpected"
+}
+
+const emitMutationEvent = async (
+  context: ApiContext,
+  principal: SafePrincipal,
+  spec: MutationEventSpec,
+  outcome: EventOutcome,
+  entityId: string | undefined,
+  error?: unknown,
+): Promise<void> => {
+  try {
+    if (context.semanticEvents === undefined) return
+    const event: SemanticEvent = {
+      eventId: crypto.randomUUID(),
+      name: spec.name,
+      occurredAt: new Date().toISOString(),
+      correlation: {
+        ...(context.span?.correlation ?? {}),
+        requestId: context.requestId,
+        actorId: principal.userId,
+        route: spec.route,
+        procedure: spec.procedure,
+      },
+      action: spec.action,
+      ...(entityId === undefined ? {} : { entityId }),
+      entityType: "feature-item",
+      outcome,
+      source: "api",
+      ...(error === undefined
+        ? {}
+        : { errorCategory: mutationErrorCategory(error) }),
+      attributes: { actorRole: principal.role },
+    }
+    await context.semanticEvents.emit(event, {
+      ...(context.span === undefined ? {} : { span: context.span }),
+      ...(context.waitUntil === undefined
+        ? {}
+        : { waitUntil: context.waitUntil }),
+    })
+  }
+  catch (_error) {
+    // Observability is best-effort and must not affect domain mutation results.
+  }
+}
+
+const runMutation = async (
+  context: ApiContext,
+  principal: SafePrincipal,
+  spec: MutationEventSpec,
+  operation: () => Promise<FeatureItem>,
+): Promise<FeatureItem> => {
+  try {
+    const item = await operation()
+    await emitMutationEvent(context, principal, spec, "success", item.id)
+    return item
+  }
+  catch (error) {
+    await emitMutationEvent(
+      context,
+      principal,
+      spec,
+      "failure",
+      spec.entityId,
+      error,
+    )
+    throw error
+  }
+}
+
+const emitThemeUpdateEvent = async (
+  context: ApiContext,
+  principal: SafePrincipal,
+  outcome: EventOutcome,
+  error?: unknown,
+): Promise<void> => {
+  try {
+    if (context.semanticEvents === undefined) return
+    const event: SemanticEvent = {
+      eventId: crypto.randomUUID(),
+      name: "user-preferences.theme-updated",
+      occurredAt: new Date().toISOString(),
+      correlation: {
+        ...(context.span?.correlation ?? {}),
+        requestId: context.requestId,
+        actorId: principal.userId,
+        route: "/api/orpc/preferences/theme/update",
+        procedure: "preferences.theme.update",
+      },
+      action: "update",
+      entityType: "user-preferences",
+      outcome,
+      source: "api",
+      ...(error === undefined
+        ? {}
+        : {
+            errorCategory:
+              error instanceof ThemePreferenceServiceError
+                ? error.code.toLowerCase()
+                : "unexpected",
+          }),
+      attributes: { actorRole: principal.role },
+    }
+    await context.semanticEvents.emit(event, {
+      ...(context.span === undefined ? {} : { span: context.span }),
+      ...(context.waitUntil === undefined
+        ? {}
+        : { waitUntil: context.waitUntil }),
+    })
+  }
+  catch (_error) {
+    // Observability is best-effort and must not affect preference persistence.
+  }
+}
+
+const runThemeUpdate = async (
+  context: ApiContext,
+  principal: SafePrincipal,
+  operation: () => Promise<ThemePreferenceOutput>,
+): Promise<ThemePreferenceOutput> => {
+  try {
+    const preference = await operation()
+    await emitThemeUpdateEvent(context, principal, "success")
+    return preference
+  }
+  catch (error) {
+    await emitThemeUpdateEvent(context, principal, "failure", error)
+    throw error
+  }
+}
+
+
+type AuthorizationErrorFactories = Readonly<{
+  UNAUTHORIZED: (options?: { message?: string }) => Error
+  FORBIDDEN: (options?: { message?: string }) => Error
+}>
+
+const authorizationErrors = (errors: unknown): AuthorizationErrorFactories => {
+  return errors as AuthorizationErrorFactories
+}
+
+const requireAuthenticated = api.middleware(
+  async ({ context, next, errors }) => {
+    const authErrors = authorizationErrors(errors)
+    try {
+      const session = await context.requireSession()
+      return next({
+        context: {
+          principal: session.principal,
+          authSession: session,
+        },
+      })
+    }
+    catch (error) {
+      if (!(error instanceof AuthAuthorizationError)) throw error
+      if (error.status === 401) {
+        throw authErrors.UNAUTHORIZED()
+      }
+      throw authErrors.FORBIDDEN()
+    }
+  }
+)
+
+const requireAdmin = api.middleware(async ({ context, next, errors }) => {
+  const authErrors = authorizationErrors(errors)
+  try {
+    const session = await context.requireRole("admin")
+    return next({ context: { principal: session.principal } })
+  }
+  catch (error) {
+    if (!(error instanceof AuthAuthorizationError)) throw error
+    if (error.status === 401) {
+      throw authErrors.UNAUTHORIZED()
+    }
+    throw authErrors.FORBIDDEN()
+  }
+}
+)
+
+const list = api.featureItems.list
+  .use(requireAuthenticated)
+  .handler(async ({ context, input, errors }) => {
+    try {
+      return toContractItems(
+        await createFeatureItemService(context.repositories.featureItems).list(
+          context.principal,
+          input,
+        ),
+      )
+    }
+    catch (error) {
+      return mapFeatureServiceError(error, errors)
+    }
+  }
+  )
+
+const get = api.featureItems.get
+  .use(requireAuthenticated)
+  .handler(async ({ context, input, errors }) => {
+    try {
+      return toContractItem(
+        await createFeatureItemService(context.repositories.featureItems).get(
+          context.principal,
+          input,
+        ),
+      )
+    }
+    catch (error) {
+      return mapFeatureServiceError(error, errors)
+    }
+  }
+  )
+
+const create = api.featureItems.create
+  .use(requireAuthenticated)
+  .handler(async ({ context, input, errors }) => {
+    try {
+      const service = createFeatureItemService(context.repositories.featureItems)
+      return toContractItem(
+        await runMutation(
+          context,
+          context.principal,
+          {
+            name: "feature-item.created",
+            procedure: "featureItems.create",
+            route: "/api/orpc/featureItems/create",
+            action: "create",
+          },
+          () => service.create(context.principal, input, context.requestId),
+        ),
+      )
+    }
+    catch (error) {
+      return mapFeatureServiceError(error, errors)
+    }
+  }
+  )
+
+const update = api.featureItems.update
+  .use(requireAuthenticated)
+  .handler(async ({ context, input, errors }) => {
+    try {
+      const service = createFeatureItemService(context.repositories.featureItems)
+      return toContractItem(
+        await runMutation(
+          context,
+          context.principal,
+          {
+            name: "feature-item.updated",
+            procedure: "featureItems.update",
+            route: "/api/orpc/featureItems/update",
+            action: "update",
+            entityId: input.id,
+          },
+          () => service.update(context.principal, input, context.requestId),
+        ),
+      )
+    }
+    catch (error) {
+      return mapFeatureServiceError(error, errors)
+    }
+  }
+  )
+
+const changeStatus = api.featureItems.changeStatus
+  .use(requireAuthenticated)
+  .handler(async ({ context, input, errors }) => {
+    try {
+      const service = createFeatureItemService(context.repositories.featureItems)
+      return toContractItem(
+        await runMutation(
+          context,
+          context.principal,
+          {
+            name: "feature-item.updated",
+            procedure: "featureItems.changeStatus",
+            route: "/api/orpc/featureItems/changeStatus",
+            action: "change-status",
+            entityId: input.id,
+          },
+          () => service.changeStatus(context.principal, input, context.requestId),
+        ),
+      )
+    }
+    catch (error) {
+      return mapFeatureServiceError(error, errors)
+    }
+  }
+  )
+
+const archive = api.featureItems.archive
+  .use(requireAuthenticated)
+  .handler(async ({ context, input, errors }) => {
+    try {
+      const service = createFeatureItemService(context.repositories.featureItems)
+      return toContractItem(
+        await runMutation(
+          context,
+          context.principal,
+          {
+            name: "feature-item.archived",
+            procedure: "featureItems.archive",
+            route: "/api/orpc/featureItems/archive",
+            action: "archive",
+            entityId: input.id,
+          },
+          () => service.archive(context.principal, input, context.requestId),
+        ),
+      )
+    }
+    catch (error) {
+      return mapFeatureServiceError(error, errors)
+    }
+  }
+  )
+
+const adminList = api.admin.featureItems.list
+  .use(requireAdmin)
+  .handler(async ({ context, input, errors }) => {
+    try {
+      return toContractItems(
+        await createFeatureItemService(context.repositories.featureItems).list(
+          context.principal,
+          input,
+        ),
+      )
+    }
+    catch (error) {
+      return mapFeatureServiceError(error, errors)
+    }
+  }
+  )
+
+const themeGet = api.preferences.theme.get
+  .use(requireAuthenticated)
+  .handler(async ({ context, errors }) => {
+    try {
+      return await createThemePreferenceService(
+        context.repositories.userPreferences,
+      ).get(context.principal)
+    }
+    catch (error) {
+      return mapThemePreferenceServiceError(error, errors)
+    }
+  }
+  )
+
+const themeUpdate = api.preferences.theme.update
+  .use(requireAuthenticated)
+  .handler(async ({ context, input, errors }) => {
+    try {
+      const service = createThemePreferenceService(
+        context.repositories.userPreferences,
+      )
+      const operation = (): Promise<ThemePreferenceOutput> => {
+        return service.update(context.principal, input)
+      }
+      return await runThemeUpdate(context, context.principal, operation)
+    }
+    catch (error) {
+      return mapThemePreferenceServiceError(error, errors)
+    }
+  }
+  )
+
+const accountProfileGet = api.account.profile.get
+  .use(requireAuthenticated)
+  .handler(async ({ context, errors }) => {
+    try {
+      return await createAccountService(context.repositories).getProfile(
+        context.authSession,
+      )
+    }
+    catch (error) {
+      return mapAccountServiceError(error, errors)
+    }
+  }
+  )
+
+const accountProfileUpdate = api.account.profile.update
+  .use(requireAuthenticated)
+  .handler(async ({ context, input, errors }) => {
+    try {
+      const result = await createAccountService(
+        context.repositories,
+      ).updateProfile(context.authSession, input)
+      await emitAccountMutationEvent(context, context.principal, {
+        name: "account.profile.updated",
+        procedure: "account.profile.update",
+        action: "update",
+        entityType: "profile",
+      })
+      return result
+    }
+    catch (error) {
+      return mapAccountServiceError(error, errors)
+    }
+  }
+  )
+
+const accountAddressesList = api.account.addresses.list
+  .use(requireAuthenticated)
+  .handler(async ({ context, errors }) => {
+    try {
+      const addresses = await createAccountService(
+        context.repositories,
+      ).listAddresses(context.principal)
+      return addresses.map(toContractAddress)
+    }
+    catch (error) {
+      return mapAccountServiceError(error, errors)
+    }
+  }
+  )
+
+const accountAddressesCreate = api.account.addresses.create
+  .use(requireAuthenticated)
+  .handler(async ({ context, input, errors }) => {
+    try {
+      const address = await createAccountService(
+        context.repositories,
+      ).createAddress(context.principal, input)
+      await emitAccountMutationEvent(context, context.principal, {
+        name: "account.address.created",
+        procedure: "account.addresses.create",
+        action: "create",
+        entityType: "address",
+        entityId: address.id,
+      })
+      return toContractAddress(address)
+    }
+    catch (error) {
+      return mapAccountServiceError(error, errors)
+    }
+  }
+  )
+
+const accountAddressesUpdate = api.account.addresses.update
+  .use(requireAuthenticated)
+  .handler(async ({ context, input, errors }) => {
+    try {
+      const address = await createAccountService(
+        context.repositories,
+      ).updateAddress(context.principal, input)
+      await emitAccountMutationEvent(context, context.principal, {
+        name: "account.address.updated",
+        procedure: "account.addresses.update",
+        action: "update",
+        entityType: "address",
+        entityId: address.id,
+      })
+      return toContractAddress(address)
+    }
+    catch (error) {
+      return mapAccountServiceError(error, errors)
+    }
+  }
+  )
+
+const accountAddressesRemove = api.account.addresses.remove
+  .use(requireAuthenticated)
+  .handler(async ({ context, input, errors }) => {
+    try {
+      const result = await createAccountService(
+        context.repositories,
+      ).removeAddress(context.principal, input)
+      await emitAccountMutationEvent(context, context.principal, {
+        name: "account.address.removed",
+        procedure: "account.addresses.remove",
+        action: "remove",
+        entityType: "address",
+        entityId: input.id,
+      })
+      return result
+    }
+    catch (error) {
+      return mapAccountServiceError(error, errors)
+    }
+  }
+  )
+
+const accountAddressesSetPrimary = api.account.addresses.setPrimary
+  .use(requireAuthenticated)
+  .handler(async ({ context, input, errors }) => {
+    try {
+      const address = await createAccountService(
+        context.repositories,
+      ).setPrimaryAddress(context.principal, input)
+      await emitAccountMutationEvent(context, context.principal, {
+        name: "account.address.primary-set",
+        procedure: "account.addresses.setPrimary",
+        action: "set-primary",
+        entityType: "address",
+        entityId: address.id,
+      })
+      return toContractAddress(address)
+    }
+    catch (error) {
+      return mapAccountServiceError(error, errors)
+    }
+  }
+  )
+
+const preferencesGet = api.preferences.get
+  .use(requireAuthenticated)
+  .handler(async ({ context, errors }) => {
+    try {
+      return await createAccountService(
+        context.repositories,
+      ).getPreferences(context.principal)
+    }
+    catch (error) {
+      return mapAccountServiceError(error, errors)
+    }
+  }
+  )
+
+const preferencesUpdate = api.preferences.update
+  .use(requireAuthenticated)
+  .handler(async ({ context, input, errors }) => {
+    try {
+      const result = await createAccountService(
+        context.repositories,
+      ).updatePreferences(context.principal, input)
+      await emitAccountMutationEvent(context, context.principal, {
+        name: "user-preferences.updated",
+        procedure: "preferences.update",
+        action: "update",
+        entityType: "user-preferences",
+      })
+      return result
+    }
+    catch (error) {
+      return mapAccountServiceError(error, errors)
+    }
+  }
+  )
+
+const contactSubmit = api.contact.submit.handler(
+  async ({ context, input, errors }) => {
+    try {
+      if (
+        context.contactDelivery === undefined ||
+        context.contactThrottle === undefined ||
+        context.contactThrottleKey === undefined
+      ) {
+        throw new ContactServiceError("SERVICE_UNAVAILABLE")
+      }
+      const result = await createContactService({
+        delivery: context.contactDelivery,
+        throttle: context.contactThrottle,
+        throttleKey: context.contactThrottleKey,
+      }).submit(input)
+      await emitContactSubmittedEvent(context, input, result)
+      return result
+    }
+    catch (error) {
+      return mapContactServiceError(error, errors)
+    }
+  }
+)
+
+const adminUsersList = api.admin.users.list
+  .use(requireAdmin)
+  .handler(async ({ context, input, errors }) => {
+    try {
+      return await createAdminUsersService(
+        context.repositories.adminUsers,
+      ).list(input)
+    }
+    catch (error) {
+      return mapAdminUsersServiceError(error, errors)
+    }
+  }
+  )
+
+const dashboardSummary = api.dashboard.summary
+  .use(requireAuthenticated)
+  .handler(async ({ context, errors }) => {
+    try {
+      const summary = await createDashboardService(
+        context.repositories.dashboard,
+        context.capabilities,
+      ).summary(context.principal)
+      return {
+        ...summary,
+        session: {
+          userId: context.authSession.principal.userId,
+          name: context.authSession.user.name,
+          role: context.authSession.principal.role,
+          status: "active",
+          expiresAt: context.authSession.session.expiresAt,
+        },
+        featureItems: {
+          ...summary.featureItems,
+          recent: toContractItems(summary.featureItems.recent),
+        },
+      }
+    }
+    catch (error) {
+      return mapDashboardServiceError(error, errors)
+    }
+  }
+  )
+
+
+export const appRouter = api.router({
+  featureItems: { list, get, create, update, changeStatus, archive },
+  ...generatedFeatureRouters,
+  contact: { submit: contactSubmit },
+  account: {
+    profile: { get: accountProfileGet, update: accountProfileUpdate },
+    addresses: {
+      list: accountAddressesList,
+      create: accountAddressesCreate,
+      update: accountAddressesUpdate,
+      remove: accountAddressesRemove,
+      setPrimary: accountAddressesSetPrimary,
+    },
+  },
+  admin: {
+    featureItems: { list: adminList },
+    users: { list: adminUsersList },
+  },
+  preferences: {
+    get: preferencesGet,
+    update: preferencesUpdate,
+    theme: { get: themeGet, update: themeUpdate },
+  },
+  dashboard: { summary: dashboardSummary },
+})
+
+
+export type AuthenticatedApiContext = ApiContext &
+  Readonly<{ principal: SafePrincipal; authSession: SafeAuthSession }>

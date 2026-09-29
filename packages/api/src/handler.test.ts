@@ -1,0 +1,256 @@
+import {
+  AUTHORIZATION_ERROR_CODES,
+  AuthAuthorizationError,
+  type SafeAuthSession,
+} from "@darkfactory/auth/server"
+import type { FeatureItemRepository, Repositories } from "@darkfactory/db/server"
+import type { FeatureItem } from "@darkfactory/db/schema"
+import { ORPCError } from "@orpc/client"
+import { describe, expect, it, vi } from "vitest"
+
+import { createApiClient } from "./client.ts"
+import { createApiContext, resolveApiRequestId } from "./server/context.ts"
+import {
+  handleApiRequest,
+  handleOpenApiRequest,
+} from "./server/handler.ts"
+
+const item: FeatureItem = {
+  id: "item-1",
+  ownerId: "member-1",
+  name: "Neutral item",
+  description: "A neutral description",
+  status: "draft",
+  metadata: {},
+  createdAt: new Date("2026-01-02T03:04:05.000Z"),
+  updatedAt: new Date("2026-01-02T03:04:05.000Z"),
+}
+
+const archivedItem = (): FeatureItem => ({ ...item, status: "archived" })
+
+const featureItems = (overrides: Partial<FeatureItemRepository> = {}): FeatureItemRepository => ({
+  listByOwner: vi.fn(async () => [item]),
+  findByIdForOwner: vi.fn(async () => item),
+  create: vi.fn(async () => item),
+  update: vi.fn(async () => item),
+  archive: vi.fn(async () => archivedItem()),
+  ...overrides,
+})
+
+const repositories = (repository = featureItems()): Repositories => ({
+  profiles: {} as Repositories["profiles"],
+  addresses: {} as Repositories["addresses"],
+  userPreferences: {} as Repositories["userPreferences"],
+  featureItems: repository,
+  adminUsers: {} as Repositories["adminUsers"],
+  dashboard: {} as Repositories["dashboard"],
+})
+
+const session = (role: "member" | "admin"): SafeAuthSession => ({
+  user: {
+    id: role === "admin" ? "admin-1" : "member-1",
+    name: role,
+    email: `${role}@domain.test`,
+    emailVerified: true,
+    image: null,
+    createdAt: new Date("2026-01-02T03:04:05.000Z"),
+    updatedAt: new Date("2026-01-02T03:04:05.000Z"),
+    role,
+    status: "active",
+  },
+  session: {
+    id: `session-${role}`,
+    userId: role === "admin" ? "admin-1" : "member-1",
+    expiresAt: new Date("2026-01-03T03:04:05.000Z"),
+    createdAt: new Date("2026-01-02T03:04:05.000Z"),
+    updatedAt: new Date("2026-01-02T03:04:05.000Z"),
+    ipAddress: null,
+    userAgent: null,
+  },
+  principal: {
+    userId: role === "admin" ? "admin-1" : "member-1",
+    role,
+    status: "active",
+  },
+})
+
+const clientFor = (
+  requestSession: SafeAuthSession | null,
+  repository = featureItems(),
+) => {
+  const fetch = async (request: Request): Promise<Response> => {
+    const context = createApiContext(request, {
+      repositories: repositories(repository),
+      requestId: "request-1",
+      capabilities: {
+        ai: false, emailDelivery: false, analytics: false,
+        telemetryExport: false, storage: false, errorTracking: false,
+      },
+      requireSession: async () => {
+        if (requestSession === null) {
+          throw new AuthAuthorizationError(
+            AUTHORIZATION_ERROR_CODES.AUTH_REQUIRED,
+            401,
+          )
+        }
+        return requestSession
+      },
+      requireRole: async (_headers, role) => {
+        if (requestSession === null) {
+          throw new AuthAuthorizationError(
+            AUTHORIZATION_ERROR_CODES.AUTH_REQUIRED,
+            401,
+          )
+        }
+        if (requestSession.principal.role !== role) {
+          throw new AuthAuthorizationError(
+            AUTHORIZATION_ERROR_CODES.FORBIDDEN,
+            403,
+          )
+        }
+        return requestSession
+      }
+    })
+    return handleApiRequest(request, context)
+  }
+
+  return createApiClient({ baseUrl: "https://darkfactory.localhost", fetch })
+}
+
+const expectError = async (
+  promise: Promise<unknown>,
+  code: string,
+  status: number,
+  message?: string,
+): Promise<void> => {
+  try {
+    await promise
+    throw new Error("Expected the oRPC call to fail")
+  }
+  catch (error) {
+    expect(error).toBeInstanceOf(ORPCError)
+    expect(error).toMatchObject({
+      code,
+      status,
+      defined: true,
+      ...(message === undefined ? {} : { message }),
+    })
+  }
+}
+
+describe("DF-045/051 production context to middleware to Fetch handler", function() {
+  it("denies an anonymous feature request", async function() {
+    return await expectError(
+      clientFor(null).featureItems.list({}),
+      "UNAUTHORIZED",
+      401,
+      "Authentication required",
+    )
+  })
+
+  it("allows an authenticated member within their owner scope", async function() {
+    return await expect(clientFor(session("member")).featureItems.list({})).resolves.toEqual([
+      item,
+    ])
+  })
+
+  it("denies a member from the real admin application procedure", async function() {
+    return await expectError(
+      clientFor(session("member")).admin.featureItems.list({
+        ownerId: "member-1",
+      }),
+      "FORBIDDEN",
+      403,
+      "Forbidden",
+    )
+  })
+
+  it("allows an admin through the real admin application procedure", async function() {
+    const listByOwner = vi.fn(async () => [item])
+
+    await expect(
+      clientFor(
+        session("admin"),
+        featureItems({ listByOwner }),
+      ).admin.featureItems.list({ ownerId: "member-1" }),
+    ).resolves.toEqual([item])
+    return expect(listByOwner).toHaveBeenCalledWith("member-1", { limit: 50 })
+  })
+
+  it("rejects invalid contract input before the service", async function() {
+    return await expectError(
+      clientFor(session("member")).featureItems.create({
+        name: "",
+        description: "description",
+      }),
+      "BAD_REQUEST",
+      400,
+    )
+  })
+
+  it("returns 404 for an unknown oRPC route", async function() {
+    const request = new Request(
+      "https://darkfactory.localhost/api/orpc/not-a-procedure",
+    )
+    const response = await handleApiRequest(
+      request,
+      createApiContext(request, {
+        repositories: repositories(),
+        requestId: "request-1",
+        capabilities: {
+          ai: false, emailDelivery: false, analytics: false,
+          telemetryExport: false, storage: false, errorTracking: false,
+        },
+        requireSession: async () => session("member"),
+        requireRole: async () => session("admin"),
+      }),
+    )
+
+    return expect(response.status).toBe(404)
+  })
+
+  it("serves matched OpenAPI routes and returns 404 for unmatched routes", async function() {
+    const request = new Request(
+      "https://darkfactory.localhost/api/openapi/feature-items",
+    )
+    const context = createApiContext(request, {
+      repositories: repositories(),
+      requestId: "request-openapi-1",
+      capabilities: {
+        ai: false, emailDelivery: false, analytics: false,
+        telemetryExport: false, storage: false, errorTracking: false,
+      },
+      requireSession: async () => session("member"),
+      requireRole: async () => session("admin"),
+    })
+
+    const matched = await handleOpenApiRequest(request, context)
+    expect(matched.status).toBe(200)
+    expect(await matched.text()).toContain('"item-1"')
+
+    const unmatched = await handleOpenApiRequest(
+      new Request("https://darkfactory.localhost/api/openapi/not-a-procedure"),
+      context,
+    )
+    expect(unmatched.status).toBe(404)
+    return await expect(unmatched.text()).resolves.toBe("Not Found")
+  })
+
+  it("rejects unsafe injected and generated request identifiers", function() {
+    const request = new Request("https://darkfactory.localhost/api/orpc")
+
+    expect(() => resolveApiRequestId(request, {
+      requestId: "unsafe request id",
+    })).toThrow("requestId must be 1-128 safe correlation characters")
+    expect(() => resolveApiRequestId(request, {
+      generateRequestId: () => "",
+    })).toThrow("generated requestId must be 1-128 safe correlation characters")
+    return expect(resolveApiRequestId(request)).toMatch(/^[A-Za-z0-9._:-]{1,128}$/)
+  })
+
+  return it("constructs the default-fetch client boundary without issuing a request", function() {
+    return expect(createApiClient({
+      baseUrl: new URL("https://darkfactory.localhost"),
+    })).toBeDefined()
+  })
+})

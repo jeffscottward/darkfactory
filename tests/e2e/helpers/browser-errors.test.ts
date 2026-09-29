@@ -8,7 +8,7 @@ const CANONICAL_SOURCE_OPTIONS = {
 } as const;
 
 const CANONICAL_ACCOUNT_MODULE_URL = new URL(
-  "../../../apps/web/src/components/account/account-client.civet",
+  "../../../apps/web/src/components/account/account-client.ts",
   import.meta.url
 );
 const CANONICAL_ACCOUNT_MODULE_PATH = fileURLToPath(

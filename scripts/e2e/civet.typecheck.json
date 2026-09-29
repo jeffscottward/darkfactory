@@ -7,7 +7,7 @@
       "types": ["node"],
       "typeRoots": ["./node_modules/@types"]
     },
-    "include": ["scripts/e2e/**/*.civet"],
-    "exclude": ["scripts/e2e/**/*.test.civet"]
+    "include": ["scripts/e2e/**/*.ts"],
+    "exclude": ["scripts/e2e/**/*.test.ts"]
   }
 }

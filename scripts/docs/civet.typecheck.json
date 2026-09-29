@@ -7,7 +7,7 @@
       "types": ["node"],
       "typeRoots": ["./node_modules/@types"]
     },
-    "include": ["scripts/docs.civet", "scripts/docs/**/*.civet"],
-    "exclude": ["scripts/docs/**/*.test.civet"]
+    "include": ["scripts/docs.ts", "scripts/docs/**/*.ts"],
+    "exclude": ["scripts/docs/**/*.test.ts"]
   }
 }

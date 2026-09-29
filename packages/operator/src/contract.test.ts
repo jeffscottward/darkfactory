@@ -1,0 +1,239 @@
+import {
+  MAX_WORKFLOW_HUMAN_REQUEST_BYTES_V1,
+  MAX_WORKFLOW_SCOPE_BYTES,
+  canonicalJsonV1,
+} from "@darkfactory/state/workflow"
+import { describe, expect, it } from "vitest"
+
+import {
+  MAX_OPERATOR_IMPLEMENTATION_PLAN_BYTES,
+  OperatorApprovalBindingInputSchema,
+  OperatorApprovalBindingSchema,
+  OperatorImplementationPlanSchema,
+  OperatorRunDetailSchema,
+  OperatorSubmitInputSchema,
+  OperatorWayfinderReviseInputSchema,
+  OperatorWayfinderStartInputSchema,
+  OperatorWayfinderStatusSchema,
+} from "./contract.ts"
+
+const boundaryScope = () => ({
+  repositoryId: "darkfactory",
+  paths: [
+    ...Array.from({ length: 15 }, () => "é".repeat(128)),
+    "é".repeat(84),
+  ],
+})
+
+const approvalBinding = (effectScope: string) => ({
+  machineId: "darkfactory-pilot",
+  machineVersion: 1,
+  eventVersion: 1,
+  snapshotSequence: 2,
+  journalHeadHash: "a".repeat(64),
+  effectHash: "b".repeat(64),
+  effectScope,
+})
+
+const utf8Bytes = (value: string): number => {
+  return new TextEncoder().encode(value).byteLength
+}
+
+describe("operator implementation plan contract", function() {
+  const plan = (summary: string) => ({
+    summary,
+    digest: "a".repeat(64),
+    truncated: false,
+    redacted: true
+  })
+
+  it("accepts the exact multibyte byte boundary", function() {
+    const summary = "é".repeat(MAX_OPERATOR_IMPLEMENTATION_PLAN_BYTES / 2)
+    expect(utf8Bytes(summary)).toBe(MAX_OPERATOR_IMPLEMENTATION_PLAN_BYTES)
+    return expect(OperatorImplementationPlanSchema.safeParse(plan(summary)).success).toBe(true)
+  })
+
+  return it("rejects an oversized or empty plan and an invalid digest", function() {
+    expect(OperatorImplementationPlanSchema.safeParse(
+      plan(`${"é".repeat(MAX_OPERATOR_IMPLEMENTATION_PLAN_BYTES / 2)}é`)
+    ).success).toBe(false)
+    expect(OperatorImplementationPlanSchema.safeParse(plan("   ")).success).toBe(false)
+    return expect(OperatorImplementationPlanSchema.safeParse({
+      ...plan("Reviewable"),
+      digest: "not-a-hash"
+    }).success).toBe(false)
+  })
+})
+
+describe("operator approval effect-scope contracts", function() {
+  it("accepts an exact-boundary multibyte submit scope in binding input and output", function() {
+    const scope = boundaryScope()
+    const effectScope = canonicalJsonV1(scope)
+    const binding = approvalBinding(effectScope)
+
+    expect(utf8Bytes(effectScope)).toBe(MAX_WORKFLOW_SCOPE_BYTES)
+    expect(OperatorSubmitInputSchema.safeParse({
+      idempotencyKey: "submit-boundary",
+      title: "Boundary scope",
+      scope
+    }).success).toBe(true)
+    expect(OperatorApprovalBindingInputSchema.safeParse(binding).success).toBe(true)
+    return expect(OperatorApprovalBindingSchema.safeParse({
+      ...binding,
+      stale: false
+    }).success).toBe(true)
+  })
+
+  it("rejects a one-byte-over multibyte scope in submit and binding contracts", function() {
+    const scope = boundaryScope()
+    scope.paths[scope.paths.length - 1] += "a"
+    const effectScope = canonicalJsonV1(scope)
+    const binding = approvalBinding(effectScope)
+
+    expect(utf8Bytes(effectScope)).toBe(MAX_WORKFLOW_SCOPE_BYTES + 1)
+    expect(OperatorSubmitInputSchema.safeParse({
+      idempotencyKey: "submit-over-boundary",
+      title: "Over-boundary scope",
+      scope
+    }).success).toBe(false)
+    expect(OperatorApprovalBindingInputSchema.safeParse(binding).success).toBe(false)
+    return expect(OperatorApprovalBindingSchema.safeParse({
+      ...binding,
+      stale: false
+    }).success).toBe(false)
+  })
+
+  return it("rejects malformed JSON in an approval binding effect scope", function() {
+    return expect(OperatorApprovalBindingInputSchema.safeParse(
+      approvalBinding("{not-json}")
+    ).success).toBe(false)
+  })
+})
+
+describe("operator run detail capability contract", function() {
+  const output = {
+    run: {
+      id: "run-1",
+      state: "awaitingApproval",
+      sequence: 2,
+      updatedAt: new Date("2026-07-31T12:00:00.000Z"),
+      headHash: "a".repeat(64),
+      machineId: "darkfactory-pilot",
+      machineVersion: 1
+    },
+    originalRequest: "Plan the bounded operator change",
+    planRevisions: [{
+      message: "Keep the change within packages/operator.",
+      createdAt: new Date("2026-07-31T12:05:00.000Z")
+    }],
+    canRequestPlanRevision: true,
+    timeline: [],
+    approval: null,
+    implementationPlan: null,
+    evidence: [],
+    messages: []
+  }
+
+  return it("requires bounded durable conversation projection fields", function() {
+    expect(OperatorRunDetailSchema.safeParse(output).success).toBe(true)
+    const { originalRequest: _request, ...missingRequest } = output
+    expect(OperatorRunDetailSchema.safeParse(missingRequest).success).toBe(false)
+    const { planRevisions: _revisions, ...missingRevisions } = output
+    expect(OperatorRunDetailSchema.safeParse(missingRevisions).success).toBe(false)
+    const { canRequestPlanRevision: _capability, ...missingCapability } = output
+    expect(OperatorRunDetailSchema.safeParse(missingCapability).success).toBe(false)
+    return expect(OperatorRunDetailSchema.safeParse({
+      ...output,
+      planRevisions: [{
+        message: "é".repeat(MAX_WORKFLOW_HUMAN_REQUEST_BYTES_V1 / 2 + 1),
+        createdAt: new Date("2026-07-31T12:05:00.000Z")
+      }]
+    }).success).toBe(false)
+  })
+})
+
+describe("operator Wayfinder contract", function() {
+  it("accepts installed and unavailable local-markdown status only", function() {
+    expect(OperatorWayfinderStatusSchema.safeParse({
+      availability: "installed",
+      tracker: "local-markdown"
+    }).success).toBe(true)
+    expect(OperatorWayfinderStatusSchema.safeParse({
+      availability: "unavailable",
+      tracker: "local-markdown"
+    }).success).toBe(true)
+    return expect(OperatorWayfinderStatusSchema.safeParse({
+      availability: "installed",
+      tracker: "remote"
+    }).success).toBe(false)
+  })
+
+  it("trims an exact-boundary human request and preserves bounded scope", function() {
+    const request = "é".repeat(MAX_WORKFLOW_HUMAN_REQUEST_BYTES_V1 / 2)
+    const result = OperatorWayfinderStartInputSchema.parse({
+      scope: { repositoryId: "darkfactory", paths: ["packages/operator"] },
+      request: ` ${request} `
+    })
+
+    expect(utf8Bytes(result.request)).toBe(MAX_WORKFLOW_HUMAN_REQUEST_BYTES_V1)
+    return expect(result).toEqual({
+      scope: { repositoryId: "darkfactory", paths: ["packages/operator"] },
+      request
+    })
+  })
+
+  it("rejects oversized, control-bearing, or non-canonical requests", function() {
+    const validScope = {
+      repositoryId: "darkfactory",
+      paths: ["packages/operator"]
+    }
+    const results=[];for (const input of [
+      {
+        scope: validScope,
+        request: `${"é".repeat(MAX_WORKFLOW_HUMAN_REQUEST_BYTES_V1 / 2)}é`
+      },
+      { scope: validScope, request: "Plan\nanother line" },
+      {
+        scope: { repositoryId: "../darkfactory", paths: ["packages/../operator"] },
+        request: "Plan the operator boundary"
+      }
+    ]) {
+      results.push(expect(OperatorWayfinderStartInputSchema.safeParse(input).success).toBe(false))
+    };return results;
+  })
+
+
+  return it("trims and bounds plan revision clarification", function() {
+    const message = "é".repeat(MAX_WORKFLOW_HUMAN_REQUEST_BYTES_V1 / 2)
+    const idempotencyKey = "revision-attempt-1"
+    expect(OperatorWayfinderReviseInputSchema.parse({
+      runId: "run-wayfinder-1",
+      idempotencyKey,
+      message: ` ${message} `
+    })).toEqual({
+      runId: "run-wayfinder-1",
+      idempotencyKey,
+      message
+    })
+    for (const invalid of [
+      "",
+      "   ",
+      "line one\nline two",
+      `${message}é`
+    ]) {
+      expect(OperatorWayfinderReviseInputSchema.safeParse({
+        runId: "run-wayfinder-1",
+        idempotencyKey,
+        message: invalid
+      }).success).toBe(false)
+    }
+
+    const results1=[];for (const idempotencyKey of ["", "../revision", "a".repeat(129)]) {
+      results1.push(expect(OperatorWayfinderReviseInputSchema.safeParse({
+        runId: "run-wayfinder-1",
+        idempotencyKey,
+        message: "Keep the plan bounded."
+      }).success).toBe(false))
+    };return results1;
+  })
+})

@@ -1,0 +1,187 @@
+import { createConnection } from "node:net"
+import { describe, expect, it } from "vitest"
+
+import {
+  processExists,
+  spawnOwnedProcess,
+  terminateOwnedProcessTree,
+  terminateOwnedProcessTreeThen,
+} from "../../../scripts/e2e/owned-process-tree.ts"
+
+type FixtureAddress = Readonly<{
+  pid: number
+  port: number
+}>
+
+const grandchildScript = `
+  import { createServer } from "node:net";
+  const server = createServer();
+  server.listen(0, "127.0.0.1", () => {
+    const address = server.address();
+    process.stdout.write(JSON.stringify({ pid: process.pid, port: address.port }) + "\\n");
+  });
+  setInterval(() => undefined, 1000);
+`
+
+const parentScript = `
+  import { spawn } from "node:child_process";
+  const grandchild = spawn(
+    process.execPath,
+    ["--input-type=module", "--eval", ${JSON.stringify(grandchildScript)}],
+    { shell: false, stdio: ["ignore", "pipe", "inherit"] },
+  );
+  grandchild.stdout.once("data", (chunk) => process.stdout.write(chunk));
+  setInterval(() => undefined, 1000);
+`
+
+const fixtureAddress = async (
+  fixture: ReturnType<typeof spawnOwnedProcess>,
+): Promise<FixtureAddress> => new Promise((resolve, reject) => {
+  const timeout = setTimeout(
+    () => reject(new Error("Timed out waiting for process-tree fixture")),
+    5_000,
+  )
+  let output = ""
+  fixture.stdout.on("data", (chunk: Buffer) => {
+    output += chunk.toString()
+    const lineEnd = output.indexOf("\n")
+    if (lineEnd < 0) return
+    clearTimeout(timeout)
+    return resolve(JSON.parse(output.slice(0, lineEnd)) as FixtureAddress)
+  }
+  )
+  fixture.once("error", (error) => {
+    clearTimeout(timeout)
+    return reject(error)
+  }
+  )
+  return undefined
+}
+)
+
+const portAcceptsConnections = async (port: number): Promise<boolean> => {
+  return new Promise((resolve) => {
+    const socket = createConnection({ host: "127.0.0.1", port })
+    const finish = (connected: boolean): void => {
+      socket.destroy()
+      resolve(connected)
+    }
+    socket.setTimeout(500, () => finish(false))
+    socket.once("connect", () => finish(true))
+    return socket.once("error", () => finish(false))
+  }
+  )
+}
+
+const shortLivedOwnedProcess = (durationMillis: number) => {
+  return spawnOwnedProcess(
+    process.execPath,
+    [
+      "--input-type=module",
+      "--eval",
+      `setTimeout(() => undefined, ${durationMillis});`,
+    ],
+  )
+}
+
+const waitForOwnedExit = async (
+  child: ReturnType<typeof spawnOwnedProcess>,
+): Promise<void> => {
+  if (child.exitCode !== null || child.signalCode !== null) return
+  await new Promise<void>((resolve) => {
+    child.once("exit", () => resolve())
+    return undefined
+  }
+  )
+}
+
+describe("owned process-tree lifecycle", () => {
+  it("does not resolve until the exact child and grandchild have exited", async () => {
+    const fixture = spawnOwnedProcess(
+      process.execPath,
+      ["--input-type=module", "--eval", parentScript],
+    )
+    let primaryError: unknown
+    try {
+      const address = await fixtureAddress(fixture)
+      expect(processExists(fixture.pid!)).toBe(true)
+      expect(processExists(address.pid)).toBe(true)
+      expect(await portAcceptsConnections(address.port)).toBe(true)
+
+      await terminateOwnedProcessTree(fixture)
+
+      expect(processExists(fixture.pid!)).toBe(false)
+      expect(processExists(address.pid)).toBe(false)
+      expect(await portAcceptsConnections(address.port)).toBe(false)
+    }
+    catch (error) {
+      primaryError = error
+    }
+
+    let cleanupError: unknown
+    try {
+      await terminateOwnedProcessTree(fixture)
+    }
+    catch (error) {
+      cleanupError = error
+    }
+    if (primaryError !== undefined && cleanupError !== undefined) {
+      throw new AggregateError(
+        [primaryError, cleanupError],
+        "Process-tree fixture and cleanup both failed",
+      )
+    }
+    if (primaryError !== undefined) throw primaryError
+    if (cleanupError !== undefined) throw cleanupError;return
+  }
+  , 15_000)
+
+  it("rejects live Windows termination without signaling the process", async () => {
+    const child = shortLivedOwnedProcess(5_000)
+    try {
+      const startedAt = Date.now()
+      await expect(terminateOwnedProcessTree(child, {
+        platform: "win32",
+      })).rejects.toThrow(/termination is unproven on Windows/i)
+      expect(Date.now() - startedAt).toBeLessThan(1_000)
+      return expect(processExists(child.pid!)).toBe(true)
+    }
+    finally {
+      await terminateOwnedProcessTree(child).catch(() => undefined)
+    }
+  }
+  )
+
+  it("rejects preclosed Windows termination without a PID action", async () => {
+    const child = shortLivedOwnedProcess(25)
+    await waitForOwnedExit(child)
+    return await expect(terminateOwnedProcessTree(child, {
+      platform: "win32",
+    })).rejects.toThrow(/termination is unproven on Windows/i)
+  }
+  )
+
+  it("retains resources when Windows containment is unproven", async () => {
+    const child = shortLivedOwnedProcess(5_000)
+    let cleaned = false
+    try {
+      await expect(terminateOwnedProcessTreeThen(
+        child,
+        async () => {
+          cleaned = true
+          return undefined
+        }
+        ,
+        { platform: "win32" },
+      )).rejects.toThrow(/termination is unproven on Windows/i)
+      expect(cleaned).toBe(false)
+      return expect(processExists(child.pid!)).toBe(true)
+    }
+    finally {
+      await terminateOwnedProcessTree(child).catch(() => undefined)
+    }
+  }
+  )
+  return undefined
+}
+)

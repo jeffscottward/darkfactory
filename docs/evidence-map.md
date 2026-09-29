@@ -198,10 +198,10 @@ These paths and local results were observed during the documentation audit. Term
 | DF | Candidate and observed local evidence | Required final evidence | Status |
 | --- | --- | --- | --- |
 | DF-091 | `.env.schema`; `.env.example`; `packages/config/`; config/unit/static gates included in local CI PASS; custom publish secret scan covered 462 files with 0 findings | Final-SHA config/docs mapping; Varlock's noisy false-positive result is not green evidence | `PENDING` |
-| DF-092 | `packages/config/src/client.civet`; server/client boundary tests; package type/unit gates PASS locally | Explicit client-bundle allowlist inspection and production-config rejection artifact | `PENDING` |
-| DF-093 | `scripts/dev/lifecycle.civet`; Playwright passed through portless with CI port override | Canonical no-port browser URL, `portless get darkfactory`, fixed-URL audit | `PENDING` |
+| DF-092 | `packages/config/src/client.ts`; server/client boundary tests; package type/unit gates PASS locally | Explicit client-bundle allowlist inspection and production-config rejection artifact | `PENDING` |
+| DF-093 | `scripts/dev/lifecycle.ts`; Playwright passed through portless with CI port override | Canonical no-port browser URL, `portless get darkfactory`, fixed-URL audit | `PENDING` |
 | DF-094 | Root `dev:*` scripts; focused local-DX gates/review approved | Actual repeated-start PM2 identity/status/logs/stop and route health | `PENDING` |
-| DF-095 | Root cert scripts; `scripts/dev/lifecycle.civet`; `.gitignore`; automated HTTPS route passed | Trusted canonical browser observation and fallback/key-ignore audit | `PENDING` |
+| DF-095 | Root cert scripts; `scripts/dev/lifecycle.ts`; `.gitignore`; automated HTTPS route passed | Trusted canonical browser observation and fallback/key-ignore audit | `PENDING` |
 | DF-096 | `packages/auth/`; web auth routes; focused auth/real-PostgreSQL gates approved | Final origins/callbacks/network/cookie/auth-browser evidence | `PENDING` |
 | DF-097 | Root `doctor`; `scripts/doctor/`; focused DX fixtures/review approved | Actual healthy and missing-prerequisite outputs plus redaction audit | `PENDING` |
 | DF-098 | vinext build PASS; `pnpm deploy:web:check` exit 0 with no build/deploy | Authorized preview artifact/runtime probe or explicit accepted blocker | `PENDING` |

@@ -1,0 +1,73 @@
+import { spawnSync } from "node:child_process"
+import { readFile } from "node:fs/promises"
+import { fileURLToPath } from "node:url"
+import { describe, expect, it } from "vitest"
+
+const packageRoot = fileURLToPath(new URL("../..", import.meta.url))
+
+const resolveExport = (conditions: readonly string[]): string => {
+  const conditionArguments = conditions.flatMap((condition) => [
+    "--conditions",
+    condition,
+  ])
+  const resolution = spawnSync(
+    process.execPath,
+    [
+      ...conditionArguments,
+      "--input-type=module",
+      "--eval",
+      'console.log(import.meta.resolve("@darkfactory/ai/server/groq"))',
+    ],
+    { cwd: packageRoot, encoding: "utf8" },
+  )
+
+  expect(resolution.status).toBe(0)
+  expect(resolution.stderr).toBe("")
+  return resolution.stdout.trim().replaceAll("\\", "/")
+}
+
+describe("AI package boundaries", function() {
+  it("keeps root and test exports provider-safe", async function() {
+    const manifest = JSON.parse(
+      await readFile(new URL("../../package.json", import.meta.url), "utf8"),
+    )
+
+    expect(manifest.exports["."].import).toBe("./src/index.ts")
+    expect(manifest.exports["./test"].import).toBe("./src/test.ts")
+    expect(JSON.stringify(manifest.exports["."])).not.toContain("groq")
+    return expect(JSON.stringify(manifest.exports["./test"])).not.toContain("groq")
+  })
+
+  it("routes a browser-only server import to a fail-closed poison module", async function() {
+    const manifest = JSON.parse(
+      await readFile(new URL("../../package.json", import.meta.url), "utf8"),
+    )
+    const serverExport = manifest.exports["./server/groq"]
+
+    expect(Object.keys(serverExport)).toEqual([
+      "types",
+      "workerd",
+      "worker",
+      "browser",
+      "import",
+      "default",
+    ])
+    expect(serverExport.browser).toBe("./src/server/unsupported.ts")
+    expect(resolveExport(["browser"])).toMatch(
+      /\/packages\/ai\/src\/server\/unsupported\.ts$/,
+    )
+    return await expect(import("./unsupported.ts")).rejects.toThrow(
+      "@darkfactory/ai/server/groq is unavailable in browser bundles",
+    )
+  })
+
+  return it.each(["workerd", "worker"])(
+    "prefers the real %s module when Worker and browser conditions coexist",
+    (workerCondition) => {
+      expect(resolveExport([workerCondition, "browser"])).toMatch(
+        /\/packages\/ai\/src\/server\/groq\.ts$/,
+      )
+      return undefined
+    }
+  )
+})

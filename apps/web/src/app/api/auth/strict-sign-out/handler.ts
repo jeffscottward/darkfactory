@@ -1,0 +1,91 @@
+import {
+  createAuth,
+} from "@darkfactory/auth/server"
+import { createDatabaseConfirmedSignOutHandler } from "@darkfactory/auth/db"
+import { resolveApiRequestId } from "@darkfactory/api/server"
+import { parseServerEnv } from "@darkfactory/config/server"
+import { composeDatabaseProfile } from "@darkfactory/config/database"
+import { createRequestDatabase } from "@darkfactory/db/server"
+import { selectEmailPort } from "@darkfactory/email/server"
+import {
+  createEvlogSink,
+  initializeEvlog,
+} from "@darkfactory/observability/server/evlog"
+
+import {
+  resolveE2eEmailPreviewOptions,
+} from "../../../../lib/e2e-fixtures.ts"
+import {
+  createBackgroundTaskLifecycle,
+  type BackgroundTaskScheduler,
+} from "../../../../lib/background-task-lifecycle.ts"
+import {
+  createRequestDatabaseDiagnosticSink,
+} from "../../../../lib/request-database-diagnostics.ts"
+
+
+export const handleStrictSignOutRequest = async (
+  request: Request,
+  scheduleBackgroundTask: BackgroundTaskScheduler,
+): Promise<Response> => {
+  const env = parseServerEnv(process.env)
+  const previewOptions = resolveE2eEmailPreviewOptions()
+  const databaseProfile = composeDatabaseProfile(env)
+  const requestId = resolveApiRequestId(request)
+  const evlogSink = createEvlogSink({
+    runtime: initializeEvlog({ serviceName: env.OTEL_SERVICE_NAME }),
+    request,
+    executionContext: { waitUntil: scheduleBackgroundTask },
+  })
+  const diagnosticSink = createRequestDatabaseDiagnosticSink({
+    sink: evlogSink,
+    scheduleBackgroundTask,
+    requestId,
+  })
+  const createDatabase = createRequestDatabase
+  const database = await createDatabase({
+    connectionString: databaseProfile.connection.connectionString,
+    diagnosticSink,
+  })
+  const backgroundTasks = createBackgroundTaskLifecycle(
+    scheduleBackgroundTask,
+    async () => {
+      try {
+        return await database.close()
+      }
+      catch (_error) {
+        // Cleanup is best-effort after the auth response has been determined.
+        return undefined
+      }
+    }
+  )
+
+  try {
+    const email = selectEmailPort({
+      environment: env.APP_ENV,
+      transport: env.EMAIL_TRANSPORT,
+      previewDirectory: previewOptions?.authDirectory,
+      previewBinding: previewOptions?.binding,
+      resendApiKey: env.RESEND_API_KEY,
+      from: env.EMAIL_FROM,
+      trustedAppOrigin: env.APP_URL,
+    })
+    const auth = createAuth({
+      database: database.db,
+      email,
+      secret: env.BETTER_AUTH_SECRET,
+      baseURL: env.BETTER_AUTH_URL,
+      trustedOrigins: [env.APP_URL],
+      scheduleBackgroundTask: backgroundTasks.schedule,
+    })
+    return await createDatabaseConfirmedSignOutHandler({
+      auth,
+      database: database.db,
+      secret: env.BETTER_AUTH_SECRET,
+      trustedOrigin: env.APP_URL,
+    })(request)
+  }
+  finally {
+    await backgroundTasks.finalize()
+  }
+}

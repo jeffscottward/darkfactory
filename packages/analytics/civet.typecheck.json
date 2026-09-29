@@ -6,10 +6,10 @@
       "types": ["node"]
     },
     "include": [
-      "src/index.civet",
-      "src/validation.civet",
-      "src/test.civet",
-      "src/server/posthog.civet"
+      "src/index.ts",
+      "src/validation.ts",
+      "src/test.ts",
+      "src/server/posthog.ts"
     ]
   }
 }

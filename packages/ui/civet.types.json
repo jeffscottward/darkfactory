@@ -13,7 +13,7 @@
       "forceConsistentCasingInFileNames": false,
       "noCheck": true
     },
-    "include": ["src/**/*.civet"],
-    "exclude": ["src/**/*.test.civet"]
+    "include": ["src/**/*.{ts,tsx}"],
+    "exclude": ["src/**/*.test.{ts,tsx}"]
   }
 }

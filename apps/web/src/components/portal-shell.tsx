@@ -1,0 +1,196 @@
+"use client"
+
+import type { ReactNode } from "react"
+import { ExternalLink, Menu, X } from "lucide-react"
+import { IconButton } from "@darkfactory/ui"
+
+import {
+  ACCOUNT_NAVIGATION,
+  ADMIN_NAVIGATION,
+  EXPOSED_ROUTE_PATHS,
+  PORTAL_NAVIGATION,
+  isRouteExposed,
+} from "../lib/navigation.ts"
+import { SignOutAction } from "./account/sign-out-action.tsx"
+import { BrandLink } from "./brand-mark.tsx"
+import { NavigationLinks } from "./navigation-links.tsx"
+import { ThemeMenu } from "./theme-menu.tsx"
+
+interface PortalNavigationProps {
+  readonly availableRoutes?: readonly string[]
+  readonly isAdmin?: boolean
+  readonly mobile?: boolean
+}
+
+const closePortalNavigation = () => {
+  const navigation = document.getElementById("portal-navigation")
+  const hidePopover = navigation?.hidePopover
+  if (typeof hidePopover === "function") return hidePopover.call(navigation);return
+}
+
+const PortalNavigation = ({
+  availableRoutes = EXPOSED_ROUTE_PATHS,
+  isAdmin = false,
+  mobile = false,
+}: PortalNavigationProps) => {
+  const portalItems = PORTAL_NAVIGATION.filter((item) => (
+    isRouteExposed(item.href, availableRoutes)
+  ))
+  const accountItems = ACCOUNT_NAVIGATION.filter((item) => (
+    isRouteExposed(item.href, availableRoutes)
+  ))
+  const adminItems = ADMIN_NAVIGATION.filter((item) => (
+    isRouteExposed(item.href, availableRoutes)
+  ))
+  const onNavigate = mobile ? closePortalNavigation : undefined
+
+  if (
+    portalItems.length === 0
+    && accountItems.length === 0
+    && (!isAdmin || adminItems.length === 0)
+  ) {
+    return (
+      <p className="px-3 text-sm leading-6 text-muted-foreground" role="status">
+        Portal destinations appear as their page implementations become available.
+    </p>
+    )
+  }
+
+  return (
+    <div className="flex flex-col gap-6">
+      {portalItems.length > 0 ? (
+        <nav aria-label={mobile ? "Mobile portal navigation" : "Portal navigation"}>
+          <p className="mb-2 px-3 text-xs font-semibold tracking-wide text-muted-foreground">
+            Workspace
+          </p>
+          <NavigationLinks items={portalItems} onNavigate={onNavigate} orientation="vertical" prefetch={false} showIcons />
+      </nav>
+      ) : null}
+      {accountItems.length > 0 ? (
+        <nav aria-label={mobile ? "Mobile account navigation" : "Account navigation"}>
+          <p className="mb-2 px-3 text-xs font-semibold tracking-wide text-muted-foreground">
+            Account settings
+          </p>
+          <NavigationLinks items={accountItems} onNavigate={onNavigate} orientation="vertical" prefetch={false} showIcons />
+      </nav>
+      ) : null}
+      {isAdmin && adminItems.length > 0 ? (
+        <nav aria-label={mobile ? "Mobile administration navigation" : "Administration navigation"}>
+          <p className="mb-2 px-3 text-xs font-semibold tracking-wide text-muted-foreground">
+            Administration
+          </p>
+          <NavigationLinks items={adminItems} onNavigate={onNavigate} orientation="vertical" prefetch={false} showIcons />
+      </nav>
+      ) : null}
+  </div>
+  )
+}
+
+export const PortalSidebar = ({
+  availableRoutes = EXPOSED_ROUTE_PATHS,
+  isAdmin = false,
+}: PortalNavigationProps) => (
+  <aside className="fixed inset-y-0 left-0 hidden w-64 border-r border-border bg-surface lg:flex lg:flex-col">
+    <div className="flex min-h-16 items-center border-b border-border px-4">
+      <BrandLink />
+    </div>
+    <div className="min-h-0 flex-1 overflow-y-auto px-3 py-6">
+      <PortalNavigation availableRoutes={availableRoutes} isAdmin={isAdmin} />
+    </div>
+    <div className="border-t border-border p-3">
+      <a
+        className="inline-flex min-h-11 w-full items-center gap-3 rounded-md px-3 text-sm font-medium text-muted-foreground transition-colors duration-base ease-out hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
+        href="/"
+      >
+        <ExternalLink aria-hidden="true" className="size-5" />
+        View public site
+      </a>
+    </div>
+</aside>
+)
+
+export const PortalTopbar = ({
+  availableRoutes = EXPOSED_ROUTE_PATHS,
+  isAdmin = false,
+}: PortalNavigationProps) => (
+  <header className="sticky top-0 z-overlay border-b border-border bg-background">
+    <div className="flex min-h-16 items-center justify-between gap-4 px-4 md:px-6 lg:px-10">
+      <div className="flex items-center gap-2">
+        <IconButton
+          aria-label="Open portal navigation"
+          className="lg:hidden"
+          popoverTarget="portal-navigation"
+          popoverTargetAction="toggle"
+          variant="ghost"
+        >
+          <Menu aria-hidden="true" />
+        </IconButton>
+        <div
+          aria-describedby="portal-navigation-description"
+          aria-labelledby="portal-navigation-title"
+          className="fixed inset-y-0 left-0 right-auto m-0 h-dvh max-h-dvh w-full max-w-sm overflow-y-auto rounded-none border-y-0 border-l-0 border-r border-border bg-background p-6 text-foreground shadow-xl backdrop:bg-black/50 lg:hidden"
+          id="portal-navigation"
+          popover="auto"
+          role="dialog"
+        >
+          <div className="mb-6 flex items-start justify-between gap-4">
+            <div>
+              <h2 className="text-lg font-semibold" id="portal-navigation-title">
+                Portal navigation
+              </h2>
+              <p
+                className="mt-1 text-sm leading-6 text-muted-foreground"
+                id="portal-navigation-description"
+              >
+                Open portal and account destinations.
+              </p>
+            </div>
+            <IconButton
+              aria-label="Close portal navigation"
+              autoFocus
+              popoverTarget="portal-navigation"
+              popoverTargetAction="hide"
+              variant="ghost"
+            >
+              <X aria-hidden="true" />
+            </IconButton>
+          </div>
+          <PortalNavigation availableRoutes={availableRoutes} isAdmin={isAdmin} mobile />
+        </div>
+        <span className="hidden text-sm font-medium text-muted-foreground sm:inline">
+          Application portal
+        </span>
+      </div>
+      <div className="flex items-center gap-1">
+        <ThemeMenu />
+        <SignOutAction />
+      </div>
+    </div>
+</header>
+)
+
+export interface PortalShellProps {
+  readonly availableRoutes?: readonly string[]
+  readonly children: ReactNode
+  readonly isAdmin?: boolean
+}
+
+export const PortalShell = ({
+  availableRoutes = EXPOSED_ROUTE_PATHS,
+  children,
+  isAdmin = false,
+}: PortalShellProps) => (
+  <div className="min-h-dvh bg-background lg:pl-64">
+    <PortalSidebar availableRoutes={availableRoutes} isAdmin={isAdmin} />
+    <div className="min-w-0">
+      <PortalTopbar availableRoutes={availableRoutes} isAdmin={isAdmin} />
+      <main
+        className="df-container-portal py-8 md:py-10"
+        id="main-content"
+        tabIndex={-1}
+      >
+        {children}
+      </main>
+    </div>
+</div>
+)

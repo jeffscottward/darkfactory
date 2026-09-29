@@ -5,6 +5,6 @@ export default defineConfig({
   plugins: [civet({ ts: "esbuild" })],
   test: {
     environment: "node",
-    include: ["tests/e2e/helpers/*.test.civet", "tests/e2e/helpers/*.test.ts"],
+    include: ["tests/e2e/helpers/*.test.ts", "tests/e2e/helpers/*.test.ts"],
   },
 });

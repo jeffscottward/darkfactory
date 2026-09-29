@@ -301,7 +301,7 @@ describe("canonical Playwright runtime", () => {
     expect(runtimeWebServer).not.toHaveProperty("port");
     expect(runtimeWebServer).toMatchObject({
       command:
-        "node --experimental-strip-types --import ./tests/e2e/helpers/register-civet-loader.mjs ./tests/e2e/helpers/web-server.civet",
+        "node --experimental-strip-types --import ./tests/e2e/helpers/register-civet-loader.mjs ./tests/e2e/helpers/web-server.ts",
       gracefulShutdown: {
         signal: "SIGTERM",
         timeout: E2E_PLAYWRIGHT_SHUTDOWN_TIMEOUT_MILLISECONDS,
