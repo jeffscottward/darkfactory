@@ -20,49 +20,27 @@
       "!!**/test-results"
     ]
   },
+  "linter": {
+    "rules": {
+      "complexity": {
+        "useLiteralKeys": "off",
+        "noUselessConstructor": "off",
+        "noVoid": "off",
+        "useArrowFunction": {
+          "level": "error",
+          "fix": "unsafe"
+        }
+      },
+      "performance": {
+        "useTopLevelRegex": "off"
+      },
+      "style": {
+        "useBlockStatements": "off",
+        "noNestedTernary": "off"
+      }
+    }
+  },
   "overrides": [
-    {
-      "includes": [
-        "playwright.config.ts",
-        "playwright.config.test.ts",
-        "tests/e2e/helpers/artifacts.ts",
-        "tests/e2e/helpers/evidence.ts",
-        "tests/e2e/helpers/evidence.test.ts",
-        "tests/e2e/helpers/preview-email.ts",
-        "tests/e2e/helpers/run-artifacts.ts",
-        "tests/e2e/helpers/runtime.ts",
-        "tests/e2e/helpers/structured-evidence.test.ts"
-      ],
-      "linter": {
-        "rules": {
-          "complexity": {
-            "useLiteralKeys": "off"
-          }
-        }
-      }
-    },
-    {
-      "includes": [
-        "playwright.config.test.ts",
-        "tests/e2e/helpers/artifacts.ts",
-        "tests/e2e/helpers/browser-errors.ts",
-        "tests/e2e/helpers/browser-errors.test.ts",
-        "tests/e2e/helpers/lifecycle-state.test.ts",
-        "tests/e2e/helpers/optimizer-cache.ts",
-        "tests/e2e/helpers/preview-email.ts",
-        "tests/e2e/helpers/preview-email.test.ts",
-        "tests/e2e/helpers/run-artifacts.test.ts",
-        "tests/e2e/helpers/server-readiness.ts",
-        "tests/e2e/helpers/server-readiness.test.ts"
-      ],
-      "linter": {
-        "rules": {
-          "performance": {
-            "useTopLevelRegex": "off"
-          }
-        }
-      }
-    },
     {
       "includes": [
         "tests/e2e/helpers/artifacts.ts",

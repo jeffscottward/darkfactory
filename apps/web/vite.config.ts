@@ -4,11 +4,8 @@ import tailwindcss from "@tailwindcss/vite";
 import vinext from "vinext";
 import { defineConfig, type Plugin } from "vite";
 
-// biome-ignore lint/complexity/useLiteralKeys: TypeScript requires bracket access for ProcessEnv index-signature keys.
 const rawPort = process.env["PORT"];
-// biome-ignore lint/complexity/useLiteralKeys: TypeScript requires bracket access for ProcessEnv index-signature keys.
 const appEnvironment = process.env["APP_ENV"];
-// biome-ignore lint/complexity/useLiteralKeys: TypeScript requires bracket access for ProcessEnv index-signature keys.
 const e2eRunId = process.env["E2E_RUN_ID"];
 const isOwnedE2EPreview =
   appEnvironment === "test" && /^[A-Za-z0-9_-]{1,128}$/u.test(e2eRunId ?? "");
@@ -22,7 +19,6 @@ if (rawPort !== undefined) {
   port = parsedPort;
 }
 
-// biome-ignore lint/complexity/useLiteralKeys: TypeScript requires bracket access for ProcessEnv index-signature keys.
 const host = process.env["HOST"]?.trim() || "127.0.0.1";
 const isDottedNumericAddress = /^[\d.]+$/u.test(host) && host.includes(".");
 const isHostname =

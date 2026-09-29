@@ -28,11 +28,8 @@ describe("resolved Vite environment optimizer contract", () => {
       "serve",
       "test"
     );
-    // biome-ignore lint/complexity/useLiteralKeys: Vite environment names are index-signature keys.
     const rsc = resolved.environments["rsc"]?.optimizeDeps;
-    // biome-ignore lint/complexity/useLiteralKeys: Vite environment names are index-signature keys.
     const client = resolved.environments["client"]?.optimizeDeps;
-    // biome-ignore lint/complexity/useLiteralKeys: Vite environment names are index-signature keys.
     const ssr = resolved.environments["ssr"]?.optimizeDeps;
 
     for (const server of [rsc, ssr]) {

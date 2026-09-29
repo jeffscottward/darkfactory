@@ -506,7 +506,6 @@ test("canonical legal aliases redirect and guarded fixtures stay out of navigati
       maxRedirects: 0,
     });
     expect(redirectResponse.status()).toBe(307);
-    // biome-ignore lint/complexity/useLiteralKeys: Playwright models response headers with an index signature.
     expect(redirectResponse.headers()["location"]).toBe(alias.canonical);
 
     const canonicalResponse = await page.goto(alias.legacy);

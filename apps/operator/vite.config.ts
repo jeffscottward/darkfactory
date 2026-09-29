@@ -2,7 +2,6 @@ import tailwindcss from "@tailwindcss/vite";
 import vinext from "vinext";
 import { defineConfig } from "vite";
 
-// biome-ignore lint/complexity/useLiteralKeys: TypeScript requires bracket access for ProcessEnv index-signature keys.
 const rawPort = process.env["PORT"];
 const parsedPort = rawPort === undefined ? undefined : Number(rawPort);
 

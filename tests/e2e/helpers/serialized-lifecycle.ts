@@ -76,7 +76,6 @@ export const createSerializedLifecycle = ({
   };
   const control = Object.freeze({ checkpoint, requestShutdown });
   startupPromise = Promise.resolve().then(() => startup(control));
-  // biome-ignore lint/complexity/noVoid: Shutdown owns and observes this bounded startup rejection.
   void startupPromise.catch(() => requestShutdown(1));
 
   return Object.freeze({ completion, control, startup: startupPromise });

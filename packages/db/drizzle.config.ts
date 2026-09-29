@@ -1,6 +1,5 @@
 import { defineConfig } from "drizzle-kit";
 
-// biome-ignore lint/complexity/useLiteralKeys: TypeScript requires bracket access for ProcessEnv index-signature keys.
 const databaseUrl = process.env["DATABASE_URL"];
 
 if (!databaseUrl) {
