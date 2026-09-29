@@ -1,6 +1,6 @@
 # AGENTS.md
 
-The index for every agent and contributor. `CLAUDE.md` is a symlink to this file. It takes precedence over every other Markdown file; [ARCHITECTURE.md](ARCHITECTURE.md) (boundaries) and [CONVENTIONS.md](CONVENTIONS.md) (code rules) add detail. `docs/archive/` is history, not instructions.
+The index for every agent and contributor. `CLAUDE.md` is a symlink to this file. It takes precedence over every other Markdown file; [ARCHITECTURE.md](ARCHITECTURE.md) (boundaries) and [CONVENTIONS.md](CONVENTIONS.md) (code rules) add detail.<!-- init:start --> `docs/archive/` is history, not instructions.<!-- init:end -->
 
 ## Mission
 
@@ -45,7 +45,7 @@ Keep DarkFactory a small, truthful, swappable product template. Build features a
 ## Workflow
 
 ```text
-plan → contract → failing test → implement → bun run verify:prepush → PR (4 lanes green = done)
+plan → contract → failing test → implement → bun run verify:prepush → PR (8 required checks green = done)
 ```
 
 - **Plan:** state the goal, the bricks touched and the acceptance test. The `pm` and `architect` skills own this.
@@ -53,7 +53,7 @@ plan → contract → failing test → implement → bun run verify:prepush → 
 - **Failing test:** at the lowest level that proves the behavior (unit, contract, integration or E2E).
 - **Implement:** the smallest complete vertical change. Iterate with `bun run check` and focused `pnpm exec vitest run <file>` runs.
 - **Pre-push:** `bun run verify:prepush` runs automatically on `git push`. Fix the cause instead of bypassing the hook.
-- **PR:** done when the four required checks pass: `Verification (core)`, `Verification (coverage)`, `Verification (integration)` and `Verification (browser)`.
+- **PR:** done when the eight required checks pass: the four CI lanes `Verification (core)`, `Verification (coverage)`, `Verification (integration)` and `Verification (browser)`, plus `Analyze (actions)`, `Analyze (javascript-typescript)`, `CodeQL` and `Dependency Review` ([docs/deploy.md](docs/deploy.md#branch-protection)).
 - **Exact-SHA evidence** is required only for a release or deploy. Dispatch `ci.yml` on the exact commit and confirm the run's `head_sha` before deploying ([docs/deploy.md](docs/deploy.md#release-checklist)).
 
 Graphify is optional: `bun run graph:build` builds a local graph for navigation. It is never committed or required.

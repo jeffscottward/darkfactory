@@ -14,7 +14,7 @@ Capability packages declare `"brick": "capability"` and may depend on no other b
 
 `capabilities.yaml` records the project identity, the fixed architecture choices (`database.orm: drizzle`, `api.provider: orpc`) and which adapter each capability uses. One Zod loader validates it: `packages/config/src/server/capabilities-loader.ts`, using the schema in `packages/config/src/capabilities.ts`. Provider fields are enums built from the registry in each brick's `src/adapters.ts` (for example `EMAIL_ADAPTERS` in `packages/email/src/adapters.ts`) and from `DATABASE_PROVIDERS` in `packages/config/src/database.ts`, so the manifest cannot name an adapter that does not exist. `packages/config/src/capabilities.server.test.ts` loads an adapter module for every registry id.
 
-Entries with `enabled: false` (docs, uptime, error tracking, storage and so on) are placeholders. No code exists for them. Do not describe them as available.
+The manifest lists only what is installed and wired. Ideas that are not built yet go in the [roadmap list](#roadmap-capability-candidates), not in `capabilities.yaml` or the env schema.
 
 `bun run doctor` reads the manifest and adds the probes it implies: Bun for `workspace.script_runtime`, Docker and Postgres for `database.engine`, portless when `development.https` is enabled, and Graphify when `developer_context.code_graph` is enabled.
 
@@ -42,14 +42,14 @@ Rules:
 
 This example replaces Resend with a hypothetical `postmark` adapter. Features do not change: auth uses `EmailPort`, the contact service uses the contact delivery port, and both only see the result union.
 
-1. **Write the adapter.** Add `packages/email/src/server/postmark.ts` exporting `createPostmarkEmailPort(options): EmailPort` and a contact variant. Implement `sendPasswordReset` and `sendEmailVerification` with the existing renderers (`render-reset-password.ts`, `render-email-verification.ts`, `render-contact.ts`). Map every provider outcome to the existing codes: `EMAIL_PROVIDER_*` for `EmailPort` and `CONTACT_PROVIDER_*` for the contact port (`packages/email/src/server-types.ts`). Prefer `fetch` with an injectable transport, as the PostHog adapter does, over adding an SDK. Re-export both factories from `packages/email/src/server.ts`.
+1. **Write the adapter.** Add `postmark.ts` to `packages/email/src/server/`, exporting `createPostmarkEmailPort(options): EmailPort` and a contact variant. Implement `sendPasswordReset` and `sendEmailVerification` with the existing renderers (`render-reset-password.ts`, `render-email-verification.ts`, `render-contact.ts`). Map every provider outcome to the existing codes: `EMAIL_PROVIDER_*` for `EmailPort` and `CONTACT_PROVIDER_*` for the contact port (`packages/email/src/index.ts`). Prefer `fetch` with an injectable transport, as the PostHog adapter does, over adding an SDK. Re-export both factories from `packages/email/src/server.ts`.
 2. **Register it.** Add `"postmark"` to `EMAIL_ADAPTERS` in `packages/email/src/adapters.ts`, and its loader to `ADAPTER_MODULES` in `packages/config/src/capabilities.server.test.ts`. The delivery result's `provider` field and the env and manifest enums pick it up from the registry.
 3. **Add the config.** In `packages/config/src/server.ts`, add `POSTMARK_SERVER_TOKEN` and make it required when `EMAIL_TRANSPORT` is `postmark`, next to the existing `RESEND_API_KEY` rule. Add the key, with no value, to `.env.example`.
 4. **Select it.** Add a `postmark` branch to `selectEmailPort` (`packages/email/src/server/provider.ts`) and `selectContactEmailPort` (`packages/email/src/server/contact.ts`). Pass the token where they are called: `apps/web/src/server/request-scope.ts` and `apps/web/src/app/api/orpc/[...rest]/route.ts`.
 5. **Test it.** Unit-test the adapter with a fake `fetch`: sent, rejected, invalid response, network failure, missing token. Add selection and env-schema tests. Coverage must stay at 100%.
 6. **Flip the manifest.** Set `email.provider: postmark` in `capabilities.yaml`.
 7. **Configure deploys.** Set `EMAIL_TRANSPORT` and `EMAIL_PROVIDER` in `apps/web/wrangler.jsonc`, then `pnpm exec wrangler secret put POSTMARK_SERVER_TOKEN` (in `apps/web`) for each environment.
-8. **Remove the old adapter.** Delete `createResendEmailPort` (`provider.ts`), `createResendContactEmailPort` (`contact.ts`) and the Resend types in `server-types.ts`, with their tests. Drop `resend` from `packages/email/package.json` and `EMAIL_ADAPTERS`, and delete `RESEND_API_KEY` from the env schema, `getProviderCapabilities`, `.env.example` and the doctor's email env group (`scripts/doctor/doctor.ts`).
+8. **Remove the old adapter.** Delete `createResendEmailPort` (`provider.ts`), `createResendContactEmailPort` (`contact.ts`) and their Resend types, with their tests. Drop `resend` from `packages/email/package.json` and `EMAIL_ADAPTERS`, and delete `RESEND_API_KEY` from the env schema, `getProviderCapabilities`, `.env.example` and the doctor's email env group (`scripts/doctor/doctor.ts`).
 9. **Verify.** Run `pnpm install`, `bun run verify:prepush`, and open a PR.
 
 Local development is unaffected. `EMAIL_TRANSPORT=preview` still writes files to `packages/email/previews/`.
@@ -66,7 +66,7 @@ Local development is unaffected. `EMAIL_TRANSPORT=preview` still writes files to
 ## Recipe: remove a capability
 
 1. Remove the consumer wiring from the app and services.
-2. Remove its registry import, env keys and manifest enum from `packages/config`, then its manifest entry (or set `enabled: false` if you plan to bring it back).
+2. Remove its registry import, env keys and manifest enum from `packages/config`, then its manifest entry. If you may bring it back, add it to the [roadmap list](#roadmap-capability-candidates).
 3. Delete the package and its entries in the app's and root `package.json`.
 4. Run `pnpm install`, `bun run docs:generate` and `bun run verify:prepush`.
 
@@ -81,3 +81,17 @@ The database host is swapped with `DATABASE_PROVIDER`, not a port, because every
 | `hyperdrive` | Cloudflare Hyperdrive in front of any Postgres | `HYPERDRIVE` binding required; `DATABASE_URL` must be absent |
 
 Every profile also rejects `host`, `hostaddr` and `port` query overrides. The profiles live in `DATABASE_PROVIDER_PROFILES` in `packages/config/src/database.ts`. See [deploy.md](deploy.md#hyperdrive) for Hyperdrive setup.
+
+## Roadmap: capability candidates
+
+These are not installed, configured or wired. Add one with the [new-capability recipe](#recipe-add-a-new-capability) when a feature needs it.
+
+- Public docs site (for example Mintlify).
+- Uptime monitoring (for example Uptime Kuma).
+- Error tracking (for example GlitchTip, Sentry-compatible).
+- Object storage (for example Cloudflare R2, with metadata in Postgres).
+- Agent memory or context graphs (for example Memori on Postgres).
+- Postgres extensions: `pgvector`, `postgis`, `timescaledb`, `pg_trgm`, `pg_cron`.
+- TanStack devtools in development.
+
+Background work stays in Postgres (inline jobs and the operator workflow tables); a separate queue such as Celery is out of scope.

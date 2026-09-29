@@ -1,3 +1,6 @@
+// What: OpenTelemetry setup: resolves OTLP signal URLs and exports redacted spans/logs.
+// Used by: apps/web/src/app/api/orpc/[...rest]/route.ts#initializeTelemetry.
+// See: docs/debugging.md#logs; packages/observability/src/redaction.ts#redactSemanticEvent.
 import {
   type Attributes,
   type Counter,

@@ -2,12 +2,16 @@ import { createHash } from "node:crypto";
 import { posix } from "node:path";
 import { applyEdits, type JSONPath, modify, parse } from "jsonc-parser";
 import { parse as parseYaml } from "yaml";
+import { withoutOperator } from "./without-operator.ts";
 
 // `bun run init`: pure identity validation and rename planning. Everything
 // here is deterministic over its inputs; scripts/init/apply.ts performs I/O.
 
 /** The template's own identity; init replaces every trace of it. */
 export const TEMPLATE_SLUG = "darkfactory";
+export const TEMPLATE_REPOSITORY = "jeffscottward/darkfactory";
+/** The template's root commit: a checkout that contains it carries its history. */
+export const TEMPLATE_ROOT_COMMIT = "3d98209ef4a4201c0c1468f1174d9f2af1bc4aa7";
 const OWNER_WORKERS_SUBDOMAIN = "jsward-17";
 /** Staging placeholder when --workers-subdomain is absent (RFC 2606 `.invalid`). */
 export const WORKERS_PLACEHOLDER = "workers-subdomain.invalid";
@@ -37,6 +41,10 @@ export type InitOptions = Readonly<{
   dryRun: boolean;
   force: boolean;
   skipInstall: boolean;
+  /** Delete every `agent-sdlc` brick and its footprint. */
+  withoutOperator: boolean;
+  /** Replace the template's Git history with one root commit. */
+  freshHistory: boolean;
 }>;
 
 export type ParsedArguments =
@@ -47,7 +55,8 @@ export type ParsedArguments =
 export const INIT_USAGE = [
   "Usage: bun run init -- --name <Display Name> --slug <slug> --scope @<scope> --domain <domain>",
   '         [--repo <owner/repo>] [--email-from "<Name> <no-reply@domain>"] [--holder "<copyright holder>"]',
-  "         [--workers-subdomain <subdomain>] [--dry-run] [--force] [--skip-install]",
+  "         [--workers-subdomain <subdomain>] [--without-operator] [--fresh-history]",
+  "         [--dry-run] [--force] [--skip-install]",
 ].join("\n");
 
 const HOST = "(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\\.)+[a-z]{2,63}";
@@ -77,7 +86,14 @@ const VALUE_FLAGS = [
   "workers-subdomain",
 ] as const;
 type ValueFlag = (typeof VALUE_FLAGS)[number];
-const BOOLEAN_FLAGS = ["dry-run", "force", "skip-install", "help"] as const;
+const BOOLEAN_FLAGS = [
+  "dry-run",
+  "force",
+  "skip-install",
+  "without-operator",
+  "fresh-history",
+  "help",
+] as const;
 type BooleanFlag = (typeof BOOLEAN_FLAGS)[number];
 
 const isValueFlag = (flag: string): flag is ValueFlag =>
@@ -180,6 +196,8 @@ export const parseInitArguments = (
       dryRun: tokens.flags.has("dry-run"),
       force: tokens.flags.has("force"),
       skipInstall: tokens.flags.has("skip-install"),
+      withoutOperator: tokens.flags.has("without-operator"),
+      freshHistory: tokens.flags.has("fresh-history"),
     },
   };
 };
@@ -255,7 +273,7 @@ export const identityRules = (
       ? WORKERS_PLACEHOLDER
       : `${identity.workersSubdomain}.workers.dev`;
   const rules: Rule[] = [
-    { pattern: "jeffscottward/darkfactory", replacement: identity.repo },
+    { pattern: TEMPLATE_REPOSITORY, replacement: identity.repo },
     {
       pattern: "send\\.darkfactory\\.jeffscott\\.world",
       replacement: `send.${identity.domain}`,
@@ -598,12 +616,14 @@ const digestInputs = (path: string, text: string): readonly string[] => [
 
 /**
  * Pure planner: given the identity and the tracked files, returns the edits,
- * renames and deletions that produce a renamed project. Planning its own
- * output again yields an empty plan.
+ * renames and deletions that produce a renamed project, without the
+ * agent-SDLC plane when asked. Planning its own output again yields an empty
+ * plan.
  */
 export const planInit = (
   identity: InitIdentity,
-  files: readonly TrackedFile[]
+  files: readonly TrackedFile[],
+  options: Readonly<{ withoutOperator?: boolean }> = {}
 ): InitPlan => {
   const decoder = new TextDecoder("utf-8");
   const texts = new Map<string, string | undefined>();
@@ -613,12 +633,15 @@ export const planInit = (
       isBinary(file.bytes) ? undefined : decoder.decode(file.bytes)
     );
   }
+  const pruned = options.withoutOperator
+    ? withoutOperator(texts)
+    : { removed: new Set<string>(), texts };
   const rewrite = compileRules(
     identityRules(identity, templateVersionOf(texts.get("capabilities.yaml")))
   );
   const deletions = files
     .map((file) => file.path)
-    .filter(isInstanceOnly)
+    .filter((path) => isInstanceOnly(path) || pruned.removed.has(path))
     .sort();
   // Links may already carry the renamed path by the time Markdown is tidied.
   const deleted = new Set(
@@ -638,8 +661,10 @@ export const planInit = (
       }
       renames.push({ from: path, to: renamed });
     }
-    const source = texts.get(path);
-    if (source === undefined) continue;
+    const original = texts.get(path);
+    if (original === undefined) continue;
+    // Kept text files always have (possibly pruned) text.
+    const source = pruned.texts.get(path) as string;
     const replaced = rewrite(path, source);
     const structured = structuredFor(path)?.(replaced.text, {
       identity,
@@ -648,9 +673,9 @@ export const planInit = (
     }) ?? { text: replaced.text, count: 0 };
     rewritten.set(path, {
       text: structured.text,
-      count: replaced.count + structured.count,
+      count: replaced.count + structured.count + (source === original ? 0 : 1),
     });
-    const before = digestInputs(path, source);
+    const before = digestInputs(path, original);
     const after = digestInputs(path, structured.text);
     before.forEach((input, index) => {
       const next = after[index];

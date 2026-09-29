@@ -1,3 +1,6 @@
+// What: Contact submission service: throttles, then delivers; errors surface as ContactServiceError (429/503).
+// Used by: packages/api/src/server/router.ts, packages/api/src/server/context.ts.
+// See: docs/debugging.md#symptom--where-to-look (Contact form returns 429 or 503).
 import type {
   ContactSubmitInput,
   ContactSubmitOutput,

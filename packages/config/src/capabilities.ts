@@ -17,54 +17,6 @@ const nonEmpty = z.string().min(1);
 const strict = <Shape extends z.ZodRawShape>(shape: Shape) =>
   z.object(shape).strict();
 
-const enabledFlagSchema = strict({ enabled: z.boolean() });
-
-const capabilitiesSchema = strict({
-  docs: strict({
-    provider: z.enum(["mintlify"]),
-    enabled: z.boolean(),
-    public: z.boolean(),
-  }),
-  jobs: strict({
-    engine: z.enum(["celery"]),
-    dashboard: z.enum(["flower"]),
-    enabled: z.boolean(),
-  }),
-  uptime: strict({ provider: z.enum(["uptime-kuma"]), enabled: z.boolean() }),
-  error_tracking: strict({
-    provider: z.enum(["glitchtip"]),
-    database: z.enum(["postgres"]),
-    enabled: z.boolean(),
-  }),
-  storage: strict({
-    provider: z.enum(["r2"]),
-    metadata: z.enum(["postgres"]),
-    enabled: z.boolean(),
-  }),
-  context_graphs: strict({
-    data: strict({
-      provider: z.enum(["memori"]),
-      database: z.enum(["postgres"]),
-      enabled: z.boolean(),
-    }),
-  }),
-  postgres_extensions: strict({
-    pgvector: enabledFlagSchema,
-    postgis: enabledFlagSchema,
-    timescaledb: enabledFlagSchema,
-    pg_trgm: enabledFlagSchema,
-    pg_cron: enabledFlagSchema,
-  }),
-}).superRefine((capabilities, context): void => {
-  if (capabilities.docs.public && !capabilities.docs.enabled) {
-    context.addIssue({
-      code: "custom",
-      path: ["docs", "public"],
-      message: "Public docs require docs to be enabled",
-    });
-  }
-});
-
 export const capabilityManifestSchema = strict({
   project: strict({
     name: nonEmpty,
@@ -162,12 +114,6 @@ export const capabilityManifestSchema = strict({
     workflows: z.enum(["xstate"]),
     client_local: z.enum(["zustand"]),
   }),
-  developer_tools: strict({
-    tanstack_devtools: strict({
-      enabled: z.union([z.boolean(), z.literal("development")]),
-    }),
-  }),
-  capabilities: capabilitiesSchema,
 });
 
 export type CapabilityManifest = z.infer<typeof capabilityManifestSchema>;

@@ -1,3 +1,6 @@
+// What: Button primitive with cva variants (buttonVariants).
+// Used by: packages/ui/src/index.ts; apps/web and apps/operator components.
+// See: packages/ui/src/icon-button.tsx.
 import type { VariantProps } from "class-variance-authority";
 import { cva } from "class-variance-authority";
 import { LoaderCircle } from "lucide-react";

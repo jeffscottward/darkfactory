@@ -62,8 +62,9 @@ export default defineConfig({
     {
       name: "app",
       // The build copies apps/web/.dev.vars into dist; without it the bindings
-      // come from `env.appEnv`. `--mode test` stops vinext forcing
-      // NODE_ENV=production, which would disable the E2E fixtures
+      // come from `env.appEnv`. `--mode test` keeps vinext from loading a
+      // developer's .env.local or .env.production into those bindings. The
+      // E2E fixtures depend only on APP_ENV and E2E_FIXTURES
       // (see apps/web/src/lib/e2e-fixtures.ts#isE2eFixtureEnabled).
       command:
         "rm -f apps/web/dist/server/.dev.vars && node_modules/.bin/portless darkfactory pnpm --filter @darkfactory/web run start --mode test",

@@ -104,6 +104,8 @@ describe("parseInitArguments", () => {
       dryRun: false,
       force: false,
       skipInstall: false,
+      withoutOperator: false,
+      freshHistory: false,
     });
   });
 
@@ -128,6 +130,8 @@ describe("parseInitArguments", () => {
           "--dry-run",
           "--force",
           "--skip-install",
+          "--without-operator",
+          "--fresh-history",
         ],
         YEAR
       )
@@ -145,6 +149,8 @@ describe("parseInitArguments", () => {
       dryRun: true,
       force: true,
       skipInstall: true,
+      withoutOperator: true,
+      freshHistory: true,
     });
   });
 
@@ -680,5 +686,29 @@ describe("planInit idempotence and reporting", () => {
       "  rename  docs/specs/DARKFACTORY_SPEC.md -> docs/specs/ACME_LABS_SPEC.md"
     );
     expect(lines).toContain("  delete  docs/assessments/a.md");
+  });
+
+  it("drops the agent-SDLC plane with --without-operator, then plans nothing", () => {
+    const template = files({
+      "capabilities.yaml": CAPABILITIES,
+      "packages/jobs/package.json":
+        '{ "name": "@darkfactory/jobs", "brick": "agent-sdlc" }\n',
+      "packages/jobs/logo.png": Uint8Array.of(0),
+      "packages/state/package.json":
+        '{ "name": "@darkfactory/state", "brick": "product" }\n',
+      ".env.example": "# --- Jobs\nWORKFLOW_ROOT=\n\n# --- App\nAPP=1\n",
+      "docs/state.md": "See [jobs](../packages/jobs/package.json). Kept.\n",
+    });
+    const plan = planInit(identity(), template, { withoutOperator: true });
+    expect(plan.deletions).toEqual([
+      "packages/jobs/logo.png",
+      "packages/jobs/package.json",
+    ]);
+    expect(contentOf(plan, ".env.example")).toBe("# --- App\nAPP=1\n");
+    expect(contentOf(plan, "docs/state.md")).toBe("Kept.\n");
+    expect(describePlan(plan)).toContain("  edit    .env.example (1)");
+    expect(
+      planInit(identity(), applied(template, plan), { withoutOperator: true })
+    ).toEqual({ edits: [], renames: [], deletions: [] });
   });
 });

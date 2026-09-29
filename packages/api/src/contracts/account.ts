@@ -1,3 +1,6 @@
+// What: Account contract slice: profile, address and preference schemas and procedures.
+// Used by: packages/api/src/contract.ts#appContract.
+// See: packages/api/src/server/account-service.ts.
 import { oc } from "@orpc/contract";
 import { z } from "zod";
 
@@ -28,7 +31,7 @@ const validIsoDate = (value: string): boolean => {
   );
 };
 
-export const IsoDateSchema = z.string().refine(validIsoDate, {
+const IsoDateSchema = z.string().refine(validIsoDate, {
   message: "Expected an ISO calendar date",
 });
 

@@ -63,61 +63,44 @@ sequenceDiagram
 
 ## SDLC agent graph
 
-Roles produce artifacts. Gates decide whether an artifact moves on. The graph describes the workflow for any agent harness; the opt-in operator plane can run it with approvals. Role playbooks are in [`.agents/skills/`](.agents/skills/) (linked from [AGENTS.md](AGENTS.md#agent-roles)).
+Each role hands the next one an artifact (the edge labels). Security and scalability review the code beside qa; CI lanes and security scans run side by side as PR gates. Any agent harness can follow this; the opt-in operator plane can run it with approvals. Role playbooks are in [`.agents/skills/`](.agents/skills/) (linked from [AGENTS.md](AGENTS.md#agent-roles)).
 
 ```mermaid
 flowchart LR
-  subgraph roles["Roles (.agents/skills)"]
-    pm["📋 pm"]
-    arch["🏛️ architect"]
-    be["🧱 backend"]
-    fe["🖥️ frontend"]
-    qa["🧪 qa"]
-    sec["🛡️ security"]
-    scale["📐 scalability"]
-    rel["🚀 release"]
-  end
-  subgraph artifacts["Artifacts"]
-    plan["plan + acceptance tests"]
-    contract["contract, port, ADR"]
-    code["code + tests"]
-    review["threat and load notes"]
-    notes["changelog + version"]
-  end
-  subgraph gates["Gates"]
-    prepush["verify:prepush"]
-    ci["4 required CI lanes"]
+  pm["📋 pm"] -->|"plan + acceptance tests"| arch["🏛️ architect"]
+  arch -->|"contract / port / ADR"| be["🧱 backend"] & fe["🖥️ frontend"]
+  be & fe -->|"code + tests"| qa["🧪 qa"]
+  sec["🛡️ security"] -.->|"threat review"| qa
+  scale["📐 scalability"] -.->|"load review"| qa
+  qa -->|"verify:prepush"| gates
+  subgraph gates["PR gates, in parallel"]
+    direction TB
+    ci["4 CI lanes"]
     scans["CodeQL + Dependency Review"]
-    sha["exact-SHA CI dispatch"]
   end
-  deploy["deploy:web"]
-
-  pm --> plan --> arch --> contract
-  contract --> be & fe
-  be & fe --> code --> qa --> prepush --> ci
-  code --> sec & scale --> review --> ci
-  ci --> scans --> rel --> notes --> sha --> deploy
+  gates -->|"green gates"| rel["🚀 release"]
+  rel -->|"changelog + exact-SHA CI"| deploy["☁️ deploy:web"]
 
   classDef role fill:#1f6feb,stroke:#0b3d91,color:#ffffff
-  classDef artifact fill:#f6f8fa,stroke:#57606a,color:#24292f
+  classDef reviewer fill:#8250df,stroke:#512a97,color:#ffffff
   classDef gate fill:#bf8700,stroke:#7d4e00,color:#ffffff
   classDef ship fill:#2ea44f,stroke:#1a7f37,color:#ffffff
-  class pm,arch,be,fe,qa,sec,scale,rel role
-  class plan,contract,code,review,notes artifact
-  class prepush,ci,scans,sha gate
+  class pm,arch,be,fe,qa,rel role
+  class sec,scale reviewer
+  class ci,scans gate
   class deploy ship
 ```
 
 ## CI lanes
 
-`ci.yml` runs on `pull_request` and `workflow_dispatch` only, never on push. Each lane runs one root script, `bun run verify:<lane>`, where core runs `verify:core:ci`. The four check names are the required checks.
+`ci.yml` runs on `pull_request` and `workflow_dispatch` only, never on push. Each lane runs one root script, `bun run verify:<lane>`, and only the browser lane builds. Branch protection on `main` requires the four lane checks plus `Analyze (actions)`, `Analyze (javascript-typescript)`, `CodeQL` and `Dependency Review` ([docs/deploy.md](docs/deploy.md#branch-protection)).
 
 ```mermaid
 flowchart TB
   trigger["PR or manual dispatch"] --> matrix
   subgraph matrix["ci.yml matrix (fail-fast off)"]
-    core["Verification (core)<br/>format, lint, generated artifacts, typecheck, build, docs, e2e-helper tests"]
-    cov["Verification (coverage)<br/>unit + contract + operations, 100% gate"]
+    core["Verification (core)<br/>format, lint, generated artifacts, typecheck, docs"]
+    cov["Verification (coverage)<br/>unit + contract + operations + e2e helpers, 100% gate"]
     integ["Verification (integration)<br/>Vitest against Postgres"]
     browser["Verification (browser)<br/>Playwright e2e + a11y projects"]
   end
@@ -150,13 +133,13 @@ CodeQL runs on PRs to `main`, pushes to `main` and weekly. Dependency Review run
 ## Why it is wired this way
 
 - **Contracts are the source of truth.** An oRPC contract (`packages/api/src/contracts/*.ts`) defines input, output and error codes once. The router, typed client and `packages/api/openapi.json` all come from it, and `openapi:check` fails when the generated file drifts.
-- **Headless data, separate presentation.** Data and behavior never live inside components. Contracts, services and state machines (`packages/state`) are UI-free. `packages/ui` has no workspace dependencies, so a component cannot fetch data or import a service. Pages load data through a contract, map it into a small view-model (plain, serializable props) and pass it to presentational components. You can restyle UI without touching data, test view-models without a DOM, and reuse one contract from pages, the operator app and external OpenAPI clients.
+- **Headless data, separate presentation.** Contracts, services and state machines (`packages/state`) are UI-free, and `packages/ui` declares no workspace dependencies, so its components only render props. A page loads data through a contract, a view-model maps the output to plain, pre-formatted props, and a component renders only that model. The dashboard is the reference: `apps/web/src/app/(portal)/dashboard/page.tsx` loads `dashboard.summary`, `apps/web/src/features/dashboard/view-model.ts` turns it into labels, counts and an `unavailable` state (unit-tested without a DOM), and `DashboardContent` renders the result. You can restyle UI without touching data and reuse one contract from pages and external OpenAPI clients.
 - **Ports keep vendors replaceable.** Services depend on interfaces such as `EmailPort` and `AnalyticsPort`, and the app chooses the adapter from env. Swapping a provider changes an adapter, a registry entry and its env keys; features do not change ([docs/capabilities.md](docs/capabilities.md)).
 - **One request scope.** One factory gives every database-backed handler the same lifecycle, capacity-error mapping and request id, instead of each handler assembling env, database, email and auth itself and drifting.
 - **One connection cap, plus Hyperdrive.** A Worker opens one `pg` client per request. `REQUEST_DATABASE_POOL_MAX_CONNECTIONS` in `packages/db/src/server/client.ts` caps concurrent clients per isolate and fails fast with a 503. Hyperdrive, when enabled, pools connections at the edge without changing that code path.
 - **Fail closed.** `parseServerEnv` rejects invalid or unsafe production config (local hosts, missing TLS, development secrets, preview email) before a request is served. Unsupported platforms and missing bindings throw instead of degrading silently.
 - **The agent plane is optional.** Its schema, repository and runtime live in `packages/jobs` and `packages/operator`. The product builds, tests and deploys without them.
-- **Gates prove behavior, not bytes.** The 100% coverage gate plus an invariant on the measured file set replaces committed coverage totals. Generated docs are derived from source and checked, not hand-maintained. PR "done" means four green lanes; exact-SHA proof is only required when shipping.
+- **Gates prove behavior, not bytes.** The 100% coverage gate plus an invariant on the measured file set replaces committed coverage totals. Generated docs are derived from source and checked, not hand-maintained. PR "done" means the eight required checks are green; exact-SHA proof is only required when shipping.
 
 ## Decisions
 
@@ -172,7 +155,7 @@ CodeQL runs on PRs to `main`, pushes to `main` and weekly. Dependency Review run
 | ADR-008 | `capabilities.yaml` is validated by one Zod loader (`packages/config/src/server/capabilities-loader.ts`) whose provider enums come from the adapter registries. `doctor` derives its probes from it. | One parser; the manifest cannot name code that does not exist. |
 | ADR-009 | The operator plane is an opt-in brick. Workflow schema and repository live in `packages/jobs`; migrations 0005–0007 stay frozen in the product chain; new workflow DDL goes to `packages/jobs/migrations`. | Keeps agent tooling out of the product without destructive migrations. |
 | ADR-010 | Packages without consumers are deleted; `ai` is the reference capability brick. | No dead bricks. |
-| ADR-011 | CI runs 4 required lanes on PRs and manual dispatch only; security workflows use job-level guards; exact-SHA evidence only for release and deploy. | Removes duplicate runs and endless re-verification. |
+| ADR-011 | CI runs 4 lanes on PRs and manual dispatch only; branch protection requires them plus the CodeQL and Dependency Review checks; security workflows use job-level guards; exact-SHA evidence only for release and deploy. | Removes duplicate runs and endless re-verification. |
 | ADR-012 | Coverage: 100% thresholds plus a measured-file-set invariant; no committed totals. | Guards the denominator without a file that churns on every commit. |
 | ADR-013 | E2E uses Playwright built-ins: `webServer` (portless proxy + production app), `globalSetup` (migrate and seed), `e2e` and `a11y` projects, SPKI-pinned CA trust, `retries: 1` with `failOnFlakyTests` in CI. | No custom harness to maintain; no TLS bypass. |
 | ADR-014 | `bun run setup` is the only bootstrap, and the Zod env schema is the only env contract. | Fewer prerequisites; one fail-closed contract. |

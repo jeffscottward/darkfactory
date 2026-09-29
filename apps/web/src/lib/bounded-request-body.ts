@@ -1,3 +1,6 @@
+// What: Buffers a request body up to a byte limit; rejects oversize bodies with 413.
+// Used by: apps/web/src/app/api/orpc/[...rest]/route.ts, contact-runtime.ts, app/api/auth/[...all]/handler.ts.
+// See: docs/debugging.md#symptom--where-to-look (413 payload too large).
 export type BufferedBoundedRequest = Readonly<{
   request: Request;
   tooLarge: boolean;

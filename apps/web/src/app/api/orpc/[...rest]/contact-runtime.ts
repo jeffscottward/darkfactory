@@ -1,3 +1,6 @@
+// What: Buffers contact-form requests and derives the throttle key for contact submissions.
+// Used by: apps/web/src/app/api/orpc/[...rest]/route.ts (bufferContactRequest, createContactThrottleKey).
+// See: docs/debugging.md#symptom--where-to-look; packages/db/src/server/contact-throttle-repository.ts#createContactThrottleRepository.
 import { bufferBoundedRequest } from "../../../../lib/bounded-request-body.ts";
 
 export const CONTACT_REQUEST_MAX_BYTES = 64 * 1024;

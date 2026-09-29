@@ -2,7 +2,7 @@ import {
   canonicalJsonV1,
   MAX_WORKFLOW_HUMAN_REQUEST_BYTES_V1,
   MAX_WORKFLOW_SCOPE_BYTES,
-} from "@darkfactory/state/workflow";
+} from "@darkfactory/jobs/workflow";
 import { describe, expect, it } from "vitest";
 
 import {

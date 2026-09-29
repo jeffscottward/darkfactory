@@ -1,6 +1,7 @@
 {
   "name": "@darkfactory/testkit",
   "brick": "tooling",
+  "description": "Isolated, disposable Postgres databases for tests.",
   "version": "0.2.1",
   "license": "MIT",
   "repository": {
@@ -26,6 +27,7 @@
   },
   "devDependencies": {
     "@types/pg": "catalog:",
-    "pg": "catalog:"
+    "pg": "catalog:",
+    "vitest": "catalog:"
   }
 }

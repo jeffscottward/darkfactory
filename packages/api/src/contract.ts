@@ -1,3 +1,6 @@
+// What: Public oRPC contract (appContract) and shared Zod schemas; the single source for client, server and OpenAPI.
+// Used by: packages/api/src/client.ts, packages/api/src/openapi.ts, packages/api/src/server/router.ts.
+// See: packages/api/src/contracts/account.ts; docs/getting-started.md#add-your-first-feature.
 import { oc } from "@orpc/contract";
 import { z } from "zod";
 import { accountContract, preferencesContract } from "./contracts/account.ts";
@@ -281,7 +284,6 @@ export {
   AddressIdSchema,
   AddressSchema,
   AddressUpdateSchema,
-  IsoDateSchema,
   PROFILE_VISIBILITIES,
   PreferenceFieldsSchema,
   PreferencesSchema,
@@ -311,7 +313,4 @@ export {
   ContactSubmitOutputSchema,
 } from "./contracts/contact.ts";
 export type { CapabilityProjection } from "./contracts/dashboard.ts";
-export {
-  CapabilityProjectionSchema,
-  DASHBOARD_ERRORS,
-} from "./contracts/dashboard.ts";
+export { CapabilityProjectionSchema } from "./contracts/dashboard.ts";

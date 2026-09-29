@@ -1,6 +1,10 @@
 import { readFile } from "node:fs/promises";
 import { describe, expect, it, vi } from "vitest";
-import { runDevServer, type ServeDependencies } from "./serve.ts";
+import {
+  runDevServer,
+  type ServeDependencies,
+  spawnInherited,
+} from "./serve.ts";
 import { DEVELOPMENT_TARGETS, isCanonicalRouteOutput } from "./targets.ts";
 
 const fixture = (
@@ -59,7 +63,7 @@ describe("foreground development server", () => {
     ]);
   });
 
-  return it("rejects unknown targets and a missing or malformed portless port", async () => {
+  it("rejects unknown targets and a missing or malformed portless port", async () => {
     for (const [arguments_, environment, message] of [
       [[], { PORT: "4000" }, /Usage/],
       [["admin"], { PORT: "4000" }, /Usage/],
@@ -72,6 +76,20 @@ describe("foreground development server", () => {
       expect(run.spawn).not.toHaveBeenCalled();
       expect(run.errors.join("")).toMatch(message);
     }
+  });
+
+  return it("spawns real children and reports exit codes, spawn errors and signals", async () => {
+    const exited = spawnInherited(process.execPath, ["-e", "process.exit(5)"]);
+    expect(await exited.exited).toBe(5);
+    const missing = spawnInherited("darkfactory-missing-executable", []);
+    expect(await missing.exited).toBe(1);
+    // The child's timer only keeps it alive until the immediate SIGTERM; nothing waits on it.
+    const sleeping = spawnInherited(process.execPath, [
+      "-e",
+      "setTimeout(() => {}, 60_000)",
+    ]);
+    sleeping.kill("SIGTERM");
+    return expect(await sleeping.exited).toBeNull();
   });
 });
 
@@ -115,12 +133,16 @@ describe("development targets", () => {
     const manifest = JSON.parse(
       await readFile(new URL("../../package.json", import.meta.url), "utf8")
     ) as { scripts: Record<string, string> };
-    for (const [script, target] of [
-      ["dev", "web"],
-      ["operator:dev", "operator"],
-    ] as const) {
+    // `dev` serves web; `<target>:dev` serves an opt-in target and leaves with its brick.
+    const scripts = Object.keys(manifest.scripts).filter(
+      (script) => script === "dev" || script.endsWith(":dev")
+    );
+    expect(scripts).toContain("dev");
+    for (const script of scripts) {
+      const target = script === "dev" ? "web" : script.replace(/:dev$/u, "");
+      expect(Object.keys(DEVELOPMENT_TARGETS)).toContain(target);
       expect(manifest.scripts[script]).toBe(
-        `bun scripts/dev-bindings.ts${target === "operator" ? " operator" : ""} && portless ${DEVELOPMENT_TARGETS[target].routeName} bun scripts/dev.ts ${target}`
+        `bun scripts/dev-bindings.ts${target === "web" ? "" : ` ${target}`} && portless ${DEVELOPMENT_TARGETS[target as keyof typeof DEVELOPMENT_TARGETS].routeName} bun scripts/dev.ts ${target}`
       );
     }
   });

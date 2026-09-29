@@ -578,8 +578,6 @@ describe("admin user and dashboard services", () => {
       emailDelivery: false,
       analytics: true,
       telemetryExport: false,
-      storage: false,
-      errorTracking: false,
     };
     await expect(
       createDashboardService(repository, capabilities).summary(principal)

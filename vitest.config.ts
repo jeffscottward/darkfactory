@@ -31,6 +31,7 @@ export default defineConfig({
         "**/*.d.ts",
         "**/generated/**",
         "apps/web/src/features/generated-navigation.ts",
+        "scripts/*.ts",
       ],
     },
     projects: [

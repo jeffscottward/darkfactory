@@ -1,3 +1,4 @@
+import { spawnSync } from "node:child_process";
 import {
   access,
   mkdir,
@@ -66,6 +67,7 @@ vi.mock("node:fs/promises", async () => {
   };
 });
 
+import { withoutGitRepositoryEnvironment } from "../lib/git-env.ts";
 import { GENERATED_PACKAGE_GRAPH_PATH, runDocsAction } from "./docs.ts";
 import { createDocsFileSystem } from "./system.ts";
 
@@ -79,8 +81,16 @@ const packageManifest = (name: string, brick = "product"): string =>
   JSON.stringify({
     name,
     brick,
+    description: "A test brick.",
     version: "1.0.0",
   });
+
+const initializeGit = (root: string): void => {
+  spawnSync("git", ["init", "--quiet"], {
+    cwd: root,
+    env: withoutGitRepositoryEnvironment(),
+  });
+};
 
 const createRepository = async (): Promise<string> => {
   const root = await mkdtemp(join(tmpdir(), "darkfactory-docs-system-"));
@@ -168,12 +178,12 @@ describe("documentation filesystem", () => {
       await mkdir(join(generated, "directory"), { recursive: true });
       await writeFile(
         join(generated, "at-limit.json"),
-        "x".repeat(262_144),
+        "x".repeat(1_048_576),
         "utf8"
       );
       await writeFile(
         join(generated, "too-large.json"),
-        "x".repeat(262_145),
+        "x".repeat(1_048_577),
         "utf8"
       );
       await writeFile(join(outside, "secret.json"), "outside", "utf8");
@@ -184,24 +194,24 @@ describe("documentation filesystem", () => {
       const files = await createDocsFileSystem(root);
 
       await expect(
-        files.readGenerated("docs/generated/missing.json")
+        files.readFile("docs/generated/missing.json")
       ).resolves.toBeUndefined();
       await expect(
-        files.readGenerated("docs/generated/at-limit.json")
-      ).resolves.toHaveLength(262_144);
+        files.readFile("docs/generated/at-limit.json")
+      ).resolves.toHaveLength(1_048_576);
       await expect(
-        files.readGenerated("docs/generated/too-large.json")
+        files.readFile("docs/generated/too-large.json")
       ).rejects.toThrow(/invalid|large/i);
+      await expect(files.readFile("docs/generated/directory")).rejects.toThrow(
+        /invalid/i
+      );
       await expect(
-        files.readGenerated("docs/generated/directory")
-      ).rejects.toThrow(/invalid/i);
-      await expect(
-        files.readGenerated("docs/generated/linked.json")
-      ).rejects.toThrow();
-      await expect(files.readGenerated("../secret.json")).rejects.toThrow(
+        files.readFile("docs/generated/linked.json")
+      ).resolves.toBeUndefined();
+      await expect(files.readFile("../secret.json")).rejects.toThrow(
         /escapes repository/i
       );
-      await expect(files.readGenerated(".")).rejects.toThrow(
+      await expect(files.readFile(".")).rejects.toThrow(
         /ancestor escapes repository/i
       );
       await expect(
@@ -225,6 +235,7 @@ describe("documentation filesystem", () => {
         packageManifest("@darkfactory/web"),
         "utf8"
       );
+      initializeGit(root);
       const files = await createDocsFileSystem(root);
 
       await expect(runDocsAction("generate", { files })).resolves.toMatchObject(
@@ -257,6 +268,32 @@ describe("documentation filesystem", () => {
       return await expect(readFile(generatedPath, "utf8")).resolves.toBe(
         generated
       );
+    } finally {
+      await rm(root, { force: true, recursive: true });
+    }
+  });
+
+  it("lists repository files and ignored paths through Git at the repository root", async () => {
+    const root = await createRepository();
+    try {
+      const files = await createDocsFileSystem(root);
+      await expect(files.listRepositoryFiles()).rejects.toThrow(
+        /git ls-files failed/
+      );
+
+      initializeGit(root);
+      await writeFile(join(root, ".gitignore"), "local/\n*.log\n", "utf8");
+      await mkdir(join(root, "local"));
+      await writeFile(join(root, "local/cache.txt"), "ignored", "utf8");
+      await writeFile(join(root, "notes.log"), "ignored", "utf8");
+      await expect(files.listRepositoryFiles()).resolves.toEqual([
+        ".gitignore",
+        "package.json",
+      ]);
+      await expect(
+        files.listIgnoredPaths(["local/", "missing.log", "src/app.ts"])
+      ).resolves.toEqual(["local/", "missing.log"]);
+      return await expect(files.listIgnoredPaths([])).resolves.toEqual([]);
     } finally {
       await rm(root, { force: true, recursive: true });
     }
@@ -349,7 +386,7 @@ describe("documentation filesystem", () => {
       if (String(arguments_[0]) === canonicalGenerated) {
         Object.defineProperty(handle, "readFile", {
           configurable: true,
-          value: async () => "x".repeat(262_145),
+          value: async () => "x".repeat(1_048_577),
         });
       }
       return handle;
@@ -357,8 +394,8 @@ describe("documentation filesystem", () => {
 
     try {
       return await expect(
-        files.readGenerated("docs/generated/growing.json")
-      ).rejects.toThrow(/manifest is too large/i);
+        files.readFile("docs/generated/growing.json")
+      ).rejects.toThrow(/file is too large/i);
     } finally {
       await rm(root, { force: true, recursive: true });
     }

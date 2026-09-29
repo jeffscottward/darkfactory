@@ -24,7 +24,7 @@ const DEPENDENCY_SECTIONS = [
  * Which roles each role may depend on. Nothing depends on an app, capability
  * bricks stand alone, and product bricks never reach into the opt-in agent plane.
  */
-export const ALLOWED_BRICK_DEPENDENCIES: Readonly<
+const ALLOWED_BRICK_DEPENDENCIES: Readonly<
   Record<BrickRole, readonly BrickRole[]>
 > = {
   workspace: ["app", "product", "capability", "agent-sdlc", "tooling"],
@@ -75,9 +75,10 @@ const GROUPS: readonly Readonly<{
 ];
 
 export type PackageManifestSource = Readonly<{ path: string; source: string }>;
-export type GraphPackage = Readonly<{
+type GraphPackage = Readonly<{
   name: string;
   brick: BrickRole;
+  description: string;
   directory: string;
   publicExports: readonly string[];
   workspaceDependencies: readonly string[];
@@ -85,7 +86,12 @@ export type GraphPackage = Readonly<{
 export type PackageGraph = Readonly<{ packages: readonly GraphPackage[] }>;
 export type DocsFileSystem = Readonly<{
   discoverPackageManifests: () => Promise<readonly PackageManifestSource[]>;
-  readGenerated: (path: string) => Promise<string | undefined>;
+  /** Tracked and untracked-but-unignored file paths (`git ls-files`). */
+  listRepositoryFiles: () => Promise<readonly string[]>;
+  /** The subset of `paths` that .gitignore covers: local or generated files. */
+  listIgnoredPaths: (paths: readonly string[]) => Promise<readonly string[]>;
+  /** Bounded read; `undefined` for a missing path or a symbolic link. */
+  readFile: (path: string) => Promise<string | undefined>;
   writeGenerated: (path: string, content: string) => Promise<void>;
 }>;
 export type DocsDependencies = Readonly<{ files: DocsFileSystem }>;
@@ -95,6 +101,7 @@ export type DocsReport = Readonly<{
   changed: boolean;
   reason: string;
   packageCount: number | undefined;
+  problems?: readonly string[];
 }>;
 
 type JsonRecord = Record<string, unknown>;
@@ -109,6 +116,9 @@ const stringRecord = (value: unknown): Record<string, unknown> =>
 
 const isBrickRole = (value: unknown): value is BrickRole =>
   BRICK_ROLES.some((role) => role === value);
+
+/** One plain line that is safe inside a Mermaid label and a Markdown table cell. */
+const DESCRIPTION = /^[^"<>|`\\\r\n]{1,80}$/;
 
 const parseManifest = (path: string, source: string): JsonRecord => {
   try {
@@ -143,6 +153,12 @@ export const buildPackageGraph = (
           `Package manifest lacks a valid brick role: ${path} (root: "workspace"; packages: ${BRICK_ROLES.slice(1).join(", ")})`
         );
       }
+      const description = parsed["description"];
+      if (typeof description !== "string" || !DESCRIPTION.test(description)) {
+        throw new Error(
+          `Package manifest lacks a one-line description (max 80 characters, no quotes, angle brackets, pipes or backticks): ${path}`
+        );
+      }
       const workspaceDependencies = new Set(
         DEPENDENCY_SECTIONS.flatMap((section) =>
           Object.entries(stringRecord(parsed[section]))
@@ -156,6 +172,7 @@ export const buildPackageGraph = (
       return Object.freeze({
         name,
         brick,
+        description,
         directory,
         publicExports: Object.freeze(
           Object.keys(stringRecord(parsed["exports"])).sort()
@@ -199,7 +216,7 @@ export const renderPackageGraph = (graph: PackageGraph): string => {
     flowchart.push(`  subgraph ${group.className}Bricks["${group.title}"]`);
     for (const entry of members) {
       flowchart.push(
-        `    ${nodeId(entry.name)}["${entry.name.slice(entry.name.indexOf("/") + 1)}<br/>${entry.directory}"]`
+        `    ${nodeId(entry.name)}["<b>${entry.name.slice(entry.name.indexOf("/") + 1)}</b><br/>${entry.description}"]`
       );
     }
     flowchart.push("  end");
@@ -226,7 +243,7 @@ export const renderPackageGraph = (graph: PackageGraph): string => {
         ? "package.json"
         : `${entry.directory}/package.json`;
     rows.push(
-      `| [\`${entry.name}\`](../../${manifest}) | ${entry.brick} | ${code(entry.workspaceDependencies)} | ${code(entry.publicExports)} |`
+      `| [\`${entry.name}\`](../../${manifest}) | ${entry.brick} | ${entry.description} | ${code(entry.workspaceDependencies)} | ${code(entry.publicExports)} |`
     );
   }
   return [
@@ -234,7 +251,7 @@ export const renderPackageGraph = (graph: PackageGraph): string => {
     "",
     "# Package graph",
     "",
-    "Every workspace `package.json` declares a `brick` role. Arrows point from a package to the workspace package it depends on. `bun run docs:check` fails when this file is stale, a package lacks a valid `brick`, or a dependency breaks the brick rules below (`ALLOWED_BRICK_DEPENDENCIES` in `scripts/docs/docs.ts`).",
+    "Every workspace `package.json` declares a `brick` role and a one-line `description`. Arrows point from a package to the workspace package it depends on. `bun run docs:check` fails when this file is stale, a package lacks a valid `brick` or `description`, a dependency breaks the brick rules below (`ALLOWED_BRICK_DEPENDENCIES` in `scripts/docs/docs.ts`), or a package imports a workspace package it does not declare. Knip fails on declared dependencies that nothing imports, so every arrow is a real import.",
     "",
     "```mermaid",
     ...flowchart,
@@ -250,11 +267,160 @@ export const renderPackageGraph = (graph: PackageGraph): string => {
     "",
     "## Packages",
     "",
-    "| Package | Brick | Workspace dependencies | Exports |",
-    "| --- | --- | --- | --- |",
+    "| Package | Brick | Purpose | Workspace dependencies | Exports |",
+    "| --- | --- | --- | --- | --- |",
     ...rows,
     "",
   ].join("\n");
+};
+
+/** Specifiers in import/export, dynamic import, require and Vitest mocks. */
+const WORKSPACE_IMPORT =
+  /(?<=\b(?:from|import|require|mock|doMock|importActual)\s*\(?\s*["'])@darkfactory\/[\w.-]+/g;
+const SOURCE_FILE = /\.(?:[cm]?[jt]sx?|css)$/;
+const firstSegment = (path: string): string => path.split("/", 1).join("");
+
+/**
+ * Brick boundaries apply to real imports: the root package.json declares every
+ * workspace package, so any file can resolve any brick. A file under a
+ * workspace package may import only its own package or one it declares, and
+ * declarations already obey ALLOWED_BRICK_DEPENDENCIES.
+ */
+const findUndeclaredImports = async (
+  graph: PackageGraph,
+  paths: readonly string[],
+  files: DocsFileSystem
+): Promise<string[]> => {
+  const owners = new Map(
+    graph.packages.map((entry) => [entry.directory, entry])
+  );
+  const problems = new Set<string>();
+  for (const path of paths) {
+    const owner = owners.get(path.split("/", 2).join("/"));
+    if (owner === undefined || !SOURCE_FILE.test(path)) continue;
+    const source = (await files.readFile(path)) ?? "";
+    for (const [specifier] of source.matchAll(WORKSPACE_IMPORT)) {
+      if (
+        specifier !== owner.name &&
+        !owner.workspaceDependencies.includes(specifier)
+      ) {
+        problems.add(
+          `${path} imports ${specifier}, which ${owner.directory}/package.json does not declare`
+        );
+      }
+    }
+  }
+  return [...problems];
+};
+
+const SKIPPED_MARKDOWN = /^(?:docs\/archive\/|CHANGELOG\.md$)/;
+const FENCE = /^\s*(?:```|~~~)/;
+const INLINE_CODE = /`[^`\n]+`/g;
+const NOT_A_PATH = /[\s*<>{}$|=,;"'\\]|:\/\//;
+const LINE_SUFFIX = /(?::\d+(?:-\d+)?|#L\d+(?:-L?\d+)?)$/;
+const IDENTIFIER = /^[A-Za-z_$][\w$]*$/;
+
+/** Inline code spans outside fenced blocks, without their backticks. */
+const inlineCode = (markdown: string): string[] => {
+  const spans: string[] = [];
+  let fenced = false;
+  for (const line of markdown.split("\n")) {
+    if (FENCE.test(line)) fenced = !fenced;
+    else if (!fenced) {
+      for (const [span] of line.matchAll(INLINE_CODE))
+        spans.push(span.slice(1, -1));
+    }
+  }
+  return spans;
+};
+
+type DocPath = Readonly<{ target: string; query: string; symbol: string }>;
+
+/** Every listed file plus each of its ancestor directories. */
+const withDirectories = (paths: readonly string[]): Set<string> => {
+  const known = new Set(paths);
+  for (const path of paths) {
+    for (let end = path.indexOf("/"); end > 0; end = path.indexOf("/", end + 1))
+      known.add(path.slice(0, end));
+  }
+  return known;
+};
+
+/**
+ * Resolves an inline code span to a repository path, or `undefined` when it is
+ * not one. A path resolves from the repository root, or from the Markdown
+ * file's directory (`base`) when its first segment is a directory there.
+ */
+const resolveDocPath = (
+  span: string,
+  base: string,
+  known: ReadonlySet<string>
+): DocPath | undefined => {
+  const reference = span.trim().replace(/^\.\//, "").replace(LINE_SUFFIX, "");
+  if (!reference.includes("/") || NOT_A_PATH.test(reference)) return;
+  const hash = reference.indexOf("#");
+  const location = hash === -1 ? reference : reference.slice(0, hash);
+  const relative = location.replace(/\/$/, "");
+  const first = firstSegment(relative);
+  const target =
+    !known.has(first) && known.has(`${base}${first}`)
+      ? `${base}${relative}`
+      : relative;
+  if (!known.has(firstSegment(target))) return;
+  return {
+    target,
+    query: location.endsWith("/") ? `${target}/` : target,
+    symbol: hash === -1 ? "" : reference.slice(hash + 1),
+  };
+};
+
+/** A `#symbol` suffix on a source path must name an identifier the file contains. */
+const namesMissingSymbol = async (
+  { target, symbol }: DocPath,
+  files: DocsFileSystem
+): Promise<boolean> => {
+  if (!IDENTIFIER.test(symbol) || target.endsWith(".md")) return false;
+  const source = (await files.readFile(target)) ?? "";
+  const name = symbol.replaceAll("$", "\\$");
+  return !new RegExp(`(?<![\\w$])${name}(?![\\w$])`).test(source);
+};
+
+/**
+ * Backticked repository paths in Markdown must exist or be covered by
+ * .gitignore (local and generated files). Archived docs and the changelog
+ * record history, so they are skipped.
+ */
+const findBrokenDocPaths = async (
+  paths: readonly string[],
+  files: DocsFileSystem
+): Promise<string[]> => {
+  const known = withDirectories(paths);
+  const missing = new Map<string, string[]>();
+  const problems: string[] = [];
+  const documents = paths.filter(
+    (path) => path.endsWith(".md") && !SKIPPED_MARKDOWN.test(path)
+  );
+  for (const document of documents) {
+    const base = document.slice(0, document.lastIndexOf("/") + 1);
+    for (const span of inlineCode((await files.readFile(document)) ?? "")) {
+      const path = resolveDocPath(span, base, known);
+      if (path === undefined) continue;
+      const problem = `${document}: \`${span}\``;
+      if (!known.has(path.target)) {
+        const messages = missing.get(path.query) ?? [];
+        missing.set(path.query, [...messages, `${problem} does not exist`]);
+      } else if (await namesMissingSymbol(path, files)) {
+        problems.push(
+          `${problem} names ${path.symbol}, which ${path.target} does not contain`
+        );
+      }
+    }
+  }
+  const ignored = new Set(await files.listIgnoredPaths([...missing.keys()]));
+  for (const [query, messages] of missing) {
+    if (!ignored.has(query)) problems.push(...messages);
+  }
+  return problems;
 };
 
 const report = (
@@ -262,8 +428,17 @@ const report = (
   ok: boolean,
   changed: boolean,
   reason: string,
-  packageCount?: number
-): DocsReport => Object.freeze({ action, ok, changed, reason, packageCount });
+  packageCount?: number,
+  problems?: readonly string[]
+): DocsReport =>
+  Object.freeze({
+    action,
+    ok,
+    changed,
+    reason,
+    packageCount,
+    ...(problems === undefined ? {} : { problems: Object.freeze(problems) }),
+  });
 
 export const runDocsAction = async (
   action: "generate" | "check",
@@ -274,24 +449,39 @@ export const runDocsAction = async (
     const graph = buildPackageGraph(manifests);
     const count = graph.packages.length;
     const expected = renderPackageGraph(graph);
-    const current = await dependencies.files.readGenerated(
+    const current = await dependencies.files.readFile(
       GENERATED_PACKAGE_GRAPH_PATH
     );
     if (action === "check") {
-      return current === expected
+      if (current !== expected) {
+        return report(
+          action,
+          false,
+          false,
+          "Generated package graph is stale or missing; run bun run docs:generate",
+          count
+        );
+      }
+      const paths = await dependencies.files.listRepositoryFiles();
+      const problems = [
+        ...(await findUndeclaredImports(graph, paths, dependencies.files)),
+        ...(await findBrokenDocPaths(paths, dependencies.files)),
+      ];
+      return problems.length === 0
         ? report(
             action,
             true,
             false,
-            "Generated package graph is current",
+            "Package graph, brick imports and doc paths are current",
             count
           )
         : report(
             action,
             false,
             false,
-            "Generated package graph is stale or missing; run bun run docs:generate",
-            count
+            "Undeclared brick imports or broken doc paths; see problems",
+            count,
+            problems
           );
     }
     if (current === expected) {

@@ -171,10 +171,6 @@ export type {
   ExpectedBrowserMessage,
   ExpectedHttpError,
 } from "./helpers/browser-errors.ts";
-export type {
-  PreviewOperation,
-  PreviewRecipient,
-} from "./helpers/preview-email.ts";
 export {
   waitForContactPreview,
   waitForPreviewLink,

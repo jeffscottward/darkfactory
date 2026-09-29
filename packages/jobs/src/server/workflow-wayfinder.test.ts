@@ -1,4 +1,4 @@
-import { canonicalJsonV1 } from "@darkfactory/state/workflow";
+import { canonicalJsonV1 } from "../workflow/index.ts";
 import { describe, expect, it, vi } from "vitest";
 import type { OmpCliAdapter, OmpExecutionResult } from "./omp.ts";
 import type { WayfinderExecutionPort } from "./wayfinder.ts";

@@ -1,3 +1,6 @@
+// What: Drizzle repositories for profiles, addresses, preferences, feature items and theme; typed persistence errors.
+// Used by: packages/db/src/server/index.ts (re-export), packages/api/src/server/router.ts services, packages/db/src/seeds/*.
+// See: docs/debugging.md#symptom--where-to-look; packages/db/src/schema/index.ts; packages/db/src/server/client.ts#withTransaction.
 import {
   and as andWhere,
   asc,

@@ -38,10 +38,14 @@ vi.mock("../../../lib/server-internal-dispatch.ts", () => ({
 }));
 
 import { DashboardContent } from "../../../components/portal/dashboard-content.tsx";
+import {
+  type DashboardSummary,
+  toDashboardViewModel,
+} from "../../../features/dashboard/view-model.ts";
 import DashboardPage, { loadDashboardSummaryState, metadata } from "./page.tsx";
 
 const DASHBOARD_EXPIRY = new Date("2030-01-01T00:00:00.000Z");
-const dashboardSummary = {
+const dashboardSummary: DashboardSummary = {
   session: {
     userId: "user-1",
     name: "Example Member",
@@ -61,10 +65,8 @@ const dashboardSummary = {
     emailDelivery: false,
     analytics: false,
     telemetryExport: false,
-    storage: false,
-    errorTracking: false,
   },
-} as const;
+};
 
 const dashboardResponse = (): Response =>
   Response.json({
@@ -179,7 +181,7 @@ describe("dashboard summary loader", () => {
     );
 
     expect(content?.props).toMatchObject({
-      summaryState: { type: "ready", summary: dashboardSummary },
+      model: toDashboardViewModel({ type: "ready", summary: dashboardSummary }),
     });
     return expect(mocks.dispatchInternalOrpcRequest).toHaveBeenCalledOnce();
   });
@@ -913,7 +915,7 @@ describe("dashboard summary loader", () => {
     );
 
     expect(content?.props).toMatchObject({
-      summaryState: { type: "error" },
+      model: { type: "unavailable" },
     });
     expect(mocks.redirect).not.toHaveBeenCalled();
     return expect(mocks.dispatchInternalOrpcRequest).toHaveBeenCalledOnce();
@@ -933,7 +935,7 @@ describe("dashboard summary loader", () => {
 
     expect(metadata).toEqual({ title: "Dashboard" });
     expect(content?.props).toMatchObject({
-      summaryState: { type: "ready", summary: dashboardSummary },
+      model: toDashboardViewModel({ type: "ready", summary: dashboardSummary }),
     });
     expect(content?.props).not.toHaveProperty("session");
     expect(mocks.dispatchInternalOrpcRequest).toHaveBeenCalledOnce();

@@ -8,7 +8,7 @@ import {
   sha256Hex,
 } from "./canonical.ts";
 import { assertWorkflowEventV1, assertWorkflowSnapshotV1 } from "./guards.ts";
-import { required } from "./required.ts";
+import { required } from "../server/required.ts";
 import {
   GENESIS_WORKFLOW_JOURNAL_HASH,
   MAX_WORKFLOW_STAGE_ATTEMPTS_V1,

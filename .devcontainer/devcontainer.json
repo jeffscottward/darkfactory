@@ -2,11 +2,14 @@
   "name": "DarkFactory",
   "image": "mcr.microsoft.com/devcontainers/javascript-node:5-24-bookworm@sha256:ef380643327dafe138722179c1ac86477a4b1f643c3a2c83d3baa1b8ea226166",
   "features": {
-    "ghcr.io/devcontainers/features/python:1": {
-      "version": "3.12"
-    },
     "ghcr.io/devcontainers/features/docker-outside-of-docker:1": {}
   },
+  // `bun run setup` starts Postgres on the host's Docker daemon, published on
+  // the daemon host's 127.0.0.1:5432, and writes that address to .env. Host
+  // networking gives this container the same loopback. On Docker Desktop the
+  // "host" is its Linux VM: Postgres still resolves, but the dev server's
+  // ports reach your browser only with Docker Desktop host networking enabled.
+  "runArgs": ["--network=host"],
   "remoteEnv": {
     "PATH": "${containerEnv:HOME}/.local/share/mise/shims:${containerEnv:PATH}"
   },

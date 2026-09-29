@@ -5,6 +5,7 @@ import {
   regularFilesOf,
   runInit,
 } from "./apply.ts";
+import { TEMPLATE_ROOT_COMMIT } from "./plan.ts";
 
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
@@ -42,6 +43,7 @@ const harness = (
     listing?: CommandResult;
     add?: CommandResult;
     runExit?: (command: string, arguments_: readonly string[]) => number;
+    git?: (arguments_: readonly string[]) => CommandResult | undefined;
   }> = {}
 ): Harness => {
   const files = new Map<string, Uint8Array>(
@@ -61,7 +63,7 @@ const harness = (
       commands.push([command, ...arguments_].join(" "));
       if (arguments_[0] === "status") return overrides.status ?? ok();
       if (arguments_[0] === "ls-files") return overrides.listing ?? listing();
-      return overrides.add ?? ok();
+      return overrides.git?.(arguments_) ?? overrides.add ?? ok();
     },
     run: async (command, arguments_) => {
       commands.push([command, ...arguments_].join(" "));
@@ -209,6 +211,8 @@ describe("runInit", () => {
     expect([...run.files.keys()]).toEqual(Object.keys(TEMPLATE));
     expect(run.commands).toEqual([
       "git status --porcelain --untracked-files=no",
+      "git rev-list --max-parents=0 HEAD",
+      "git rev-parse --is-shallow-repository",
       "git ls-files -s -z",
     ]);
   });
@@ -230,20 +234,21 @@ describe("runInit", () => {
       "README.md": "# Acme Labs\n",
       "docs/specs/ACME_LABS_SPEC.md": "spec\n",
     });
-    expect(run.commands.slice(2)).toEqual([
+    expect(run.commands.slice(4)).toEqual([
       "git add --all -- README.md capabilities.yaml docs/specs/DARKFACTORY_SPEC.md docs/specs/ACME_LABS_SPEC.md .bestpractices.json",
       "pnpm install --no-frozen-lockfile",
       "bun run docs:generate",
-      "bun run api:openapi:generate",
+      "bun run openapi:generate",
       "pnpm --filter @acme/auth run auth:schema:generate",
       "bun run format",
       "git add --update",
     ]);
     expect(run.output).toContain("$ pnpm install --no-frozen-lockfile");
     expect(run.output).toContain("  1. bun run setup");
-    expect(run.output).toContain(
-      "       gh repo create acme/acme-labs --private --source=. --remote=origin --push"
-    );
+    expect(run.output.slice(-2)).toEqual([
+      "  3. git commit -m 'chore: initialize project'",
+      "  4. git push   (no remote yet? gh repo create acme/acme-labs --private --source=. --remote=origin --push)",
+    ]);
     expect(run.output.join("\n")).not.toContain("workers-subdomain.invalid");
   });
 
@@ -256,7 +261,7 @@ describe("runInit", () => {
       false
     );
     expect(run.output).toContain(
-      "Skipped post-steps (--skip-install): pnpm install, docs:generate, api:openapi:generate, auth:schema:generate, format."
+      "Skipped post-steps (--skip-install): pnpm install, docs:generate, openapi:generate, auth:schema:generate, format."
     );
     expect(run.output.at(-1)).toContain("workers-subdomain.invalid");
   });
@@ -279,5 +284,256 @@ describe("runInit", () => {
     });
     expect(await runInit(ARGUMENTS, run.dependencies)).toBe(1);
     expect(run.errors).toEqual(["git add failed: index.lock exists"]);
+  });
+});
+
+const fail = (stderr: string): CommandResult => ({
+  exitCode: 1,
+  stdout: "",
+  stderr,
+});
+
+const HEAD = "feedface";
+const LIST = "for-each-ref --format=%(refname)";
+const ABOVE = `${LIST} --contains=${HEAD}`;
+const BELOW = `${LIST} --merged=${HEAD}`;
+const BESIDE = `${LIST} --contains=${TEMPLATE_ROOT_COMMIT}`;
+
+type CloneOptions = Readonly<{
+  /** Overrides by joined arguments. */
+  overrides?: Readonly<Record<string, CommandResult>>;
+  /** `for-each-ref` output per filter before the history is replaced. */
+  refs?: Readonly<Record<string, string>>;
+  /** `for-each-ref` output per filter afterwards; empty by default. */
+  after?: Readonly<Record<string, string>>;
+}>;
+
+// A plain clone of the template on main: HEAD reaches its root commit.
+const cloneGit = ({
+  overrides = {},
+  refs = {},
+  after = {},
+}: CloneOptions = {}) => {
+  let replaced = false;
+  return (arguments_: readonly string[]): CommandResult | undefined => {
+    const key = arguments_.join(" ");
+    if (key.startsWith("update-ref refs/heads/")) replaced = true;
+    if (overrides[key] !== undefined) return overrides[key];
+    if (key.startsWith(LIST)) return ok((replaced ? after : refs)[key] ?? "");
+    const fixed: Readonly<Record<string, string>> = {
+      "rev-list --max-parents=0 HEAD": `${TEMPLATE_ROOT_COMMIT}\n`,
+      "rev-parse --verify HEAD": `${HEAD}\n`,
+      "symbolic-ref --quiet HEAD": "refs/heads/main\n",
+      "write-tree": "a1b2c3\n",
+      "commit-tree a1b2c3 -m chore: initialize Acme Labs":
+        "0123456789abcdef0123\n",
+      remote: "origin\nupstream\n",
+    };
+    return fixed[key] === undefined ? undefined : ok(fixed[key]);
+  };
+};
+
+// A depth-1 CI checkout: detached, shallow, and without the template's root.
+const SHALLOW_DETACHED = {
+  "rev-list --max-parents=0 HEAD": ok(`${HEAD}\n`),
+  "rev-parse --is-shallow-repository": ok("true\n"),
+  "symbolic-ref --quiet HEAD": fail("fatal: ref HEAD is not a symbolic ref\n"),
+};
+
+const UNREPLACED =
+  "The template history is still in place: do not push this checkout.";
+
+describe("runInit history", () => {
+  it.each([
+    ["a clone that reaches the template's root", {}],
+    ["a shallow clone that may have cut it off", SHALLOW_DETACHED],
+  ])("never suggests pushing %s", async (_case, overrides) => {
+    const run = harness(TEMPLATE, { git: cloneGit({ overrides }) });
+    expect(
+      await runInit([...ARGUMENTS, "--skip-install"], run.dependencies)
+    ).toBe(0);
+    expect(run.output.slice(-3).join("\n")).toContain(
+      "  4. Do not push this checkout: its Git history comes from the template (a shallow clone counts). To publish, create the repository with `gh repo create acme/acme-labs --template jeffscottward/darkfactory --private --clone` and run init there, or run init with --fresh-history in a fresh clone."
+    );
+    expect(run.output.join("\n")).not.toMatch(/--push|git push/u);
+  });
+
+  it("refuses --fresh-history without template history, before writing", async () => {
+    const run = harness(TEMPLATE);
+    expect(
+      await runInit([...ARGUMENTS, "--fresh-history"], run.dependencies)
+    ).toBe(1);
+    expect(run.errors).toEqual([
+      "--fresh-history: this checkout has no template history to replace.",
+    ]);
+    expect(decoder.decode(run.files.get("README.md"))).toBe("# DarkFactory\n");
+  });
+
+  it.each([
+    [
+      "an unborn HEAD",
+      {
+        overrides: {
+          "rev-parse --verify HEAD": fail("fatal: Needed a single revision\n"),
+        },
+      },
+      "--fresh-history: git rev-parse --verify HEAD failed: fatal: Needed a single revision",
+    ],
+    [
+      "a missing Git identity",
+      {
+        overrides: {
+          "var GIT_AUTHOR_IDENT": fail("Author identity unknown\n"),
+        },
+      },
+      "--fresh-history: git var GIT_AUTHOR_IDENT failed: Author identity unknown",
+    ],
+    [
+      "local refs that would keep the template history",
+      {
+        refs: {
+          [ABOVE]: "refs/heads/main\nrefs/heads/spike\n",
+          [BESIDE]: "refs/stash\nrefs/tags/v0.1.0\n",
+        },
+      },
+      "--fresh-history: These refs also carry the template history; delete them first: refs/heads/spike, refs/stash",
+    ],
+  ])("refuses --fresh-history with %s", async (_case, options, message) => {
+    const run = harness(TEMPLATE, { git: cloneGit(options) });
+    expect(
+      await runInit([...ARGUMENTS, "--fresh-history"], run.dependencies)
+    ).toBe(1);
+    expect(run.errors).toEqual([message]);
+    expect(run.commands).not.toContain("git ls-files -s -z");
+  });
+
+  it("replaces the history with one root commit and drops every old ref", async () => {
+    const run = harness(TEMPLATE, {
+      git: cloneGit({
+        refs: {
+          [ABOVE]:
+            "refs/heads/main\nrefs/remotes/origin/HEAD\nrefs/remotes/origin/main\n",
+          [BELOW]: "refs/remotes/origin/main\nrefs/tags/v0.2.1\n",
+          [BESIDE]: "refs/remotes/stale/x\nrefs/tags/v0.1.0\n",
+        },
+      }),
+    });
+    expect(
+      await runInit(
+        [...ARGUMENTS, "--fresh-history", "--workers-subdomain", "acme"],
+        run.dependencies
+      )
+    ).toBe(0);
+    const history = run.commands.filter((command) =>
+      /^git (?!add|status|ls-files|rev-list|rev-parse --is|var|symbolic-ref --quiet)/u.test(
+        command
+      )
+    );
+    expect(history).toEqual([
+      "git rev-parse --verify HEAD",
+      `git ${ABOVE}`,
+      `git ${BELOW}`,
+      `git ${BESIDE}`,
+      "git write-tree",
+      "git commit-tree a1b2c3 -m chore: initialize Acme Labs",
+      "git update-ref refs/heads/main 0123456789abcdef0123",
+      "git symbolic-ref HEAD refs/heads/main",
+      "git remote",
+      "git remote remove origin",
+      "git remote remove upstream",
+      "git update-ref -d refs/remotes/origin/HEAD",
+      "git update-ref -d refs/remotes/origin/main",
+      "git update-ref -d refs/tags/v0.2.1",
+      "git update-ref -d refs/remotes/stale/x",
+      "git update-ref -d refs/tags/v0.1.0",
+      `git ${ABOVE}`,
+      `git ${BELOW}`,
+      `git ${BESIDE}`,
+    ]);
+    expect(run.output.slice(-7)).toEqual([
+      "Replaced the template history with root commit 0123456789ab on main; removed 2 remote(s) and 5 other ref(s).",
+      "",
+      "Initialized Acme Labs as a single root commit, with no template history.",
+      "Next steps:",
+      "  1. bun run setup",
+      "  2. bun run dev   (https://acme-labs.localhost)",
+      "  3. gh repo create acme/acme-labs --private --source=. --remote=origin --push",
+    ]);
+  });
+
+  it("replaces a shallow, detached checkout's history on main", async () => {
+    const run = harness(TEMPLATE, {
+      git: cloneGit({ overrides: SHALLOW_DETACHED }),
+    });
+    expect(
+      await runInit(
+        [...ARGUMENTS, "--fresh-history", "--skip-install"],
+        run.dependencies
+      )
+    ).toBe(0);
+    expect(run.commands).not.toContain(`git ${BESIDE}`);
+    expect(run.commands).toContain("git symbolic-ref HEAD refs/heads/main");
+    expect(run.output).toContain(
+      "Initialized Acme Labs as a single root commit, with no template history."
+    );
+  });
+
+  it("keeps the rename but warns when the history cannot be replaced", async () => {
+    const failing = harness(TEMPLATE, {
+      git: cloneGit({ overrides: { "write-tree": fail("index is broken\n") } }),
+    });
+    expect(
+      await runInit(
+        [...ARGUMENTS, "--fresh-history", "--skip-install"],
+        failing.dependencies
+      )
+    ).toBe(1);
+    expect(failing.errors).toEqual([
+      "git write-tree failed: index is broken",
+      UNREPLACED,
+    ]);
+  });
+
+  it("reports old refs that survive the cleanup", async () => {
+    const run = harness(TEMPLATE, {
+      git: cloneGit({ after: { [BELOW]: "refs/notes/commits\n" } }),
+    });
+    expect(
+      await runInit(
+        [...ARGUMENTS, "--fresh-history", "--skip-install"],
+        run.dependencies
+      )
+    ).toBe(1);
+    expect(run.errors).toEqual([
+      "The old history is still reachable from: refs/notes/commits",
+      UNREPLACED,
+    ]);
+  });
+
+  it("does not replace the history after a failed post-step", async () => {
+    const run = harness(TEMPLATE, {
+      git: cloneGit(),
+      runExit: (command) => (command === "pnpm" ? 1 : 0),
+    });
+    expect(
+      await runInit([...ARGUMENTS, "--fresh-history"], run.dependencies)
+    ).toBe(1);
+    expect(run.errors.at(-1)).toBe(UNREPLACED);
+    expect(run.commands).not.toContain("git write-tree");
+  });
+
+  it("drops the agent-SDLC plane with --without-operator", async () => {
+    const run = harness({
+      ...TEMPLATE,
+      "packages/jobs/package.json":
+        '{ "name": "@darkfactory/jobs", "brick": "agent-sdlc" }\n',
+    });
+    expect(
+      await runInit(
+        [...ARGUMENTS, "--without-operator", "--dry-run"],
+        run.dependencies
+      )
+    ).toBe(0);
+    expect(run.output).toContain("  delete  packages/jobs/package.json");
   });
 });

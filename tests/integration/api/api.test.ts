@@ -122,8 +122,6 @@ const apiClient = (
           emailDelivery: false,
           analytics: true,
           telemetryExport: false,
-          storage: false,
-          errorTracking: false,
         },
         requireSession: (requestHeaders) =>
           requireSession(auth, requestHeaders),
@@ -625,8 +623,6 @@ describe("DF-045/051/061-064 real PostgreSQL API integration", {
         emailDelivery: false,
         analytics: true,
         telemetryExport: false,
-        storage: false,
-        errorTracking: false,
       },
     });
     const dashboard = await member.dashboard.summary({});

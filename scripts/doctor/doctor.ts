@@ -68,7 +68,6 @@ export type DoctorReport = Readonly<{
   checks: readonly DoctorCheck[];
   capabilities: Readonly<{
     required: readonly string[];
-    optional: readonly string[];
     disabled: readonly string[];
   }>;
 }>;
@@ -139,15 +138,7 @@ const classifyCapabilities = (
       ...(codeGraph.enabled ? [codeGraph.provider] : []),
       ...(https.enabled ? [https.provider] : []),
     ]),
-    optional: Object.freeze(
-      Object.entries(manifest.developer_tools)
-        .filter(([, tool]) => tool.enabled === "development")
-        .map(([name]) => name)
-        .sort()
-    ),
-    disabled: Object.freeze(
-      disabledCapabilities(manifest.capabilities, "").sort()
-    ),
+    disabled: Object.freeze(disabledCapabilities(manifest, "").sort()),
   });
 };
 
@@ -246,7 +237,7 @@ const inspectManifest = async (
       result: check(
         "Capabilities manifest",
         "pass",
-        "Required, optional, and disabled capabilities are classified"
+        "Required and disabled capabilities are classified"
       ),
     });
   } catch {
@@ -494,8 +485,8 @@ const PINNED_TOOL_MANIFESTS: ReadonlyArray<readonly [string, string]> = [
   ["node_modules/turbo/package.json", "2.11.5"],
   ["node_modules/vitest/package.json", "5.0.2"],
   ["node_modules/@playwright/test/package.json", "1.63.0"],
-  ["apps/web/node_modules/vinext/package.json", "1.0.0-beta.3"],
-  ["apps/web/node_modules/@vinext/cloudflare/package.json", "1.0.0-beta.3"],
+  ["apps/web/node_modules/vinext/package.json", "1.0.0-beta.13"],
+  ["apps/web/node_modules/@vinext/cloudflare/package.json", "1.0.0-beta.11"],
   ["apps/web/node_modules/vite/package.json", "8.3.1"],
 ];
 
@@ -625,16 +616,7 @@ export const runDoctor = async (
 
   const classification = manifest.manifest
     ? classifyCapabilities(manifest.manifest)
-    : { required: [], optional: [], disabled: [] };
-  for (const capability of classification.optional) {
-    checks.push(
-      check(
-        `Capability ${capability}`,
-        "optional",
-        `${capability} is development-scoped`
-      )
-    );
-  }
+    : { required: [], disabled: [] };
   for (const capability of classification.disabled) {
     checks.push(
       check(`Capability ${capability}`, "disabled", `${capability} is disabled`)
@@ -646,7 +628,6 @@ export const runDoctor = async (
     checks: Object.freeze(checks),
     capabilities: Object.freeze({
       required: classification.required,
-      optional: classification.optional,
       disabled: classification.disabled,
     }),
   });

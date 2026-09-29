@@ -1,6 +1,7 @@
 {
   "name": "@darkfactory/email",
   "brick": "capability",
+  "description": "Email port and renderers, with a Resend adapter and local preview files.",
   "version": "0.2.1",
   "license": "MIT",
   "repository": {
@@ -40,7 +41,6 @@
   },
   "scripts": {
     "typecheck": "tsc --noEmit -p tsconfig.json",
-    "test": "pnpm exec vitest run --config ../../vitest.config.ts --project unit src/server/",
     "test:unit": "pnpm exec vitest run --config ../../vitest.config.ts --project unit ."
   },
   "dependencies": {

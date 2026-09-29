@@ -1,0 +1,49 @@
+{
+  "$schema": "https://unpkg.com/knip@6/schema.json",
+  // Exported types document public function signatures even when only their module uses them.
+  "ignoreExportsUsedInFile": { "interface": true, "type": true },
+  // mkcert is a system binary installed by `mise`/Homebrew, not an npm package.
+  "ignoreBinaries": ["mkcert"],
+  "workspaces": {
+    ".": {
+      // Loading playwright.config.ts provisions the E2E environment, so list its entries instead.
+      // scripts/dev.ts runs behind `portless <name> bun scripts/dev.ts`, which knip cannot parse.
+      "entry": [
+        "tests/e2e/global-setup.ts",
+        "tests/e2e/**/*.spec.ts",
+        "scripts/dev.ts"
+      ],
+      "playwright": false
+    },
+    "apps/web": {
+      // vinext resolves App Router files by convention.
+      "entry": [
+        "src/app/**/{page,layout,route,loading,error,not-found,robots}.{ts,tsx}"
+      ],
+      // `next/*` and `cloudflare:*` are virtual modules. @vinext/cloudflare provides the
+      // `vinext-cloudflare` binary that the root deploy:web scripts run in this package.
+      "ignoreDependencies": ["next", "cloudflare", "@vinext/cloudflare"]
+    },
+    "apps/operator": {
+      "entry": [
+        "src/app/**/{page,layout,route,loading,error,not-found}.{ts,tsx}"
+      ],
+      "ignoreDependencies": ["next"]
+    },
+    "packages/auth": {
+      // The Better Auth CLI (`auth`) loads this config; its output in generated/ is checked by auth:schema:check.
+      "entry": ["auth.schema.config.ts"],
+      "ignore": ["generated/**"],
+      "ignoreDependencies": ["auth"]
+    },
+    "packages/db": {
+      // Loading drizzle.config.ts requires DATABASE_URL, so list it as an entry instead.
+      "entry": ["drizzle.config.ts"],
+      "drizzle": false
+    },
+    "packages/jobs": {
+      // Copied into the verifier container image and run there by Bun.
+      "entry": ["verifier/runner.ts"]
+    }
+  }
+}

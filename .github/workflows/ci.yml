@@ -62,7 +62,7 @@ jobs:
         run: docker compose -f infra/docker/postgres.compose.yml up --detach --wait
 
       - name: Run verification lane
-        run: bun run "verify:${{ matrix.lane }}${{ matrix.lane == 'core' && ':ci' || '' }}"
+        run: bun run "verify:${{ matrix.lane }}"
 
       # Playwright owns the HTTPS proxy and app server; keep evidence of failures only.
       - name: Upload Playwright failure evidence

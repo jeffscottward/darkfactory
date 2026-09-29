@@ -28,7 +28,7 @@ vi.mock("@darkfactory/jobs/server/workflow-repository", () => ({
   createWorkflowRepository: vi.fn(),
 }));
 vi.mock("@darkfactory/operator/server", () => ({}));
-vi.mock("@darkfactory/state/workflow", () => ({}));
+vi.mock("@darkfactory/jobs/workflow", () => ({}));
 vi.mock("@darkfactory/email/server", () => ({
   selectEmailPort: mocks.selectEmailPort,
 }));

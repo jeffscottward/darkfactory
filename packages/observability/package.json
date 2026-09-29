@@ -1,6 +1,7 @@
 {
   "name": "@darkfactory/observability",
   "brick": "product",
+  "description": "Telemetry port: OpenTelemetry traces and metrics, evlog events and redaction.",
   "version": "0.2.1",
   "license": "MIT",
   "repository": {
@@ -53,7 +54,6 @@
   },
   "scripts": {
     "typecheck": "tsc --noEmit -p tsconfig.json",
-    "test": "pnpm exec vitest run --config ../../vitest.config.ts --project unit src/*.test.ts src/server/*.test.ts",
     "test:unit": "pnpm exec vitest run --config ../../vitest.config.ts --project unit ."
   },
   "dependencies": {

@@ -1,3 +1,6 @@
+// What: oRPC implementation of appContract: binds each procedure to feature, account, theme and contact services.
+// Used by: packages/api/src/server/handler.ts, packages/api/src/server/index.ts (appRouter).
+// See: packages/api/src/contract.ts#appContract; docs/getting-started.md#add-your-first-feature.
 import {
   AuthAuthorizationError,
   type SafeAuthSession,

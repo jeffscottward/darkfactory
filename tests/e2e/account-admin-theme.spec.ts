@@ -1,4 +1,8 @@
-import type { AdminUserSummaryOutput, ApiClient } from "@darkfactory/api";
+import {
+  type AdminUserSummaryOutput,
+  type ApiClient,
+  createApiClient,
+} from "@darkfactory/api";
 import type {
   APIRequestContext,
   Browser,
@@ -7,8 +11,6 @@ import type {
   Locator,
   Page,
 } from "@playwright/test";
-import { RPCLink } from "../../packages/api/node_modules/@orpc/client/dist/adapters/fetch/index.mjs";
-import { createORPCClient } from "../../packages/api/node_modules/@orpc/client/dist/index.mjs";
 
 import {
   E2E_IDENTITIES,
@@ -635,19 +637,11 @@ const playwrightFetch =
     });
   };
 
-const createE2EApiClient = (
-  baseURL: string,
-  fetchRequest: (request: Request) => Promise<Response>
-): ApiClient => {
-  const link = new RPCLink({
-    url: () => new URL("/api/orpc", baseURL),
-    fetch: fetchRequest,
-  });
-  return createORPCClient<ApiClient>(link);
-};
-
 const apiFor = (context: BrowserContext, baseURL: string): ApiClient =>
-  createE2EApiClient(baseURL, playwrightFetch(context.request));
+  createApiClient({
+    baseUrl: baseURL,
+    fetch: playwrightFetch(context.request),
+  });
 
 const serializeAdminListRequest = (
   baseURL: string,
@@ -657,14 +651,17 @@ const serializeAdminListRequest = (
   const captured = new Promise<Request>((resolve) => {
     resolveRequest = resolve;
   });
-  const serializer = createE2EApiClient(baseURL, (request) => {
-    resolveRequest(request.clone());
-    return Promise.resolve(
-      new Response(JSON.stringify({ json: null }), {
-        headers: { "content-type": "application/json" },
-        status: 200,
-      })
-    );
+  const serializer = createApiClient({
+    baseUrl: baseURL,
+    fetch: (request) => {
+      resolveRequest(request.clone());
+      return Promise.resolve(
+        new Response(JSON.stringify({ json: null }), {
+          headers: { "content-type": "application/json" },
+          status: 200,
+        })
+      );
+    },
   });
   serializer.admin.users.list(input).catch(() => undefined);
   return captured;

@@ -24,7 +24,7 @@ export const DEFAULT_ANONYMOUS_THEME: Readonly<AnonymousThemePreference> =
 
 export const THEME_STORAGE_KEY = "darkfactory.anonymous-ui.v1" as const;
 export const MAX_ANONYMOUS_THEME_SNAPSHOT_LENGTH = 128 as const;
-export const THEME_COOKIE_NAME = "darkfactory-theme" as const;
+const THEME_COOKIE_NAME = "darkfactory-theme" as const;
 export const MAX_COOKIE_HEADER_LENGTH = 32_768 as const;
 export const MAX_THEME_COOKIE_VALUE_LENGTH = 64 as const;
 
@@ -91,26 +91,6 @@ export const parseThemeCookieHeader = (
     return { status: "invalid" };
   }
 };
-
-export const THEME_MODE_LABELS: Readonly<Record<ThemeMode, string>> =
-  Object.freeze({
-    light: "Light",
-    dark: "Dark",
-    system: "System",
-  });
-
-export const PALETTE_LABELS: Readonly<Record<Palette, string>> = Object.freeze({
-  neutral: "Neutral",
-  slate: "Slate",
-  blue: "Blue",
-  cyan: "Cyan",
-  green: "Green",
-  amber: "Amber",
-  orange: "Orange",
-  red: "Red",
-  rose: "Rose",
-  violet: "Violet",
-});
 
 export const themeDomAttributes = (
   preference: Readonly<AnonymousThemePreference>

@@ -16,19 +16,20 @@ Every external service (email, analytics, AI, telemetry) sits behind a small por
 
 ## Lego bricks
 
-Every workspace package declares a `brick` role in its `package.json`. `bun run docs:check` enforces the direction of dependencies between roles:
+Every workspace package declares a `brick` role in its `package.json`. Arrows mean "uses"; `bun run docs:check` enforces their direction:
 
 ```mermaid
 flowchart LR
-  app["🌐 app<br/>composition roots"]
-  sdlc["🧭 agent-sdlc<br/>opt-in operator plane"]
-  product["🧱 product<br/>api, auth, db, config,<br/>observability, ui, state"]
-  capability["🔌 capability<br/>ports + adapters"]
-  tooling["🧪 tooling<br/>test support"]
+  app["🌐 <b>app</b><br/>apps/web<br/><i>turns bricks<br/>into pages</i>"]
+  sdlc["🧭 <b>agent-sdlc</b><br/>operator, jobs<br/><i>optional AI crew,<br/>safe to delete</i>"]
+  product["🧱 <b>product</b><br/>api · auth · db<br/>config · ui · state<br/>observability<br/><i>your rules and data</i>"]
+  capability["🔌 <b>capability</b><br/>email · ai<br/>analytics<br/><i>swap vendors, not features</i>"]
+  tooling["🧪 <b>tooling</b><br/>testkit<br/><i>throwaway test databases</i>"]
 
   app --> product & capability
   sdlc --> product & capability
   product --> capability
+  tooling -.->|tests| product
 
   classDef appRole fill:#1f6feb,stroke:#0b3d91,color:#ffffff
   classDef productRole fill:#2ea44f,stroke:#1a7f37,color:#ffffff
@@ -50,26 +51,32 @@ Nothing depends on an app, capability bricks depend on nothing but tooling, and 
 
 You need [mise](https://mise.jdx.dev/), which installs the toolchain pinned in [`mise.toml`](mise.toml), and Docker for local Postgres (or your own PostgreSQL 17 with the roles in [`infra/docker/postgres.compose.yml`](infra/docker/postgres.compose.yml)).
 
+<!-- init:start -->
+### Start your own project
+
+Create your repository from the template with the [GitHub CLI](https://cli.github.com/). It starts from one fresh commit, so none of the template's Git history comes with it. Rename it with `init` before you run `setup`:
+
 ```sh
-git clone https://github.com/jeffscottward/darkfactory.git acme && cd acme
+gh repo create acme/acme-labs --template jeffscottward/darkfactory --private --clone && cd acme-labs
+mise install
+bun run init -- --name "Acme Labs" --slug acme-labs --scope @acme --domain acme.dev --repo acme/acme-labs
+git commit -m "chore: initialize project" && git push
+```
+
+Init rewrites the package scope, slug, domain, repository URLs, env prefixes and database names in one pass. It removes instance-only history (the changelog, archives and the OpenSSF record) and then deletes itself. Add `--without-operator` to drop the opt-in agent-SDLC plane, `--dry-run` to preview, or `--help` to list every option. Then [protect `main`](docs/deploy.md#branch-protection).
+
+To only try the template, `git clone https://github.com/jeffscottward/darkfactory.git` instead. That clone carries the template's full history, so never push it; `bun run init -- … --fresh-history` turns it into a project with a single root commit.
+<!-- init:end -->
+
+Run it from a checkout:
+
+```sh
 mise install
 bun run setup
 bun run dev
 ```
 
 Open `https://darkfactory.localhost` and sign in as `admin@domain.test` with the development password `Development123!`. Details: [docs/getting-started.md](docs/getting-started.md).
-
-<!-- init:start -->
-### Start your own project
-
-Rename the template in one command from a clean checkout, before `bun run setup`. Then review the staged result and commit it:
-
-```sh
-bun run init -- --name "Acme Labs" --slug acme-labs --scope @acme --domain acme.dev --repo acme/acme-labs
-```
-
-Init rewrites the package scope, slug, domain, repository URLs, env prefixes and database names in a single pass. It also removes instance-only history (the changelog, archives and the OpenSSF record) and then deletes itself. Use `--dry-run` to preview the changes and `--help` to list every option. After init, the app runs at `https://<slug>.localhost`.
-<!-- init:end -->
 
 ## Commands
 
@@ -78,7 +85,7 @@ Init rewrites the package scope, slug, domain, repository URLs, env prefixes and
 | `bun run setup` | Checks the toolchain, installs dependencies, writes `.env` with generated secrets, starts Postgres with Docker Compose, migrates, seeds dev accounts and writes the Worker `.dev.vars`. Safe to re-run. |
 | `bun run dev` | Refreshes `.dev.vars` and starts the web app over portless HTTPS at `https://darkfactory.localhost`. |
 | `bun run check` | Format check, lint (Biome and Markdown) and typecheck. |
-| `bun run test` | Every suite: unit, contract, operations, integration, E2E and accessibility. |
+| `bun run test` | Every suite: unit, contract, operations, integration, then a build and the E2E and accessibility lane. Database suites run against the test database (`TEST_DATABASE_URL`), never the app database in `.env`. |
 | `bun run verify:prepush` | The pre-push hook: `check`, generated-artifact checks, and unit, contract and operations tests. |
 | `bun run verify` | Runs the same checks as the four CI lanes, locally. |
 | `bun run docs:generate` / `docs:check` | Regenerates or checks [docs/generated/package-graph.md](docs/generated/package-graph.md). |
@@ -100,7 +107,7 @@ Versions live in [`package.json`](package.json), the `catalog` in [`pnpm-workspa
 | ORM and migrations | Drizzle | Core: `packages/db` (not a swap point) |
 | API | oRPC contracts + generated OpenAPI | Core: `packages/api/src/contracts/` (not a swap point) |
 | Auth | Better Auth | `packages/auth` |
-| Email | Resend (preview files locally) | `EmailPort` in `packages/email/src/server-types.ts`; adapters in `packages/email/src/server/provider.ts` and `contact.ts` |
+| Email | Resend (preview files locally) | `EmailPort` in `packages/email/src/index.ts`; adapters in `packages/email/src/server/provider.ts` and `contact.ts` |
 | Product analytics | PostHog | `AnalyticsPort` in `packages/analytics/src/index.ts`; adapter in `packages/analytics/src/server/posthog.ts` |
 | AI | Groq | `AiPort` in `packages/ai/src/index.ts`; adapter in `packages/ai/src/server/groq.ts` |
 | Traces and metrics | OpenTelemetry | `TelemetryPort` in `packages/observability/src/port.ts`; adapter in `packages/observability/src/server/otel.ts` |

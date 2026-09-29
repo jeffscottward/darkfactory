@@ -1,6 +1,7 @@
 {
   "name": "@darkfactory/api",
   "brick": "product",
+  "description": "oRPC contracts, services and router; the source of the typed client and OpenAPI.",
   "version": "0.2.1",
   "license": "MIT",
   "repository": {
@@ -27,7 +28,6 @@
   },
   "scripts": {
     "typecheck": "tsc --noEmit -p tsconfig.json",
-    "test": "pnpm exec vitest run --config ../../vitest.config.ts --project unit src/ --exclude \"**/*contract.test.ts\"",
     "test:unit": "pnpm exec vitest run --config ../../vitest.config.ts --project unit .",
     "openapi:generate": "bun scripts/openapi.ts --write",
     "openapi:check": "bun scripts/openapi.ts"

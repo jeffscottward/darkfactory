@@ -1,3 +1,6 @@
+// What: Database provider profiles and request endpoint validation (local vs Hyperdrive/production).
+// Used by: apps/web/src/server/database-binding.ts, apps/web/src/server/request-scope.ts, apps/operator/src/server/operator-auth.ts.
+// See: docs/debugging.md#symptom--where-to-look (validateRequestDatabaseEndpoint); docs/deploy.md#hyperdrive.
 import type { ServerEnv } from "./server.ts";
 
 export const DATABASE_PROVIDERS = [

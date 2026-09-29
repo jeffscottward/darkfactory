@@ -1,3 +1,6 @@
+// What: Postgres-backed fixed-window rate limit for contact submissions.
+// Used by: apps/web/src/app/api/orpc/[...rest]/route.ts#createContactThrottleRepository.
+// See: docs/debugging.md#symptom--where-to-look (Contact form returns 429 or 503).
 import { sql } from "drizzle-orm";
 
 import type { DatabaseExecutor } from "./client.ts";

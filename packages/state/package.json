@@ -1,6 +1,7 @@
 {
   "name": "@darkfactory/state",
   "brick": "product",
+  "description": "UI-free state: XState lifecycles and Zustand stores.",
   "version": "0.2.1",
   "license": "MIT",
   "repository": {
@@ -22,19 +23,13 @@
     "./flow": {
       "import": "./src/setup-flow.ts",
       "default": "./src/setup-flow.ts"
-    },
-    "./workflow": {
-      "import": "./src/workflow/index.ts",
-      "default": "./src/workflow/index.ts"
     }
   },
   "scripts": {
     "typecheck": "tsc --noEmit -p tsconfig.json",
-    "test": "pnpm exec vitest run --config ../../vitest.config.ts --project unit src/**/*.test.ts",
     "test:unit": "pnpm exec vitest run --config ../../vitest.config.ts --project unit ."
   },
   "dependencies": {
-    "@noble/hashes": "2.4.0",
     "xstate": "catalog:",
     "zustand": "catalog:"
   },

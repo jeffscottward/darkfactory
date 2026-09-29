@@ -1,21 +1,25 @@
 import { basename, dirname, join, resolve } from "node:path";
 
+// The Worker's `process.env` binding bag; only the named keys are read.
 export interface E2eFixtureEnvironment {
+  readonly [binding: string]: string | undefined;
   readonly APP_ENV?: string;
   readonly E2E_FIXTURES?: string;
   readonly E2E_EMAIL_PREVIEW_DIRECTORY?: string;
   readonly E2E_EMAIL_PREVIEW_ENDPOINT?: string;
   readonly E2E_EMAIL_PREVIEW_HMAC_KEY?: string;
   readonly E2E_RUN_ID?: string;
-  readonly NODE_ENV?: string;
 }
 
+// Fixtures are gated on explicit Worker bindings. Production and staging bind
+// APP_ENV=production (wrangler.jsonc), so they fail closed. NODE_ENV is not a
+// gate input: no deployed Worker binds it, and since vinext 1.0.0-beta.4
+// `vite preview` (even with `--mode test`) sets the host NODE_ENV=production,
+// which CLOUDFLARE_INCLUDE_PROCESS_ENV forwards to the E2E Worker.
 export const isE2eFixtureEnabled = (
   environment: E2eFixtureEnvironment = process.env
 ): boolean =>
-  environment.APP_ENV === "test" &&
-  environment.E2E_FIXTURES === "1" &&
-  environment.NODE_ENV !== "production";
+  environment.APP_ENV === "test" && environment.E2E_FIXTURES === "1";
 
 export type E2eEmailPreviewOptions = Readonly<{
   authDirectory: string;

@@ -4,25 +4,43 @@
 
 - [mise](https://mise.jdx.dev/). It installs the Node, Bun and pnpm versions pinned in [`mise.toml`](../mise.toml).
 - Docker with Compose, for local Postgres. Without Docker, run your own PostgreSQL 17 with the roles in [`infra/docker/postgres.compose.yml`](../infra/docker/postgres.compose.yml) and point `DATABASE_URL` at it.
-- macOS or Linux. The operator plane is optional; running agents through it currently needs macOS ([operator.md](operator.md)).
+- macOS or Linux.
+- Optional: running agents through the operator plane currently needs macOS ([operator.md](operator.md)).
 
 ## Get the code
 
+<!-- init:start -->
+Create your repository from the template with the [GitHub CLI](https://cli.github.com/). The new repository starts from one fresh commit, so none of the template's Git history comes with it:
+
 ```sh
-git clone https://github.com/jeffscottward/darkfactory.git acme && cd acme
+gh repo create acme/acme-labs --template jeffscottward/darkfactory --private --clone && cd acme-labs
+```
+
+To only try the template, `git clone https://github.com/jeffscottward/darkfactory.git` instead. That clone carries the template's full history, so never push it.
+
+<!-- init:end -->
+Install the pinned toolchain in the checkout:
+
+```sh
 mise install
 ```
 
 <!-- init:start -->
 ### Rename the template
 
-Run this once, on a clean tree, before `setup`:
+Run this once, on a clean tree, before `setup`, then push the result:
 
 ```sh
 bun run init -- --name "Acme Labs" --slug acme-labs --scope @acme --domain acme.dev --repo acme/acme-labs
+git commit -m "chore: initialize project" && git push
 ```
 
-Init rewrites the template identity for your project: the `@darkfactory` scope, the `darkfactory` slug and `darkfactory.localhost`, the production domain and email sender, the repository URLs, the `DARKFACTORY_` and `darkfactory_` prefixes, and the LICENSE holder. It removes the owner's Cloudflare `account_id`, and deploys use `CLOUDFLARE_ACCOUNT_ID` instead. It deletes instance-only history, runs `pnpm install` and regenerates the generated docs. Preview with `--dry-run`. Review and commit the result before you continue.
+Init rewrites the template identity for your project: the `@darkfactory` scope, the `darkfactory` slug and `darkfactory.localhost`, the production domain and email sender, the repository URLs, the `DARKFACTORY_` and `darkfactory_` prefixes, and the LICENSE holder. It removes the owner's Cloudflare `account_id`, and deploys use `CLOUDFLARE_ACCOUNT_ID` instead. It deletes instance-only history, runs `pnpm install` and regenerates the generated docs. Preview with `--dry-run`. Two options:
+
+- `--without-operator` deletes the opt-in agent-SDLC plane: every workspace package whose `package.json` `brick` is `agent-sdlc`, plus their root scripts and dependencies, the `WORKFLOW_*` env keys, `docs/operator.md`, and the tests, config entries and doc lines that cite them.
+- `--fresh-history` is for a plain `git clone`, shallow ones included. After renaming, it commits the tree as a single root commit on your branch (`main` when HEAD is detached), removes every remote, deletes the tags that reach the old history, and fails if any ref still reaches it. It needs a Git identity and refuses if another local branch carries the old history.
+
+Init prints the next steps. It never suggests pushing a checkout that still carries the template's history. Then protect `main` ([deploy.md](deploy.md#branch-protection)).
 <!-- init:end -->
 
 ## Set up
@@ -71,11 +89,13 @@ Local email is not sent. It is written as preview files under `packages/email/pr
 ```sh
 bun run check                                  # format check, lint, typecheck
 pnpm exec vitest run path/to/file.test.ts      # one test file
-bun run test                                   # every suite
+bun run test                                   # every suite, against the test database
 git push                                       # runs verify:prepush
 ```
 
 `bun run dev` rewrites `apps/web/.dev.vars` from `.env` on every start; `bun run dev:bindings` refreshes it alone. Never commit `.env` or `.dev.vars`, and do not `source .env` as a shell script. Variables exported in your shell win over `.env`.
+
+`bun run test` needs the local Postgres that `setup` starts (`bun run db:test:up` restarts it) and Chromium. Its database suites run through `scripts/with-test-env.ts`, which sets `APP_ENV=test` and points `DATABASE_URL` at `TEST_DATABASE_URL`, or at the compose test role when that is empty. The app database in `.env` is never used.
 
 Database commands:
 

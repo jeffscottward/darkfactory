@@ -8,10 +8,11 @@ import { PageHeader } from "@darkfactory/ui";
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 
+import { DashboardContent } from "../../../components/portal/dashboard-content.tsx";
 import {
-  DashboardContent,
   type DashboardSummaryState,
-} from "../../../components/portal/dashboard-content.tsx";
+  toDashboardViewModel,
+} from "../../../features/dashboard/view-model.ts";
 import { ownErrorData, retryOnCapacity } from "../../../lib/capacity-retry.ts";
 import {
   createAuthenticatedDashboardFetch,
@@ -184,7 +185,7 @@ export default async function DashboardPage() {
         eyebrow="Overview"
         title="Dashboard"
       />
-      <DashboardContent summaryState={summaryState} />
+      <DashboardContent model={toDashboardViewModel(summaryState)} />
     </div>
   );
 }

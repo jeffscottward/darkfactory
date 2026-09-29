@@ -2,6 +2,7 @@ import type { FeatureItemOutput } from "@darkfactory/api";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 
+import { toDashboardViewModel } from "../../features/dashboard/view-model.ts";
 import { DashboardContent } from "./dashboard-content.tsx";
 
 const recentItem: FeatureItemOutput = {
@@ -28,15 +29,13 @@ const unavailableCapabilities = {
   emailDelivery: false,
   analytics: false,
   telemetryExport: false,
-  storage: false,
-  errorTracking: false,
 } as const;
 
 describe("DashboardContent", () => {
   it("derives current identity from the ready owner summary", () => {
     const html = renderToStaticMarkup(
       <DashboardContent
-        summaryState={{
+        model={toDashboardViewModel({
           type: "ready",
           summary: {
             session: memberSession,
@@ -53,7 +52,7 @@ describe("DashboardContent", () => {
               analytics: true,
             },
           },
-        }}
+        })}
       />
     );
 
@@ -74,7 +73,7 @@ describe("DashboardContent", () => {
   it("derives administrator identity only from a ready summary", () => {
     const html = renderToStaticMarkup(
       <DashboardContent
-        summaryState={{
+        model={toDashboardViewModel({
           type: "ready",
           summary: {
             session: {
@@ -92,7 +91,7 @@ describe("DashboardContent", () => {
             },
             capabilities: unavailableCapabilities,
           },
-        }}
+        })}
       />
     );
 
@@ -106,7 +105,7 @@ describe("DashboardContent", () => {
       { type: "unauthorized" },
     ] as const) {
       const html = renderToStaticMarkup(
-        <DashboardContent summaryState={summaryState} />
+        <DashboardContent model={toDashboardViewModel(summaryState)} />
       );
 
       expect(html).toContain("Dashboard data unavailable");
@@ -123,7 +122,7 @@ describe("DashboardContent", () => {
   return it("renders honest empty data without inventing an unavailable metric", () => {
     const emptyHtml = renderToStaticMarkup(
       <DashboardContent
-        summaryState={{
+        model={toDashboardViewModel({
           type: "ready",
           summary: {
             session: memberSession,
@@ -136,7 +135,7 @@ describe("DashboardContent", () => {
             },
             capabilities: unavailableCapabilities,
           },
-        }}
+        })}
       />
     );
 

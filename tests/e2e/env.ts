@@ -27,7 +27,7 @@ const SECRET_PATTERN = /^[a-f0-9]{64}$/u;
 const PORT_PATTERN = /^[1-9]\d{0,4}$/u;
 
 /** Host variables the servers need to run their toolchain; nothing else passes through. */
-export const E2E_INHERITED_KEYS = [
+const E2E_INHERITED_KEYS = [
   "CI",
   "COREPACK_HOME",
   "HOME",
@@ -49,18 +49,13 @@ export const E2E_INHERITED_KEYS = [
 ] as const;
 
 /** Remote provider credentials and endpoints, always blank so a run never reaches a provider. */
-export const E2E_BLANKED_REMOTE_KEYS = [
+const E2E_BLANKED_REMOTE_KEYS = [
   "GROQ_API_KEY",
   "GROQ_MODEL",
   "RESEND_API_KEY",
   "POSTHOG_KEY",
   "POSTHOG_HOST",
   "OTEL_EXPORTER_OTLP_ENDPOINT",
-  "R2_ACCOUNT_ID",
-  "R2_ACCESS_KEY_ID",
-  "R2_SECRET_ACCESS_KEY",
-  "R2_BUCKET",
-  "ERROR_TRACKING_DSN",
 ] as const;
 
 // Playwright adds these to every webServer environment.
@@ -152,7 +147,7 @@ export const ensurePrivateStateDirectory = (directory: string): string => {
  * Playwright spawns webServers with `{ ...process.env, ...env }`, and Node's
  * spawn drops keys whose value is undefined.
  */
-export const isolatedEnvironment = (
+const isolatedEnvironment = (
   values: Record<string, string>,
   source: Source = process.env
 ): Record<string, string> => {
@@ -236,14 +231,6 @@ export const e2eEnvironment = (
       E2E_RUN_ID: runId,
       ...Object.fromEntries(E2E_BLANKED_REMOTE_KEYS.map((key) => [key, ""])),
       OTEL_ENABLED: "false",
-      STORAGE_ENABLED: "false",
-      DOCS_ENABLED: "false",
-      DOCS_PUBLIC: "false",
-      JOBS_ENABLED: "false",
-      FLOWER_ENABLED: "false",
-      UPTIME_KUMA_ENABLED: "false",
-      ERROR_TRACKING_ENABLED: "false",
-      MEMORI_ENABLED: "false",
     },
     source
   );

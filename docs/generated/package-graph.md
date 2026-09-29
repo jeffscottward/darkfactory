@@ -2,34 +2,34 @@
 
 # Package graph
 
-Every workspace `package.json` declares a `brick` role. Arrows point from a package to the workspace package it depends on. `bun run docs:check` fails when this file is stale, a package lacks a valid `brick`, or a dependency breaks the brick rules below (`ALLOWED_BRICK_DEPENDENCIES` in `scripts/docs/docs.ts`).
+Every workspace `package.json` declares a `brick` role and a one-line `description`. Arrows point from a package to the workspace package it depends on. `bun run docs:check` fails when this file is stale, a package lacks a valid `brick` or `description`, a dependency breaks the brick rules below (`ALLOWED_BRICK_DEPENDENCIES` in `scripts/docs/docs.ts`), or a package imports a workspace package it does not declare. Knip fails on declared dependencies that nothing imports, so every arrow is a real import.
 
 ```mermaid
 flowchart LR
   subgraph appBricks["Apps"]
-    darkfactory_web["web<br/>apps/web"]
+    darkfactory_web["<b>web</b><br/>Customer web app: pages, route handlers and the request scope."]
   end
   subgraph productBricks["Product bricks"]
-    darkfactory_api["api<br/>packages/api"]
-    darkfactory_auth["auth<br/>packages/auth"]
-    darkfactory_config["config<br/>packages/config"]
-    darkfactory_db["db<br/>packages/db"]
-    darkfactory_observability["observability<br/>packages/observability"]
-    darkfactory_state["state<br/>packages/state"]
-    darkfactory_ui["ui<br/>packages/ui"]
+    darkfactory_api["<b>api</b><br/>oRPC contracts, services and router; the source of the typed client and OpenAPI."]
+    darkfactory_auth["<b>auth</b><br/>Better Auth setup: sessions, email verification and password reset on Postgres."]
+    darkfactory_config["<b>config</b><br/>Zod-validated environment, database profiles and the capabilities.yaml loader."]
+    darkfactory_db["<b>db</b><br/>Drizzle schema, migrations, seeds and repositories for Postgres."]
+    darkfactory_observability["<b>observability</b><br/>Telemetry port: OpenTelemetry traces and metrics, evlog events and redaction."]
+    darkfactory_state["<b>state</b><br/>UI-free state: XState lifecycles and Zustand stores."]
+    darkfactory_ui["<b>ui</b><br/>Presentational React components, styles and shadcn primitives."]
   end
   subgraph capabilityBricks["Capability bricks"]
-    darkfactory_ai["ai<br/>packages/ai"]
-    darkfactory_analytics["analytics<br/>packages/analytics"]
-    darkfactory_email["email<br/>packages/email"]
+    darkfactory_ai["<b>ai</b><br/>AI text port with a Groq adapter."]
+    darkfactory_analytics["<b>analytics</b><br/>Product analytics port with a PostHog adapter."]
+    darkfactory_email["<b>email</b><br/>Email port and renderers, with a Resend adapter and local preview files."]
   end
   subgraph agentSdlcBricks["Agent-SDLC bricks (opt-in)"]
-    darkfactory_jobs["jobs<br/>packages/jobs"]
-    darkfactory_operator["operator<br/>packages/operator"]
-    darkfactory_operator_app["operator-app<br/>apps/operator"]
+    darkfactory_jobs["<b>jobs</b><br/>Background jobs and the operator plane's workflow schema, repository and worker."]
+    darkfactory_operator["<b>operator</b><br/>Operator oRPC contract, client and service for workflow runs."]
+    darkfactory_operator_app["<b>operator-app</b><br/>Opt-in console to plan, run and watch agent workflows."]
   end
   subgraph toolingBricks["Tooling"]
-    darkfactory_testkit["testkit<br/>packages/testkit"]
+    darkfactory_testkit["<b>testkit</b><br/>Isolated, disposable Postgres databases for tests."]
   end
   darkfactory_api --> darkfactory_auth
   darkfactory_api --> darkfactory_db
@@ -39,21 +39,16 @@ flowchart LR
   darkfactory_config --> darkfactory_ai
   darkfactory_config --> darkfactory_analytics
   darkfactory_config --> darkfactory_email
-  darkfactory_db --> darkfactory_observability
   darkfactory_jobs --> darkfactory_db
   darkfactory_jobs --> darkfactory_observability
-  darkfactory_jobs --> darkfactory_state
   darkfactory_operator --> darkfactory_auth
-  darkfactory_operator --> darkfactory_db
   darkfactory_operator --> darkfactory_jobs
-  darkfactory_operator --> darkfactory_state
   darkfactory_operator_app --> darkfactory_auth
   darkfactory_operator_app --> darkfactory_config
   darkfactory_operator_app --> darkfactory_db
   darkfactory_operator_app --> darkfactory_email
   darkfactory_operator_app --> darkfactory_jobs
   darkfactory_operator_app --> darkfactory_operator
-  darkfactory_operator_app --> darkfactory_state
   darkfactory_operator_app --> darkfactory_ui
   darkfactory_web --> darkfactory_analytics
   darkfactory_web --> darkfactory_api
@@ -89,21 +84,21 @@ flowchart LR
 
 ## Packages
 
-| Package | Brick | Workspace dependencies | Exports |
-| --- | --- | --- | --- |
-| [`@darkfactory/root`](../../package.json) | workspace | `@darkfactory/ai`, `@darkfactory/analytics`, `@darkfactory/api`, `@darkfactory/auth`, `@darkfactory/config`, `@darkfactory/db`, `@darkfactory/email`, `@darkfactory/jobs`, `@darkfactory/observability`, `@darkfactory/operator`, `@darkfactory/state`, `@darkfactory/testkit`, `@darkfactory/ui` | — |
-| [`@darkfactory/web`](../../apps/web/package.json) | app | `@darkfactory/analytics`, `@darkfactory/api`, `@darkfactory/auth`, `@darkfactory/config`, `@darkfactory/db`, `@darkfactory/email`, `@darkfactory/observability`, `@darkfactory/state`, `@darkfactory/ui` | — |
-| [`@darkfactory/api`](../../packages/api/package.json) | product | `@darkfactory/auth`, `@darkfactory/db`, `@darkfactory/observability` | `.`, `./server` |
-| [`@darkfactory/auth`](../../packages/auth/package.json) | product | `@darkfactory/db`, `@darkfactory/email` | `./client`, `./db`, `./server`, `./types` |
-| [`@darkfactory/config`](../../packages/config/package.json) | product | `@darkfactory/ai`, `@darkfactory/analytics`, `@darkfactory/email` | `.`, `./database`, `./server`, `./server/capabilities` |
-| [`@darkfactory/db`](../../packages/db/package.json) | product | `@darkfactory/observability` | `./schema`, `./server`, `./server/migration` |
-| [`@darkfactory/observability`](../../packages/observability/package.json) | product | — | `.`, `./port`, `./redaction`, `./server/evlog`, `./server/fanout`, `./server/otel`, `./test` |
-| [`@darkfactory/state`](../../packages/state/package.json) | product | — | `.`, `./client`, `./flow`, `./workflow` |
-| [`@darkfactory/ui`](../../packages/ui/package.json) | product | — | `.`, `./avatar`, `./badge`, `./button`, `./card`, `./client/dialog`, `./client/dropdown-menu`, `./client/tabs`, `./client/theme`, `./client/toaster`, `./empty-state`, `./headings`, `./icon-button`, `./input`, `./label`, `./palettes`, `./separator`, `./skeleton`, `./stat-card`, `./status-badge`, `./styles.css`, `./textarea`, `./utilities` |
-| [`@darkfactory/ai`](../../packages/ai/package.json) | capability | — | `.`, `./adapters`, `./server/groq`, `./test` |
-| [`@darkfactory/analytics`](../../packages/analytics/package.json) | capability | — | `.`, `./adapters`, `./server/posthog`, `./test` |
-| [`@darkfactory/email`](../../packages/email/package.json) | capability | — | `.`, `./adapters`, `./recipient`, `./server`, `./test` |
-| [`@darkfactory/jobs`](../../packages/jobs/package.json) | agent-sdlc | `@darkfactory/db`, `@darkfactory/observability`, `@darkfactory/state` | `.`, `./schema/workflow`, `./server/inline`, `./server/omp`, `./server/pilot-worker`, `./server/plan-evidence`, `./server/wayfinder`, `./server/workflow-error`, `./server/workflow-repository`, `./server/workflow-runtime`, `./server/workflow-worker`, `./test` |
-| [`@darkfactory/operator`](../../packages/operator/package.json) | agent-sdlc | `@darkfactory/auth`, `@darkfactory/db`, `@darkfactory/jobs`, `@darkfactory/state` | `.`, `./client`, `./contract`, `./server` |
-| [`@darkfactory/operator-app`](../../apps/operator/package.json) | agent-sdlc | `@darkfactory/auth`, `@darkfactory/config`, `@darkfactory/db`, `@darkfactory/email`, `@darkfactory/jobs`, `@darkfactory/operator`, `@darkfactory/state`, `@darkfactory/ui` | — |
-| [`@darkfactory/testkit`](../../packages/testkit/package.json) | tooling | — | `.`, `./postgres` |
+| Package | Brick | Purpose | Workspace dependencies | Exports |
+| --- | --- | --- | --- | --- |
+| [`@darkfactory/root`](../../package.json) | workspace | A modular, Postgres-first, AI-native application foundation. | `@darkfactory/api`, `@darkfactory/auth`, `@darkfactory/config`, `@darkfactory/db`, `@darkfactory/email`, `@darkfactory/jobs`, `@darkfactory/observability`, `@darkfactory/operator`, `@darkfactory/state`, `@darkfactory/testkit`, `@darkfactory/ui` | — |
+| [`@darkfactory/web`](../../apps/web/package.json) | app | Customer web app: pages, route handlers and the request scope. | `@darkfactory/analytics`, `@darkfactory/api`, `@darkfactory/auth`, `@darkfactory/config`, `@darkfactory/db`, `@darkfactory/email`, `@darkfactory/observability`, `@darkfactory/state`, `@darkfactory/ui` | — |
+| [`@darkfactory/api`](../../packages/api/package.json) | product | oRPC contracts, services and router; the source of the typed client and OpenAPI. | `@darkfactory/auth`, `@darkfactory/db`, `@darkfactory/observability` | `.`, `./server` |
+| [`@darkfactory/auth`](../../packages/auth/package.json) | product | Better Auth setup: sessions, email verification and password reset on Postgres. | `@darkfactory/db`, `@darkfactory/email` | `./client`, `./db`, `./server`, `./types` |
+| [`@darkfactory/config`](../../packages/config/package.json) | product | Zod-validated environment, database profiles and the capabilities.yaml loader. | `@darkfactory/ai`, `@darkfactory/analytics`, `@darkfactory/email` | `.`, `./database`, `./server`, `./server/capabilities` |
+| [`@darkfactory/db`](../../packages/db/package.json) | product | Drizzle schema, migrations, seeds and repositories for Postgres. | — | `./schema`, `./server`, `./server/migration` |
+| [`@darkfactory/observability`](../../packages/observability/package.json) | product | Telemetry port: OpenTelemetry traces and metrics, evlog events and redaction. | — | `.`, `./port`, `./redaction`, `./server/evlog`, `./server/fanout`, `./server/otel`, `./test` |
+| [`@darkfactory/state`](../../packages/state/package.json) | product | UI-free state: XState lifecycles and Zustand stores. | — | `.`, `./client`, `./flow` |
+| [`@darkfactory/ui`](../../packages/ui/package.json) | product | Presentational React components, styles and shadcn primitives. | — | `.`, `./avatar`, `./badge`, `./button`, `./card`, `./client/dialog`, `./client/dropdown-menu`, `./client/tabs`, `./client/theme`, `./client/toaster`, `./empty-state`, `./headings`, `./icon-button`, `./input`, `./label`, `./palettes`, `./separator`, `./skeleton`, `./stat-card`, `./status-badge`, `./styles.css`, `./textarea`, `./utilities` |
+| [`@darkfactory/ai`](../../packages/ai/package.json) | capability | AI text port with a Groq adapter. | — | `.`, `./adapters`, `./server/groq`, `./test` |
+| [`@darkfactory/analytics`](../../packages/analytics/package.json) | capability | Product analytics port with a PostHog adapter. | — | `.`, `./adapters`, `./server/posthog`, `./test` |
+| [`@darkfactory/email`](../../packages/email/package.json) | capability | Email port and renderers, with a Resend adapter and local preview files. | — | `.`, `./adapters`, `./recipient`, `./server`, `./test` |
+| [`@darkfactory/jobs`](../../packages/jobs/package.json) | agent-sdlc | Background jobs and the operator plane's workflow schema, repository and worker. | `@darkfactory/db`, `@darkfactory/observability` | `.`, `./schema/workflow`, `./server/inline`, `./server/omp`, `./server/pilot-worker`, `./server/plan-evidence`, `./server/wayfinder`, `./server/workflow-error`, `./server/workflow-repository`, `./server/workflow-runtime`, `./server/workflow-worker`, `./test`, `./workflow` |
+| [`@darkfactory/operator`](../../packages/operator/package.json) | agent-sdlc | Operator oRPC contract, client and service for workflow runs. | `@darkfactory/auth`, `@darkfactory/jobs` | `.`, `./client`, `./contract`, `./server` |
+| [`@darkfactory/operator-app`](../../apps/operator/package.json) | agent-sdlc | Opt-in console to plan, run and watch agent workflows. | `@darkfactory/auth`, `@darkfactory/config`, `@darkfactory/db`, `@darkfactory/email`, `@darkfactory/jobs`, `@darkfactory/operator`, `@darkfactory/ui` | — |
+| [`@darkfactory/testkit`](../../packages/testkit/package.json) | tooling | Isolated, disposable Postgres databases for tests. | — | `.`, `./postgres` |

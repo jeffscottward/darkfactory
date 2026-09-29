@@ -26,7 +26,7 @@ import {
   parseWorkflowEffectScopeV1,
   replayWorkflowV1,
   sha256Hex,
-} from "@darkfactory/state/workflow";
+} from "@darkfactory/jobs/workflow";
 
 import type {
   OperatorApprovalBindingInput,

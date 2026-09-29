@@ -42,7 +42,7 @@ vi.mock("@darkfactory/operator/server", () => ({
     mocks.createOperatorWayfinderWorkflowService,
   handleOperatorRequest: mocks.handleOperatorRequest,
 }));
-vi.mock("@darkfactory/state/workflow", () => ({
+vi.mock("@darkfactory/jobs/workflow", () => ({
   isWorkflowRepositoryGranted: mocks.isWorkflowRepositoryGranted,
   parseWorkflowRepositoryGrants: mocks.parseWorkflowRepositoryGrants,
 }));

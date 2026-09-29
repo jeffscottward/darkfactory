@@ -1,3 +1,6 @@
+// What: Better Auth factory (createAuth) with Drizzle adapter, email delivery and user resource provisioning.
+// Used by: apps/web/src/server/request-scope.ts, apps/operator/src/server/operator-auth.ts.
+// See: docs/debugging.md#symptom--where-to-look (Auth cookie missing); packages/auth/src/db.ts.
 import { drizzleAdapter } from "@better-auth/drizzle-adapter";
 // biome-ignore lint/performance/noNamespaceImport: Drizzle consumes the complete schema module object as its relational schema.
 import * as databaseSchema from "@darkfactory/db/schema";

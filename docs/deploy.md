@@ -22,7 +22,7 @@ For a production-like local run that deploys nothing: `bun run build`, then `pnp
 
 ## One-time setup
 
-1. **Credentials.** Export a scoped `CLOUDFLARE_API_TOKEN` in the shell that deploys, or inject it with `op run`. The template's `apps/web/wrangler.jsonc` pins the owner's `account_id`; replace it with yours (the planned `bun run init` will remove it so the account comes from `CLOUDFLARE_ACCOUNT_ID`).
+1. **Credentials.** Export a scoped `CLOUDFLARE_API_TOKEN` in the shell that deploys, or inject it with `op run`. Wrangler reads the account from `account_id` in `apps/web/wrangler.jsonc` or from `CLOUDFLARE_ACCOUNT_ID`.<!-- init:start --> The template pins its owner's `account_id`; `bun run init` removes it, so set `CLOUDFLARE_ACCOUNT_ID` in your project.<!-- init:end -->
 2. **Domain and vars.** In `apps/web/wrangler.jsonc`, set the custom-domain `routes` and the `vars` for each environment: `APP_ENV` (`production`), `APP_URL`, `BETTER_AUTH_URL` (must equal `APP_URL`), `APP_NAME`, `DATABASE_PROVIDER`, `EMAIL_PROVIDER`, `EMAIL_TRANSPORT` and `EMAIL_FROM`. `vars`, routes and bindings are not inherited by named environments. Production rejects `EMAIL_TRANSPORT=preview`; `EMAIL_PROVIDER` and `EMAIL_TRANSPORT` are `disabled` together or not at all (staging ships with email disabled on `workers_dev`).
 3. **Secrets.** Set each secret once per environment. Values never go in `wrangler.jsonc` or git.
 
@@ -37,6 +37,51 @@ For a production-like local run that deploys nothing: `bun run build`, then `pnp
 
    `BETTER_AUTH_SECRET` and `CONTACT_THROTTLE_SECRET` must be distinct and at least 32 characters. Optional: `POSTHOG_KEY` (with the `POSTHOG_HOST` var) enables analytics; `OTEL_EXPORTER_OTLP_ENDPOINT` enables trace export. `ai` is not wired into an app yet, so Groq keys have no effect.
 4. **Database.** Pick a `DATABASE_PROVIDER` and meet its production rule ([capabilities.md](capabilities.md#database-host)).
+
+## Branch protection
+
+Protect `main` once, so a PR merges only when every required check passes. These eight checks are required:
+
+| Check | Source |
+| --- | --- |
+| `Verification (core)`, `Verification (coverage)`, `Verification (integration)`, `Verification (browser)` | The four `ci.yml` lanes |
+| `Analyze (actions)`, `Analyze (javascript-typescript)` | The `codeql.yml` jobs |
+| `CodeQL` | The code-scanning result those jobs upload |
+| `Dependency Review` | `dependency-review.yml` |
+
+Apply it with the GitHub CLI (repository admin):
+
+```sh
+gh api --method PUT repos/jeffscottward/darkfactory/branches/main/protection --input - <<'JSON'
+{
+  "required_status_checks": {
+    "strict": true,
+    "contexts": [
+      "Verification (core)",
+      "Verification (coverage)",
+      "Verification (integration)",
+      "Verification (browser)",
+      "Analyze (actions)",
+      "Analyze (javascript-typescript)",
+      "CodeQL",
+      "Dependency Review"
+    ]
+  },
+  "enforce_admins": false,
+  "required_pull_request_reviews": {
+    "dismiss_stale_reviews": true,
+    "required_approving_review_count": 0
+  },
+  "restrictions": null,
+  "required_linear_history": true,
+  "required_conversation_resolution": true,
+  "allow_force_pushes": false,
+  "allow_deletions": false
+}
+JSON
+```
+
+Private repositories need a paid GitHub plan for branch protection, and GitHub Code Security plus the `DF_CODEQL_ENABLED` and `DF_DEPENDENCY_REVIEW_ENABLED` repository variables for the scans ([security.md](security.md#scanning)). Without Code Security, list only the four `Verification` checks: the skipped scan jobs report success, and the `CodeQL` result never arrives, so it would block every merge.
 
 ## Hyperdrive
 
@@ -95,7 +140,7 @@ Responses from the request scope (auth, strict sign-out and oRPC routes) carry `
 
 A release needs exact-SHA evidence. PRs do not. This is operator policy: the deploy scripts check database config, not GitHub.
 
-1. Merge the release PR with all four lanes green.
+1. Merge the release PR with every required check green ([Branch protection](#branch-protection)).
 2. Bump `version` in the root `package.json`, the workspace packages and `capabilities.yaml`, then move `## [Unreleased]` in `CHANGELOG.md` to the new version with today's date.
 3. Dispatch `ci.yml` (`workflow_dispatch`) on the exact commit you will ship; merges to `main` do not trigger it. Confirm the run's `head_sha` equals that commit and that all four lanes passed (`gh run view <run-id> --json headSha,conclusion,jobs`). A dispatch request alone is not evidence.
 4. Check CodeQL and Dependency Review for open high or critical findings.

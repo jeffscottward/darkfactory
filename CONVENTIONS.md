@@ -82,4 +82,6 @@ apps/web/src/app/(portal)/<plural>/page.tsx       portal page (presentation)
 docs/features/<name>.md                           feature doc
 ```
 
-The generator also updates `.darkfactory/features.json`, `apps/web/src/features/generated-navigation.ts`, `packages/db/migrations/meta/_journal.json` and the `*-registry.ts` files under `packages/api/src/generated/` and `packages/db/src/generated/`; never edit those by hand. Paths under `generated/` and `generated-navigation.ts` are excluded from coverage, so keep hand-written logic out of them. Put view-model mapping (contract output → plain props) in the feature folder, not in the page or in `packages/ui`.
+The generator also updates `.darkfactory/features.json`, `apps/web/src/features/generated-navigation.ts`, `packages/db/migrations/meta/_journal.json` and the `*-registry.ts` files under `packages/api/src/generated/` and `packages/db/src/generated/`; never edit those by hand. Paths under `generated/` and `generated-navigation.ts` are excluded from coverage, so keep hand-written logic out of them.
+
+Put view-model mapping (contract output → plain, pre-formatted props) in the feature folder as a pure `to<Name>ViewModel` function with its own unit test, not in the page or in `packages/ui`; the component takes only the model. Reference: `apps/web/src/features/dashboard/view-model.ts`.

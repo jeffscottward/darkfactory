@@ -1,3 +1,6 @@
+// What: Database-confirmed sign-out: revokes the current session row and verifies it is gone.
+// Used by: apps/web/src/app/api/auth/strict-sign-out/handler.ts#createDatabaseConfirmedSignOutHandler.
+// See: docs/debugging.md#symptom--where-to-look (Sign-out does not stick); packages/auth/src/server.ts#createAuth.
 import { sessions } from "@darkfactory/db/schema";
 import type { DatabaseExecutor } from "@darkfactory/db/server";
 import { and as andWhere, eq } from "drizzle-orm";

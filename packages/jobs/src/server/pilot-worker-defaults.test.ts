@@ -1,4 +1,4 @@
-import { parseWorkflowRepositoryGrants } from "@darkfactory/state/workflow";
+import { parseWorkflowRepositoryGrants } from "../workflow/index.ts";
 import { describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({

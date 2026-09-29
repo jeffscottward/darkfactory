@@ -181,8 +181,6 @@ const capabilities = {
   emailDelivery: false,
   analytics: true,
   telemetryExport: false,
-  storage: false,
-  errorTracking: false,
 } as const;
 
 const contextFor = (overrides: Partial<ApiContext> = {}): ApiContext => ({

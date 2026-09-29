@@ -18,6 +18,7 @@ import {
   listTemporaryBindingFiles,
   materializeWorkerBindings,
   resolveWorkerBindings,
+  runWorkerBindingsCli,
   writeWorkerBindings,
 } from "./bindings.ts";
 
@@ -246,7 +247,7 @@ describe("development Worker bindings", () => {
     });
   });
 
-  return it("rejects unreadable .env files and invalid environments without writing output", async () => {
+  it("rejects unreadable .env files and invalid environments without writing output", async () => {
     const root = await directory();
     await mkdir(join(root, "apps", "web"), { recursive: true });
     await mkdir(join(root, ".env"));
@@ -263,6 +264,76 @@ describe("development Worker bindings", () => {
       lstat(join(root, "apps", "web", ".dev.vars"))
     ).rejects.toMatchObject({
       code: "ENOENT",
+    });
+  });
+});
+
+describe("dev-bindings CLI", () => {
+  const run = async (repositoryPath: string, arguments_: string[]) => {
+    const output: string[] = [];
+    const errors: string[] = [];
+    const exitCode = await runWorkerBindingsCli(arguments_, {
+      repositoryPath,
+      environment: {},
+      writeOutput: (value) => output.push(value),
+      writeError: (value) => errors.push(value),
+    });
+    return { exitCode, output: output.join(""), errors: errors.join("") };
+  };
+
+  it("rejects unsupported targets before materialization", async () => {
+    const root = await directory();
+    await writeFile(join(root, ".env"), validBindings);
+    for (const arguments_ of [["web"], ["operator", "extra"]]) {
+      expect(await run(root, arguments_)).toEqual({
+        exitCode: 2,
+        output: "",
+        errors: "Usage: dev-bindings [operator]\n",
+      });
+    }
+    return expect(await listTemporaryBindingFiles(root)).toEqual([]);
+  });
+
+  it("materializes web and operator bindings and reports only the protected target", async () => {
+    const root = await directory();
+    await mkdir(join(root, "apps", "web"), { recursive: true });
+    await mkdir(join(root, "apps", "operator"), { recursive: true });
+    await writeFile(join(root, ".env"), validBindings);
+
+    expect(await run(root, [])).toEqual({
+      exitCode: 0,
+      output:
+        '{"action":"dev:bindings","ok":true,"target":"apps/web/.dev.vars","mode":"0600"}\n',
+      errors: "",
+    });
+    expect(await run(root, ["operator"])).toEqual({
+      exitCode: 0,
+      output:
+        '{"action":"operator:bindings","ok":true,"target":"apps/operator/.dev.vars","mode":"0600"}\n',
+      errors: "",
+    });
+    return expect(
+      await readFile(join(root, "apps", "operator", ".dev.vars"), "utf8")
+    ).toBe(validBindings);
+  });
+
+  return it("prints validation rules, never values, and hides other failures", async () => {
+    const root = await directory();
+    await mkdir(join(root, "apps", "web"), { recursive: true });
+    await writeFile(join(root, ".env"), "BETTER_AUTH_SECRET=private-short\n");
+    const invalid = await run(root, []);
+    expect(invalid.exitCode).toBe(1);
+    expect(invalid.errors).toMatch(
+      /^Invalid server environment:\n- [\s\S]*\nFix \.env \(or run bun run setup\) and retry\.\n$/u
+    );
+    expect(invalid.errors).not.toContain("private-short");
+
+    await rm(join(root, ".env"));
+    await mkdir(join(root, ".env"));
+    return expect(await run(root, [])).toEqual({
+      exitCode: 1,
+      output: "",
+      errors: "Unable to materialize validated Worker bindings safely.\n",
     });
   });
 });

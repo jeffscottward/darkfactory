@@ -1,3 +1,6 @@
+// What: Client auth flows: validation plus submitSignIn/submitSignUp/password reset over Better Auth.
+// Used by: apps/web/src/components/auth/sign-in-form.tsx, sign-up-form.tsx, reset-password-form.tsx.
+// See: docs/debugging.md#symptom--where-to-look (sign-in loops); packages/auth/src/server.ts#createAuth.
 import { authClient } from "@darkfactory/auth/client";
 
 const AUTH_DESTINATION_ORIGIN = "https://darkfactory.localhost";

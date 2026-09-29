@@ -1,6 +1,7 @@
 {
   "name": "@darkfactory/ai",
   "brick": "capability",
+  "description": "AI text port with a Groq adapter.",
   "version": "0.2.1",
   "license": "MIT",
   "repository": {
@@ -35,7 +36,6 @@
   },
   "scripts": {
     "typecheck": "tsc --noEmit -p tsconfig.json",
-    "test": "pnpm exec vitest run --config ../../vitest.config.ts --project unit src/*.test.ts src/server/*.test.ts --exclude \"**/*contract.test.ts\"",
     "test:unit": "pnpm exec vitest run --config ../../vitest.config.ts --project unit ."
   },
   "dependencies": {

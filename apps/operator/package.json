@@ -1,6 +1,7 @@
 {
   "name": "@darkfactory/operator-app",
   "brick": "agent-sdlc",
+  "description": "Opt-in console to plan, run and watch agent workflows.",
   "version": "0.2.1",
   "license": "MIT",
   "repository": {
@@ -17,7 +18,6 @@
     "build": "node --env-file-if-exists=.dev.vars ./node_modules/vinext/dist/cli.js build",
     "start": "vite preview",
     "typecheck": "tsc --noEmit -p tsconfig.json",
-    "test": "pnpm exec vitest run --config ../../vitest.config.ts --project unit src",
     "test:unit": "pnpm exec vitest run --config ../../vitest.config.ts --project unit ."
   },
   "dependencies": {
@@ -27,13 +27,11 @@
     "@darkfactory/email": "workspace:*",
     "@darkfactory/jobs": "workspace:*",
     "@darkfactory/operator": "workspace:*",
-    "@darkfactory/state": "workspace:*",
     "@darkfactory/ui": "workspace:*",
     "lucide-react": "catalog:",
     "react": "catalog:",
     "react-dom": "catalog:",
     "react-server-dom-webpack": "catalog:",
-    "tailwindcss": "catalog:",
     "vinext": "catalog:"
   },
   "devDependencies": {

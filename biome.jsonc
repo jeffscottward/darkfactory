@@ -23,6 +23,11 @@
   },
   "linter": {
     "rules": {
+      "correctness": {
+        // Each file may import only what its closest package.json declares; the root manifest
+        // declaring every brick must not let a package reach one it does not depend on.
+        "noUndeclaredDependencies": "error"
+      },
       "complexity": {
         // Conflicts with tsconfig's noPropertyAccessFromIndexSignature, which requires bracket access.
         "useLiteralKeys": "off",
@@ -83,6 +88,18 @@
     }
   },
   "overrides": [
+    {
+      // vinext serves `next/*` as virtual modules that no manifest declares. docs:check still
+      // rejects undeclared workspace imports here, and knip rejects unlisted packages.
+      "includes": ["apps/**"],
+      "linter": {
+        "rules": {
+          "correctness": {
+            "noUndeclaredDependencies": "off"
+          }
+        }
+      }
+    },
     {
       "includes": ["apps/web/wrangler.jsonc"],
       "json": {
@@ -167,7 +184,7 @@
         "packages/observability/src/index.ts",
         "packages/operator/src/index.ts",
         "packages/operator/src/server/index.ts",
-        "packages/state/src/workflow/index.ts",
+        "packages/jobs/src/workflow/index.ts",
         "packages/ui/src/client/toaster.ts",
         "packages/ui/src/index.ts"
       ],

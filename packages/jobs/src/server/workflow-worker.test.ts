@@ -4,7 +4,7 @@ import {
   canonicalJsonV1,
   MAX_WORKFLOW_SCOPE_BYTES,
   MAX_WORKFLOW_SCOPE_PATH_BYTES,
-} from "@darkfactory/state/workflow";
+} from "../workflow/index.ts";
 
 import { describe, expect, it, vi } from "vitest";
 

@@ -168,8 +168,6 @@ const clientFor = (
         emailDelivery: false,
         analytics: true,
         telemetryExport: false,
-        storage: false,
-        errorTracking: false,
       },
       ...(options.events === undefined
         ? {}
@@ -345,8 +343,6 @@ describe("account/admin/dashboard router", () => {
         emailDelivery: false,
         analytics: true,
         telemetryExport: false,
-        storage: false,
-        errorTracking: false,
       },
     });
     expect(Object.keys(result.session)).toEqual([

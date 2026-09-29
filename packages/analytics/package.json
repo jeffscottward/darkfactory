@@ -1,6 +1,7 @@
 {
   "name": "@darkfactory/analytics",
   "brick": "capability",
+  "description": "Product analytics port with a PostHog adapter.",
   "version": "0.2.1",
   "license": "MIT",
   "repository": {
@@ -35,7 +36,6 @@
   },
   "scripts": {
     "typecheck": "tsc --noEmit -p tsconfig.json",
-    "test": "pnpm exec vitest run --config ../../vitest.config.ts --project unit src/ --exclude \"**/*contract.test.ts\"",
     "test:unit": "pnpm exec vitest run --config ../../vitest.config.ts --project unit ."
   },
   "devDependencies": {

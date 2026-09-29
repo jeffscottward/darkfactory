@@ -284,4 +284,44 @@ describe("production Worker runtime configuration", () => {
     };
     expect(config.env?.staging?.routes).toEqual([]);
   });
+
+  it("binds every deployed Worker to APP_ENV=production without E2E fixture bindings", async () => {
+    const source = await readFile(
+      new URL("./wrangler.jsonc", import.meta.url),
+      "utf8"
+    );
+    const parsed = ts.parseConfigFileTextToJson("wrangler.jsonc", source);
+
+    expect(parsed.error).toBeUndefined();
+    type WranglerVars = Readonly<Record<string, unknown>>;
+    const config = parsed.config as {
+      vars?: WranglerVars;
+      env?: Readonly<Record<string, { vars?: WranglerVars }>>;
+    };
+    // Wrangler vars are not inherited, so each environment must pin its own.
+    const deployments: Record<string, WranglerVars | undefined> = {
+      production: config.vars,
+      ...Object.fromEntries(
+        Object.entries(config.env ?? {}).map(([name, environment]) => [
+          name,
+          environment.vars,
+        ])
+      ),
+    };
+    const fixtureGateInputs = Object.fromEntries(
+      Object.entries(deployments).map(([name, vars]) => [
+        name,
+        {
+          APP_ENV: vars?.["APP_ENV"],
+          e2eBindings: Object.keys(vars ?? {}).filter((key) =>
+            key.startsWith("E2E_")
+          ),
+        },
+      ])
+    );
+    expect(fixtureGateInputs).toEqual({
+      production: { APP_ENV: "production", e2eBindings: [] },
+      staging: { APP_ENV: "production", e2eBindings: [] },
+    });
+  });
 });

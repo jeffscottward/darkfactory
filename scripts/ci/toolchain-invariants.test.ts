@@ -1,4 +1,5 @@
-import { readFile } from "node:fs/promises";
+import { glob, readFile } from "node:fs/promises";
+import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { parse } from "yaml";
 import { parseMiseToolchain } from "../lib/toolchain.ts";
@@ -28,7 +29,7 @@ describe("toolchain pins", () => {
     });
   });
 
-  it("installs the pinned pnpm in CI and in the verifier image", async () => {
+  it("installs the pinned pnpm in CI and in every brick's Dockerfile", async () => {
     const workflow = parse(await read(".github/workflows/ci.yml")) as Readonly<{
       jobs: Record<string, Readonly<{ steps?: readonly Step[] }>>;
     }>;
@@ -39,9 +40,15 @@ describe("toolchain pins", () => {
     for (const step of pnpmSetups) {
       expect(String(step.with?.["version"])).toBe(pins.pnpm);
     }
-    const dockerfile = await read("packages/jobs/verifier/Dockerfile");
-    expect(dockerfile).toContain(`FROM node:${pins.node}-`);
-    return expect(dockerfile).toContain(`pnpm@${pins.pnpm}`);
+    // Images live inside their brick, so removing a brick removes its image.
+    for await (const path of glob("{apps,packages}/**/Dockerfile", {
+      cwd: fileURLToPath(new URL("../../", import.meta.url)),
+      exclude: (entry) => entry.endsWith("node_modules"),
+    })) {
+      const dockerfile = await read(path);
+      expect(dockerfile).toContain(`FROM node:${pins.node}-`);
+      expect(dockerfile).toContain(`pnpm@${pins.pnpm}`);
+    }
   });
 
   return it("parses only exact pins from the [tools] table", () => {

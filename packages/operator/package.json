@@ -1,6 +1,7 @@
 {
   "name": "@darkfactory/operator",
   "brick": "agent-sdlc",
+  "description": "Operator oRPC contract, client and service for workflow runs.",
   "version": "0.2.1",
   "license": "MIT",
   "repository": {
@@ -35,7 +36,6 @@
   },
   "scripts": {
     "typecheck": "tsc --noEmit -p tsconfig.json",
-    "test": "pnpm exec vitest run --config ../../vitest.config.ts --project unit src/ --exclude \"**/*contract.test.ts\"",
     "test:unit": "pnpm exec vitest run --config ../../vitest.config.ts --project unit ."
   },
   "engines": {
@@ -43,9 +43,7 @@
   },
   "dependencies": {
     "@darkfactory/auth": "workspace:*",
-    "@darkfactory/db": "workspace:*",
     "@darkfactory/jobs": "workspace:*",
-    "@darkfactory/state": "workspace:*",
     "@orpc/client": "catalog:",
     "@orpc/contract": "catalog:",
     "@orpc/openapi": "catalog:",

@@ -1,4 +1,4 @@
-import { required } from "./required.ts";
+import { required } from "../server/required.ts";
 import {
   MAX_WORKFLOW_HUMAN_REQUEST_BYTES_V1,
   MAX_WORKFLOW_STAGE_ATTEMPTS_V1,

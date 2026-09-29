@@ -97,8 +97,6 @@ const clientFor = (
         emailDelivery: false,
         analytics: false,
         telemetryExport: false,
-        storage: false,
-        errorTracking: false,
       },
       requireSession: async () => {
         if (requestSession === null) {

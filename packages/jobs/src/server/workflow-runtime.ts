@@ -18,7 +18,7 @@ import {
   type WorkflowEventV1,
   type WorkflowJournalEntryV1,
   type WorkflowSnapshotV1,
-} from "@darkfactory/state/workflow";
+} from "../workflow/index.ts";
 import {
   DEFAULT_OMP_VERIFIER_MAX_RESULT_BYTES,
   MAX_OMP_IMPLEMENTATION_ARTIFACT_BYTES,

@@ -1,3 +1,6 @@
+// What: Contact-form email port over Resend or preview; returns CONTACT_PROVIDER_* codes on failure.
+// Used by: apps/web/src/app/api/orpc/[...rest]/route.ts#selectContactEmailPort, packages/api/src/server/contact-service.ts.
+// See: docs/debugging.md#symptom--where-to-look; packages/email/src/server/provider.ts.
 import { Resend } from "resend";
 import type { EmailAdapterId } from "../adapters.ts";
 

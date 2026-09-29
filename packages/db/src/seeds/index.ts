@@ -1,3 +1,6 @@
+// What: Development/test seed (seedDevelopment); refuses to run outside the confirmed APP_ENV.
+// Used by: scripts/database/index.ts (db:seed, db:reset).
+// See: docs/debugging.md#symptom--where-to-look (db:seed or db:reset refuses to run).
 import { and as andWhere, eq, or as orWhere, sql } from "drizzle-orm";
 
 import { accounts, users } from "../schema/index.ts";

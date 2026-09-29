@@ -1,3 +1,6 @@
+// What: Maps request-database diagnostics to request-database.* semantic events.
+// Used by: apps/web/src/server/request-scope.ts#createRequestDatabaseDiagnosticSink.
+// See: docs/debugging.md#symptom--where-to-look (request-database.* events); docs/debugging.md#logs.
 import type {
   BackgroundTaskScheduler,
   RequestDatabaseDiagnostic,

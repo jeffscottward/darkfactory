@@ -1,6 +1,7 @@
 {
   "name": "@darkfactory/jobs",
   "brick": "agent-sdlc",
+  "description": "Background jobs and the operator plane's workflow schema, repository and worker.",
   "version": "0.2.1",
   "license": "MIT",
   "repository": {
@@ -20,6 +21,10 @@
     "./schema/workflow": {
       "import": "./src/schema/workflow.ts",
       "default": "./src/schema/workflow.ts"
+    },
+    "./workflow": {
+      "import": "./src/workflow/index.ts",
+      "default": "./src/workflow/index.ts"
     },
     "./server/inline": {
       "workerd": "./src/server/inline.ts",
@@ -88,7 +93,6 @@
   },
   "scripts": {
     "typecheck": "tsc --noEmit -p tsconfig.json",
-    "test": "pnpm exec vitest run --config ../../vitest.config.ts --project unit src/*.test.ts src/server/*.test.ts",
     "test:unit": "pnpm exec vitest run --config ../../vitest.config.ts --project unit .",
     "worker:pilot": "bun --env-file=../../.env src/server/pilot-worker-cli.ts",
     "verifier:image:setup": "bun src/server/verifier-image.ts setup",
@@ -97,8 +101,9 @@
   "dependencies": {
     "@darkfactory/db": "workspace:*",
     "@darkfactory/observability": "workspace:*",
-    "@darkfactory/state": "workspace:*",
-    "drizzle-orm": "catalog:"
+    "@noble/hashes": "2.4.0",
+    "drizzle-orm": "catalog:",
+    "xstate": "catalog:"
   },
   "devDependencies": {
     "@types/node": "catalog:",

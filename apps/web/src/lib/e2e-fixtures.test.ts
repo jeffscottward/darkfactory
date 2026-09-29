@@ -7,43 +7,37 @@ import {
 
 describe("E2E-only route fixtures", () => {
   it("enables fixtures only for the explicit isolated E2E process", () => {
-    expect(isE2eFixtureEnabled({ APP_ENV: "test", E2E_FIXTURES: "1" })).toBe(
-      true
-    );
     return expect(
-      isE2eFixtureEnabled({
-        APP_ENV: "test",
-        E2E_FIXTURES: "1",
-        NODE_ENV: "development",
-      })
+      isE2eFixtureEnabled({ APP_ENV: "test", E2E_FIXTURES: "1" })
     ).toBe(true);
   });
 
+  it("ignores the host NODE_ENV that vite preview forwards to the Worker", () => {
+    // `vite preview` serves the production build, so vinext sets the host
+    // NODE_ENV to production and CLOUDFLARE_INCLUDE_PROCESS_ENV forwards it.
+    const previewBindings = {
+      APP_ENV: "test",
+      E2E_FIXTURES: "1",
+      NODE_ENV: "production",
+    };
+    return expect(isE2eFixtureEnabled(previewBindings)).toBe(true);
+  });
+
   it("fails closed when the flag or isolated test environment is absent", () => {
+    expect(isE2eFixtureEnabled({})).toBe(false);
     expect(isE2eFixtureEnabled({ APP_ENV: "test" })).toBe(false);
-    expect(
-      isE2eFixtureEnabled({
-        APP_ENV: "test",
-        E2E_FIXTURES: "true",
-        NODE_ENV: "test",
-      })
-    ).toBe(false);
-    expect(isE2eFixtureEnabled({ E2E_FIXTURES: "1", NODE_ENV: "test" })).toBe(
+    expect(isE2eFixtureEnabled({ APP_ENV: "test", E2E_FIXTURES: "true" })).toBe(
+      false
+    );
+    expect(isE2eFixtureEnabled({ E2E_FIXTURES: "1" })).toBe(false);
+    expect(isE2eFixtureEnabled({ APP_ENV: "staging", E2E_FIXTURES: "1" })).toBe(
       false
     );
     expect(
-      isE2eFixtureEnabled({
-        APP_ENV: "staging",
-        E2E_FIXTURES: "1",
-        NODE_ENV: "development",
-      })
+      isE2eFixtureEnabled({ APP_ENV: "development", E2E_FIXTURES: "1" })
     ).toBe(false);
     return expect(
-      isE2eFixtureEnabled({
-        APP_ENV: "test",
-        E2E_FIXTURES: "1",
-        NODE_ENV: "production",
-      })
+      isE2eFixtureEnabled({ APP_ENV: "production", E2E_FIXTURES: "1" })
     ).toBe(false);
   });
 

@@ -9,7 +9,7 @@ Ship a proven commit and leave a record. Only this role needs exact-SHA evidence
 
 ## Responsibilities
 
-- Confirm the PR is merged with the four required checks green, and that security and scalability findings are closed.
+- Confirm the PR is merged with all eight required checks green (the four CI lanes, CodeQL and Dependency Review), and that security and scalability findings are closed.
 - Bump the version in the root and workspace `package.json` files and in `capabilities.yaml`.
 - Move `## [Unreleased]` in `CHANGELOG.md` to the new version (Keep a Changelog format, SemVer).
 - Dispatch `ci.yml` on the exact commit to ship, and confirm the run's `head_sha` matches and all four lanes pass.

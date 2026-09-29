@@ -1,3 +1,6 @@
+// What: In-process dispatch of auth/oRPC requests from server components, with abort and timeout.
+// Used by: apps/web/src/app/layout.tsx#dispatchInternalOrpcRequest, apps/web/src/lib/request-portal-session.ts#dispatchInternalAuthRequest.
+// See: docs/debugging.md#symptom--where-to-look (Dashboard render aborts; dispatchWithAbort).
 import { waitUntil } from "cloudflare:workers";
 import { resolveApiRequestId } from "@darkfactory/api/server";
 import { headers } from "next/headers";

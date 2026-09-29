@@ -1,3 +1,4 @@
+import { spawn } from "node:child_process";
 import { DEVELOPMENT_TARGETS, isDevelopmentTarget } from "./targets.ts";
 
 // Runs inside `portless <route> bun scripts/dev.ts <target>` (see the root
@@ -18,6 +19,18 @@ export type ServeDependencies = Readonly<{
 }>;
 
 const FORWARDED_SIGNALS: readonly NodeJS.Signals[] = ["SIGINT", "SIGTERM"];
+
+// The Node adapter for `spawn`: inherits stdio; a spawn error counts as exit 1.
+export const spawnInherited: ServeDependencies["spawn"] = (
+  command,
+  arguments_
+) => {
+  const child = spawn(command, arguments_, { stdio: "inherit" });
+  const exited = Promise.withResolvers<number | null>();
+  child.once("error", () => exited.resolve(1));
+  child.once("exit", exited.resolve);
+  return { kill: (signal) => child.kill(signal), exited: exited.promise };
+};
 
 export const runDevServer = async (
   arguments_: readonly string[],

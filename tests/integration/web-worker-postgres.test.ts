@@ -84,14 +84,6 @@ const writeWorkerVars = async (): Promise<void> => {
     EMAIL_FROM: "DarkFactory <noreply@domain.test>",
     OTEL_ENABLED: "false",
     OTEL_SERVICE_NAME: "darkfactory-web-worker-test",
-    STORAGE_ENABLED: "false",
-    DOCS_ENABLED: "false",
-    DOCS_PUBLIC: "false",
-    JOBS_ENABLED: "false",
-    FLOWER_ENABLED: "false",
-    UPTIME_KUMA_ENABLED: "false",
-    ERROR_TRACKING_ENABLED: "false",
-    MEMORI_ENABLED: "false",
   } as const;
   workerBindingValues = [
     database.databaseUrl,

@@ -1,3 +1,6 @@
+// What: Postgres clients: createNodeDatabase for scripts/workers, createRequestDatabase with bounded pool per request.
+// Used by: packages/db/src/server/request-scope.ts, scripts/database/index.ts, packages/jobs/src/server/pilot-worker.ts.
+// See: docs/debugging.md#symptom--where-to-look (RequestDatabaseCapacityError, REQUEST_DATABASE_POOL_MAX_CONNECTIONS).
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Client, Pool } from "pg";
 // biome-ignore lint/performance/noNamespaceImport: Drizzle consumes the complete schema module object as its relational schema.
