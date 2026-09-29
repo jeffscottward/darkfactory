@@ -69,7 +69,6 @@
     "docs:check": "bun scripts/docs.ts check",
     "openapi:generate": "bun run api:openapi:generate",
     "openapi:check": "bun run api:openapi:check",
-    "capability:add": "bun scripts/capability.ts",
     "doctor": "bun scripts/doctor.ts",
     "graph:build": "bun scripts/graph.ts build",
     "graph:update": "bun scripts/graph.ts update",

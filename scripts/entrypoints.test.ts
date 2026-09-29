@@ -12,9 +12,6 @@ afterEach(() => {
   process.argv = [...originalArguments];
   process.exitCode = originalExitCode;
   vi.restoreAllMocks();
-  vi.doUnmock("../packages/config/src/server/capabilities.ts");
-  vi.doUnmock("./capability/cli.ts");
-  vi.doUnmock("./capability/system.ts");
   vi.doUnmock("./dev/bindings.ts");
   vi.doUnmock("./dev/cli.ts");
   vi.doUnmock("./dev/system.ts");
@@ -30,58 +27,6 @@ afterEach(() => {
 });
 
 describe("root executable wrappers", () => {
-  it("forwards capability input, validation, streams, and usage exit status", async () => {
-    const files = Object.freeze({ kind: "capability-files" });
-    const invalidManifest = new Error("invalid capability manifest");
-    const loadCapabilityManifest = vi.fn((source: string): void => {
-      if (source === "{malformed") throw invalidManifest;
-    });
-    const runCapabilityCli = vi.fn(
-      async (
-        arguments_: readonly string[],
-        dependencies: Readonly<{
-          files: unknown;
-          validateManifest: (source: string) => void;
-        }>,
-        streams: CliStreams
-      ) => {
-        expect(arguments_).toEqual(["../escape"]);
-        expect(dependencies.files).toBe(files);
-        expect(() => dependencies.validateManifest("{malformed")).toThrow(
-          invalidManifest
-        );
-        dependencies.validateManifest('{"capabilities":[]}');
-        streams.writeOutput("capability-output\n");
-        streams.writeError("capability-error\n");
-        return 64;
-      }
-    );
-    vi.doMock("../packages/config/src/server/capabilities.ts", () => ({
-      loadCapabilityManifest,
-    }));
-    vi.doMock("./capability/cli.ts", () => ({ runCapabilityCli }));
-    vi.doMock("./capability/system.ts", () => ({
-      nodeCapabilityFileSystem: files,
-    }));
-    process.argv = ["node", "capability.ts", "../escape"];
-    const stdout = vi
-      .spyOn(process.stdout, "write")
-      .mockImplementation(() => true);
-    const stderr = vi
-      .spyOn(process.stderr, "write")
-      .mockImplementation(() => true);
-
-    await import("./capability.ts");
-
-    expect(runCapabilityCli).toHaveBeenCalledOnce();
-    expect(loadCapabilityManifest.mock.calls.map(([source]) => source)).toEqual(
-      ["{malformed", '{"capabilities":[]}']
-    );
-    expect(stdout).toHaveBeenCalledWith("capability-output\n");
-    expect(stderr).toHaveBeenCalledWith("capability-error\n");
-    return expect(process.exitCode).toBe(64);
-  });
-
   it("forwards malformed development commands and preserves the CLI exit status", async () => {
     const files = Object.freeze({ kind: "development-files" });
     const processAdapter = Object.freeze({ kind: "development-process" });
