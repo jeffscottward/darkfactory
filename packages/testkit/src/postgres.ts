@@ -801,11 +801,11 @@ const isDuplicateDatabaseError = (error: unknown): boolean => {
   );
 };
 
-export const createPostgresTestDatabase = async (
-  options: CreatePostgresTestDatabaseOptions = {}
-): Promise<PostgresTestDatabase> => {
+const validateSourceDatabaseUrl = (
+  databaseUrl: string | undefined
+): ValidatedDatabaseUrl => {
   assertTestEnvironment();
-  const sourceDatabaseUrl = options.databaseUrl ?? process.env["DATABASE_URL"];
+  const sourceDatabaseUrl = databaseUrl ?? process.env["DATABASE_URL"];
 
   if (sourceDatabaseUrl === undefined || sourceDatabaseUrl.length === 0) {
     throw new Error(
@@ -813,7 +813,28 @@ export const createPostgresTestDatabase = async (
     );
   }
 
-  const validatedUrl = parseDatabaseUrl(sourceDatabaseUrl);
+  return parseDatabaseUrl(sourceDatabaseUrl);
+};
+
+/**
+ * Names the database `createPostgresTestDatabase` creates for `runId`, without
+ * connecting. The Playwright config hands this URL to a server that starts
+ * before its global setup creates the database.
+ */
+export const postgresTestDatabaseUrl = (
+  options: Readonly<{ databaseUrl?: string; runId: string }>
+): string => {
+  const validatedUrl = validateSourceDatabaseUrl(options.databaseUrl);
+  return createIsolatedUrl(
+    validatedUrl.parsedUrl,
+    createDatabaseName(options.runId)
+  );
+};
+
+export const createPostgresTestDatabase = async (
+  options: CreatePostgresTestDatabaseOptions = {}
+): Promise<PostgresTestDatabase> => {
+  const validatedUrl = validateSourceDatabaseUrl(options.databaseUrl);
   const runId = normalizeRunId(
     options.runId ??
       `${randomUUID()}_${process.pid}_${process.env["VITEST_POOL_ID"] ?? "0"}`

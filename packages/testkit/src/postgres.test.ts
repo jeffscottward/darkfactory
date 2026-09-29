@@ -163,6 +163,7 @@ import {
   createPostgresTestDatabase,
   dropPostgresTestDatabase,
   type PostgresTestDatabase,
+  postgresTestDatabaseUrl,
 } from "./postgres.ts";
 
 const MAINTENANCE_URL =
@@ -665,6 +666,23 @@ describe.sequential("PostgreSQL test database creation and connections", () => {
 
     expect(database.runId).toHaveLength(512);
     return expect(database.databaseName).toHaveLength(63);
+  });
+
+  it("names the database it would create without connecting", async () => {
+    const expected = postgresTestDatabaseUrl({
+      databaseUrl: MAINTENANCE_URL,
+      runId: "Browser Run",
+    });
+    expect(postgresDriver.clients).toHaveLength(0);
+    const database = await createPostgresTestDatabase({
+      databaseUrl: MAINTENANCE_URL,
+      runId: "Browser Run",
+    });
+    expect(expected).toBe(database.databaseUrl);
+    process.env["DATABASE_URL"] = MAINTENANCE_URL;
+    return expect(postgresTestDatabaseUrl({ runId: "Browser Run" })).toBe(
+      expected
+    );
   });
 
   it("propagates isolated and secondary connection query failures", async () => {
