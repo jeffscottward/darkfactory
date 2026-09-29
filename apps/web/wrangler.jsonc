@@ -41,7 +41,7 @@
     "EMAIL_TRANSPORT": "resend",
     "EMAIL_FROM": "DarkFactory <no-reply@send.darkfactory.jeffscott.world>"
   },
-  // Optional Cloudflare Hyperdrive (docs/deploy-hyperdrive.md). Bindings are not inherited:
+  // Optional Cloudflare Hyperdrive (docs/deploy.md#hyperdrive). Bindings are not inherited:
   // each environment declares its own, with the id that `wrangler hyperdrive create`
   // printed for that environment's instance, and sets DATABASE_PROVIDER to "hyperdrive".
   // "hyperdrive": [{ "binding": "HYPERDRIVE", "id": "<production-hyperdrive-id>" }],

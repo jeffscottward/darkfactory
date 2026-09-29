@@ -164,7 +164,7 @@ afterEach(() => {
   return vi.resetModules();
 });
 
-describe.sequential("database CLI", () => {
+describe("database CLI", { concurrent: false }, () => {
   it("runs a test seed to completion without registering a module loader", async () => {
     const stdout = outputSpy();
 
@@ -235,38 +235,44 @@ describe.sequential("database CLI", () => {
   it.each([
     ["a missing command", undefined],
     ["an unsupported command", "migrate"],
-  ])("rejects %s before registering a loader or importing packages", async (_label, command) => {
-    process.argv =
-      command === undefined
-        ? ["node", "scripts/database/index.ts"]
-        : ["node", "scripts/database/index.ts", command];
-    const stdout = outputSpy();
+  ])(
+    "rejects %s before registering a loader or importing packages",
+    async (_label, command) => {
+      process.argv =
+        command === undefined
+          ? ["node", "scripts/database/index.ts"]
+          : ["node", "scripts/database/index.ts", command];
+      const stdout = outputSpy();
 
-    await expect(importDatabaseCli()).rejects.toThrow(
-      "Database command must be either seed or reset"
-    );
+      await expect(importDatabaseCli()).rejects.toThrow(
+        "Database command must be either seed or reset"
+      );
 
-    expectNoLoaderPackageOrDatabaseAcquisition();
-    return expect(stdout).not.toHaveBeenCalled();
-  });
+      expectNoLoaderPackageOrDatabaseAcquisition();
+      return expect(stdout).not.toHaveBeenCalled();
+    }
+  );
 
   it.each([
     ["a missing APP_ENV", undefined],
     ["an empty APP_ENV", ""],
     ["a production APP_ENV", "production"],
-  ])("rejects %s before registering the package loader", async (_label, environment) => {
-    if (environment === undefined) {
-      delete process.env["APP_ENV"];
-    } else process.env["APP_ENV"] = environment;
-    const stdout = outputSpy();
+  ])(
+    "rejects %s before registering the package loader",
+    async (_label, environment) => {
+      if (environment === undefined) {
+        delete process.env["APP_ENV"];
+      } else process.env["APP_ENV"] = environment;
+      const stdout = outputSpy();
 
-    await expect(importDatabaseCli()).rejects.toThrow(
-      "APP_ENV must be explicitly set to development or test for database seed/reset"
-    );
+      await expect(importDatabaseCli()).rejects.toThrow(
+        "APP_ENV must be explicitly set to development or test for database seed/reset"
+      );
 
-    expectNoLoaderPackageOrDatabaseAcquisition();
-    return expect(stdout).not.toHaveBeenCalled();
-  });
+      expectNoLoaderPackageOrDatabaseAcquisition();
+      return expect(stdout).not.toHaveBeenCalled();
+    }
+  );
 
   it("rejects a missing confirmation before loader, package, or database acquisition", async () => {
     process.argv = ["node", "scripts/database/index.ts", "seed"];
@@ -286,22 +292,25 @@ describe.sequential("database CLI", () => {
     ["an empty value", ["--confirm-environment="]],
     ["an unsupported value", ["--confirm-environment=production"]],
     ["an additional argument", ["--confirm-environment=test", "--force"]],
-  ])("rejects malformed confirmation with %s before acquisition", async (_label, confirmationArguments) => {
-    process.argv = [
-      "node",
-      "scripts/database/index.ts",
-      "seed",
-      ...confirmationArguments,
-    ];
-    const stdout = outputSpy();
+  ])(
+    "rejects malformed confirmation with %s before acquisition",
+    async (_label, confirmationArguments) => {
+      process.argv = [
+        "node",
+        "scripts/database/index.ts",
+        "seed",
+        ...confirmationArguments,
+      ];
+      const stdout = outputSpy();
 
-    await expect(importDatabaseCli()).rejects.toThrow(
-      "Database confirmation must use --confirm-environment=<development|test>"
-    );
+      await expect(importDatabaseCli()).rejects.toThrow(
+        "Database confirmation must use --confirm-environment=<development|test>"
+      );
 
-    expectNoLoaderPackageOrDatabaseAcquisition();
-    return expect(stdout).not.toHaveBeenCalled();
-  });
+      expectNoLoaderPackageOrDatabaseAcquisition();
+      return expect(stdout).not.toHaveBeenCalled();
+    }
+  );
 
   it("rejects duplicate confirmation before acquisition", async () => {
     process.argv = [
@@ -324,23 +333,26 @@ describe.sequential("database CLI", () => {
   it.each([
     ["test", "development"],
     ["development", "test"],
-  ] as const)("rejects %s APP_ENV with a %s confirmation before acquisition", async (environment, confirmation) => {
-    process.env["APP_ENV"] = environment;
-    process.argv = [
-      "node",
-      "scripts/database/index.ts",
-      "seed",
-      `--confirm-environment=${confirmation}`,
-    ];
-    const stdout = outputSpy();
+  ] as const)(
+    "rejects %s APP_ENV with a %s confirmation before acquisition",
+    async (environment, confirmation) => {
+      process.env["APP_ENV"] = environment;
+      process.argv = [
+        "node",
+        "scripts/database/index.ts",
+        "seed",
+        `--confirm-environment=${confirmation}`,
+      ];
+      const stdout = outputSpy();
 
-    await expect(importDatabaseCli()).rejects.toThrow(
-      "Database confirmation must match APP_ENV exactly"
-    );
+      await expect(importDatabaseCli()).rejects.toThrow(
+        "Database confirmation must match APP_ENV exactly"
+      );
 
-    expectNoLoaderPackageOrDatabaseAcquisition();
-    return expect(stdout).not.toHaveBeenCalled();
-  });
+      expectNoLoaderPackageOrDatabaseAcquisition();
+      return expect(stdout).not.toHaveBeenCalled();
+    }
+  );
 
   it("propagates configuration parsing failures before acquiring a database resource", async () => {
     const configurationError = new Error("invalid server environment");

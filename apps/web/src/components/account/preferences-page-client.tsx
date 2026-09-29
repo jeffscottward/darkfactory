@@ -119,7 +119,7 @@ export const PreferencesPageClient = () => {
           setState((current) =>
             current.type === "ready" ? { ...current, preferences } : current
           );
-        } catch (_error) {
+        } catch {
           // The mounted form keeps its unsaved values when reconciliation is unavailable.
         }
         setFeedback({

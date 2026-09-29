@@ -317,7 +317,9 @@ const finalizationFor = (
   };
 };
 
-describe.sequential("workflow durability on real PostgreSQL", () => {
+describe("workflow durability on real PostgreSQL", {
+  concurrent: false,
+}, () => {
   beforeAll(async () => {
     testDatabase = await createPostgresTestDatabase();
     databaseResource = createNodeDatabase({
@@ -1113,28 +1115,28 @@ describe.sequential("workflow durability on real PostgreSQL", () => {
     );
   });
 
-  it.each([
-    "completed",
-    "cancelled",
-  ] as const)("keeps a %s run immutable when a new operator message arrives", async (state) => {
-    const ownerId = await createOwner();
-    const projection = await createRun(ownerId, { state });
-    const before = await repository.findProjectionByOwner(
-      projection.run.id,
-      ownerId
-    );
-    await expect(
-      repository.addMessageAndAppend(messageInputFor(projection, ownerId))
-    ).rejects.toThrow("cannot accept operator messages");
-    const after = await repository.findProjectionByOwner(
-      projection.run.id,
-      ownerId
-    );
-    expect(after).toEqual(before);
-    return expect(
-      (await repository.listMessagesByOwner(projection.run.id, ownerId)).items
-    ).toHaveLength(0);
-  });
+  it.each(["completed", "cancelled"] as const)(
+    "keeps a %s run immutable when a new operator message arrives",
+    async (state) => {
+      const ownerId = await createOwner();
+      const projection = await createRun(ownerId, { state });
+      const before = await repository.findProjectionByOwner(
+        projection.run.id,
+        ownerId
+      );
+      await expect(
+        repository.addMessageAndAppend(messageInputFor(projection, ownerId))
+      ).rejects.toThrow("cannot accept operator messages");
+      const after = await repository.findProjectionByOwner(
+        projection.run.id,
+        ownerId
+      );
+      expect(after).toEqual(before);
+      return expect(
+        (await repository.listMessagesByOwner(projection.run.id, ownerId)).items
+      ).toHaveLength(0);
+    }
+  );
 
   it("rejects an owner miss and rolls a late message failure back through the run head", async () => {
     const ownerId = await createOwner();

@@ -142,7 +142,7 @@ const runCli = async (
   );
 };
 
-describe.sequential("DF-040 development database lifecycle", () => {
+describe("DF-040 development database lifecycle", { concurrent: false }, () => {
   beforeAll(async () => {
     testDatabase = await createPostgresTestDatabase();
     databaseResource = createNodeDatabase({

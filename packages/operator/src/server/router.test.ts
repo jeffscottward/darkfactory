@@ -225,7 +225,7 @@ const expectSafeError = async (
     for (const value of forbidden) {
       expect(responseText).not.toContain(value);
     }
-    return undefined;
+    return;
   }
 };
 
@@ -400,41 +400,41 @@ describe("operator API", () => {
     );
   });
 
-  it.each([
-    "",
-    "../submit",
-    "a".repeat(129),
-  ])("rejects unsafe or oversized submit idempotency key %s", async (idempotencyKey) => {
-    const workflow = workflowPort();
-    await expectError(
-      clientFor(memberSession("owner-1"), workflow).operator.submit({
-        idempotencyKey,
-        title: "Pilot run",
-        scope: { repositoryId: "darkfactory", paths: ["packages/state"] },
-      } as never),
-      "BAD_REQUEST",
-      400
-    );
-    return expect(workflow.submit).not.toHaveBeenCalled();
-  });
+  it.each(["", "../submit", "a".repeat(129)])(
+    "rejects unsafe or oversized submit idempotency key %s",
+    async (idempotencyKey) => {
+      const workflow = workflowPort();
+      await expectError(
+        clientFor(memberSession("owner-1"), workflow).operator.submit({
+          idempotencyKey,
+          title: "Pilot run",
+          scope: { repositoryId: "darkfactory", paths: ["packages/state"] },
+        } as never),
+        "BAD_REQUEST",
+        400
+      );
+      return expect(workflow.submit).not.toHaveBeenCalled();
+    }
+  );
 
-  it.each([
-    "",
-    "../revision",
-    "a".repeat(129),
-  ])("rejects unsafe or oversized revision idempotency key %s", async (idempotencyKey) => {
-    const workflow = workflowPort();
-    await expectError(
-      clientFor(memberSession("owner-1"), workflow).operator.wayfinder.revise({
-        runId: "run-1",
-        idempotencyKey,
-        message: "Keep the plan bounded.",
-      } as never),
-      "BAD_REQUEST",
-      400
-    );
-    return expect(workflow.revise).not.toHaveBeenCalled();
-  });
+  it.each(["", "../revision", "a".repeat(129)])(
+    "rejects unsafe or oversized revision idempotency key %s",
+    async (idempotencyKey) => {
+      const workflow = workflowPort();
+      await expectError(
+        clientFor(memberSession("owner-1"), workflow).operator.wayfinder.revise(
+          {
+            runId: "run-1",
+            idempotencyKey,
+            message: "Keep the plan bounded.",
+          } as never
+        ),
+        "BAD_REQUEST",
+        400
+      );
+      return expect(workflow.revise).not.toHaveBeenCalled();
+    }
+  );
 
   it("rejects a non-canonical submit scope before calling the workflow port", async () => {
     const workflow = workflowPort();
@@ -534,22 +534,22 @@ describe("operator API", () => {
       ),
       forbidden: ["OMP runtime", "sk-private-runtime-token"],
     },
-  ])("maps unknown $kind failures to the fixed storage contract", async ({
-    failure,
-    forbidden,
-  }) => {
-    const client = clientFor(
-      memberSession("owner-1"),
-      runtimePortWithWorkspaceFailure(failure)
-    );
-    return await expectSafeError(
-      client.operator.workspace({ limit: 100 }),
-      "STORAGE_ERROR",
-      503,
-      OPERATOR_ERRORS.STORAGE_ERROR.message,
-      forbidden
-    );
-  });
+  ])(
+    "maps unknown $kind failures to the fixed storage contract",
+    async ({ failure, forbidden }) => {
+      const client = clientFor(
+        memberSession("owner-1"),
+        runtimePortWithWorkspaceFailure(failure)
+      );
+      return await expectSafeError(
+        client.operator.workspace({ limit: 100 }),
+        "STORAGE_ERROR",
+        503,
+        OPERATOR_ERRORS.STORAGE_ERROR.message,
+        forbidden
+      );
+    }
+  );
 
   it("maps an unknown port exception to the fixed storage contract", async () => {
     const raw = "relation workflow_runs missing; password=repository-secret";

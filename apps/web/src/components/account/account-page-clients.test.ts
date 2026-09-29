@@ -431,27 +431,30 @@ describe("profile page client", () => {
     ],
     ["forbidden", "/dashboard", "This account cannot open that profile."],
     ["not-found", "/account", "The profile is no longer available."],
-  ] as const)("renders the owner-safe %s load recovery", async (code, href, description) => {
-    gatewayRuntime.current = gatewayWith({
-      getProfile: vi.fn(async () =>
-        Promise.reject({
-          code: code === "not-found" ? "NOT_FOUND" : code.toUpperCase(),
-        })
-      ),
-    });
-    const mounted = mount(() => ProfilePageClient());
-    mounted.render();
-    await flushMicrotasks();
-    const tree = mounted.render();
-    const emptyState = findElement(
-      tree,
-      (element) => element.props["title"] === "Profile unavailable"
-    );
-    expect(emptyState?.props["description"]).toBe(description);
-    return expect(
-      findElement(tree, (element) => element.props["href"] === href)
-    ).toBeDefined();
-  });
+  ] as const)(
+    "renders the owner-safe %s load recovery",
+    async (code, href, description) => {
+      gatewayRuntime.current = gatewayWith({
+        getProfile: vi.fn(async () =>
+          Promise.reject({
+            code: code === "not-found" ? "NOT_FOUND" : code.toUpperCase(),
+          })
+        ),
+      });
+      const mounted = mount(() => ProfilePageClient());
+      mounted.render();
+      await flushMicrotasks();
+      const tree = mounted.render();
+      const emptyState = findElement(
+        tree,
+        (element) => element.props["title"] === "Profile unavailable"
+      );
+      expect(emptyState?.props["description"]).toBe(description);
+      return expect(
+        findElement(tree, (element) => element.props["href"] === href)
+      ).toBeDefined();
+    }
+  );
 
   it("retries transient profile loads without mutating any field", async () => {
     const getProfile = vi
@@ -740,24 +743,27 @@ describe("preferences page client", () => {
       "/account",
       "No saved preferences were found for this account.",
     ],
-  ] as const)("renders the accessible %s preferences recovery", async (code, href, description) => {
-    gatewayRuntime.current = gatewayWith({
-      getPreferences: vi.fn(async () => Promise.reject({ code })),
-    });
-    storeRuntime.current = uiStore();
-    const mounted = mount(() => PreferencesPageClient());
-    mounted.render();
-    await flushMicrotasks();
-    const tree = mounted.render();
-    const emptyState = findElement(
-      tree,
-      (element) => element.props["title"] === "Preferences unavailable"
-    );
-    expect(emptyState?.props["description"]).toBe(description);
-    return expect(
-      findElement(tree, (element) => element.props["href"] === href)
-    ).toBeDefined();
-  });
+  ] as const)(
+    "renders the accessible %s preferences recovery",
+    async (code, href, description) => {
+      gatewayRuntime.current = gatewayWith({
+        getPreferences: vi.fn(async () => Promise.reject({ code })),
+      });
+      storeRuntime.current = uiStore();
+      const mounted = mount(() => PreferencesPageClient());
+      mounted.render();
+      await flushMicrotasks();
+      const tree = mounted.render();
+      const emptyState = findElement(
+        tree,
+        (element) => element.props["title"] === "Preferences unavailable"
+      );
+      expect(emptyState?.props["description"]).toBe(description);
+      return expect(
+        findElement(tree, (element) => element.props["href"] === href)
+      ).toBeDefined();
+    }
+  );
 
   it("retries a transient preferences load and restores the owner form", async () => {
     const getPreferences = vi

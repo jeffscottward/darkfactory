@@ -1398,7 +1398,7 @@ describe("redactSemanticEvent", () => {
           if (key === "value") {
             descriptorReads += 1;
             if (descriptorReads === 3) {
-              return undefined;
+              return;
             }
           }
           return Reflect.getOwnPropertyDescriptor(target, key);

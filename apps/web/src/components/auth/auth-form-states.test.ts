@@ -80,7 +80,7 @@ const formHarness = vi.hoisted(() => {
   const Subscribe = (_props: unknown): null => null;
   let currentOptions: Options | undefined;
   let handleSubmit = async (): Promise<void> => {
-    undefined;
+    // No-op until the test replaces it.
   };
   let state: State = {
     values: {},

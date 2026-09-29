@@ -62,7 +62,7 @@ const SCOPE = Object.freeze({
   paths: Object.freeze(["packages/jobs"]),
 });
 const cleanupRetainedWorkspace = async (): Promise<void> => {
-  undefined;
+  // No-op double.
 };
 
 const IMPLEMENTATION_CHANGE_HASH = "c".repeat(64);

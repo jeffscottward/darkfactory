@@ -288,7 +288,7 @@ describe("createPreviewEmailPort", () => {
       "previewed",
     ]);
     const previewed = successful[0];
-    if (!previewed || previewed.result.status !== "previewed") {
+    if (previewed?.result.status !== "previewed") {
       throw new Error("Expected exactly one preview");
     }
     const metadata = await readMetadata(previewed.result.artifactPath);

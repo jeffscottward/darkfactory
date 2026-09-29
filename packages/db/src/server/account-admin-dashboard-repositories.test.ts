@@ -73,14 +73,15 @@ describe("feature list bounds", () => {
     return expect(limit).toHaveBeenNthCalledWith(2, 100);
   });
 
-  return it.each([
-    0, 101, 1.5,
-  ])("rejects invalid limit %s before querying", async (limit) => {
-    const repository = createFeatureItemRepository({} as Database);
-    return await expect(
-      repository.listByOwner("owner-1", { limit })
-    ).rejects.toBeInstanceOf(InvalidRepositoryInputError);
-  });
+  return it.each([0, 101, 1.5])(
+    "rejects invalid limit %s before querying",
+    async (limit) => {
+      const repository = createFeatureItemRepository({} as Database);
+      return await expect(
+        repository.listByOwner("owner-1", { limit })
+      ).rejects.toBeInstanceOf(InvalidRepositoryInputError);
+    }
+  );
 });
 
 type DashboardCountRow = Readonly<{

@@ -427,7 +427,8 @@ describe("contact field validation", () => {
       message: "Message contains unsupported control characters.",
     },
   ] as const)("rejects $field boundary", ({ field, value, message }) =>
-    expect(validateContactField(field, value)).toBe(message));
+    expect(validateContactField(field, value)).toBe(message)
+  );
 
   return it("accepts strict boundary values and Unicode", () => {
     expect(validateContactField("name", "名".repeat(100))).toBeUndefined();
@@ -476,7 +477,8 @@ describe("contact gateway and safe feedback", () => {
     expect(contactFeedbackForOutput(output)).toEqual({
       tone,
       message: text,
-    }));
+    })
+  );
 
   return it("maps rate limits and provider failures without exposing exception details", () => {
     expect(
@@ -645,14 +647,14 @@ describe("contact client edge paths", () => {
       error: { data: { code: "VALIDATION_ERROR" } },
       message: "Check the highlighted fields and try again.",
     },
-  ])("maps opaque error shape $error without leaking details", ({
-    error,
-    message,
-  }) =>
-    expect(safeContactFailure(error)).toEqual({
-      tone: "error",
-      message,
-    }));
+  ])(
+    "maps opaque error shape $error without leaking details",
+    ({ error, message }) =>
+      expect(safeContactFailure(error)).toEqual({
+        tone: "error",
+        message,
+      })
+  );
 });
 
 describe("ContactForm browser behavior", () => {

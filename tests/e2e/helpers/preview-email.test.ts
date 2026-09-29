@@ -82,37 +82,36 @@ describe("authenticated preview polling", () => {
     });
   });
 
-  it.each([
-    "body",
-    "basename",
-    "operation",
-  ] as const)("rejects a committed artifact with tampered %s binding", async (tamper) => {
-    const directory = await createDirectory();
-    const htmlPath = await publishReset(directory);
-    const textPath = htmlPath.replace(/\.html$/u, ".txt");
-    const metadataPath = htmlPath.replace(/\.html$/u, ".metadata.json");
-    if (tamper === "body") {
-      await writeFile(textPath, "tampered body", "utf8");
-    } else {
-      const metadata = JSON.parse(await readFile(metadataPath, "utf8")) as {
-        artifact: string;
-        operation: string;
-      };
-      if (tamper === "basename") {
-        metadata.artifact = "other-artifact";
+  it.each(["body", "basename", "operation"] as const)(
+    "rejects a committed artifact with tampered %s binding",
+    async (tamper) => {
+      const directory = await createDirectory();
+      const htmlPath = await publishReset(directory);
+      const textPath = htmlPath.replace(/\.html$/u, ".txt");
+      const metadataPath = htmlPath.replace(/\.html$/u, ".metadata.json");
+      if (tamper === "body") {
+        await writeFile(textPath, "tampered body", "utf8");
+      } else {
+        const metadata = JSON.parse(await readFile(metadataPath, "utf8")) as {
+          artifact: string;
+          operation: string;
+        };
+        if (tamper === "basename") {
+          metadata.artifact = "other-artifact";
+        }
+        if (tamper === "operation") {
+          metadata.operation = "verify-email";
+        }
+        await writeFile(metadataPath, JSON.stringify(metadata), "utf8");
       }
-      if (tamper === "operation") {
-        metadata.operation = "verify-email";
-      }
-      await writeFile(metadataPath, JSON.stringify(metadata), "utf8");
-    }
 
-    await expect(
-      waitForReset(directory, "alice@domain.test", 20)
-    ).rejects.toThrowError(
-      "Timed out waiting for reset-password preview artifact."
-    );
-  });
+      await expect(
+        waitForReset(directory, "alice@domain.test", 20)
+      ).rejects.toThrowError(
+        "Timed out waiting for reset-password preview artifact."
+      );
+    }
+  );
 });
 
 describe("run-owned contact preview polling", () => {

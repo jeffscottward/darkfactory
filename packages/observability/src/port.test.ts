@@ -145,27 +145,30 @@ describe("recording observability ports", () => {
     [new DOMException("private DOM detail", "DataError"), "application"],
     [new TypeError("private type detail"), "type"],
     [new RangeError("private range detail"), "range"],
-  ] as const)("records the safe $expectedCategory failure category", async (error, expectedCategory) => {
-    const telemetry = createRecordingTelemetry();
+  ] as const)(
+    "records the safe $expectedCategory failure category",
+    async (error, expectedCategory) => {
+      const telemetry = createRecordingTelemetry();
 
-    await expect(
-      telemetry.withSpan(
-        {
-          name: "failure.category",
-          correlation: { requestId: `request_${expectedCategory}` },
-        },
-        () => {
-          throw error;
-        }
-      )
-    ).rejects.toBe(error);
+      await expect(
+        telemetry.withSpan(
+          {
+            name: "failure.category",
+            correlation: { requestId: `request_${expectedCategory}` },
+          },
+          () => {
+            throw error;
+          }
+        )
+      ).rejects.toBe(error);
 
-    expect(telemetry.spans[0]).toMatchObject({
-      outcome: "failure",
-      errorCategory: expectedCategory,
-    });
-    return expect(JSON.stringify(telemetry.spans)).not.toContain("private");
-  });
+      expect(telemetry.spans[0]).toMatchObject({
+        outcome: "failure",
+        errorCategory: expectedCategory,
+      });
+      return expect(JSON.stringify(telemetry.spans)).not.toContain("private");
+    }
+  );
 
   return it("preserves a parent, falls back to correlation procedure, and clamps negative duration", async () => {
     const times = [20, 10];

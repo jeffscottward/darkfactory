@@ -80,6 +80,7 @@ Rejected because it is not installed and no ancillary resource currently justifi
 
 ## Related documents
 
-- [Capabilities and deployment](../capabilities-and-deployment.md)
-- [Testing and evidence](../testing-and-evidence.md)
+- [Deploy](../deploy.md)
+- [Capabilities](../capabilities.md)
+- [Testing](../testing.md)
 - [Architecture](../../ARCHITECTURE.md)

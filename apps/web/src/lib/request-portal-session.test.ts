@@ -34,6 +34,13 @@ vi.mock("./server-session.ts", () => ({
 
 import { getRequestPortalSession } from "./request-portal-session.ts";
 
+// Vitest 5 clears mock state before every test, so keep the import-time cache
+// wrapping.
+const importCache = {
+  calls: mocks.cache.mock.calls.length,
+  wrapped: mocks.cache.mock.results[0]?.value,
+};
+
 describe("getRequestPortalSession", () => {
   beforeEach(() => {
     mocks.cacheEntries.clear();
@@ -41,10 +48,8 @@ describe("getRequestPortalSession", () => {
   });
 
   it("is wrapped once by React request cache", () => {
-    expect(mocks.cache).toHaveBeenCalledOnce();
-    return expect(getRequestPortalSession).toBe(
-      mocks.cache.mock.results[0]?.value
-    );
+    expect(importCache.calls).toBe(1);
+    return expect(getRequestPortalSession).toBe(importCache.wrapped);
   });
   it("shares one in-flight resolution for identical primitive keys", () => {
     const pendingSession = Promise.resolve(null);
@@ -69,17 +74,20 @@ describe("getRequestPortalSession", () => {
     ["better-auth.session_token=opaque", "203.0.113.42"],
     [null, null],
     ["   ", null],
-  ])("uses primitive cookie and edge IP inputs with the fixed internal dispatcher", (cookieHeader, cfConnectingIp) => {
-    const pendingSession = Promise.resolve(null);
-    mocks.getPortalSession.mockReturnValueOnce(pendingSession);
+  ])(
+    "uses primitive cookie and edge IP inputs with the fixed internal dispatcher",
+    (cookieHeader, cfConnectingIp) => {
+      const pendingSession = Promise.resolve(null);
+      mocks.getPortalSession.mockReturnValueOnce(pendingSession);
 
-    expect(getRequestPortalSession(cookieHeader, cfConnectingIp)).toBe(
-      pendingSession
-    );
-    return expect(mocks.getPortalSession).toHaveBeenCalledWith({
-      cookieHeader,
-      cfConnectingIp,
-      fetch: mocks.dispatchInternalAuthRequest,
-    });
-  });
+      expect(getRequestPortalSession(cookieHeader, cfConnectingIp)).toBe(
+        pendingSession
+      );
+      return expect(mocks.getPortalSession).toHaveBeenCalledWith({
+        cookieHeader,
+        cfConnectingIp,
+        fetch: mocks.dispatchInternalAuthRequest,
+      });
+    }
+  );
 });

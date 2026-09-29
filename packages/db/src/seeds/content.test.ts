@@ -310,119 +310,125 @@ describe("development content seeds", () => {
     ["postalCode", "99999"],
     ["country", "us"],
     ["isPrimary", false],
-  ] as const)("repairs an address whose %s drifted", async (field, replacement) => {
-    const drifted = { ...addressRow(0), [field]: replacement };
-    const promotesPrimary = field === "isPrimary";
-    const repositorySelects: QueryRows[] = [[drifted]];
-    const updateOutcomes: QueryRows[] = [];
-    if (promotesPrimary) {
-      repositorySelects.push([{ updatedAt: FIXED_ROW_TIME }]);
-      updateOutcomes.push([]);
-    }
-    updateOutcomes.push([addressRow(0)]);
-    const double = createContentSeedDatabase({
-      select: [
-        [drifted],
-        ...repositorySelects,
-        [addressRow(1)],
-        [addressRow(2)],
-        [featureRow(0)],
-        [featureRow(1)],
-        [featureRow(2)],
-        ...matchingSelectOutcomes(),
-      ],
-      update: updateOutcomes,
-    });
-
-    await convergeDevelopmentContent(double.database);
-
-    const updates = double.operations.filter(
-      (operation) =>
-        operation.kind === "update" && operation.table === "addresses"
-    );
-    let expectedUpdateCount = 1;
-    if (promotesPrimary) {
-      expectedUpdateCount = 2;
-    }
-    expect(updates).toHaveLength(expectedUpdateCount);
-    const expected = DEVELOPMENT_ADDRESSES[0]!;
-    const repaired = updates.at(-1);
-    expect(repaired?.value).toMatchObject({
-      type: expected.type,
-      line1: expected.line1,
-      line2: expected.line2 ?? null,
-      city: expected.city,
-      region: expected.region,
-      postalCode: expected.postalCode,
-      country: expected.country.toUpperCase(),
-    });
-    if (promotesPrimary) {
-      expect(updates[0]?.value).toEqual({
-        isPrimary: false,
-        updatedAt: new Date(FIXED_ROW_TIME.getTime() + 1),
+  ] as const)(
+    "repairs an address whose %s drifted",
+    async (field, replacement) => {
+      const drifted = { ...addressRow(0), [field]: replacement };
+      const promotesPrimary = field === "isPrimary";
+      const repositorySelects: QueryRows[] = [[drifted]];
+      const updateOutcomes: QueryRows[] = [];
+      if (promotesPrimary) {
+        repositorySelects.push([{ updatedAt: FIXED_ROW_TIME }]);
+        updateOutcomes.push([]);
+      }
+      updateOutcomes.push([addressRow(0)]);
+      const double = createContentSeedDatabase({
+        select: [
+          [drifted],
+          ...repositorySelects,
+          [addressRow(1)],
+          [addressRow(2)],
+          [featureRow(0)],
+          [featureRow(1)],
+          [featureRow(2)],
+          ...matchingSelectOutcomes(),
+        ],
+        update: updateOutcomes,
       });
-      expect(repaired?.value).toHaveProperty("isPrimary", true);
-    } else {
-      expect(repaired?.value).not.toHaveProperty("isPrimary");
-    }
 
-    const mutationCount = double.operations.filter(
-      ({ kind }) => kind === "insert" || kind === "update"
-    ).length;
-    await convergeDevelopmentContent(double.database);
-    return expect(
-      double.operations.filter(
+      await convergeDevelopmentContent(double.database);
+
+      const updates = double.operations.filter(
+        (operation) =>
+          operation.kind === "update" && operation.table === "addresses"
+      );
+      let expectedUpdateCount = 1;
+      if (promotesPrimary) {
+        expectedUpdateCount = 2;
+      }
+      expect(updates).toHaveLength(expectedUpdateCount);
+      const expected = DEVELOPMENT_ADDRESSES[0]!;
+      const repaired = updates.at(-1);
+      expect(repaired?.value).toMatchObject({
+        type: expected.type,
+        line1: expected.line1,
+        line2: expected.line2 ?? null,
+        city: expected.city,
+        region: expected.region,
+        postalCode: expected.postalCode,
+        country: expected.country.toUpperCase(),
+      });
+      if (promotesPrimary) {
+        expect(updates[0]?.value).toEqual({
+          isPrimary: false,
+          updatedAt: new Date(FIXED_ROW_TIME.getTime() + 1),
+        });
+        expect(repaired?.value).toHaveProperty("isPrimary", true);
+      } else {
+        expect(repaired?.value).not.toHaveProperty("isPrimary");
+      }
+
+      const mutationCount = double.operations.filter(
         ({ kind }) => kind === "insert" || kind === "update"
-      )
-    ).toHaveLength(mutationCount);
-  });
+      ).length;
+      await convergeDevelopmentContent(double.database);
+      return expect(
+        double.operations.filter(
+          ({ kind }) => kind === "insert" || kind === "update"
+        )
+      ).toHaveLength(mutationCount);
+    }
+  );
 
   it.each([
     ["name", "Changed item"],
     ["description", "Changed description"],
     ["status", "draft"],
     ["metadata", { source: "changed" }],
-  ] as const)("repairs a feature item whose %s drifted", async (field, replacement) => {
-    const drifted = { ...featureRow(0), [field]: replacement };
-    const double = createContentSeedDatabase({
-      select: [
-        [addressRow(0)],
-        [addressRow(1)],
-        [addressRow(2)],
-        [drifted],
-        [featureRow(1)],
-        [featureRow(2)],
-      ],
-      insert: [[], []],
-      update: [[featureRow(0)]],
-    });
+  ] as const)(
+    "repairs a feature item whose %s drifted",
+    async (field, replacement) => {
+      const drifted = { ...featureRow(0), [field]: replacement };
+      const double = createContentSeedDatabase({
+        select: [
+          [addressRow(0)],
+          [addressRow(1)],
+          [addressRow(2)],
+          [drifted],
+          [featureRow(1)],
+          [featureRow(2)],
+        ],
+        insert: [[], []],
+        update: [[featureRow(0)]],
+      });
 
-    await convergeDevelopmentContent(double.database);
+      await convergeDevelopmentContent(double.database);
 
-    const updates = double.operations.filter(
-      (operation) =>
-        operation.kind === "update" && operation.table === "feature_items"
-    );
-    expect(updates).toHaveLength(1);
-    expect(updates[0]?.value).toMatchObject({
-      name: DEVELOPMENT_FEATURE_ITEMS[0]!.name,
-      description: DEVELOPMENT_FEATURE_ITEMS[0]!.description,
-      status: DEVELOPMENT_FEATURE_ITEMS[0]!.status,
-      metadata: DEVELOPMENT_FEATURE_ITEMS[0]!.metadata,
-    });
-    const audit = double.operations.find(
-      (operation) =>
-        operation.kind === "insert" && operation.table === "audit_records"
-    );
-    return expect(audit?.value).toMatchObject({
-      actorUserId: DEVELOPMENT_FEATURE_ITEMS[0]!.ownerId,
-      action: "feature_item.updated",
-      requestId: `development-seed:${DEVELOPMENT_FEATURE_ITEMS[0]!.ownerId}`,
-      metadata: {
-        changedFields: ["name", "description", "status", "metadata"],
-      },
-    });
-  });
+      const updates = double.operations.filter(
+        (operation) =>
+          operation.kind === "update" && operation.table === "feature_items"
+      );
+      expect(updates).toHaveLength(1);
+      expect(updates[0]?.value).toMatchObject({
+        name: DEVELOPMENT_FEATURE_ITEMS[0]!.name,
+        description: DEVELOPMENT_FEATURE_ITEMS[0]!.description,
+        status: DEVELOPMENT_FEATURE_ITEMS[0]!.status,
+        metadata: DEVELOPMENT_FEATURE_ITEMS[0]!.metadata,
+      });
+      const audit = double.operations.find(
+        (operation) =>
+          operation.kind === "insert" && operation.table === "audit_records"
+      );
+      return expect(audit?.value).toMatchObject({
+        actorUserId: DEVELOPMENT_FEATURE_ITEMS[0]!.ownerId,
+        action: "feature_item.updated",
+        requestId: `development-seed:${DEVELOPMENT_FEATURE_ITEMS[0]!.ownerId}`,
+        metadata: {
+          changedFields: ["name", "description", "status", "metadata"],
+        },
+      });
+    }
+  );
 
   it("applies omitted address and feature defaults through an explicit content seam", async () => {
     const expectedAddress = {

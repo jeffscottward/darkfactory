@@ -142,22 +142,25 @@ describe("PortalLayout", () => {
         "/admin/users",
       ],
     ],
-  ])("renders role-gated routes for an active %s session", async (role, isAdmin, availableRoutes) => {
-    mocks.getRequestPortalSession.mockResolvedValueOnce({
-      userId: "user-1",
-      name: "Example User",
-      role,
-      status: "active",
-      expiresAt: new Date("2030-01-01T00:00:00.000Z"),
-    });
+  ])(
+    "renders role-gated routes for an active %s session",
+    async (role, isAdmin, availableRoutes) => {
+      mocks.getRequestPortalSession.mockResolvedValueOnce({
+        userId: "user-1",
+        name: "Example User",
+        role,
+        status: "active",
+        expiresAt: new Date("2030-01-01T00:00:00.000Z"),
+      });
 
-    const result = await PortalLayout({ children: "protected" });
+      const result = await PortalLayout({ children: "protected" });
 
-    expect(result.type).toBe("portal-shell");
-    expect(result.props.children).toBe("protected");
-    expect(result.props.isAdmin).toBe(isAdmin);
-    return expect(result.props.availableRoutes).toEqual(availableRoutes);
-  });
+      expect(result.type).toBe("portal-shell");
+      expect(result.props.children).toBe("protected");
+      expect(result.props.isAdmin).toBe(isAdmin);
+      return expect(result.props.availableRoutes).toEqual(availableRoutes);
+    }
+  );
 });
 
 describe("portal route leaf composition", () => {

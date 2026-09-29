@@ -77,8 +77,8 @@ const registerWaitUntil = (
   // Emission still awaits the task, so a broken lifetime hook cannot retry it.
   try {
     waitUntil(task);
-  } catch (_error) {
-    undefined;
+  } catch {
+    // A broken lifetime hook must not fail the emission.
   }
 };
 
@@ -89,7 +89,7 @@ const recordOnSpan = (
   let failed = false;
   try {
     span.addEvent(event);
-  } catch (_error) {
+  } catch {
     failed = true;
   }
 
@@ -102,7 +102,7 @@ const recordOnSpan = (
         ...(event.outcome === undefined ? {} : { outcome: event.outcome }),
       },
     });
-  } catch (_error) {
+  } catch {
     failed = true;
   }
   return failed ? "failed" : "recorded";
@@ -120,7 +120,7 @@ export const createSemanticEventFanout = (
     let structuredEvent: SemanticEmissionResult["structuredEvent"] = "emitted";
     try {
       await options.sink.emit(snapshot);
-    } catch (_error) {
+    } catch {
       structuredEvent = "failed";
     }
 

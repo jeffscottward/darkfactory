@@ -175,7 +175,7 @@ export const OperatorRunDetail = ({
           automaticReadInFlight.current = true;
           return void gateway
             .detail(id)
-            .then((output) => {
+            .then((detail) => {
               if (
                 mounted.current &&
                 activeRunId.current === id &&
@@ -183,11 +183,11 @@ export const OperatorRunDetail = ({
                 requestRevision.current === revision &&
                 performance.now() < automaticDeadline.current
               ) {
-                currentOutput.current = output;
-                setState({ type: "ready", output });
+                currentOutput.current = detail;
+                setState({ type: "ready", output: detail });
                 setApprovalConflict(null);
                 setAutoRefreshStatus("active");
-                if (isTerminalState(output.run.state))
+                if (isTerminalState(detail.run.state))
                   return pauseAutomaticRefresh(session);
                 return;
               }

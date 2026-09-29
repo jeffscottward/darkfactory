@@ -304,11 +304,11 @@ export const createAuth = (options: AuthFactoryOptions) => {
           }
         }
 
-        if (!NORMALIZED_EMAIL_PATHS.has(context.path)) return undefined;
+        if (!NORMALIZED_EMAIL_PATHS.has(context.path)) return;
         const body = context.body as Record<string, unknown> | undefined;
-        if (typeof body?.["email"] !== "string") return undefined;
+        if (typeof body?.["email"] !== "string") return;
         const email = body["email"].trim().toLowerCase();
-        if (email === body["email"]) return undefined;
+        if (email === body["email"]) return;
         return {
           context: {
             ...context,
@@ -317,7 +317,7 @@ export const createAuth = (options: AuthFactoryOptions) => {
         };
       }),
       after: createAuthMiddleware(async (context) => {
-        if (context.path !== "/sign-in/email") return undefined;
+        if (context.path !== "/sign-in/email") return;
         const signedInUser = (
           context.context as {
             newSession?: { user?: ProvisionableUser } | null;
@@ -622,15 +622,20 @@ export const ensureDevelopmentSeedIdentity = async (
         });
       }
     } else {
-      const created = await context.internalAdapter.createUser({
-        id: identity.userId,
-        name: identity.name,
-        email: identity.email,
-        emailVerified: true,
-        image: identity.image,
-        role: identity.role,
-        status: "active",
-      });
+      // Seed identities are operator-provisioned, so they use Better Auth's
+      // "admin" provisioning source rather than a self-service method.
+      const created = await context.internalAdapter.createUser(
+        {
+          id: identity.userId,
+          name: identity.name,
+          email: identity.email,
+          emailVerified: true,
+          image: identity.image,
+          role: identity.role,
+          status: "active",
+        },
+        { method: "admin" }
+      );
       if (created.id !== identity.userId) {
         throw new Error("Seed user received an unexpected identifier");
       }

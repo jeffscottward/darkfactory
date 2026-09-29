@@ -120,7 +120,7 @@ export const ProfilePageClient = () => {
           setState((current) =>
             current.type === "ready" ? { ...current, account } : current
           );
-        } catch (_error) {
+        } catch {
           // The current form stays mounted with its unsaved values.
         }
         setFeedback({

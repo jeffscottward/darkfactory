@@ -29,10 +29,10 @@ const mocks = vi.hoisted(() => ({
     "link" | "mkdir" | "open" | "rename" | "rm"
   >,
   resetConstants: (): void => {
-    undefined;
+    // No-op double.
   },
   resetFileSystem: (): void => {
-    undefined;
+    // No-op double.
   },
 }));
 vi.mock("node:fs", async () => {
@@ -231,10 +231,10 @@ describe("filesystem guard", () => {
   it("serializes concurrent writers with the repository operations lock", async () => {
     const root = await createRoot();
     let releaseFirst = (): void => {
-      undefined;
+      // No-op until the test replaces it.
     };
     let markReached = (): void => {
-      undefined;
+      // No-op until the test replaces it.
     };
     const holdFirst = new Promise<void>((resolve) => {
       return (releaseFirst = () => resolve());
@@ -362,7 +362,7 @@ describe("filesystem guard", () => {
     mocks.fileSystem.mkdir.mockImplementation(async (...arguments_) => {
       if (String(arguments_[0]) === ancestor) {
         await writeFile(ancestor, "foreign ancestor", "utf8");
-        return undefined;
+        return;
       }
       return Reflect.apply(mocks.fileSystemActual.mkdir, undefined, arguments_);
     });

@@ -243,31 +243,30 @@ describe("DF-088 theme preference service", () => {
       code: "CONFLICT",
       message: "Theme preference conflict",
     },
-  ] as const)("maps repository failures to the stable $code contract", async ({
-    failure,
-    code,
-    message,
-  }) => {
-    const service = createThemePreferenceService(
-      themeRepository({
-        upsertTheme: vi.fn(async () => {
-          throw failure;
-        }),
-      })
-    );
+  ] as const)(
+    "maps repository failures to the stable $code contract",
+    async ({ failure, code, message }) => {
+      const service = createThemePreferenceService(
+        themeRepository({
+          upsertTheme: vi.fn(async () => {
+            throw failure;
+          }),
+        })
+      );
 
-    return await expect(
-      service.update(memberSession.principal, {
-        themeMode: "dark",
-        palette: "violet",
-        expectedUpdatedAt: THEME_VERSION,
-      })
-    ).rejects.toMatchObject({
-      name: "ThemePreferenceServiceError",
-      code,
-      message,
-    });
-  });
+      return await expect(
+        service.update(memberSession.principal, {
+          themeMode: "dark",
+          palette: "violet",
+          expectedUpdatedAt: THEME_VERSION,
+        })
+      ).rejects.toMatchObject({
+        name: "ThemePreferenceServiceError",
+        code,
+        message,
+      });
+    }
+  );
 
   return it("preserves classified failures and does not disguise unexpected adapter errors", async () => {
     const classified = new ThemePreferenceServiceError(

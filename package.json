@@ -1,5 +1,6 @@
 {
   "name": "@darkfactory/root",
+  "brick": "workspace",
   "version": "0.2.1",
   "private": true,
   "description": "A modular, Postgres-first, AI-native application foundation.",
@@ -21,6 +22,7 @@
   },
   "scripts": {
     "setup": "bun scripts/setup.ts",
+    "init": "bun scripts/init.ts",
     "dev": "bun scripts/dev-bindings.ts && portless darkfactory bun scripts/dev.ts web",
     "dev:trust": "portless trust",
     "dev:bindings": "bun scripts/dev-bindings.ts",
@@ -114,6 +116,7 @@
     "portless": "catalog:",
     "turbo": "catalog:",
     "typescript": "catalog:",
+    "typescript-api": "catalog:",
     "ultracite": "catalog:",
     "vite": "catalog:",
     "vitest": "catalog:",

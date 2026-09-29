@@ -21,7 +21,7 @@ export const nodeSetupFiles: SetupDependencies["files"] = Object.freeze({
     try {
       return await readFile(path, "utf8");
     } catch (error) {
-      if (isMissing(error)) return undefined;
+      if (isMissing(error)) return;
       throw error;
     }
   },
@@ -40,7 +40,7 @@ export const nodeSetupFiles: SetupDependencies["files"] = Object.freeze({
     try {
       return (await stat(path)).mode & 0o777;
     } catch (error) {
-      if (isMissing(error)) return undefined;
+      if (isMissing(error)) return;
       throw error;
     }
   },

@@ -26,7 +26,7 @@ export type SemanticEvent = Readonly<{
 }>;
 
 export interface StructuredEventSink {
-  emit(event: SemanticEvent): void | Promise<void>;
+  emit: (event: SemanticEvent) => void | Promise<void>;
 }
 
 export type MetricObservation = Readonly<{
@@ -37,8 +37,8 @@ export type MetricObservation = Readonly<{
 
 export interface SpanHandle {
   readonly correlation: CorrelationContext;
-  addEvent(event: SemanticEvent): void;
-  recordMetric(metric: MetricObservation): void;
+  addEvent: (event: SemanticEvent) => void;
+  recordMetric: (metric: MetricObservation) => void;
 }
 
 export type SpanInput = Readonly<{
@@ -49,10 +49,10 @@ export type SpanInput = Readonly<{
 }>;
 
 export interface TelemetryPort {
-  withSpan<T>(
+  withSpan: <T>(
     input: SpanInput,
     run: (span: SpanHandle) => T | Promise<T>
-  ): Promise<T>;
+  ) => Promise<T>;
 }
 
 export type TelemetryRuntimeState =
@@ -67,8 +67,8 @@ export type TelemetryRuntimeState =
 
 export interface TelemetryRuntime extends TelemetryPort {
   readonly state: TelemetryRuntimeState;
-  forceFlush(): Promise<void>;
-  dispose(): Promise<void>;
+  forceFlush: () => Promise<void>;
+  dispose: () => Promise<void>;
 }
 
 export type AnalyticsConsent = "granted" | "denied" | "unknown";
@@ -108,7 +108,7 @@ export type AnalyticsResult =
     }>;
 
 export interface AnalyticsCaptureFacade {
-  capture(input: AnalyticsCapture): Promise<AnalyticsResult>;
+  capture: (input: AnalyticsCapture) => Promise<AnalyticsResult>;
 }
 
 export type ConsentResolver = (
@@ -129,8 +129,8 @@ export type SemanticEmissionResult = Readonly<{
 }>;
 
 export interface SemanticEventPort {
-  emit(
+  emit: (
     event: SemanticEvent,
     context?: SemanticEmissionContext
-  ): Promise<SemanticEmissionResult>;
+  ) => Promise<SemanticEmissionResult>;
 }

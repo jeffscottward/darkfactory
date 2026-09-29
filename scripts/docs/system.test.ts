@@ -24,10 +24,10 @@ const mocks = vi.hoisted(() => ({
     "lstat" | "open" | "realpath"
   >,
   resetConstants: (): void => {
-    undefined;
+    // No-op double.
   },
   resetFileSystem: (): void => {
-    undefined;
+    // No-op double.
   },
 }));
 vi.mock("node:fs", async () => {
@@ -66,7 +66,7 @@ vi.mock("node:fs/promises", async () => {
   };
 });
 
-import { GENERATED_INVENTORY_PATH, runDocsAction } from "./docs.ts";
+import { GENERATED_PACKAGE_GRAPH_PATH, runDocsAction } from "./docs.ts";
 import { createDocsFileSystem } from "./system.ts";
 
 afterEach(() => {
@@ -75,9 +75,10 @@ afterEach(() => {
   return vi.clearAllMocks();
 });
 
-const packageManifest = (name: string): string =>
+const packageManifest = (name: string, brick = "product"): string =>
   JSON.stringify({
     name,
+    brick,
     version: "1.0.0",
   });
 
@@ -89,7 +90,7 @@ const createRepository = async (): Promise<string> => {
   ]);
   await writeFile(
     join(root, "package.json"),
-    packageManifest("@darkfactory/root"),
+    packageManifest("@darkfactory/root", "workspace"),
     "utf8"
   );
   return root;
@@ -233,7 +234,7 @@ describe("documentation filesystem", () => {
           packageCount: 2,
         }
       );
-      const generatedPath = join(root, GENERATED_INVENTORY_PATH);
+      const generatedPath = join(root, GENERATED_PACKAGE_GRAPH_PATH);
       const generated = await readFile(generatedPath, "utf8");
       await expect(runDocsAction("check", { files })).resolves.toMatchObject({
         ok: true,
@@ -272,7 +273,7 @@ describe("documentation filesystem", () => {
         /ancestor is unsafe/i
       );
       return await expect(
-        exists(join(root, GENERATED_INVENTORY_PATH))
+        exists(join(root, GENERATED_PACKAGE_GRAPH_PATH))
       ).resolves.toBe(false);
     } finally {
       await rm(root, { force: true, recursive: true });

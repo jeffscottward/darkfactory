@@ -46,7 +46,9 @@ export type ContactEmailDeliveryResult =
     }>;
 
 export interface ContactEmailPort {
-  sendContact(input: ContactEmailInput): Promise<ContactEmailDeliveryResult>;
+  sendContact: (
+    input: ContactEmailInput
+  ) => Promise<ContactEmailDeliveryResult>;
 }
 
 export type EmailProvider = "preview" | EmailAdapterId | "disabled";
@@ -86,10 +88,10 @@ export type EmailDeliveryResult =
   | FailedEmailDelivery;
 
 export interface EmailPort {
-  sendPasswordReset(
+  sendPasswordReset: (
     input: PasswordResetEmailInput
-  ): Promise<EmailDeliveryResult>;
-  sendEmailVerification(
+  ) => Promise<EmailDeliveryResult>;
+  sendEmailVerification: (
     input: EmailVerificationEmailInput
-  ): Promise<EmailDeliveryResult>;
+  ) => Promise<EmailDeliveryResult>;
 }

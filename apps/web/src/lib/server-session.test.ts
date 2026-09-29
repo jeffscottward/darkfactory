@@ -61,7 +61,8 @@ describe("parsePortalSession", () => {
   ])("rejects malformed, inactive, or expired session data", (value) =>
     expect(
       parsePortalSession(value, new Date("2029-01-01T00:00:00.000Z"))
-    ).toBeNull());
+    ).toBeNull()
+  );
 });
 
 describe("portal callback paths", () => {
@@ -87,7 +88,8 @@ describe("portal callback paths", () => {
   ])("falls back when the request path is unsafe", (pathname) =>
     expect(
       resolvePortalCallbackPath(new Headers({ "x-pathname": pathname }))
-    ).toBe("/dashboard"));
+    ).toBe("/dashboard")
+  );
 });
 
 describe("getPortalSession", () => {
@@ -125,14 +127,17 @@ describe("getPortalSession", () => {
   it.each([
     new Response(null, { status: 401 }),
     Response.json({ unexpected: true }),
-  ])("fails closed for missing or invalid session responses", async (response) =>
-    await expect(
-      getPortalSession({
-        cookieHeader: "better-auth.session_token=opaque",
-        fetch: vi.fn(async () => response),
-        now: new Date("2029-01-01T00:00:00.000Z"),
-      })
-    ).resolves.toBeNull());
+  ])(
+    "fails closed for missing or invalid session responses",
+    async (response) =>
+      await expect(
+        getPortalSession({
+          cookieHeader: "better-auth.session_token=opaque",
+          fetch: vi.fn(async () => response),
+          now: new Date("2029-01-01T00:00:00.000Z"),
+        })
+      ).resolves.toBeNull()
+  );
 
   it("fails closed when the session endpoint cannot be reached", async () =>
     await expect(
@@ -259,7 +264,8 @@ describe("getPortalSession", () => {
   ])("rejects malformed session field boundaries", (value) =>
     expect(
       parsePortalSession(value, new Date("2029-01-01T00:00:00.000Z"))
-    ).toBeNull());
+    ).toBeNull()
+  );
 
   it("validates callback values directly and selects the first safe request header", () => {
     for (const value of [

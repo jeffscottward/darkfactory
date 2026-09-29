@@ -307,75 +307,86 @@ describe("development seed orchestration", () => {
       "a different normalized email",
       [userRow(DEVELOPMENT_PERSONAS[0]!, { email: "other@domain.test" })],
     ],
-  ] as const)("rejects when %s match a persona lookup", async (_label, matchedUsers) => {
-    const persona = DEVELOPMENT_PERSONAS[0]!;
-    const double = createSeedDatabase([
-      [...matchedUsers],
-      [credentialRow(persona)],
-    ]);
-    const identity = preparedIdentity();
+  ] as const)(
+    "rejects when %s match a persona lookup",
+    async (_label, matchedUsers) => {
+      const persona = DEVELOPMENT_PERSONAS[0]!;
+      const double = createSeedDatabase([
+        [...matchedUsers],
+        [credentialRow(persona)],
+      ]);
+      const identity = preparedIdentity();
 
-    return await expect(
-      seedDevelopment(double.database, {
-        environment: "test",
-        prepareIdentity: identity.prepareIdentity,
-      })
-    ).rejects.toMatchObject({
-      name: "SeedIdentityCollisionError",
-      message: expect.stringContaining(
-        "deterministic user ID and normalized email do not identify the same user"
-      ),
-    });
-  });
+      return await expect(
+        seedDevelopment(double.database, {
+          environment: "test",
+          prepareIdentity: identity.prepareIdentity,
+        })
+      ).rejects.toMatchObject({
+        name: "SeedIdentityCollisionError",
+        message: expect.stringContaining(
+          "deterministic user ID and normalized email do not identify the same user"
+        ),
+      });
+    }
+  );
 
   it.each([
     ["account ID", { id: "different-account" }],
     ["user ID", { userId: "different-user" }],
     ["provider", { providerId: "oauth" }],
     ["provider account ID", { accountId: "different-user" }],
-  ] as const)("rejects a credential with a mismatched %s", async (_label, override) => {
-    const persona = DEVELOPMENT_PERSONAS[0]!;
-    const double = createSeedDatabase([
-      [userRow(persona)],
-      [credentialRow(persona, override)],
-    ]);
-    const identity = preparedIdentity();
+  ] as const)(
+    "rejects a credential with a mismatched %s",
+    async (_label, override) => {
+      const persona = DEVELOPMENT_PERSONAS[0]!;
+      const double = createSeedDatabase([
+        [userRow(persona)],
+        [credentialRow(persona, override)],
+      ]);
+      const identity = preparedIdentity();
 
-    return await expect(
-      seedDevelopment(double.database, {
-        environment: "test",
-        prepareIdentity: identity.prepareIdentity,
-      })
-    ).rejects.toMatchObject({
-      name: "SeedIdentityCollisionError",
-      message: expect.stringContaining(
-        "required credential account is missing or mismatched"
-      ),
-    });
-  });
+      return await expect(
+        seedDevelopment(double.database, {
+          environment: "test",
+          prepareIdentity: identity.prepareIdentity,
+        })
+      ).rejects.toMatchObject({
+        name: "SeedIdentityCollisionError",
+        message: expect.stringContaining(
+          "required credential account is missing or mismatched"
+        ),
+      });
+    }
+  );
 
   it.each([
     ["a non-string value", null],
     ["an unstructured string", "not-a-password-hash"],
     ["uppercase hexadecimal", `${"A".repeat(32)}:${"B".repeat(128)}`],
-  ] as const)("rejects %s as a persisted credential hash", async (_label, password) => {
-    const persona = DEVELOPMENT_PERSONAS[0]!;
-    const double = createSeedDatabase([
-      [userRow(persona)],
-      [credentialRow(persona, { password })],
-    ]);
-    const identity = preparedIdentity();
+  ] as const)(
+    "rejects %s as a persisted credential hash",
+    async (_label, password) => {
+      const persona = DEVELOPMENT_PERSONAS[0]!;
+      const double = createSeedDatabase([
+        [userRow(persona)],
+        [credentialRow(persona, { password })],
+      ]);
+      const identity = preparedIdentity();
 
-    return await expect(
-      seedDevelopment(double.database, {
-        environment: "test",
-        prepareIdentity: identity.prepareIdentity,
-      })
-    ).rejects.toMatchObject({
-      name: "SeedIdentityCollisionError",
-      message: expect.stringContaining("credential password hash is malformed"),
-    });
-  });
+      return await expect(
+        seedDevelopment(double.database, {
+          environment: "test",
+          prepareIdentity: identity.prepareIdentity,
+        })
+      ).rejects.toMatchObject({
+        name: "SeedIdentityCollisionError",
+        message: expect.stringContaining(
+          "credential password hash is malformed"
+        ),
+      });
+    }
+  );
 
   it("fails and rolls back when the assurer does not persist an absent identity", async () => {
     const initialAbsence = DEVELOPMENT_PERSONAS.flatMap(

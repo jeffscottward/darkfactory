@@ -15,7 +15,7 @@ export const RecoverableErrorFixture = () => {
   useEffect(() => {
     if (window.sessionStorage.getItem(recoveryMarker) === "1") {
       setPhase("recovered");
-      return undefined;
+      return;
     }
     window.sessionStorage.setItem(recoveryMarker, "1");
     setPhase("throw");

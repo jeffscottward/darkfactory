@@ -1,6 +1,6 @@
 import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import ts from "typescript";
+import ts from "typescript-api";
 import { afterEach, describe, expect, it } from "vitest";
 
 import {

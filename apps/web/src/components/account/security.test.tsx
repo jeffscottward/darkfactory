@@ -213,10 +213,13 @@ describe("supported Better Auth security gateway", () => {
     [{ status: 403 }, "forbidden", "not permitted"],
     [{ code: 401 }, "retryable", "Try again"],
     [null, "retryable", "Try again"],
-  ] as const)("maps supported security failure %j to %s", (error, kind, message) => {
-    expect(securityFailureKind(error)).toBe(kind);
-    return expect(safeSecurityFeedback(error)).toContain(message);
-  });
+  ] as const)(
+    "maps supported security failure %j to %s",
+    (error, kind, message) => {
+      expect(securityFailureKind(error)).toBe(kind);
+      return expect(safeSecurityFeedback(error)).toContain(message);
+    }
+  );
 
   return it("constructs the browser security gateway without starting a request", () =>
     expect(() => createBrowserSecurityGateway()).not.toThrow());
@@ -258,27 +261,31 @@ describe("security page states and actions", () => {
   ])("renders supported %s state", (state, expected) =>
     expect(renderToStaticMarkup(<SecurityPanel state={state} />)).toContain(
       expected
-    ));
+    )
+  );
 
   it.each([
     ["unauthorized", "/sign-in?callbackURL=%2Faccount%2Fsecurity", "Sign in"],
     ["forbidden", 'href="/account"', "Back to account"],
     ["retryable", "Try again", "Try again"],
-  ] as const)("renders the accessible %s recovery path", (kind, destination, action) => {
-    const html = renderToStaticMarkup(
-      <SecurityPanel
-        state={{
-          type: "error",
-          kind,
-          message: "Security details are unavailable.",
-        }}
-      />
-    );
-    expect(html).toContain('role="alert"');
-    expect(html).toContain("Security details are unavailable");
-    expect(html).toContain(destination);
-    return expect(html).toContain(action);
-  });
+  ] as const)(
+    "renders the accessible %s recovery path",
+    (kind, destination, action) => {
+      const html = renderToStaticMarkup(
+        <SecurityPanel
+          state={{
+            type: "error",
+            kind,
+            message: "Security details are unavailable.",
+          }}
+        />
+      );
+      expect(html).toContain('role="alert"');
+      expect(html).toContain("Security details are unavailable");
+      expect(html).toContain(destination);
+      return expect(html).toContain(action);
+    }
+  );
 
   it("renders unknown agents safely and disables bulk revocation for the only active session", () => {
     const html = renderToStaticMarkup(

@@ -155,7 +155,9 @@ const expectedError = async (
   throw new Error("Expected the API operation to fail");
 };
 
-describe.sequential("DF-045/051/061-064 real PostgreSQL API integration", () => {
+describe("DF-045/051/061-064 real PostgreSQL API integration", {
+  concurrent: false,
+}, () => {
   beforeAll(async () => {
     testDatabase = await createPostgresTestDatabase();
     databaseResource = createNodeDatabase({

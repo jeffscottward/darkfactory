@@ -228,23 +228,26 @@ describe("operator Better Auth policy", () => {
           new Request(`${OPERATOR_APP_ORIGIN}/api/orpc/operator/workspace`)
         ),
     ],
-  ])("maps capacity exhaustion to the coded 503 in the operator %s handler", async (_name, handle) => {
-    vi.stubEnv("WORKFLOW_REPOSITORIES_ROOT", "/srv/repositories");
-    mocks.openRequestScope.mockRejectedValueOnce(
-      new RequestDatabaseCapacityError()
-    );
+  ])(
+    "maps capacity exhaustion to the coded 503 in the operator %s handler",
+    async (_name, handle) => {
+      vi.stubEnv("WORKFLOW_REPOSITORIES_ROOT", "/srv/repositories");
+      mocks.openRequestScope.mockRejectedValueOnce(
+        new RequestDatabaseCapacityError()
+      );
 
-    try {
-      const response = await handle();
-      expect(response.status).toBe(503);
-      expect(response.headers.get("retry-after")).toBe("1");
-      await expect(response.json()).resolves.toEqual({
-        error: "Service temporarily at capacity",
-        code: "DATABASE_CAPACITY",
-      });
-      expect(mocks.createAuth).not.toHaveBeenCalled();
-    } finally {
-      vi.unstubAllEnvs();
+      try {
+        const response = await handle();
+        expect(response.status).toBe(503);
+        expect(response.headers.get("retry-after")).toBe("1");
+        await expect(response.json()).resolves.toEqual({
+          error: "Service temporarily at capacity",
+          code: "DATABASE_CAPACITY",
+        });
+        expect(mocks.createAuth).not.toHaveBeenCalled();
+      } finally {
+        vi.unstubAllEnvs();
+      }
     }
-  });
+  );
 });

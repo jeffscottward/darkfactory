@@ -276,7 +276,7 @@ export const PasswordForm = ({ feedback, onSave }: PasswordFormProps) => {
                 value !== fieldApi.form.getFieldValue("newPassword")
               )
                 return "Passwords do not match.";
-              return undefined;
+              return;
             },
             onSubmit: ({ value, fieldApi }) => {
               if (value.length === 0) return `${definition.label} is required.`;
@@ -287,7 +287,7 @@ export const PasswordForm = ({ feedback, onSave }: PasswordFormProps) => {
                 value !== fieldApi.form.getFieldValue("newPassword")
               )
                 return "Passwords do not match.";
-              return undefined;
+              return;
             },
           }}
         >

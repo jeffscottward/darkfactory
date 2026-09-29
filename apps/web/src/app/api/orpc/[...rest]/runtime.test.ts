@@ -50,16 +50,19 @@ describe("Worker oRPC runtime composition", () => {
     ],
     ["granted", "analytics_consent=granted; other=value", "granted"],
     ["granted", "analytics_consent=malformed", "unknown"],
-  ] as const)("resolves header %s and cookie %s to fail-closed consent %s", (header, cookie, expected) => {
-    const headers = new Headers();
-    if (header !== undefined) headers.set("x-analytics-consent", header);
-    if (cookie !== undefined) headers.set("cookie", cookie);
-    const request = new Request("https://darkfactory.localhost/api/orpc", {
-      headers,
-    });
+  ] as const)(
+    "resolves header %s and cookie %s to fail-closed consent %s",
+    (header, cookie, expected) => {
+      const headers = new Headers();
+      if (header !== undefined) headers.set("x-analytics-consent", header);
+      if (cookie !== undefined) headers.set("cookie", cookie);
+      const request = new Request("https://darkfactory.localhost/api/orpc", {
+        headers,
+      });
 
-    return expect(resolveAnalyticsConsent(request)).toBe(expected);
-  });
+      return expect(resolveAnalyticsConsent(request)).toBe(expected);
+    }
+  );
 
   it("returns the completed response without replay when telemetry fails afterward", async () => {
     const operation = vi.fn(

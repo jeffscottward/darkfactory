@@ -33,12 +33,12 @@ export type EmailDeliveryResult =
       retryable: boolean;
     }>;
 export interface EmailPort {
-  sendPasswordReset(
+  sendPasswordReset: (
     input: PasswordResetEmailInput
-  ): Promise<EmailDeliveryResult>;
-  sendEmailVerification(
+  ) => Promise<EmailDeliveryResult>;
+  sendEmailVerification: (
     input: EmailVerificationEmailInput
-  ): Promise<EmailDeliveryResult>;
+  ) => Promise<EmailDeliveryResult>;
 }
 export type RenderedPasswordResetEmail = Readonly<{
   subject: string;
@@ -156,7 +156,9 @@ export type ContactEmailDeliveryResult =
       retryable: boolean;
     }>;
 export interface ContactEmailPort {
-  sendContact(input: ContactEmailInput): Promise<ContactEmailDeliveryResult>;
+  sendContact: (
+    input: ContactEmailInput
+  ) => Promise<ContactEmailDeliveryResult>;
 }
 export type RenderedContactEmail = Readonly<{
   subject: string;

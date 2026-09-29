@@ -61,16 +61,14 @@ describe("workflow plan evidence", () => {
     ).toThrow("OMP plan output exceeds the review limit");
   });
 
-  it.each([
-    "",
-    " \n\t ",
-    "\u0000",
-    "\u001B[31m",
-  ])("rejects empty or unreviewable output %#", (value) => {
-    return expect(() => createWorkflowPlanEvidenceV1(output(value))).toThrow(
-      WorkflowPlanEvidenceError
-    );
-  });
+  it.each(["", " \n\t ", "\u0000", "\u001B[31m"])(
+    "rejects empty or unreviewable output %#",
+    (value) => {
+      return expect(() => createWorkflowPlanEvidenceV1(output(value))).toThrow(
+        WorkflowPlanEvidenceError
+      );
+    }
+  );
 
   return it("rejects persisted and replayed evidence when summary or metadata is tampered", () => {
     const plan = createWorkflowPlanEvidenceV1(

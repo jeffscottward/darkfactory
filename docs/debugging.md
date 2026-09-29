@@ -1,0 +1,64 @@
+# Debugging
+
+Start with `bun run doctor`, then find the symptom below. Paths are relative to the repo root; `#name` is the symbol to read first.
+
+## Symptom → where to look
+
+| Symptom | Where to look |
+| --- | --- |
+| Startup fails with `Invalid server environment` | `packages/config/src/server.ts#parseServerEnv`, `#EnvironmentValidationError` (lists each failing key) |
+| Production or deploy check rejects the database URL | `packages/config/src/database.ts#validateRequestDatabaseEndpoint`, `scripts/deployment/database.ts#checkProductionWebDatabaseEndpoint` |
+| `503` with `code: "DATABASE_CAPACITY"` and `retry-after` | `packages/db/src/server/request-scope.ts#requestDatabaseCapacityResponse`, `packages/db/src/server/client.ts#RequestDatabaseCapacityError`, `#REQUEST_DATABASE_POOL_MAX_CONNECTIONS`; `apps/web/src/server/request-scope.ts#withRequestScope` |
+| `request-database.client-close-failed` or other `request-database.*` events | `apps/web/src/lib/request-database-diagnostics.ts#createRequestDatabaseDiagnosticSink` |
+| `403` on a POST, PATCH or DELETE to `/api/orpc` | `apps/web/src/app/api/orpc/[...rest]/route.ts#unsafeRequestDenied` (`origin` must equal `APP_URL`'s origin; `sec-fetch-site`, if sent, must be `same-origin`) |
+| `413` payload too large | `apps/web/src/lib/bounded-request-body.ts#bufferBoundedRequest`; `apps/web/src/app/api/orpc/[...rest]/route.ts#ORPC_REQUEST_MAX_BYTES` |
+| Contact form returns `429` or `503` | `apps/web/src/app/api/orpc/[...rest]/contact-runtime.ts#createContactThrottleKey`, `packages/db/src/server/contact-throttle-repository.ts#createContactThrottleRepository`, `packages/api/src/server/contact-service.ts#ContactServiceError` |
+| Local email never arrives | Expected: it is a file in `packages/email/previews/`. `packages/email/src/server/provider.ts#selectEmailPort`, `EMAIL_TRANSPORT` |
+| Production email fails | The delivery result's `code` (`EMAIL_PROVIDER_*` or `CONTACT_PROVIDER_*`); `packages/email/src/server/provider.ts#createResendEmailPort`, `packages/email/src/server/contact.ts#createResendContactEmailPort` |
+| Auth cookie missing or sign-in loops | `BETTER_AUTH_URL` must equal `APP_URL` (`packages/config/src/server.ts#parseServerEnv`); open the app on its portless `https://` URL, not a raw port |
+| Sign-out does not stick | `packages/auth/src/db.ts#createDatabaseConfirmedSignOutHandler` |
+| Dashboard render aborts or times out | `apps/web/src/lib/server-internal-dispatch.ts#dispatchWithAbort`, `apps/web/src/lib/theme-api-timeout.ts#THEME_API_REQUEST_TIMEOUT_MS` |
+| Migration fails | `packages/db/src/server/migration.ts#migrate`, `packages/db/migrations/meta/_journal.json` |
+| `db:seed` or `db:reset` refuses to run | Pass `-- --confirm-environment=<development\|test>` matching `APP_ENV`; `scripts/database/index.ts`, then `packages/db/src/seeds/index.ts#seedDevelopment` |
+| Manifest rejected | `packages/config/src/server/capabilities-loader.ts#CapabilityManifestValidationError` |
+| Server module crashes in the browser bundle | You imported a `./server` export from client code; its `browser` condition resolves to `unsupported.ts` |
+| Integration tests refuse `DATABASE_URL` | `packages/testkit/src/postgres.ts`: only local hosts and the test maintenance database are allowed ([testing.md](testing.md#integration-tests)) |
+| E2E fails on TLS | `playwright.config.ts` SPKI pin and portless state directory; see [testing.md](testing.md#how-e2e-runs) |
+| `docs:check` fails | Run `bun run docs:generate`; a missing `brick` or a brick-rule violation is reported by `scripts/docs/docs.ts#buildPackageGraph` |
+| Operator worker fails with `OmpConfigurationError` | Expected on anything but macOS. `packages/jobs/src/server/omp.ts#requireSandboxBackend`; see [operator.md](operator.md) |
+
+## Tools
+
+### Logs
+
+- **Local:** `bun run dev` prints evlog events in the terminal. Each event has a `name` such as `contact.submitted` or `request-database.client-close-failed`, plus the request id in `correlation`. `orpc.request` is the OpenTelemetry span name for oRPC calls.
+- **Production:** Workers Logs are enabled in `apps/web/wrangler.jsonc` (`observability.logs`). Tail live with `cd apps/web && pnpm exec wrangler tail`.
+- Events are redacted before emission (`packages/observability/src/redaction.ts#redact`). If you need a value that is redacted, add a safe derived attribute instead of removing redaction.
+
+### Request ids
+
+Every response from the request scope (the auth, strict sign-out and oRPC routes) carries `x-request-id`. It is the edge-set `cf-ray` id when present and well-formed, otherwise a fresh UUID (`packages/api/src/server/context.ts#resolveApiRequestId`). An incoming `x-request-id` header is ignored, so clients cannot choose their id. The same id is on the evlog events, the OpenTelemetry span and audit records. Server-rendered pages pass their id to in-process oRPC and auth calls, so one page view shares one id. Copy the header from the browser's network tab and search the logs for it.
+
+### Source maps
+
+Worker builds emit source maps, and `apps/web/wrangler.jsonc` sets `"upload_source_maps": true`, so production stack traces point at TypeScript lines. Client bundles do not publish source maps.
+
+### VS Code launch configs
+
+`.vscode/launch.json` ships these configurations:
+
+| Configuration | What it does |
+| --- | --- |
+| Vitest: current file | Runs the open test file under the debugger |
+| Vitest: current integration file (local test database) | The same with `APP_ENV=test` and the local test-maintenance `DATABASE_URL`, for integration tests |
+| Attach: Worker (while bun run dev is running) | Attaches to the Worker inspector that `@cloudflare/vite-plugin` opens on port 9229. Without VS Code, open `/__debug` on the dev URL for Chrome DevTools. |
+
+Set a breakpoint, open the test file and press F5. For Playwright, run `pnpm exec playwright test --debug path/to/spec.ts` or use `--ui` and its trace viewer.
+
+### Doctor
+
+`bun run doctor` checks the toolchain (Node, Bun, pnpm and their `mise.toml` pins, vinext, Wrangler, uv), required env keys, the Cloudflare config, and the probes the manifest implies (Docker and Postgres, portless, Graphify). Each check prints `pass`, `fail`, `optional` or `disabled`. The portless route and trust checks pass only while `bun run dev` is running. Run it first when a fresh clone or a teammate's machine misbehaves.
+
+### Code navigation
+
+`bun run graph:build` builds an optional local Graphify graph for "who calls this" questions. It is not committed and nothing depends on it. For package-level structure, read [the generated package graph](generated/package-graph.md).

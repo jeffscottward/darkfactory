@@ -154,7 +154,7 @@ const emitContactSubmittedEvent = async (
         ? {}
         : { waitUntil: context.waitUntil }),
     });
-  } catch (_error) {
+  } catch {
     // Contact observability is best-effort and never exposes submission fields.
   }
 };
@@ -224,7 +224,7 @@ const emitAccountMutationEvent = async (
         ? {}
         : { waitUntil: context.waitUntil }),
     });
-  } catch (_error) {
+  } catch {
     // Observability is best-effort and never changes successful account mutations.
   }
 };
@@ -290,7 +290,7 @@ const emitMutationEvent = async (
         ? {}
         : { waitUntil: context.waitUntil }),
     });
-  } catch (_error) {
+  } catch {
     // Observability is best-effort and must not affect domain mutation results.
   }
 };
@@ -357,7 +357,7 @@ const emitThemeUpdateEvent = async (
         ? {}
         : { waitUntil: context.waitUntil }),
     });
-  } catch (_error) {
+  } catch {
     // Observability is best-effort and must not affect preference persistence.
   }
 };

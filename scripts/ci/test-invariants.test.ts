@@ -231,43 +231,41 @@ describe("coverage measures every authored source file", () => {
   });
 });
 
-describe(
-  "every Vitest test file runs in the gates",
-  { timeout: 120_000 },
-  () => {
-    it("assigns each test file to exactly one Vitest project", async () => {
-      const files = await allTestFiles();
-      const owners = new Map<string, string[]>();
-      for (const { file, projectName } of files) {
-        owners.set(file, [...(owners.get(file) ?? []), projectName]);
-      }
-      expect([...owners].filter(([, projects]) => projects.length > 1)).toEqual(
-        []
-      );
-      // A tracked test outside every project would silently never run; only Playwright specs may.
-      const orphans = [...(await trackedFiles)].filter(
-        (file) => TEST_FILE.test(file) && !owners.has(file)
-      );
-      return expect(
-        orphans.filter((file) => !matchesGlob(file, "tests/e2e/*.spec.ts"))
-      ).toEqual([]);
-    });
+describe("every Vitest test file runs in the gates", {
+  timeout: 120_000,
+}, () => {
+  it("assigns each test file to exactly one Vitest project", async () => {
+    const files = await allTestFiles();
+    const owners = new Map<string, string[]>();
+    for (const { file, projectName } of files) {
+      owners.set(file, [...(owners.get(file) ?? []), projectName]);
+    }
+    expect([...owners].filter(([, projects]) => projects.length > 1)).toEqual(
+      []
+    );
+    // A tracked test outside every project would silently never run; only Playwright specs may.
+    const orphans = [...(await trackedFiles)].filter(
+      (file) => TEST_FILE.test(file) && !owners.has(file)
+    );
+    return expect(
+      orphans.filter((file) => !matchesGlob(file, "tests/e2e/*.spec.ts"))
+    ).toEqual([]);
+  });
 
-    it("runs every test file exactly once in the full verify lifecycle", async () => {
-      const [files, counts] = await Promise.all([
-        allTestFiles(),
-        executionCounts("verify"),
-      ]);
-      const expected = new Map(files.map(({ file }) => [file, 1]));
-      return expect(Object.fromEntries(counts)).toEqual(
-        Object.fromEntries(expected)
-      );
-    });
+  it("runs every test file exactly once in the full verify lifecycle", async () => {
+    const [files, counts] = await Promise.all([
+      allTestFiles(),
+      executionCounts("verify"),
+    ]);
+    const expected = new Map(files.map(({ file }) => [file, 1]));
+    return expect(Object.fromEntries(counts)).toEqual(
+      Object.fromEntries(expected)
+    );
+  });
 
-    return it.each([
-      "verify:prepush",
-      "verify:core",
-    ])("runs every unit, contract, operations, and e2e-helpers file in %s", async (script) => {
+  return it.each(["verify:prepush", "verify:core"])(
+    "runs every unit, contract, operations, and e2e-helpers file in %s",
+    async (script) => {
       const [files, counts] = await Promise.all([
         allTestFiles(),
         executionCounts(script),
@@ -279,6 +277,6 @@ describe(
       return expect(
         local.filter(({ file }) => !counts.has(file)).map(({ file }) => file)
       ).toEqual([]);
-    });
-  }
-);
+    }
+  );
+});

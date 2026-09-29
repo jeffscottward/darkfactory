@@ -60,6 +60,7 @@ export const RootDocument = ({
       suppressHydrationWarning
     >
       <head>
+        {/* biome-ignore lint/performance/noSyncScripts: the theme bootstrap must run before first paint to avoid a theme flash. */}
         <script src={THEME_BOOTSTRAP_PATH} />
       </head>
       <body>

@@ -18,7 +18,7 @@ import {
 } from "./contract.ts";
 
 const boundaryScope = () => ({
-  repositoryId: "darkfactory",
+  repositoryId: "sample-repo",
   paths: [...Array.from({ length: 15 }, () => "é".repeat(128)), "é".repeat(84)],
 });
 

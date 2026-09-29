@@ -160,21 +160,25 @@ describe("remote preview transport", () => {
         endpoint: untrustedEndpoint,
         binding,
       })
-    ).toThrowError("exact loopback"));
+    ).toThrowError("exact loopback")
+  );
 
   it.each([
     "http://127.0.0.1/v1/capture",
     "http://user@127.0.0.1:43123/v1/capture",
     "http://:password@127.0.0.1:43123/v1/capture",
     "http://127.0.0.1:43123/v1/capture#fragment",
-  ])("rejects an incomplete or credentialed capture endpoint: %s", (untrustedEndpoint) =>
-    expect(() =>
-      createRemotePreviewEmailPort({
-        environment: "test",
-        endpoint: untrustedEndpoint,
-        binding,
-      })
-    ).toThrowError("exact loopback"));
+  ])(
+    "rejects an incomplete or credentialed capture endpoint: %s",
+    (untrustedEndpoint) =>
+      expect(() =>
+        createRemotePreviewEmailPort({
+          environment: "test",
+          endpoint: untrustedEndpoint,
+          binding,
+        })
+      ).toThrowError("exact loopback")
+  );
 
   it.each([
     { runId: "", hmacKey: binding.hmacKey },
@@ -188,7 +192,8 @@ describe("remote preview transport", () => {
         endpoint,
         binding: malformedBinding,
       })
-    ).toThrowError("Remote preview binding is invalid"));
+    ).toThrowError("Remote preview binding is invalid")
+  );
 
   return it("rejects remote capture outside tests", () =>
     expect(() =>

@@ -283,17 +283,20 @@ describe("address book states and actions", () => {
     ["not-found", 'href="/account"', "Back to account"],
     ["conflict", "Try again", "Try again"],
     ["retryable", "Try again", "Try again"],
-  ] as const)("renders the accessible %s recovery action", (kind, recovery, label) => {
-    const html = renderToStaticMarkup(
-      <AddressBook
-        state={{ type: "error", kind, message: "Addresses are unavailable." }}
-      />
-    );
-    expect(html).toContain('role="alert"');
-    expect(html).toContain("Addresses are unavailable");
-    expect(html).toContain(recovery);
-    return expect(html).toContain(label);
-  });
+  ] as const)(
+    "renders the accessible %s recovery action",
+    (kind, recovery, label) => {
+      const html = renderToStaticMarkup(
+        <AddressBook
+          state={{ type: "error", kind, message: "Addresses are unavailable." }}
+        />
+      );
+      expect(html).toContain('role="alert"');
+      expect(html).toContain("Addresses are unavailable");
+      expect(html).toContain(recovery);
+      return expect(html).toContain(label);
+    }
+  );
 
   it("forwards empty, retry, edit, primary, remove, confirm, and cancel actions with the owned address", () => {
     const secondary = {

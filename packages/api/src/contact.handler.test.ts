@@ -112,18 +112,18 @@ describe("DF-076 contact handler", () => {
       },
       expected: { status: "not-delivered" },
     },
-  ] as const)("returns $expected.status without authentication or provider details", async ({
-    result,
-    expected,
-  }) => {
-    const events: SemanticEvent[] = [];
-    const sendContact = vi.fn(async () => result);
-    const client = clientFor({ sendContact }, allowThrottle(), events);
+  ] as const)(
+    "returns $expected.status without authentication or provider details",
+    async ({ result, expected }) => {
+      const events: SemanticEvent[] = [];
+      const sendContact = vi.fn(async () => result);
+      const client = clientFor({ sendContact }, allowThrottle(), events);
 
-    await expect(client.contact.submit(input)).resolves.toEqual(expected);
-    expect(sendContact).toHaveBeenCalledWith(input);
-    return expect(events).toHaveLength(1);
-  });
+      await expect(client.contact.submit(input)).resolves.toEqual(expected);
+      expect(sendContact).toHaveBeenCalledWith(input);
+      return expect(events).toHaveLength(1);
+    }
+  );
 
   it("emits only PII-free contact outcome metadata", async () => {
     const events: SemanticEvent[] = [];

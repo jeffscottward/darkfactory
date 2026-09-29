@@ -40,24 +40,27 @@ describe("atomic auth rate-limit storage get/set adapter", () => {
       },
     ],
     ["a missing row", [], null],
-  ] as const)("returns %s through the Better Auth storage contract", async (_case, rows, expected) => {
-    const limit = vi.fn().mockResolvedValue(rows);
-    const where = vi.fn<(predicate: SQL) => { limit: typeof limit }>(() => ({
-      limit,
-    }));
-    const from = vi.fn(() => ({ where }));
-    const select = vi.fn(() => ({ from }));
-    const storage = createAtomicAuthRateLimitStorage({ select } as never);
+  ] as const)(
+    "returns %s through the Better Auth storage contract",
+    async (_case, rows, expected) => {
+      const limit = vi.fn().mockResolvedValue(rows);
+      const where = vi.fn<(predicate: SQL) => { limit: typeof limit }>(() => ({
+        limit,
+      }));
+      const from = vi.fn(() => ({ where }));
+      const select = vi.fn(() => ({ from }));
+      const storage = createAtomicAuthRateLimitStorage({ select } as never);
 
-    await expect(storage.get("signin:member")).resolves.toEqual(expected);
-    expect(select).toHaveBeenCalledOnce();
-    expect(limit).toHaveBeenCalledWith(1);
+      await expect(storage.get("signin:member")).resolves.toEqual(expected);
+      expect(select).toHaveBeenCalledOnce();
+      expect(limit).toHaveBeenCalledWith(1);
 
-    const predicate = where.mock.calls[0]?.[0];
-    const query = queryFor(predicate);
-    expect(query.sql).toContain('"rate_limit"."key"');
-    return expect(query.params).toEqual(["signin:member"]);
-  });
+      const predicate = where.mock.calls[0]?.[0];
+      const query = queryFor(predicate);
+      expect(query.sql).toContain('"rate_limit"."key"');
+      return expect(query.params).toEqual(["signin:member"]);
+    }
+  );
 
   it("upserts the caller value regardless of Better Auth's update hint", async () => {
     const execute = vi.fn().mockResolvedValue(cleanupRows);
@@ -234,15 +237,18 @@ describe("atomic auth rate-limit decisions", () => {
     ["negative max", { window: 1, max: -1 }],
     ["fractional max", { window: 1, max: 1.5 }],
     ["unsafe max", { window: 1, max: Number.MAX_SAFE_INTEGER + 1 }],
-  ] as const)("rejects a rule with %s before accessing the adapter", async (_case, rule) => {
-    const execute = vi.fn();
-    const storage = createAtomicAuthRateLimitStorage({ execute } as never);
+  ] as const)(
+    "rejects a rule with %s before accessing the adapter",
+    async (_case, rule) => {
+      const execute = vi.fn();
+      const storage = createAtomicAuthRateLimitStorage({ execute } as never);
 
-    await expect(storage.consume("invalid-rule", rule)).rejects.toThrowError(
-      "Auth rate limit rule is outside the supported bounds"
-    );
-    return expect(execute).not.toHaveBeenCalled();
-  });
+      await expect(storage.consume("invalid-rule", rule)).rejects.toThrowError(
+        "Auth rate limit rule is outside the supported bounds"
+      );
+      return expect(execute).not.toHaveBeenCalled();
+    }
+  );
 
   it("preserves exactly max admissions from a serialized adapter fake", async () => {
     vi.spyOn(Date, "now").mockReturnValue(1_700_000_000_000);

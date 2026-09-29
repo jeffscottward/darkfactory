@@ -1,236 +1,179 @@
-# DarkFactory Architecture
+# Architecture
 
-DarkFactory is a reusable, domain-neutral foundation for public web experiences and authenticated applications. Its architecture favors explicit contracts, small composable units, PostgreSQL-backed durability, replaceable provider adapters, and deterministic workflows that humans and AI agents can understand.
+DarkFactory is a pnpm + Turborepo workspace of small packages ("bricks"). Apps compose bricks. Bricks expose narrow `exports` maps and never import apps. External services are reached only through ports, and each port has an adapter.
 
-## Decision taxonomy
+## Brick map
 
-Every design statement belongs to exactly one class:
+Every workspace `package.json` declares a `brick` role. The live per-package graph, with every workspace dependency and export, is generated from those files: **[docs/generated/package-graph.md](docs/generated/package-graph.md)**. `bun run docs:check` (part of `verify:prepush` and the core CI lane) fails when that graph is stale, a package has no valid role, or a dependency breaks the role rules.
 
-| Class | Meaning | Change rule | Examples |
-| --- | --- | --- | --- |
-| **Core** | Required in every DarkFactory project | Change through an explicit architecture decision | Bun script runtime, pnpm/Turborepo workspace, strict TypeScript source, Vite/vinext, PostgreSQL/Drizzle, Better Auth, oRPC, Tailwind/shadcn, evlog/OpenTelemetry/PostHog adapter, Graphify, lifecycle gates |
-| **Capability** | Optional, enabled intentionally, removable without rewriting the domain | Declare a manifest, port, adapter, config, install/remove path, verification, and docs | storage, AI provider, email delivery, jobs, error tracking, memory graph, database extensions |
-| **Convention** | Rule every contributor and agent follows | Update `AGENTS.md` and `CONVENTIONS.md` with the reason | contract-first work, feature-vertical ownership, test-first behavior changes, provider isolation |
-| **Implementation** | Current replaceable realization | May change while its contract remains stable | Cloudflare Workers, PostHog adapter, Groq adapter, Resend adapter, preview email adapter |
-
-This distinction prevents a vendor, optional service, or current file layout from becoming accidental architecture.
-
-## Core topology
-
-```text
-Bun scripts + pnpm workspace + Turborepo task graph
-│
-├── apps
-│   ├── web
-│   │   ├── src/app                    product public, auth, portal, account, admin, and API routes
-│   │   ├── src/features               generated product feature navigation registry
-│   │   └── Vite/vinext/Cloudflare     product framework and deployment boundary
-│   └── operator
-│       ├── src/app                    local sign-in, operator UI, auth, and operator API routes
-│       └── Vite/vinext/Portless       local-only development boundary
-│
-├── packages
-│   ├── api                        product oRPC contracts, schemas, handlers, clients, OpenAPI
-│   ├── operator                   operator contracts, clients, services, workflow ports
-│   ├── auth                       Better Auth server/client, auth policy, DB sign-out
-│   ├── db                         Drizzle schema, repositories, migrations, seeds
-│   ├── config                     environment parsing and capability/database profiles
-│   ├── ui                         shadcn primitives, tokens, themes, compositions
-│   ├── state                      shared XState flows and client state boundaries
-│   ├── shared                     deliberately small cross-package utilities
-│   ├── analytics                  analytics port and PostHog adapter
-│   ├── observability              evlog, redaction, fanout, OpenTelemetry
-│   ├── email / ai                 provider-neutral ports and selected adapters
-│   ├── jobs                       queued workflow execution, worker runtime, and local OMP/Wayfinder adapters
-│   ├── storage                    optional capability ports and local/test adapters
-│   └── testkit                    cross-package PostgreSQL and test infrastructure
-│
-├── scripts                        lifecycle, doctor, graph, docs, database, and E2E tools
-├── tests                          contract, integration, and browser lifecycle coverage
-├── docs / design-system           architecture, decisions, evidence, and UI policy
-└── infra                          local PostgreSQL container infrastructure
-```
-
-This is the implemented repository topology, not a package wish list. `apps/web` is the deployable end-user product. Its page UI and orchestration live under `apps/web/src/app`, `apps/web/src/components`, and `apps/web/src/lib`; `apps/web/src/features` is presently a generated navigation registry rather than the home of feature implementations. `apps/operator` is a separate, authenticated, local-only development meta-layer. It is not a deployable business capability and it does not add operator routes or runtime to the product application. `pnpm-workspace.yaml` includes `apps/*` and `packages/*`; the root coordinates them without publishing an application API.
-
-## Dependency direction and feature boundaries
-
-```text
-framework / routes / UI
-           │
-           ▼
-application commands, queries, workflows
-           │
-           ▼
-       domain rules
-           │
-           ▼
-    application ports ◄──── infrastructure adapters
-```
-
-Dependencies point inward. Domain code knows no framework, ORM, transport, deployment platform, or provider. Application code coordinates domain behavior through small ports. Infrastructure adapters know Drizzle and external SDKs. Routes translate transport concerns and remain thin.
-
-The product path is `apps/web` → `packages/api`; `packages/api` contains product contracts and services only. The local operator path is `apps/operator` → `packages/operator`, with server composition depending on authentication, database workflow repositories, jobs, and state. `packages/jobs` owns queued execution, the workflow worker, and the local-only OMP and Wayfinder adapters. Neither the operator server surface nor the local execution adapters may enter a browser bundle, a Worker bundle, or `apps/web`.
-
-A feature vertical owns its feature-specific UI, client state, contract client usage, application orchestration, local server code, events, and tests. Shared packages own cross-feature protocols and infrastructure, not miscellaneous convenience code. Features communicate through public contracts/events rather than internal deep imports.
-
-## Request and data flow
-
-The deployable product request path is:
-
-```text
-browser or external client
-  → apps/web Vite/vinext route
-  → packages/api contract validation and authentication context
-  → application command/query
-  → domain rule
-  → application port
-  → Drizzle store/adapter
-  → PostgreSQL
-  → domain/application event
-  → evlog structured event
-      ├→ analytics port → PostHog adapter
-      └→ OpenTelemetry → configured telemetry backend
-  → typed product result/error
-```
-
-The local operator request and execution path is separate:
-
-```text
-authenticated browser
-  → apps/operator route
-  → packages/operator contract/service
-  → authorized workflow repository operation
-  → PostgreSQL journal/outbox
-  → durable queued Wayfinder plan effect
-  → separately started `worker:pilot` claim
-  → packages/jobs local Wayfinder adapter
-  → scoped OMP adapter
-```
-
-The HTTP Wayfinder start operation ends after durable enqueue and returns `queued`; it never runs OMP inside the request. The separately started pilot worker claims the plan effect before dispatch. It creates one scoped OMP adapter, wraps it with the local Wayfinder execution adapter, and injects both into the workflow runtime. The product and operator contracts are their respective API sources of truth. Direct feature-to-database, feature-to-provider, and parallel ad hoc API paths are architectural violations.
-
-## Current runtime assembly
-
-The repository has separate composition roots. `apps/web` composes the deployable product. Its Better Auth, strict sign-out, and oRPC routes each run inside one request scope (`apps/web/src/server/request-scope.ts`): it opens a request-scoped database connection, selects the configured email transport, creates the Better Auth instance, answers database capacity exhaustion with a coded `503` (`retry-after: 1`), sets `x-request-id`, and after the response drains tracked background tasks before closing the connection. The oRPC route first rejects unsafe cross-origin mutations and oversized bodies, then opens request-scoped repositories and authorization guards and selects product adapters from capability truth.
-
-`apps/operator` composes the authenticated local operator plane at <https://operator.darkfactory.localhost>. It supplies local auth and operator oRPC routes, builds the operator context, connects the database workflow repository to `packages/operator` services, and connects those services to `packages/jobs`. `packages/operator` owns operator contracts, bounded projections, typed safe errors, authorization and repository scope, workflow actions, and Wayfinder status/start services. `packages/api` remains product-only and does not own operator contracts or runtime.
-
-Wayfinder status checks the bounded local manifest at `~/.agents/skills/wayfinder/SKILL.md` and reports only `installed` or `unavailable` with the `local-markdown` tracker. Wayfinder start validates the owner, repository, scope paths, and request, verifies authorization and availability, creates a durable run, and returns its `queued` status. Only the separately started `worker:pilot` processes queued effects: it claims the plan effect, then dispatches the local Wayfinder adapter through the scoped OMP adapter. Leases, grants, redaction, timeouts, aborts, cleanup, journal, outbox, and evidence remain worker concerns. This model does not claim that any particular Wayfinder run or its evidence has completed.
-
-Authentication and application data share portable PostgreSQL durability but retain separate ownership. Better Auth owns its user, account, session, and verification records. DarkFactory repositories own profile, address, preferences, feature, contact, administration, and workflow data. Role and status checks are enforced at the relevant auth/API boundary and again where application policy requires them; browser-visible state is never accepted as authorization proof.
-
-## Generic feature stub
-
-`feature-stub` is a removable, generator-ready example of one complete vertical slice; it must not imply a business domain. A neutral `FeatureItem` may contain `id`, `name`, `description`, `status`, `metadata`, `ownerId`, and timestamps.
-
-```text
-feature UI
-  → query cache or appropriate local state
-  → oRPC feature contract
-  → feature service
-  → feature repository port
-  → Drizzle adapter
-  → PostgreSQL
-  → feature event
-  → analytics + structured log + trace
-```
-
-The stub demonstrates validation, authentication/authorization, create/read/update behavior, typed errors, persistence, events, observability, and unit/integration/e2e coverage. A feature generator clones and renames the slice, route registration, database objects, tests, exports, and graph entries. It must not leave `FeatureItem` or `feature-stub` residue in the generated feature.
-
-## PostgreSQL-first architecture
-
-PostgreSQL is the default home for durable and data-related behavior: relational data, JSONB, full-text/fuzzy search, vectors, geospatial data, time series, queues, locks, scheduling, realtime notifications, outbox events, and analytics when a core feature or proven extension meets the requirement.
-
-Use this decision record for every data capability:
-
-1. Can PostgreSQL core satisfy the measured requirement?
-2. Can a mature PostgreSQL extension or established pattern satisfy it without unacceptable operational risk?
-3. If not, document the gap, load/latency/reliability requirement, ownership cost, migration and failure behavior, then introduce an external service behind a port.
-
-PostgreSQL is provider-neutral. A standard `DATABASE_URL` and Drizzle boundary must remain portable across managed or self-hosted PostgreSQL. Cloudflare Hyperdrive may supply connection pooling/caching without becoming a domain dependency. Redis and RabbitMQ are neither defaults nor predefined fallbacks.
-
-## Ports and adapters
-
-Create ports only at real external boundaries; do not build a universal abstraction framework.
-
-| Boundary | Port responsibility | Current or likely adapter |
+| Role | Packages | Boundary |
 | --- | --- | --- |
-| Persistence | feature repositories and transactions | Drizzle + PostgreSQL |
-| Authentication | sessions and identity operations | Better Auth |
-| Analytics | typed product events | PostHog adapter |
-| Telemetry | traces, metrics, technical logs | OpenTelemetry |
-| Application events | semantic structured event emission | evlog |
-| AI inference | model-neutral request/result contract | Groq adapter when configured |
-| Email | render/send contract | Resend adapter; safe local preview without credentials |
-| Storage | object operations | R2/S3-compatible adapter when enabled |
-| Jobs | durable enqueue, claim, status, and execution | PostgreSQL workflow runtime; separately started pilot worker with scoped local OMP and Wayfinder adapters |
-| Memory/context | provenance-aware context graph | PostgreSQL-backed Memori capability when enabled |
+| `app` | `apps/web` | Composition root: pages, route handlers, request scope. No business rules. |
+| `product` | `api`, `auth`, `db`, `config`, `observability`, `ui`, `state` | Contracts and services, Better Auth, Drizzle, env and capability manifest, telemetry and events, presentational UI, state machines. |
+| `capability` | `email`, `analytics`, `ai` | One port, its adapters and an adapter-id registry (`./adapters`). Depends on no other brick. |
+| `agent-sdlc` | `apps/operator`, `packages/operator`, `packages/jobs` | The opt-in operator plane ([docs/operator.md](docs/operator.md)). Nothing in the product depends on it. |
+| `tooling` | `testkit` | Isolated Postgres databases for tests. |
+| `workspace` | root `package.json` | Scripts and shared dev tooling. |
 
-Provider configuration belongs in infrastructure. Missing optional credentials must disable the capability or select an explicit safe local adapter, never trigger a fake production fallback.
+Role rules, enforced by `ALLOWED_BRICK_DEPENDENCIES` in `scripts/docs/docs.ts`:
 
-## State ownership
+- Nothing depends on an app, so an app can be deleted or replaced alone.
+- Capability bricks depend only on tooling. `config` imports their adapter-id registries to build its env and manifest enums, so removing a capability also means removing its enum and env keys from `packages/config`.
+- Product bricks never depend on the agent plane, so `apps/operator`, `packages/operator` and `packages/jobs` can be deleted together.
 
-- PostgreSQL owns durable state, preferences, lifecycle history, and transitions.
-- The URL owns navigable/filter state.
-- Query caching owns server data on the client.
-- XState models explicit processes; PostgreSQL remains their durable record.
-- Zustand coordinates ephemeral local UI state only.
-- Effect is reserved for failure/resource-heavy infrastructure workflows, not ordinary pure functions.
-- Cookies may mirror authenticated theme preference for first render; PostgreSQL remains authoritative. Anonymous theme preference may be local.
+Other boundary rules:
 
-## Repository lifecycle
+- Server-only code sits behind a `./server` or `./server/<name>` export. Its `browser` condition resolves to an `unsupported` stub that throws, so a server module cannot be bundled into client code by accident.
+- Vendor SDKs are imported only in adapter files (`resend` in `packages/email/src/server/`, OpenTelemetry exporters in `packages/observability/src/server/otel.ts`); `pg` only in `packages/db` and `packages/testkit`. PostHog and Groq adapters call their HTTP APIs with an injectable `fetch`.
 
-The root scripts provide separate product and operator lifecycles:
+## Request flow
 
-- `bun run dev` runs only `@darkfactory/web`, in the foreground, through `portless darkfactory` at the canonical <https://darkfactory.localhost> route, after writing validated Worker bindings. The matching product commands are `dev:bindings` and `dev:trust`.
-- `bun run operator:dev` first writes the operator bindings, then serves the <https://operator.darkfactory.localhost> route in the foreground. `operator:bindings` refreshes only the bindings.
-- `operator:bindings` validates `.env` with `parseServerEnv` and atomically writes only the ignored `apps/operator/.dev.vars` file with mode `0600`. `WORKFLOW_REPOSITORIES_ROOT` remains optional for product-only use, but it must be set to an absolute directory before operator repository operations. The operator API fails closed before opening a database when it is missing or invalid.
-- `bun run doctor` independently probes installed Bun 1.3.14 and Node 24.21.0 plus the required workstation/runtime prerequisites without printing environment values or starting infrastructure.
-- Database scripts own schema generation, migration, seed/reset, and isolated test-PostgreSQL lifecycle. Build, test, generated-contract, docs, and Graphify checks remain explicit repository gates. Deploy scripts own only the official `apps/web` vinext/Cloudflare path.
+Each database-backed Worker request (auth, strict sign-out and oRPC routes) opens exactly one request scope. The scope parses the environment, resolves the request id, opens one database client (directly or through Hyperdrive), and builds the email port and the auth instance. When the response is ready it schedules cleanup with `waitUntil`. Server-rendered pages call the auth and oRPC handlers in-process (`apps/web/src/lib/server-internal-dispatch.ts`), so they go through the same scope and contracts as browser calls and share the page's request id.
 
-CI reliability has four explicit boundaries:
+```mermaid
+sequenceDiagram
+  autonumber
+  participant B as Browser
+  participant R as vinext RSC page or route handler
+  participant S as Request scope<br/>apps/web/src/server/request-scope.ts
+  participant C as oRPC contract + router<br/>packages/api
+  participant V as Service<br/>packages/api/src/server
+  participant P as Port<br/>(repository, EmailPort, AnalyticsPort)
+  participant A as Adapter<br/>(Drizzle, Resend, PostHog)
+  participant X as Postgres / Hyperdrive / providers
 
-- **Core:** normal pre-push runs only the deterministic `verify:core` gate. Hosted CI runs four lanes: core, coverage, integration, and browser, with all four 100% coverage thresholds unchanged. Heavy CI runs on pull requests and explicit manual dispatch, not automatically on push.
-- **Convention:** pre-push binds the core gate to the exact executing and PATH-resolved Bun pin, actual destination, current clean HEAD, and pushed ref updates. A changed tree, historical receipt, different destination, or missing prerequisite cannot authorize a push. Environment-heavy lanes remain mandatory in hosted CI rather than sequential local push blockers.
-- **Capability:** public repositories always run CodeQL, Scorecard, and Dependency Review. Private repositories opt in to CodeQL and Dependency Review with `DF_CODEQL_ENABLED` / `DF_DEPENDENCY_REVIEW_ENABLED` set to `true`; skipped scans are not run, and an opted-in scan that cannot run fails. Private Scorecard results are never published.
-- **Implementation:** plain job-level `if:` expressions in each security workflow own the scan guards; there is no hosted policy job or generated helper. Hosted permissions and service availability are checked by the workflows themselves after push.
-
-Graphify output is generated context rather than an authored runtime dependency. Repository Graphify commands must use the tracked secure wrapper, and graph evidence is valid only after the current source tree passes build/check/verify.
-
-## Deployment target
-
-`apps/web` is the only deployable application. It is authored in TypeScript, compiled through Vite/vinext, and deployed to Cloudflare Workers with the official `@vinext/cloudflare` adapter. `apps/operator`, `packages/operator`, and the OMP/Wayfinder execution adapters in `packages/jobs` are development-only local tooling. They are not included in `deploy:web`, have no operator deployment command, and must not become production business capabilities.
-
-Alchemy 0.93.12 is only a source-reviewed compatibility baseline for explicitly enabled, supported ancillary Cloudflare resources. No ancillary resource is currently enabled, so DarkFactory has no Alchemy dependency, `alchemy.run.ts`, or Alchemy deployment step. Do not put the vinext web application in Alchemy or add an empty program: in the reviewed baseline, `finalize()` can reconcile and delete resources persisted in a reused stage when they are absent from the current program. Re-review the then-current release before enabling a real ancillary resource. Alchemy here is infrastructure tooling, not a blockchain API dependency. pnpm owns dependency installation and the lockfile; Turborepo owns the repository task graph.
-
-Canonical local development uses <https://darkfactory.localhost> for the product and <https://operator.darkfactory.localhost> for the operator meta-layer. Portless owns both trusted routes; each app runs as a foreground process. mkcert installation and certificate generation are fallback-only; private keys remain local and ignored.
-
-GitHub Actions runs the repository verification lanes but does not deploy or run the local operator worker from a browser. Current documentation makes no claim of a production operator deployment, remote CI operator execution, or completed Wayfinder evidence.
-
-## Baseline observability
-
-The application emits semantic events once:
-
-```text
-evlog event
-  ├→ analytics port → PostHog
-  ├→ structured application logging
-  └→ OpenTelemetry context/traces/metrics/logs → configured backend
+  B->>R: HTTPS request
+  R->>S: withRequestScope(request, waitUntil, run)
+  S->>S: parseServerEnv, request id, evlog sink
+  S->>X: open one pg client (capacity-capped)
+  S->>C: run handler with scope (db, auth, email)
+  C->>C: validate input with Zod contract
+  C->>V: call service with typed context
+  V->>P: call port
+  P->>A: adapter implementation
+  A->>X: SQL or provider API call
+  X-->>A: result
+  A-->>V: typed result or typed error
+  V-->>C: output or error with stable code
+  C-->>S: Response
+  S-->>R: Response + x-request-id
+  S--)X: finalize (close client) via waitUntil
+  R-->>B: HTML, JSON or 503 DATABASE_CAPACITY
 ```
 
-Analytics answers product-usage questions; telemetry explains technical behavior. Error-tracking backends are optional consumers/adapters, not imports scattered through application code.
+## SDLC agent graph
 
-## Superseded decisions
+Roles produce artifacts. Gates decide whether an artifact moves on. The graph describes the workflow for any agent harness; the opt-in operator plane can run it with approvals. Role playbooks are in [`.agents/skills/`](.agents/skills/) (linked from [AGENTS.md](AGENTS.md#agent-roles)).
 
-The following earlier options are not the DarkFactory baseline:
+```mermaid
+flowchart LR
+  subgraph roles["Roles (.agents/skills)"]
+    pm["📋 pm"]
+    arch["🏛️ architect"]
+    be["🧱 backend"]
+    fe["🖥️ frontend"]
+    qa["🧪 qa"]
+    sec["🛡️ security"]
+    scale["📐 scalability"]
+    rel["🚀 release"]
+  end
+  subgraph artifacts["Artifacts"]
+    plan["plan + acceptance tests"]
+    contract["contract, port, ADR"]
+    code["code + tests"]
+    review["threat and load notes"]
+    notes["changelog + version"]
+  end
+  subgraph gates["Gates"]
+    prepush["verify:prepush"]
+    ci["4 required CI lanes"]
+    scans["CodeQL + Dependency Review"]
+    sha["exact-SHA CI dispatch"]
+  end
+  deploy["deploy:web"]
 
-- Traditional Next.js/OpenNext scaffolding and TanStack Start/Convex were superseded by **Vite/vinext on Cloudflare**.
-- Better-T-Stack may inform scaffolding, but DarkFactory is not coupled to it and vinext is not treated as a Better-T-Stack option.
-- Bun 1.3.14 is the **primary script and TypeScript runtime**; pnpm 11.16.0 remains the **only package manager, workspace resolver, and lockfile owner**, while Node 24.21.0 remains a measured compatibility runtime and Cloudflare Workers remains production.
-- A flat single-app layout was superseded by **pnpm workspaces with Turborepo at the root**, allowing additional apps without forcing them initially.
-- tRPC was superseded by **contract-first oRPC** for typed errors, OpenAPI, and non-TypeScript consumers.
-- Redis and RabbitMQ defaults, including speculative fallback language, were superseded by the **PostgreSQL-first decision order**.
-- SST was explicitly removed. Official `@vinext/cloudflare` owns web deployment. Per [ADR 0001](docs/adr/0001-vinext-alchemy-boundary.md), Alchemy 0.93.12 is only a compatibility baseline for supported ancillary Cloudflare resources; none is enabled, so no Alchemy dependency, program, or configuration is present.
-- Celery, Flower, Mintlify, Uptime Kuma, GlitchTip, Memori, storage, and specialized PostgreSQL extensions remain opt-in capabilities, not preinstalled infrastructure.
-- Dark-only styling, serif typography, and purple/cyan glow-heavy “AI” styling are rejected. Public and portal references inspire patterns but do not define a domain or authorize copying.
+  pm --> plan --> arch --> contract
+  contract --> be & fe
+  be & fe --> code --> qa --> prepush --> ci
+  code --> sec & scale --> review --> ci
+  ci --> scans --> rel --> notes --> sha --> deploy
+
+  classDef role fill:#1f6feb,stroke:#0b3d91,color:#ffffff
+  classDef artifact fill:#f6f8fa,stroke:#57606a,color:#24292f
+  classDef gate fill:#bf8700,stroke:#7d4e00,color:#ffffff
+  classDef ship fill:#2ea44f,stroke:#1a7f37,color:#ffffff
+  class pm,arch,be,fe,qa,sec,scale,rel role
+  class plan,contract,code,review,notes artifact
+  class prepush,ci,scans,sha gate
+  class deploy ship
+```
+
+## CI lanes
+
+`ci.yml` runs on `pull_request` and `workflow_dispatch` only, never on push. Each lane runs one root script, `bun run verify:<lane>`, where core runs `verify:core:ci`. The four check names are the required checks.
+
+```mermaid
+flowchart TB
+  trigger["PR or manual dispatch"] --> matrix
+  subgraph matrix["ci.yml matrix (fail-fast off)"]
+    core["Verification (core)<br/>format, lint, generated artifacts, typecheck, build, docs, e2e-helper tests"]
+    cov["Verification (coverage)<br/>unit + contract + operations, 100% gate"]
+    integ["Verification (integration)<br/>Vitest against Postgres"]
+    browser["Verification (browser)<br/>Playwright e2e + a11y projects"]
+  end
+  pg[("Postgres (Docker Compose)")]
+  integ -.-> pg
+  browser -.-> pg
+  matrix --> green{"all 4 green?"}
+  green -- yes --> merge["mergeable"]
+  green -- no --> fix["fix and push"]
+
+  scanTrigger["PR or push to main, schedule"] --> security
+  subgraph security["Security workflows (job-level guards)"]
+    codeql["CodeQL: public, or DF_CODEQL_ENABLED"]
+    depr["Dependency Review (PRs): public, or DF_DEPENDENCY_REVIEW_ENABLED"]
+    scorecard["Scorecard: public repos"]
+  end
+
+  classDef lane fill:#1f6feb,stroke:#0b3d91,color:#ffffff
+  classDef sec fill:#8250df,stroke:#512a97,color:#ffffff
+  classDef ok fill:#2ea44f,stroke:#1a7f37,color:#ffffff
+  classDef bad fill:#cf222e,stroke:#82071e,color:#ffffff
+  class core,cov,integ,browser lane
+  class codeql,depr,scorecard sec
+  class merge ok
+  class fix bad
+```
+
+CodeQL runs on PRs to `main`, pushes to `main` and weekly. Dependency Review runs on PRs to `main`. Scorecard runs on pushes to `main`, weekly and on branch-protection changes. None of them run on manual dispatch.
+
+## Why it is wired this way
+
+- **Contracts are the source of truth.** An oRPC contract (`packages/api/src/contracts/*.ts`) defines input, output and error codes once. The router, typed client and `packages/api/openapi.json` all come from it, and `openapi:check` fails when the generated file drifts.
+- **Headless data, separate presentation.** Data and behavior never live inside components. Contracts, services and state machines (`packages/state`) are UI-free. `packages/ui` has no workspace dependencies, so a component cannot fetch data or import a service. Pages load data through a contract, map it into a small view-model (plain, serializable props) and pass it to presentational components. You can restyle UI without touching data, test view-models without a DOM, and reuse one contract from pages, the operator app and external OpenAPI clients.
+- **Ports keep vendors replaceable.** Services depend on interfaces such as `EmailPort` and `AnalyticsPort`, and the app chooses the adapter from env. Swapping a provider changes an adapter, a registry entry and its env keys; features do not change ([docs/capabilities.md](docs/capabilities.md)).
+- **One request scope.** One factory gives every database-backed handler the same lifecycle, capacity-error mapping and request id, instead of each handler assembling env, database, email and auth itself and drifting.
+- **One connection cap, plus Hyperdrive.** A Worker opens one `pg` client per request. `REQUEST_DATABASE_POOL_MAX_CONNECTIONS` in `packages/db/src/server/client.ts` caps concurrent clients per isolate and fails fast with a 503. Hyperdrive, when enabled, pools connections at the edge without changing that code path.
+- **Fail closed.** `parseServerEnv` rejects invalid or unsafe production config (local hosts, missing TLS, development secrets, preview email) before a request is served. Unsupported platforms and missing bindings throw instead of degrading silently.
+- **The agent plane is optional.** Its schema, repository and runtime live in `packages/jobs` and `packages/operator`. The product builds, tests and deploys without them.
+- **Gates prove behavior, not bytes.** The 100% coverage gate plus an invariant on the measured file set replaces committed coverage totals. Generated docs are derived from source and checked, not hand-maintained. PR "done" means four green lanes; exact-SHA proof is only required when shipping.
+
+## Decisions
+
+| ID | Decision | Why |
+| --- | --- | --- |
+| ADR-001 | Deploy the web app only with `@vinext/cloudflare`. Alchemy may own only a real, enabled ancillary resource; there is no empty `alchemy.run.ts`. | An empty Alchemy program can delete persisted resources. Full record: [docs/adr/0001-vinext-alchemy-boundary.md](docs/adr/0001-vinext-alchemy-boundary.md) |
+| ADR-002 | Author everything in strict TypeScript, with the toolchain (Node, Bun for scripts, pnpm) pinned in `mise.toml`. | One language that CodeQL, Biome and every agent harness understand; no compile-to-TypeScript step. |
+| ADR-003 | All application API access goes through oRPC contracts, with generated OpenAPI. | One typed contract for pages, apps and external clients. |
+| ADR-004 | Postgres through Drizzle only. No Redis, queue or second data store by default. | One source of truth; Postgres features before new infrastructure. |
+| ADR-005 | Ports and adapters for every external service; SDK imports only in adapters; `unsupported` browser stubs for server exports. | Swappable providers and bundle safety. |
+| ADR-006 | One request-scope factory per database-backed Worker request. | One place for capacity errors, request ids and cleanup. |
+| ADR-007 | `DATABASE_PROVIDER` is `postgres`, `planetscale` or `hyperdrive`, each with its own validation profile. Hyperdrive is optional, with query caching disabled. | Provider-neutral production database; no stale session reads. |
+| ADR-008 | `capabilities.yaml` is validated by one Zod loader (`packages/config/src/server/capabilities-loader.ts`) whose provider enums come from the adapter registries. `doctor` derives its probes from it. | One parser; the manifest cannot name code that does not exist. |
+| ADR-009 | The operator plane is an opt-in brick. Workflow schema and repository live in `packages/jobs`; migrations 0005–0007 stay frozen in the product chain; new workflow DDL goes to `packages/jobs/migrations`. | Keeps agent tooling out of the product without destructive migrations. |
+| ADR-010 | Packages without consumers are deleted; `ai` is the reference capability brick. | No dead bricks. |
+| ADR-011 | CI runs 4 required lanes on PRs and manual dispatch only; security workflows use job-level guards; exact-SHA evidence only for release and deploy. | Removes duplicate runs and endless re-verification. |
+| ADR-012 | Coverage: 100% thresholds plus a measured-file-set invariant; no committed totals. | Guards the denominator without a file that churns on every commit. |
+| ADR-013 | E2E uses Playwright built-ins: `webServer` (portless proxy + production app), `globalSetup` (migrate and seed), `e2e` and `a11y` projects, SPKI-pinned CA trust, `retries: 1` with `failOnFlakyTests` in CI. | No custom harness to maintain; no TLS bypass. |
+| ADR-014 | `bun run setup` is the only bootstrap, and the Zod env schema is the only env contract. | Fewer prerequisites; one fail-closed contract. |
+| ADR-015 | Every workspace package declares a `brick` role; `docs:generate` derives the package graph and `docs:check` enforces role dependency rules. | Lego-brick boundaries are traceable and the architecture diagram cannot go stale. |

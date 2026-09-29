@@ -44,10 +44,10 @@ const mocks = vi.hoisted(() => ({
   snapshotPrivateParents: new Set<string>(),
   snapshotTypeScriptSource: vi.fn(),
   resetFileSystem: (): void => {
-    undefined;
+    // No-op double.
   },
   resetCompiler: (): void => {
-    undefined;
+    // No-op double.
   },
 }));
 vi.mock("node:child_process", () => ({ execFile: mocks.execFile }));
@@ -1092,38 +1092,39 @@ describe("Graphify source snapshot", () => {
     }
   });
 
-  it.each([
-    "writeFile",
-    "sync",
-    "stat",
-  ] as const)("rolls back its exact partial marker and preserves the primary %s failure", async (operation) => {
-    const isolated = isolatedSnapshotFileSystem();
-    const failure = new Error(`owner marker ${operation} failed`);
-    let privateParent = "";
-    mocks.fileSystem.open.mockImplementation(async (...arguments_) => {
-      const handle = await Reflect.apply(
-        mocks.fileSystemActual.open,
-        undefined,
-        arguments_
-      );
-      const path = String(arguments_[0]);
-      if (path.endsWith(`${sep}active${sep}.owner`)) {
-        privateParent = dirname(dirname(path));
-        if (operation === "writeFile")
-          vi.spyOn(handle, "writeFile").mockRejectedValueOnce(failure);
-        if (operation === "sync")
-          vi.spyOn(handle, "sync").mockRejectedValueOnce(failure);
-        if (operation === "stat")
-          vi.spyOn(handle, "stat").mockRejectedValueOnce(failure);
-      }
-      return handle;
-    });
+  it.each(["writeFile", "sync", "stat"] as const)(
+    "rolls back its exact partial marker and preserves the primary %s failure",
+    async (operation) => {
+      const isolated = isolatedSnapshotFileSystem();
+      const failure = new Error(`owner marker ${operation} failed`);
+      let privateParent = "";
+      mocks.fileSystem.open.mockImplementation(async (...arguments_) => {
+        const handle = await Reflect.apply(
+          mocks.fileSystemActual.open,
+          undefined,
+          arguments_
+        );
+        const path = String(arguments_[0]);
+        if (path.endsWith(`${sep}active${sep}.owner`)) {
+          privateParent = dirname(dirname(path));
+          if (operation === "writeFile")
+            vi.spyOn(handle, "writeFile").mockRejectedValueOnce(failure);
+          if (operation === "sync")
+            vi.spyOn(handle, "sync").mockRejectedValueOnce(failure);
+          if (operation === "stat")
+            vi.spyOn(handle, "stat").mockRejectedValueOnce(failure);
+        }
+        return handle;
+      });
 
-    await expect(
-      isolated.fileSystem.createSourceSnapshot(snapshotConfig("scripts/graph"))
-    ).rejects.toBe(failure);
-    return await expect(exists(privateParent)).resolves.toBe(false);
-  });
+      await expect(
+        isolated.fileSystem.createSourceSnapshot(
+          snapshotConfig("scripts/graph")
+        )
+      ).rejects.toBe(failure);
+      return await expect(exists(privateParent)).resolves.toBe(false);
+    }
+  );
 
   it("preserves the primary marker failure when private-parent rollback removal fails", async () => {
     const isolated = isolatedSnapshotFileSystem();
@@ -1194,287 +1195,309 @@ describe("Graphify source snapshot", () => {
     ["private parent", /private namespace changed/i],
     ["snapshot root", /snapshot ownership changed/i],
     ["ownership marker", /marker ownership changed/i],
-  ] as const)("preserves the private snapshot when pinned %s descriptor metadata changes", async (role, diagnostic) => {
-    const root = join(
-      "scripts",
-      "graph",
-      `system-snapshot-pinned-${randomUUID()}`
-    );
-    await mkdir(root, { recursive: true });
-    await writeFile(join(root, "source.ts"), "export const source = true\n");
-    const isolated = isolatedSnapshotFileSystem();
-    const canonicalTemporaryBase =
-      await mocks.fileSystemActual.realpath("/tmp");
-    let target:
-      | Awaited<ReturnType<typeof mocks.fileSystemActual.open>>
-      | undefined;
-    mocks.fileSystem.open.mockImplementation(async (...arguments_) => {
-      const handle = await Reflect.apply(
-        mocks.fileSystemActual.open,
-        undefined,
-        arguments_
+  ] as const)(
+    "preserves the private snapshot when pinned %s descriptor metadata changes",
+    async (role, diagnostic) => {
+      const root = join(
+        "scripts",
+        "graph",
+        `system-snapshot-pinned-${randomUUID()}`
       );
-      const path = String(arguments_[0]);
-      const matchesRole =
-        role === "temporary base"
-          ? path === canonicalTemporaryBase
-          : role === "private parent"
-            ? path.startsWith(
-                join(canonicalTemporaryBase, isolated.temporaryNamePrefix)
-              ) && dirname(path) === canonicalTemporaryBase
-            : role === "snapshot root"
-              ? path.endsWith(`${sep}active`)
-              : path.endsWith(`${sep}active${sep}.owner`);
-      if (matchesRole) target = handle;
-      return handle;
-    });
-    const snapshot = await isolated.fileSystem.createSourceSnapshot(
-      snapshotConfig(root)
-    );
-    const privateParent = dirname(snapshot.path);
-    if (!target) throw new Error(`Failed to capture ${role} handle`);
-    const stats = await target.stat();
-    const invalidStats =
-      role === "temporary base"
-        ? Object.assign(stats, { uid: 1 })
-        : role === "private parent"
-          ? Object.assign(stats, { mode: (stats.mode & ~0o777) | 0o755 })
-          : role === "snapshot root"
-            ? Object.assign(stats, { isDirectory: () => false })
-            : Object.assign(stats, { isFile: () => false });
-    vi.spyOn(target, "stat").mockResolvedValueOnce(invalidStats);
-
-    try {
-      await expect(snapshot.cleanup()).rejects.toThrow(diagnostic);
-      return await expect(exists(privateParent)).resolves.toBe(true);
-    } finally {
-      await mocks.fileSystemActual.rm(root, { force: true, recursive: true });
-      await mocks.fileSystemActual.rm(privateParent, {
-        force: true,
-        recursive: true,
-      });
-    }
-  });
-
-  it.each([
-    ["temporary base", /temporary base changed/i],
-    ["private parent", /private namespace changed/i],
-    ["snapshot root", /snapshot ownership changed/i],
-    ["ownership marker", /marker ownership changed/i],
-  ] as const)("preserves the private snapshot when the pinned %s pathname cannot be inspected", async (role, diagnostic) => {
-    const root = join(
-      "scripts",
-      "graph",
-      `system-snapshot-path-${randomUUID()}`
-    );
-    await mkdir(root, { recursive: true });
-    await writeFile(join(root, "source.ts"), "export const source = true\n");
-    const isolated = isolatedSnapshotFileSystem();
-    const snapshot = await isolated.fileSystem.createSourceSnapshot(
-      snapshotConfig(root)
-    );
-    const privateParent = dirname(snapshot.path);
-    const canonicalTemporaryBase =
-      await mocks.fileSystemActual.realpath("/tmp");
-    let quarantine = "";
-    mocks.fileSystem.rename.mockImplementation(async (...arguments_) => {
-      if (String(arguments_[0]) === snapshot.path)
-        quarantine = String(arguments_[1]);
-      return Reflect.apply(
-        mocks.fileSystemActual.rename,
-        undefined,
-        arguments_
-      );
-    });
-    mocks.fileSystem.lstat.mockImplementation(async (...arguments_) => {
-      const path = String(arguments_[0]);
-      const faultPath =
-        role === "temporary base"
-          ? canonicalTemporaryBase
-          : role === "private parent"
-            ? privateParent
-            : role === "snapshot root"
-              ? quarantine
-              : join(quarantine, ".owner");
-      if (path === faultPath) {
-        throw Object.assign(new Error(`cannot inspect ${role}`), {
-          code: role === "ownership marker" ? "EACCES" : "ENOENT",
-        });
-      }
-      return Reflect.apply(mocks.fileSystemActual.lstat, undefined, arguments_);
-    });
-
-    try {
-      await expect(snapshot.cleanup()).rejects.toThrow(diagnostic);
-      return await expect(exists(privateParent)).resolves.toBe(true);
-    } finally {
-      await mocks.fileSystemActual.rm(root, { force: true, recursive: true });
-      await mocks.fileSystemActual.rm(privateParent, {
-        force: true,
-        recursive: true,
-      });
-    }
-  });
-
-  it.each([
-    "oversized metadata",
-    "short read",
-    "post-read descriptor replacement",
-    "final pathname replacement",
-  ] as const)("preserves the private snapshot after ownership-marker %s", async (fault) => {
-    const root = join(
-      "scripts",
-      "graph",
-      `system-snapshot-marker-read-${randomUUID()}`
-    );
-    await mkdir(root, { recursive: true });
-    await writeFile(join(root, "source.ts"), "export const source = true\n");
-    const isolated = isolatedSnapshotFileSystem();
-    let markerHandle:
-      | Awaited<ReturnType<typeof mocks.fileSystemActual.open>>
-      | undefined;
-    mocks.fileSystem.open.mockImplementation(async (...arguments_) => {
-      const handle = await Reflect.apply(
-        mocks.fileSystemActual.open,
-        undefined,
-        arguments_
-      );
-      if (String(arguments_[0]).endsWith(`${sep}active${sep}.owner`))
-        markerHandle = handle;
-      return handle;
-    });
-    const snapshot = await isolated.fileSystem.createSourceSnapshot(
-      snapshotConfig(root)
-    );
-    const privateParent = dirname(snapshot.path);
-    if (!markerHandle)
-      throw new Error("Failed to capture ownership-marker handle");
-    let quarantine = "";
-    let ownerPathInspections = 0;
-    mocks.fileSystem.rename.mockImplementation(async (...arguments_) => {
-      if (String(arguments_[0]) === snapshot.path)
-        quarantine = String(arguments_[1]);
-      return Reflect.apply(
-        mocks.fileSystemActual.rename,
-        undefined,
-        arguments_
-      );
-    });
-    if (fault === "oversized metadata") {
-      const stats = await markerHandle.stat();
-      vi.spyOn(markerHandle, "stat").mockResolvedValueOnce(
-        Object.assign(stats, { size: 129 })
-      );
-    } else if (fault === "short read") {
-      vi.spyOn(markerHandle, "read").mockResolvedValueOnce({
-        bytesRead: 0,
-        buffer: Buffer.alloc(0),
-      });
-    } else if (fault === "post-read descriptor replacement") {
-      const stat = markerHandle.stat.bind(markerHandle);
-      let inspections = 0;
-      vi.spyOn(markerHandle, "stat").mockImplementation(async () => {
-        const stats = await stat();
-        inspections += 1;
-        return inspections === 2
-          ? Object.assign(stats, { size: stats.size + 1 })
-          : stats;
-      });
-    } else {
-      mocks.fileSystem.lstat.mockImplementation(async (...arguments_) => {
-        const stats = await Reflect.apply(
-          mocks.fileSystemActual.lstat,
+      await mkdir(root, { recursive: true });
+      await writeFile(join(root, "source.ts"), "export const source = true\n");
+      const isolated = isolatedSnapshotFileSystem();
+      const canonicalTemporaryBase =
+        await mocks.fileSystemActual.realpath("/tmp");
+      let target:
+        | Awaited<ReturnType<typeof mocks.fileSystemActual.open>>
+        | undefined;
+      mocks.fileSystem.open.mockImplementation(async (...arguments_) => {
+        const handle = await Reflect.apply(
+          mocks.fileSystemActual.open,
           undefined,
           arguments_
         );
-        if (String(arguments_[0]) !== join(quarantine, ".owner")) return stats;
-        ownerPathInspections += 1;
-        return ownerPathInspections === 2
-          ? Object.assign(stats, { ino: stats.ino + 1 })
-          : stats;
+        const path = String(arguments_[0]);
+        const matchesRole =
+          role === "temporary base"
+            ? path === canonicalTemporaryBase
+            : role === "private parent"
+              ? path.startsWith(
+                  join(canonicalTemporaryBase, isolated.temporaryNamePrefix)
+                ) && dirname(path) === canonicalTemporaryBase
+              : role === "snapshot root"
+                ? path.endsWith(`${sep}active`)
+                : path.endsWith(`${sep}active${sep}.owner`);
+        if (matchesRole) target = handle;
+        return handle;
       });
-    }
-
-    try {
-      await expect(snapshot.cleanup()).rejects.toThrow(
-        /marker ownership changed/i
+      const snapshot = await isolated.fileSystem.createSourceSnapshot(
+        snapshotConfig(root)
       );
-      expect(quarantine).not.toBe("");
-      return await expect(exists(privateParent)).resolves.toBe(true);
-    } finally {
-      await mocks.fileSystemActual.rm(root, { force: true, recursive: true });
-      await mocks.fileSystemActual.rm(privateParent, {
-        force: true,
-        recursive: true,
-      });
-    }
-  });
+      const privateParent = dirname(snapshot.path);
+      if (!target) throw new Error(`Failed to capture ${role} handle`);
+      const stats = await target.stat();
+      const invalidStats =
+        role === "temporary base"
+          ? Object.assign(stats, { uid: 1 })
+          : role === "private parent"
+            ? Object.assign(stats, { mode: (stats.mode & ~0o777) | 0o755 })
+            : role === "snapshot root"
+              ? Object.assign(stats, { isDirectory: () => false })
+              : Object.assign(stats, { isFile: () => false });
+      vi.spyOn(target, "stat").mockResolvedValueOnce(invalidStats);
 
-  it.each([
-    "foreign marker",
-    "marker inspection failure",
-  ] as const)("preserves the private namespace after marker-open failure with %s", async (fault) => {
-    const isolated = isolatedSnapshotFileSystem();
-    const failure = new Error("owner marker open failed");
-    let privateParent = "";
-    let activeRoot = "";
-    let quarantine = "";
-    mocks.fileSystem.open.mockImplementation(async (...arguments_) => {
-      const path = String(arguments_[0]);
-      if (path.endsWith(`${sep}active${sep}.owner`)) {
-        activeRoot = dirname(path);
-        privateParent = dirname(activeRoot);
-        if (fault === "foreign marker") {
-          await mocks.fileSystemActual.writeFile(path, "foreign");
-        }
-        throw failure;
-      }
-      return Reflect.apply(mocks.fileSystemActual.open, undefined, arguments_);
-    });
-    mocks.fileSystem.rename.mockImplementation(async (...arguments_) => {
-      if (String(arguments_[0]) === activeRoot)
-        quarantine = String(arguments_[1]);
-      return Reflect.apply(
-        mocks.fileSystemActual.rename,
-        undefined,
-        arguments_
-      );
-    });
-    mocks.fileSystem.lstat.mockImplementation(async (...arguments_) => {
-      if (
-        fault === "marker inspection failure" &&
-        String(arguments_[0]) === join(quarantine, ".owner")
-      ) {
-        throw Object.assign(new Error("marker inspection denied"), {
-          code: "EACCES",
-        });
-      }
-      return Reflect.apply(mocks.fileSystemActual.lstat, undefined, arguments_);
-    });
-
-    try {
-      await expect(
-        isolated.fileSystem.createSourceSnapshot(
-          snapshotConfig("scripts/graph")
-        )
-      ).rejects.toBe(failure);
-      expect(quarantine).not.toBe("");
-      await expect(exists(privateParent)).resolves.toBe(true);
-      if (fault === "foreign marker") {
-        return await expect(
-          readFile(join(quarantine, ".owner"), "utf8")
-        ).resolves.toBe("foreign");
-      }
-      return;
-    } finally {
-      if (privateParent) {
+      try {
+        await expect(snapshot.cleanup()).rejects.toThrow(diagnostic);
+        return await expect(exists(privateParent)).resolves.toBe(true);
+      } finally {
+        await mocks.fileSystemActual.rm(root, { force: true, recursive: true });
         await mocks.fileSystemActual.rm(privateParent, {
           force: true,
           recursive: true,
         });
       }
     }
-  });
+  );
+
+  it.each([
+    ["temporary base", /temporary base changed/i],
+    ["private parent", /private namespace changed/i],
+    ["snapshot root", /snapshot ownership changed/i],
+    ["ownership marker", /marker ownership changed/i],
+  ] as const)(
+    "preserves the private snapshot when the pinned %s pathname cannot be inspected",
+    async (role, diagnostic) => {
+      const root = join(
+        "scripts",
+        "graph",
+        `system-snapshot-path-${randomUUID()}`
+      );
+      await mkdir(root, { recursive: true });
+      await writeFile(join(root, "source.ts"), "export const source = true\n");
+      const isolated = isolatedSnapshotFileSystem();
+      const snapshot = await isolated.fileSystem.createSourceSnapshot(
+        snapshotConfig(root)
+      );
+      const privateParent = dirname(snapshot.path);
+      const canonicalTemporaryBase =
+        await mocks.fileSystemActual.realpath("/tmp");
+      let quarantine = "";
+      mocks.fileSystem.rename.mockImplementation(async (...arguments_) => {
+        if (String(arguments_[0]) === snapshot.path)
+          quarantine = String(arguments_[1]);
+        return Reflect.apply(
+          mocks.fileSystemActual.rename,
+          undefined,
+          arguments_
+        );
+      });
+      mocks.fileSystem.lstat.mockImplementation(async (...arguments_) => {
+        const path = String(arguments_[0]);
+        const faultPath =
+          role === "temporary base"
+            ? canonicalTemporaryBase
+            : role === "private parent"
+              ? privateParent
+              : role === "snapshot root"
+                ? quarantine
+                : join(quarantine, ".owner");
+        if (path === faultPath) {
+          throw Object.assign(new Error(`cannot inspect ${role}`), {
+            code: role === "ownership marker" ? "EACCES" : "ENOENT",
+          });
+        }
+        return Reflect.apply(
+          mocks.fileSystemActual.lstat,
+          undefined,
+          arguments_
+        );
+      });
+
+      try {
+        await expect(snapshot.cleanup()).rejects.toThrow(diagnostic);
+        return await expect(exists(privateParent)).resolves.toBe(true);
+      } finally {
+        await mocks.fileSystemActual.rm(root, { force: true, recursive: true });
+        await mocks.fileSystemActual.rm(privateParent, {
+          force: true,
+          recursive: true,
+        });
+      }
+    }
+  );
+
+  it.each([
+    "oversized metadata",
+    "short read",
+    "post-read descriptor replacement",
+    "final pathname replacement",
+  ] as const)(
+    "preserves the private snapshot after ownership-marker %s",
+    async (fault) => {
+      const root = join(
+        "scripts",
+        "graph",
+        `system-snapshot-marker-read-${randomUUID()}`
+      );
+      await mkdir(root, { recursive: true });
+      await writeFile(join(root, "source.ts"), "export const source = true\n");
+      const isolated = isolatedSnapshotFileSystem();
+      let markerHandle:
+        | Awaited<ReturnType<typeof mocks.fileSystemActual.open>>
+        | undefined;
+      mocks.fileSystem.open.mockImplementation(async (...arguments_) => {
+        const handle = await Reflect.apply(
+          mocks.fileSystemActual.open,
+          undefined,
+          arguments_
+        );
+        if (String(arguments_[0]).endsWith(`${sep}active${sep}.owner`))
+          markerHandle = handle;
+        return handle;
+      });
+      const snapshot = await isolated.fileSystem.createSourceSnapshot(
+        snapshotConfig(root)
+      );
+      const privateParent = dirname(snapshot.path);
+      if (!markerHandle)
+        throw new Error("Failed to capture ownership-marker handle");
+      let quarantine = "";
+      let ownerPathInspections = 0;
+      mocks.fileSystem.rename.mockImplementation(async (...arguments_) => {
+        if (String(arguments_[0]) === snapshot.path)
+          quarantine = String(arguments_[1]);
+        return Reflect.apply(
+          mocks.fileSystemActual.rename,
+          undefined,
+          arguments_
+        );
+      });
+      if (fault === "oversized metadata") {
+        const stats = await markerHandle.stat();
+        vi.spyOn(markerHandle, "stat").mockResolvedValueOnce(
+          Object.assign(stats, { size: 129 })
+        );
+      } else if (fault === "short read") {
+        vi.spyOn(markerHandle, "read").mockResolvedValueOnce({
+          bytesRead: 0,
+          buffer: Buffer.alloc(0),
+        });
+      } else if (fault === "post-read descriptor replacement") {
+        const stat = markerHandle.stat.bind(markerHandle);
+        let inspections = 0;
+        vi.spyOn(markerHandle, "stat").mockImplementation(async () => {
+          const stats = await stat();
+          inspections += 1;
+          return inspections === 2
+            ? Object.assign(stats, { size: stats.size + 1 })
+            : stats;
+        });
+      } else {
+        mocks.fileSystem.lstat.mockImplementation(async (...arguments_) => {
+          const stats = await Reflect.apply(
+            mocks.fileSystemActual.lstat,
+            undefined,
+            arguments_
+          );
+          if (String(arguments_[0]) !== join(quarantine, ".owner"))
+            return stats;
+          ownerPathInspections += 1;
+          return ownerPathInspections === 2
+            ? Object.assign(stats, { ino: stats.ino + 1 })
+            : stats;
+        });
+      }
+
+      try {
+        await expect(snapshot.cleanup()).rejects.toThrow(
+          /marker ownership changed/i
+        );
+        expect(quarantine).not.toBe("");
+        return await expect(exists(privateParent)).resolves.toBe(true);
+      } finally {
+        await mocks.fileSystemActual.rm(root, { force: true, recursive: true });
+        await mocks.fileSystemActual.rm(privateParent, {
+          force: true,
+          recursive: true,
+        });
+      }
+    }
+  );
+
+  it.each(["foreign marker", "marker inspection failure"] as const)(
+    "preserves the private namespace after marker-open failure with %s",
+    async (fault) => {
+      const isolated = isolatedSnapshotFileSystem();
+      const failure = new Error("owner marker open failed");
+      let privateParent = "";
+      let activeRoot = "";
+      let quarantine = "";
+      mocks.fileSystem.open.mockImplementation(async (...arguments_) => {
+        const path = String(arguments_[0]);
+        if (path.endsWith(`${sep}active${sep}.owner`)) {
+          activeRoot = dirname(path);
+          privateParent = dirname(activeRoot);
+          if (fault === "foreign marker") {
+            await mocks.fileSystemActual.writeFile(path, "foreign");
+          }
+          throw failure;
+        }
+        return Reflect.apply(
+          mocks.fileSystemActual.open,
+          undefined,
+          arguments_
+        );
+      });
+      mocks.fileSystem.rename.mockImplementation(async (...arguments_) => {
+        if (String(arguments_[0]) === activeRoot)
+          quarantine = String(arguments_[1]);
+        return Reflect.apply(
+          mocks.fileSystemActual.rename,
+          undefined,
+          arguments_
+        );
+      });
+      mocks.fileSystem.lstat.mockImplementation(async (...arguments_) => {
+        if (
+          fault === "marker inspection failure" &&
+          String(arguments_[0]) === join(quarantine, ".owner")
+        ) {
+          throw Object.assign(new Error("marker inspection denied"), {
+            code: "EACCES",
+          });
+        }
+        return Reflect.apply(
+          mocks.fileSystemActual.lstat,
+          undefined,
+          arguments_
+        );
+      });
+
+      try {
+        await expect(
+          isolated.fileSystem.createSourceSnapshot(
+            snapshotConfig("scripts/graph")
+          )
+        ).rejects.toBe(failure);
+        expect(quarantine).not.toBe("");
+        await expect(exists(privateParent)).resolves.toBe(true);
+        if (fault === "foreign marker") {
+          return await expect(
+            readFile(join(quarantine, ".owner"), "utf8")
+          ).resolves.toBe("foreign");
+        }
+        return;
+      } finally {
+        if (privateParent) {
+          await mocks.fileSystemActual.rm(privateParent, {
+            force: true,
+            recursive: true,
+          });
+        }
+      }
+    }
+  );
 
   it("preserves a cleanup error when closing pinned handles also fails", async () => {
     const root = join(
@@ -1616,48 +1639,53 @@ describe("Graphify source snapshot", () => {
     ["temporary base", /temporary base changed/i, 0],
     ["snapshot root", /snapshot ownership changed/i, 1],
     ["ownership marker", /marker ownership changed/i, 1],
-  ] as const)("rejects invalid initial %s descriptor metadata and rolls back safely", async (role, diagnostic, expectedParents) => {
-    const isolated = isolatedSnapshotFileSystem();
-    const canonicalTemporaryBase =
-      await mocks.fileSystemActual.realpath("/tmp");
-    let faultInjected = false;
-    mocks.fileSystem.open.mockImplementation(async (...arguments_) => {
-      const handle = await Reflect.apply(
-        mocks.fileSystemActual.open,
-        undefined,
-        arguments_
-      );
-      const path = String(arguments_[0]);
-      const matchesRole =
-        role === "temporary base"
-          ? path === canonicalTemporaryBase
-          : role === "snapshot root"
-            ? path.endsWith(`${sep}active`)
-            : path.endsWith(`${sep}active${sep}.owner`);
-      if (matchesRole) {
-        const stat = handle.stat.bind(handle);
-        vi.spyOn(handle, "stat").mockImplementationOnce(async () => {
-          faultInjected = true;
-          const stats = await stat();
-          return role === "temporary base"
-            ? Object.assign(stats, { uid: 1 })
+  ] as const)(
+    "rejects invalid initial %s descriptor metadata and rolls back safely",
+    async (role, diagnostic, expectedParents) => {
+      const isolated = isolatedSnapshotFileSystem();
+      const canonicalTemporaryBase =
+        await mocks.fileSystemActual.realpath("/tmp");
+      let faultInjected = false;
+      mocks.fileSystem.open.mockImplementation(async (...arguments_) => {
+        const handle = await Reflect.apply(
+          mocks.fileSystemActual.open,
+          undefined,
+          arguments_
+        );
+        const path = String(arguments_[0]);
+        const matchesRole =
+          role === "temporary base"
+            ? path === canonicalTemporaryBase
             : role === "snapshot root"
-              ? Object.assign(stats, { isDirectory: () => false })
-              : Object.assign(stats, { isFile: () => false });
-        });
-      }
-      return handle;
-    });
+              ? path.endsWith(`${sep}active`)
+              : path.endsWith(`${sep}active${sep}.owner`);
+        if (matchesRole) {
+          const stat = handle.stat.bind(handle);
+          vi.spyOn(handle, "stat").mockImplementationOnce(async () => {
+            faultInjected = true;
+            const stats = await stat();
+            return role === "temporary base"
+              ? Object.assign(stats, { uid: 1 })
+              : role === "snapshot root"
+                ? Object.assign(stats, { isDirectory: () => false })
+                : Object.assign(stats, { isFile: () => false });
+          });
+        }
+        return handle;
+      });
 
-    await expect(
-      isolated.fileSystem.createSourceSnapshot(snapshotConfig("scripts/graph"))
-    ).rejects.toThrow(diagnostic);
-    expect(faultInjected).toBe(true);
-    return await expectPrivateParentsRemoved(
-      isolated.privateParents,
-      expectedParents
-    );
-  });
+      await expect(
+        isolated.fileSystem.createSourceSnapshot(
+          snapshotConfig("scripts/graph")
+        )
+      ).rejects.toThrow(diagnostic);
+      expect(faultInjected).toBe(true);
+      return await expectPrivateParentsRemoved(
+        isolated.privateParents,
+        expectedParents
+      );
+    }
+  );
 
   return it("preserves the snapshot when the private-parent pathname metadata changes", async () => {
     const root = join(

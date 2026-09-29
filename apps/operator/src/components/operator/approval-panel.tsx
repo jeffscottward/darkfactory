@@ -330,9 +330,9 @@ export const ApprovalPanel = ({
               </p>
               <p
                 className={
-                  revisionError !== null
-                    ? "text-destructive text-xs leading-5"
-                    : "text-muted-foreground text-xs leading-5"
+                  revisionError === null
+                    ? "text-muted-foreground text-xs leading-5"
+                    : "text-destructive text-xs leading-5"
                 }
                 id="plan-revision-count"
               >

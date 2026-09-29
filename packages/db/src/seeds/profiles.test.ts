@@ -159,17 +159,20 @@ describe("development profile seeds", () => {
     ["timezone", "Europe/London"],
     ["locale", "fr-FR"],
     ["dateOfBirth", "2000-01-01"],
-  ] as const)("repairs a profile whose %s drifted", async (field, replacement) => {
-    const outcomes = profileRows();
-    outcomes[0] = [{ ...DEVELOPMENT_PROFILES[0]!, [field]: replacement }];
-    const double = createProfileSeedDatabase(outcomes);
+  ] as const)(
+    "repairs a profile whose %s drifted",
+    async (field, replacement) => {
+      const outcomes = profileRows();
+      outcomes[0] = [{ ...DEVELOPMENT_PROFILES[0]!, [field]: replacement }];
+      const double = createProfileSeedDatabase(outcomes);
 
-    await convergeDevelopmentProfiles(double.database);
+      await convergeDevelopmentProfiles(double.database);
 
-    const inserts = double.operations.filter(
-      (operation) => operation.kind === "insert"
-    );
-    expect(inserts).toHaveLength(1);
-    return expect(inserts[0]?.value).toEqual(DEVELOPMENT_PROFILES[0]);
-  });
+      const inserts = double.operations.filter(
+        (operation) => operation.kind === "insert"
+      );
+      expect(inserts).toHaveLength(1);
+      return expect(inserts[0]?.value).toEqual(DEVELOPMENT_PROFILES[0]);
+    }
+  );
 });

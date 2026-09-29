@@ -246,9 +246,9 @@ export const WayfinderPanel = ({ gateway }: WayfinderPanelProps) => {
               </p>
               <p
                 className={
-                  requestError !== null
-                    ? "text-destructive text-xs leading-5"
-                    : "text-muted-foreground text-xs leading-5"
+                  requestError === null
+                    ? "text-muted-foreground text-xs leading-5"
+                    : "text-destructive text-xs leading-5"
                 }
                 id="wayfinder-request-count"
               >

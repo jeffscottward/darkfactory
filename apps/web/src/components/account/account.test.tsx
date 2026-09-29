@@ -310,7 +310,8 @@ describe("typed account gateway", () => {
     ["VALIDATION_ERROR", "highlighted fields"],
     ["STORAGE_ERROR", "temporarily unavailable"],
   ])("maps %s to safe feedback", (code, expected) =>
-    expect(safeAccountFeedback({ code })).toContain(expected));
+    expect(safeAccountFeedback({ code })).toContain(expected)
+  );
 
   it("never exposes raw failures", () => {
     expect(

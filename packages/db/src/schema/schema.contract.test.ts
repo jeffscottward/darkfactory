@@ -65,7 +65,7 @@ const foreignKey = (
       .columns.some((candidate) => candidate.name === localColumnName);
   })!;
 
-describe("Better Auth 1.6.24 schema", () => {
+describe("Better Auth schema", () => {
   it("uses the required core tables and supported user extensions", () => {
     expect(getTableConfig(users).name).toBe("user");
     expect(getTableConfig(sessions).name).toBe("session");

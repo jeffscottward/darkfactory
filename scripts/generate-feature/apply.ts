@@ -133,7 +133,7 @@ const rollbackApplied = async (
       } else {
         safe = false;
       }
-    } catch (_error) {
+    } catch {
       safe = false;
     }
   }

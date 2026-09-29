@@ -71,7 +71,7 @@ try {
         "Generated Better Auth schema is stale; run auth:schema:generate"
       );
     }
-    process.stdout.write("Better Auth 1.6.24 schema is current\n");
+    process.stdout.write("Better Auth schema is current\n");
   }
 } finally {
   await rm(temporaryDirectory, { recursive: true, force: true });

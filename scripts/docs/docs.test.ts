@@ -13,10 +13,11 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { runDocsCli } from "./cli.ts";
 import {
-  buildArchitectureInventory,
+  buildPackageGraph,
   type DocsDependencies,
+  GENERATED_PACKAGE_GRAPH_PATH,
+  renderPackageGraph,
   runDocsAction,
-  serializeArchitectureInventory,
 } from "./docs.ts";
 import { createDocsFileSystem } from "./system.ts";
 
@@ -25,36 +26,44 @@ const manifests = new Map([
     "package.json",
     JSON.stringify({
       name: "@darkfactory/root",
-      version: "0.1.0",
-      scripts: { verify: "gate" },
+      brick: "workspace",
+      devDependencies: { "@darkfactory/api": "workspace:*" },
+    }),
+  ],
+  [
+    "apps/web/package.json",
+    JSON.stringify({
+      name: "@darkfactory/web",
+      brick: "app",
+      dependencies: { "@darkfactory/api": "workspace:*" },
     }),
   ],
   [
     "packages/api/package.json",
     JSON.stringify({
       name: "@darkfactory/api",
-      version: "0.1.0",
+      brick: "product",
       exports: {
-        ".": "./src/index.ts",
         "./server": "./src/server/index.ts",
+        ".": "./src/index.ts",
       },
       dependencies: { "@darkfactory/db": "workspace:*", zod: "catalog:" },
     }),
   ],
   [
     "packages/db/package.json",
-    JSON.stringify({ name: "@darkfactory/db", version: "0.1.0" }),
+    JSON.stringify({ name: "@darkfactory/db", brick: "product" }),
   ],
 ]);
+
+const sources = () =>
+  [...manifests.entries()].map(([path, source]) => ({ path, source }));
 
 const fixture = (generated?: string) => {
   const writes: Array<readonly [string, string]> = [];
   const dependencies: DocsDependencies = {
     files: {
-      discoverPackageManifests: async () =>
-        [...manifests.entries()]
-          .reverse()
-          .map(([path, source]) => ({ path, source })),
+      discoverPackageManifests: async () => sources().reverse(),
       readGenerated: async () => generated,
       writeGenerated: async (path, content) => {
         writes.push([path, content]);
@@ -64,30 +73,49 @@ const fixture = (generated?: string) => {
   return { dependencies, writes };
 };
 
-describe("architecture inventory docs", () => {
-  it("sorts packages and records public exports and workspace edges deterministically", () => {
-    const inventory = buildArchitectureInventory(
-      [...manifests.entries()].map(([path, source]) => ({ path, source }))
-    );
-    expect(inventory.packages.map((entry) => entry.name)).toEqual([
+const manifest = (path: string, value: Record<string, unknown>) => ({
+  path,
+  source: JSON.stringify(value),
+});
+
+describe("package graph docs", () => {
+  it("sorts packages and records roles, public exports and workspace edges deterministically", () => {
+    const graph = buildPackageGraph(sources());
+    expect(graph.packages.map((entry) => entry.name)).toEqual([
       "@darkfactory/api",
       "@darkfactory/db",
       "@darkfactory/root",
+      "@darkfactory/web",
     ]);
-    expect(inventory.rootScripts).toEqual(["verify"]);
-    expect(inventory.packages[0]).toMatchObject({
+    expect(graph.packages[0]).toEqual({
+      name: "@darkfactory/api",
+      brick: "product",
       directory: "packages/api",
       publicExports: [".", "./server"],
       workspaceDependencies: ["@darkfactory/db"],
     });
-    return expect(serializeArchitectureInventory(inventory)).toBe(
-      serializeArchitectureInventory(
-        buildArchitectureInventory(
-          [...manifests.entries()]
-            .reverse()
-            .map(([path, source]) => ({ path, source }))
-        )
-      )
+    return expect(renderPackageGraph(graph)).toBe(
+      renderPackageGraph(buildPackageGraph(sources().reverse()))
+    );
+  });
+
+  it("renders a Mermaid flowchart grouped by role and a package table", () => {
+    const rendered = renderPackageGraph(buildPackageGraph(sources()));
+    expect(rendered).toContain('subgraph appBricks["Apps"]');
+    expect(rendered).toContain('darkfactory_web["web<br/>apps/web"]');
+    expect(rendered).toContain("darkfactory_web --> darkfactory_api");
+    expect(rendered).toContain("darkfactory_api --> darkfactory_db");
+    expect(rendered).not.toContain("darkfactory_root");
+    expect(rendered).not.toContain("capabilityBricks");
+    expect(rendered).toContain("| capability | tooling |");
+    expect(rendered).toContain(
+      "| [`@darkfactory/api`](../../packages/api/package.json) | product | `@darkfactory/db` | `.`, `./server` |"
+    );
+    expect(rendered).toContain(
+      "| [`@darkfactory/root`](../../package.json) | workspace | `@darkfactory/api` | — |"
+    );
+    return expect(rendered.indexOf("@darkfactory/root`]")).toBeLessThan(
+      rendered.indexOf("@darkfactory/web`]")
     );
   });
 
@@ -95,29 +123,21 @@ describe("architecture inventory docs", () => {
     const state = fixture();
     await expect(
       runDocsAction("generate", state.dependencies)
-    ).resolves.toMatchObject({ ok: true, changed: true });
+    ).resolves.toMatchObject({ ok: true, changed: true, packageCount: 4 });
     expect(state.writes).toHaveLength(1);
-    expect(state.writes[0]?.[0]).toBe(
-      "docs/generated/architecture-inventory.json"
-    );
-    return expect(JSON.parse(state.writes[0]![1])).toMatchObject({
-      version: 1,
-    });
+    expect(state.writes[0]?.[0]).toBe(GENERATED_PACKAGE_GRAPH_PATH);
+    return expect(state.writes[0]?.[1]).toMatch(/^<!-- Generated by/);
   });
 
   it("checks freshness without mutating", async () => {
-    const expected = serializeArchitectureInventory(
-      buildArchitectureInventory(
-        [...manifests.entries()].map(([path, source]) => ({ path, source }))
-      )
-    );
+    const expected = renderPackageGraph(buildPackageGraph(sources()));
     const fresh = fixture(expected);
     await expect(
       runDocsAction("check", fresh.dependencies)
     ).resolves.toMatchObject({ ok: true, changed: false });
     expect(fresh.writes).toHaveLength(0);
 
-    const stale = fixture("{}\n");
+    const stale = fixture("# stale\n");
     await expect(
       runDocsAction("check", stale.dependencies)
     ).resolves.toMatchObject({
@@ -127,13 +147,8 @@ describe("architecture inventory docs", () => {
     return expect(stale.writes).toHaveLength(0);
   });
 
-  it("does not rewrite current generated metadata", async () => {
-    const expected = serializeArchitectureInventory(
-      buildArchitectureInventory(
-        [...manifests.entries()].map(([path, source]) => ({ path, source }))
-      )
-    );
-    const current = fixture(expected);
+  it("does not rewrite current generated docs", async () => {
+    const current = fixture(renderPackageGraph(buildPackageGraph(sources())));
 
     await expect(
       runDocsAction("generate", current.dependencies)
@@ -141,22 +156,18 @@ describe("architecture inventory docs", () => {
       action: "generate",
       ok: true,
       changed: false,
-      reason: "Generated architecture inventory is already current",
-      packageCount: 3,
+      reason: "Generated package graph is already current",
+      packageCount: 4,
     });
     return expect(current.writes).toHaveLength(0);
   });
 
   it("reports discovery, read, write, and non-Error operation failures deterministically", async () => {
-    const validSources = [...manifests.entries()].map(([path, source]) => ({
-      path,
-      source,
-    }));
     const failing = (
       overrides: Partial<DocsDependencies["files"]>
     ): DocsDependencies => ({
       files: {
-        discoverPackageManifests: async () => validSources,
+        discoverPackageManifests: async () => sources(),
         readGenerated: async () => undefined,
         writeGenerated: async () => undefined,
         ...overrides,
@@ -212,18 +223,12 @@ describe("architecture inventory docs", () => {
 
   it("rejects malformed and duplicate package manifests", () => {
     expect(() =>
-      buildArchitectureInventory([{ path: "package.json", source: "{" }])
-    ).toThrow(/package manifest/i);
+      buildPackageGraph([{ path: "package.json", source: "{" }])
+    ).toThrow(/invalid package manifest/i);
     return expect(() =>
-      buildArchitectureInventory([
-        {
-          path: "a/package.json",
-          source: JSON.stringify({ name: "same", version: "1" }),
-        },
-        {
-          path: "b/package.json",
-          source: JSON.stringify({ name: "same", version: "1" }),
-        },
+      buildPackageGraph([
+        manifest("a/package.json", { name: "same", brick: "app" }),
+        manifest("b/package.json", { name: "same", brick: "app" }),
       ])
     ).toThrow(/duplicate/i);
   });
@@ -231,61 +236,124 @@ describe("architecture inventory docs", () => {
   it.each([
     ["an array root", "[]"],
     ["a null root", "null"],
-    ["a missing name", JSON.stringify({ version: "1.0.0" })],
-    ["an empty name", JSON.stringify({ name: "", version: "1.0.0" })],
-    ["a missing version", JSON.stringify({ name: "package" })],
-    ["an empty version", JSON.stringify({ name: "package", version: "" })],
+    ["a missing name", JSON.stringify({ brick: "workspace" })],
+    ["an empty name", JSON.stringify({ name: "", brick: "workspace" })],
   ])("rejects %s package manifest", (_name, source) => {
     return expect(() =>
-      buildArchitectureInventory([{ path: "package.json", source }])
+      buildPackageGraph([{ path: "package.json", source }])
     ).toThrow(/invalid package manifest/i);
   });
 
-  it("merges only string-valued workspace dependencies across dependency sections", () => {
-    const inventory = buildArchitectureInventory([
-      {
-        path: "package.json",
-        source: JSON.stringify({
-          name: "@darkfactory/root",
-          version: "0.1.0",
-          scripts: ["not", "a", "record"],
+  it.each([
+    ["a package without a brick", "packages/a/package.json", undefined],
+    ["a package with an unknown brick", "packages/a/package.json", "service"],
+    [
+      "a package claiming the workspace role",
+      "packages/a/package.json",
+      "workspace",
+    ],
+    ["a root that is not the workspace", "package.json", "product"],
+  ])("rejects %s", async (_name, path, brick) => {
+    const invalid = manifest(path, { name: "@darkfactory/a", brick });
+    expect(() => buildPackageGraph([invalid])).toThrow(
+      /lacks a valid brick role/i
+    );
+    return await expect(
+      runDocsAction("check", {
+        files: {
+          discoverPackageManifests: async () => [invalid],
+          readGenerated: async () => undefined,
+          writeGenerated: async () => undefined,
+        },
+      })
+    ).resolves.toMatchObject({
+      ok: false,
+      reason: expect.stringContaining(path),
+    });
+  });
+
+  it("rejects a workspace dependency on an unknown package", () => {
+    return expect(() =>
+      buildPackageGraph([
+        manifest("apps/web/package.json", {
+          name: "@darkfactory/web",
+          brick: "app",
+          dependencies: { "@darkfactory/missing": "workspace:*" },
         }),
-      },
-      {
-        path: "packages/consumer/package.json",
-        source: JSON.stringify({
+      ])
+    ).toThrow(
+      "Unknown workspace dependency @darkfactory/missing in apps/web/package.json"
+    );
+  });
+
+  it.each([
+    ["a product brick on an app", "product", "app"],
+    ["a capability brick on a product brick", "capability", "product"],
+    ["a product brick on the opt-in agent plane", "product", "agent-sdlc"],
+  ])("rejects %s", (_name, consumer, dependency) => {
+    return expect(() =>
+      buildPackageGraph([
+        manifest("packages/consumer/package.json", {
           name: "@darkfactory/consumer",
-          version: "0.1.0",
-          exports: ["not", "a", "record"],
-          dependencies: { "@darkfactory/api": "workspace:*" },
-          peerDependencies: { "@darkfactory/db": "workspace:^" },
-          optionalDependencies: {
-            "@darkfactory/storage": "workspace:~",
-            "@darkfactory/ignored": 42,
-          },
+          brick: consumer,
+          dependencies: { "@darkfactory/dependency": "workspace:*" },
         }),
-      },
+        manifest("packages/dependency/package.json", {
+          name: "@darkfactory/dependency",
+          brick: dependency,
+        }),
+      ])
+    ).toThrow(
+      `Brick rule violation: @darkfactory/consumer (${consumer}) must not depend on @darkfactory/dependency (${dependency})`
+    );
+  });
+
+  it("merges only workspace-protocol dependencies across dependency sections", () => {
+    const graph = buildPackageGraph([
+      manifest("package.json", {
+        name: "@acme/root",
+        brick: "workspace",
+        dependencies: ["not", "a", "record"],
+      }),
+      manifest("packages/consumer/package.json", {
+        name: "@acme/consumer",
+        brick: "agent-sdlc",
+        exports: ["not", "a", "record"],
+        dependencies: { "@acme/api": "workspace:*", "@acme/npm": "^1.0.0" },
+        devDependencies: { "@acme/testkit": "workspace:*" },
+        peerDependencies: { "@acme/db": "workspace:^" },
+        optionalDependencies: {
+          "@acme/api": "workspace:~",
+          "@acme/ignored": 42,
+        },
+      }),
+      manifest("packages/api/package.json", {
+        name: "@acme/api",
+        brick: "product",
+      }),
+      manifest("packages/db/package.json", {
+        name: "@acme/db",
+        brick: "product",
+      }),
+      manifest("packages/testkit/package.json", {
+        name: "@acme/testkit",
+        brick: "tooling",
+      }),
     ]);
 
-    expect(inventory.rootScripts).toEqual([]);
+    expect(
+      graph.packages.find(({ name }) => name === "@acme/root")
+    ).toMatchObject({ workspaceDependencies: [] });
     return expect(
-      inventory.packages.find(({ name }) => name === "@darkfactory/consumer")
+      graph.packages.find(({ name }) => name === "@acme/consumer")
     ).toMatchObject({
       publicExports: [],
-      workspaceDependencies: [
-        "@darkfactory/api",
-        "@darkfactory/db",
-        "@darkfactory/storage",
-      ],
+      workspaceDependencies: ["@acme/api", "@acme/db", "@acme/testkit"],
     });
   });
 
   it("maps fresh, stale, and invalid CLI invocations to deterministic exit codes", async () => {
-    const expected = serializeArchitectureInventory(
-      buildArchitectureInventory(
-        [...manifests.entries()].map(([path, source]) => ({ path, source }))
-      )
-    );
+    const expected = renderPackageGraph(buildPackageGraph(sources()));
     const output: string[] = [];
     const streams = {
       writeOutput: (value: string) => output.push(value),
@@ -295,7 +363,7 @@ describe("architecture inventory docs", () => {
       runDocsCli(["check"], fixture(expected).dependencies, streams)
     ).resolves.toBe(0);
     await expect(
-      runDocsCli(["check"], fixture("{}\n").dependencies, streams)
+      runDocsCli(["check"], fixture("# stale\n").dependencies, streams)
     ).resolves.toBe(1);
     await expect(
       runDocsCli(["unknown"], fixture().dependencies, streams)
@@ -324,13 +392,10 @@ describe("architecture inventory docs", () => {
         },
       });
       await expect(
-        files.writeGenerated(
-          "docs/generated/architecture-inventory.json",
-          "{}\n"
-        )
+        files.writeGenerated("docs/generated/package-graph.md", "{}\n")
       ).rejects.toThrow(/identity|symbolic/i);
       return await expect(
-        access(join(outside, "generated/architecture-inventory.json"))
+        access(join(outside, "generated/package-graph.md"))
       ).rejects.toMatchObject({ code: "ENOENT" });
     } finally {
       await rm(root, { force: true, recursive: true });
@@ -341,7 +406,7 @@ describe("architecture inventory docs", () => {
   it("rejects same-byte target replacement and preserves the replacement", async () => {
     const root = await mkdtemp(join(tmpdir(), "darkfactory-docs-target-"));
     try {
-      const target = join(root, "docs/generated/architecture-inventory.json");
+      const target = join(root, "docs/generated/package-graph.md");
       await mkdir(join(root, "docs/generated"), { recursive: true });
       await writeFile(target, "{}\n", "utf8");
       const files = await createDocsFileSystem(root, {
@@ -353,7 +418,7 @@ describe("architecture inventory docs", () => {
       });
       await expect(
         files.writeGenerated(
-          "docs/generated/architecture-inventory.json",
+          "docs/generated/package-graph.md",
           '{"changed":true}\n'
         )
       ).rejects.toThrow(/target changed/i);
@@ -370,10 +435,7 @@ describe("architecture inventory docs", () => {
       await writeFile(lock, "owned elsewhere", "utf8");
       const files = await createDocsFileSystem(root);
       await expect(
-        files.writeGenerated(
-          "docs/generated/architecture-inventory.json",
-          "{}\n"
-        )
+        files.writeGenerated("docs/generated/package-graph.md", "{}\n")
       ).rejects.toMatchObject({ code: "EEXIST" });
       return expect(await readFile(lock, "utf8")).toBe("owned elsewhere");
     } finally {

@@ -272,25 +272,24 @@ describe("router authentication context", () => {
       code: "FORBIDDEN",
       status: 403,
     },
-  ] as const)("maps session denial to $code", async ({
-    failure,
-    code,
-    status,
-  }) => {
-    const client = clientFor(
-      contextFor({
-        requireSession: vi.fn(async () => {
-          throw failure;
-        }),
-      })
-    );
+  ] as const)(
+    "maps session denial to $code",
+    async ({ failure, code, status }) => {
+      const client = clientFor(
+        contextFor({
+          requireSession: vi.fn(async () => {
+            throw failure;
+          }),
+        })
+      );
 
-    return await expectDefinedError(
-      client.account.profile.get({}),
-      code,
-      status
-    );
-  });
+      return await expectDefinedError(
+        client.account.profile.get({}),
+        code,
+        status
+      );
+    }
+  );
 
   it("preserves unexpected authentication adapter failures", async () => {
     const failure = new Error("authentication adapter unavailable");
@@ -376,25 +375,24 @@ describe("router authentication context", () => {
       code: "FORBIDDEN",
       status: 403,
     },
-  ] as const)("maps admin denial to $code", async ({
-    failure,
-    code,
-    status,
-  }) => {
-    const client = clientFor(
-      contextFor({
-        requireRole: vi.fn(async () => {
-          throw failure;
-        }),
-      })
-    );
+  ] as const)(
+    "maps admin denial to $code",
+    async ({ failure, code, status }) => {
+      const client = clientFor(
+        contextFor({
+          requireRole: vi.fn(async () => {
+            throw failure;
+          }),
+        })
+      );
 
-    return await expectDefinedError(
-      client.admin.featureItems.list({ ownerId: "member-1" }),
-      code,
-      status
-    );
-  });
+      return await expectDefinedError(
+        client.admin.featureItems.list({ ownerId: "member-1" }),
+        code,
+        status
+      );
+    }
+  );
 
   it("uses the role adapter for an authorized administrator", async () => {
     const repos = repositories();
@@ -508,21 +506,20 @@ describe("account router behavior", () => {
       code: "STORAGE_ERROR",
       status: 503,
     },
-  ] as const)("maps account adapter failure to $code", async ({
-    failure,
-    code,
-    status,
-  }) => {
-    const repos = repositories();
-    vi.mocked(repos.addresses.listByUserId).mockRejectedValue(failure);
-    const client = clientFor(contextFor({ repositories: repos }));
+  ] as const)(
+    "maps account adapter failure to $code",
+    async ({ failure, code, status }) => {
+      const repos = repositories();
+      vi.mocked(repos.addresses.listByUserId).mockRejectedValue(failure);
+      const client = clientFor(contextFor({ repositories: repos }));
 
-    return await expectDefinedError(
-      client.account.addresses.list({}),
-      code,
-      status
-    );
-  });
+      return await expectDefinedError(
+        client.account.addresses.list({}),
+        code,
+        status
+      );
+    }
+  );
 
   it("maps a missing owner-scoped address without leaking whether another owner has it", async () => {
     const repos = repositories();
@@ -616,17 +613,20 @@ describe("feature and theme service error responses", () => {
       code: "STORAGE_ERROR",
       status: 503,
     },
-  ] as const)("maps feature adapter failure to $code", async ({
-    failure,
-    code,
-    status,
-  }) => {
-    const repos = repositories();
-    vi.mocked(repos.featureItems.listByOwner).mockRejectedValue(failure);
-    const client = clientFor(contextFor({ repositories: repos }));
+  ] as const)(
+    "maps feature adapter failure to $code",
+    async ({ failure, code, status }) => {
+      const repos = repositories();
+      vi.mocked(repos.featureItems.listByOwner).mockRejectedValue(failure);
+      const client = clientFor(contextFor({ repositories: repos }));
 
-    return await expectDefinedError(client.featureItems.list({}), code, status);
-  });
+      return await expectDefinedError(
+        client.featureItems.list({}),
+        code,
+        status
+      );
+    }
+  );
 
   it("maps a missing feature and preserves an unexpected adapter failure", async () => {
     const missingRepos = repositories();
@@ -662,25 +662,24 @@ describe("feature and theme service error responses", () => {
       code: "CONFLICT",
       status: 409,
     },
-  ] as const)("maps theme adapter failure to $code", async ({
-    failure,
-    code,
-    status,
-  }) => {
-    const repos = repositories();
-    vi.mocked(repos.userPreferences.upsertTheme).mockRejectedValue(failure);
-    const client = clientFor(contextFor({ repositories: repos }));
+  ] as const)(
+    "maps theme adapter failure to $code",
+    async ({ failure, code, status }) => {
+      const repos = repositories();
+      vi.mocked(repos.userPreferences.upsertTheme).mockRejectedValue(failure);
+      const client = clientFor(contextFor({ repositories: repos }));
 
-    return await expectDefinedError(
-      client.preferences.theme.update({
-        themeMode: "dark",
-        palette: "violet",
-        expectedUpdatedAt: NOW,
-      }),
-      code,
-      status
-    );
-  });
+      return await expectDefinedError(
+        client.preferences.theme.update({
+          themeMode: "dark",
+          palette: "violet",
+          expectedUpdatedAt: NOW,
+        }),
+        code,
+        status
+      );
+    }
+  );
 
   return it("preserves an unexpected theme adapter failure", async () => {
     const failure = new Error("unexpected theme adapter contract violation");
@@ -699,28 +698,27 @@ describe("feature and theme service error responses", () => {
 });
 
 describe("optional router capabilities", () => {
-  it.each([
-    "delivery",
-    "throttle",
-    "key",
-  ] as const)("returns SERVICE_UNAVAILABLE when the contact %s capability is absent", async (missing) => {
-    const delivery = contactDelivery();
-    const throttle = contactThrottle();
-    const optionalPorts: Partial<ApiContext> = {
-      ...(missing === "delivery" ? {} : { contactDelivery: delivery }),
-      ...(missing === "throttle" ? {} : { contactThrottle: throttle }),
-      ...(missing === "key" ? {} : { contactThrottleKey: "k".repeat(64) }),
-    };
-    const client = clientFor(contextFor(optionalPorts));
+  it.each(["delivery", "throttle", "key"] as const)(
+    "returns SERVICE_UNAVAILABLE when the contact %s capability is absent",
+    async (missing) => {
+      const delivery = contactDelivery();
+      const throttle = contactThrottle();
+      const optionalPorts: Partial<ApiContext> = {
+        ...(missing === "delivery" ? {} : { contactDelivery: delivery }),
+        ...(missing === "throttle" ? {} : { contactThrottle: throttle }),
+        ...(missing === "key" ? {} : { contactThrottleKey: "k".repeat(64) }),
+      };
+      const client = clientFor(contextFor(optionalPorts));
 
-    await expectDefinedError(
-      client.contact.submit(contactInput),
-      "SERVICE_UNAVAILABLE",
-      503
-    );
-    expect(delivery.sendContact).not.toHaveBeenCalled();
-    return expect(throttle.consume).not.toHaveBeenCalled();
-  });
+      await expectDefinedError(
+        client.contact.submit(contactInput),
+        "SERVICE_UNAVAILABLE",
+        503
+      );
+      expect(delivery.sendContact).not.toHaveBeenCalled();
+      return expect(throttle.consume).not.toHaveBeenCalled();
+    }
+  );
 
   return it("allows the public contact route with all optional adapters and no event port", async () => {
     const delivery = contactDelivery();

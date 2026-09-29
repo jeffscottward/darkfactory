@@ -124,7 +124,7 @@ export const ThemeMenu = () => {
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
   useLayoutEffect(() => {
-    if (authorityRef.current === authority) return undefined;
+    if (authorityRef.current === authority) return;
     authorityRef.current = authority;
     authorityEpoch.current += 1;
     requestSequence.current += 1;

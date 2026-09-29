@@ -78,23 +78,23 @@ describe("analytics package boundaries", () => {
     return expect(output).not.toMatch(/api_key|phc_|POSTHOG_KEY/i);
   });
 
-  it.each([
-    "workerd",
-    "worker",
-  ])("resolves the real module for simultaneous %s and browser conditions", (workerCondition) => {
-    const result = runWithConditions(
-      `process.stdout.write(import.meta.resolve(${JSON.stringify(serverSpecifier)}))`,
-      [workerCondition, "browser"]
-    );
+  it.each(["workerd", "worker"])(
+    "resolves the real module for simultaneous %s and browser conditions",
+    (workerCondition) => {
+      const result = runWithConditions(
+        `process.stdout.write(import.meta.resolve(${JSON.stringify(serverSpecifier)}))`,
+        [workerCondition, "browser"]
+      );
 
-    expect({ status: result.status, stderr: result.stderr }).toEqual({
-      status: 0,
-      stderr: "",
-    });
-    return expect(result.stdout.replaceAll("\\", "/")).toMatch(
-      /\/packages\/analytics\/src\/server\/posthog\.ts$/
-    );
-  });
+      expect({ status: result.status, stderr: result.stderr }).toEqual({
+        status: 0,
+        stderr: "",
+      });
+      return expect(result.stdout.replaceAll("\\", "/")).toMatch(
+        /\/packages\/analytics\/src\/server\/posthog\.ts$/
+      );
+    }
+  );
   return it("executes the browser poison module as a fail-closed boundary", async () => {
     return await expect(import("./server/unsupported.js")).rejects.toThrow(
       browserError

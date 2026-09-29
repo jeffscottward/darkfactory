@@ -986,29 +986,29 @@ describe("workflow outbox worker", () => {
     ).not.toContain(secret);
   });
 
-  it.each([
-    "",
-    "  \n\t",
-  ])("fails closed instead of completing an empty plan %#", async (stdout) => {
-    const repository = outbox([[claim()]]);
-    const result = await createWorkflowOutboxWorker({
-      repository,
-      adapter: adapter(success(stdout)),
-      leaseOwner: "worker-a",
-      authorizeRepository,
-    }).runOnce();
+  it.each(["", "  \n\t"])(
+    "fails closed instead of completing an empty plan %#",
+    async (stdout) => {
+      const repository = outbox([[claim()]]);
+      const result = await createWorkflowOutboxWorker({
+        repository,
+        adapter: adapter(success(stdout)),
+        leaseOwner: "worker-a",
+        authorizeRepository,
+      }).runOnce();
 
-    expect(result).toEqual([{ id: "effect-1", status: "failed" }]);
-    expect(repository.completeEffect).not.toHaveBeenCalled();
-    return expect(repository.failEffect).toHaveBeenCalledWith(
-      expect.objectContaining({
-        result: expect.objectContaining({
-          status: "failed",
-          retryable: false,
-        }),
-      })
-    );
-  });
+      expect(result).toEqual([{ id: "effect-1", status: "failed" }]);
+      expect(repository.completeEffect).not.toHaveBeenCalled();
+      return expect(repository.failEffect).toHaveBeenCalledWith(
+        expect.objectContaining({
+          result: expect.objectContaining({
+            status: "failed",
+            retryable: false,
+          }),
+        })
+      );
+    }
+  );
 
   it("maps terminal failures, retryability, change evidence, and stale failure fences", async () => {
     const statuses = [
@@ -1410,29 +1410,32 @@ describe("workflow outbox worker", () => {
         digest: "f".repeat(64),
       },
     },
-  ])("fails a verify claim closed when durable recovery is missing or tampered %#", async (implementationEvidence) => {
-    const repository = outbox([
-      [
-        claim({
-          effectKind: "verify",
-          implementationEvidence,
-          implementationChangeHash: RECOVERY_CHANGE_HASH,
-        }),
-      ],
-    ]);
-    const omp = adapter();
+  ])(
+    "fails a verify claim closed when durable recovery is missing or tampered %#",
+    async (implementationEvidence) => {
+      const repository = outbox([
+        [
+          claim({
+            effectKind: "verify",
+            implementationEvidence,
+            implementationChangeHash: RECOVERY_CHANGE_HASH,
+          }),
+        ],
+      ]);
+      const omp = adapter();
 
-    await expect(
-      createWorkflowOutboxWorker({
-        repository,
-        adapter: omp,
-        leaseOwner: "worker-a",
-        authorizeRepository,
-      }).runOnce()
-    ).resolves.toEqual([{ id: "effect-1", status: "failed" }]);
-    expect(omp.execute).not.toHaveBeenCalled();
-    return expect(repository.failEffect).toHaveBeenCalledOnce();
-  });
+      await expect(
+        createWorkflowOutboxWorker({
+          repository,
+          adapter: omp,
+          leaseOwner: "worker-a",
+          authorizeRepository,
+        }).runOnce()
+      ).resolves.toEqual([{ id: "effect-1", status: "failed" }]);
+      expect(omp.execute).not.toHaveBeenCalled();
+      return expect(repository.failEffect).toHaveBeenCalledOnce();
+    }
+  );
 
   it("finalizes lifecycle as unpersisted on stale, throwing, and lost leases", async () => {
     for (const persistence of ["stale", "throws"] as const) {

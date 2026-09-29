@@ -164,7 +164,9 @@ const resetTokenFrom = (delivery: ResetDelivery): string => {
   return match[1];
 };
 
-describe.sequential("DF-041 through DF-045 Better Auth integration", () => {
+describe("DF-041 through DF-045 Better Auth integration", {
+  concurrent: false,
+}, () => {
   beforeAll(async () => {
     testDatabase = await createPostgresTestDatabase();
     databaseResource = createNodeDatabase({

@@ -395,55 +395,58 @@ describe("workflow v1 contract", () => {
     ["planning", "plan"],
     ["implementing", "implement"],
     ["verifying", "verify"],
-  ] as const)("enforces the canonical total attempt ceiling for %s", (stage, kind) => {
-    const below = blockedAt(stage, kind, MAX_WORKFLOW_STAGE_ATTEMPTS_V1 - 1);
-    const accepted = live(below, {
-      ...base(`retry-boundary-${kind}`),
-      type: "RETRY_REQUESTED",
-      reasonCode: "operator_retry",
-    });
-    expect(accepted.effects).toHaveLength(1);
-    expect(accepted.effects[0]).toMatchObject({
-      kind,
-      attempt: MAX_WORKFLOW_STAGE_ATTEMPTS_V1,
-    });
-
-    const atLimit = blockedAt(stage, kind, MAX_WORKFLOW_STAGE_ATTEMPTS_V1);
-    const before = JSON.parse(JSON.stringify(atLimit));
-    let rejected: unknown;
-    try {
-      live(atLimit, {
-        ...base(`retry-exhausted-${kind}`),
+  ] as const)(
+    "enforces the canonical total attempt ceiling for %s",
+    (stage, kind) => {
+      const below = blockedAt(stage, kind, MAX_WORKFLOW_STAGE_ATTEMPTS_V1 - 1);
+      const accepted = live(below, {
+        ...base(`retry-boundary-${kind}`),
         type: "RETRY_REQUESTED",
         reasonCode: "operator_retry",
       });
-    } catch (error) {
-      rejected = error;
-    }
-    expect(rejected).toBeInstanceOf(WorkflowRetryLimitReachedError);
-    expect(rejected).toMatchObject({
-      code: "RETRY_LIMIT_REACHED",
-      message:
-        "Workflow retry limit reached; cancel this run or start a new run",
-    });
-    expect(atLimit).toEqual(before);
-    expect(atLimit.sequence).toBe(before.sequence);
-    expect(atLimit.journalHeadHash).toBe(before.journalHeadHash);
+      expect(accepted.effects).toHaveLength(1);
+      expect(accepted.effects[0]).toMatchObject({
+        kind,
+        attempt: MAX_WORKFLOW_STAGE_ATTEMPTS_V1,
+      });
 
-    const aboveLimit = blockedAt(
-      stage,
-      kind,
-      MAX_WORKFLOW_STAGE_ATTEMPTS_V1 + 1
-    );
-    expect(isWorkflowSnapshotV1(aboveLimit)).toBe(false);
-    return expect(() =>
-      live(aboveLimit, {
-        ...base(`retry-invalid-${kind}`),
-        type: "RETRY_REQUESTED",
-        reasonCode: "operator_retry",
-      })
-    ).toThrow("Invalid workflow snapshot");
-  });
+      const atLimit = blockedAt(stage, kind, MAX_WORKFLOW_STAGE_ATTEMPTS_V1);
+      const before = JSON.parse(JSON.stringify(atLimit));
+      let rejected: unknown;
+      try {
+        live(atLimit, {
+          ...base(`retry-exhausted-${kind}`),
+          type: "RETRY_REQUESTED",
+          reasonCode: "operator_retry",
+        });
+      } catch (error) {
+        rejected = error;
+      }
+      expect(rejected).toBeInstanceOf(WorkflowRetryLimitReachedError);
+      expect(rejected).toMatchObject({
+        code: "RETRY_LIMIT_REACHED",
+        message:
+          "Workflow retry limit reached; cancel this run or start a new run",
+      });
+      expect(atLimit).toEqual(before);
+      expect(atLimit.sequence).toBe(before.sequence);
+      expect(atLimit.journalHeadHash).toBe(before.journalHeadHash);
+
+      const aboveLimit = blockedAt(
+        stage,
+        kind,
+        MAX_WORKFLOW_STAGE_ATTEMPTS_V1 + 1
+      );
+      expect(isWorkflowSnapshotV1(aboveLimit)).toBe(false);
+      return expect(() =>
+        live(aboveLimit, {
+          ...base(`retry-invalid-${kind}`),
+          type: "RETRY_REQUESTED",
+          reasonCode: "operator_retry",
+        })
+      ).toThrow("Invalid workflow snapshot");
+    }
+  );
 
   it("preserves capped attempts through snapshot JSON roundtrip", () => {
     const capped = blockedAt(
@@ -463,42 +466,36 @@ describe("workflow v1 contract", () => {
     ).toThrow(WorkflowRetryLimitReachedError);
   });
 
-  it.each([
-    initial,
-    planning,
-    awaitingApproval,
-    implementing,
-    verifying,
-  ])("rejects manual retry outside blocked state", (arrange) => {
-    return expect(() =>
-      live(arrange(), {
-        ...base("retry-not-blocked"),
-        type: "RETRY_REQUESTED",
-        reasonCode: "operator_retry",
-      })
-    ).toThrow("not accepted");
-  });
+  it.each([initial, planning, awaitingApproval, implementing, verifying])(
+    "rejects manual retry outside blocked state",
+    (arrange) => {
+      return expect(() =>
+        live(arrange(), {
+          ...base("retry-not-blocked"),
+          type: "RETRY_REQUESTED",
+          reasonCode: "operator_retry",
+        })
+      ).toThrow("not accepted");
+    }
+  );
 
-  it.each([
-    initial,
-    planning,
-    awaitingApproval,
-    implementing,
-    verifying,
-  ])("records message references and cancels every nonterminal state", (arrange) => {
-    const messaged = live(arrange(), {
-      ...base("message"),
-      type: "OPERATOR_MESSAGE_ADDED",
-      messageId: "message-1",
-    });
-    expect(messaged.snapshot.context.messageCount).toBe(1);
-    const cancelled = live(messaged.snapshot, {
-      ...base("cancel"),
-      type: "CANCEL_REQUESTED",
-      reasonCode: "operator_cancelled",
-    });
-    return expect(cancelled.snapshot.state).toBe("cancelled");
-  });
+  it.each([initial, planning, awaitingApproval, implementing, verifying])(
+    "records message references and cancels every nonterminal state",
+    (arrange) => {
+      const messaged = live(arrange(), {
+        ...base("message"),
+        type: "OPERATOR_MESSAGE_ADDED",
+        messageId: "message-1",
+      });
+      expect(messaged.snapshot.context.messageCount).toBe(1);
+      const cancelled = live(messaged.snapshot, {
+        ...base("cancel"),
+        type: "CANCEL_REQUESTED",
+        reasonCode: "operator_cancelled",
+      });
+      return expect(cancelled.snapshot.state).toBe("cancelled");
+    }
+  );
 
   return it("rejects bad versions, states, transitions, effect ownership, and terminal mutations", () => {
     expect(() =>
@@ -784,51 +781,57 @@ describe("approval policy transitions", () => {
     string,
     ApprovalBindingPatch,
     ApprovalSnapshotPatch,
-  ])[])("reports %s without accepting a stale binding", (reason, bindingPatch, snapshotPatch) => {
-    const snapshot = awaitingApproval();
-    const binding = createWorkflowApprovalBindingV1("approval", snapshot);
-    const candidateBinding =
-      bindingPatch === "binding"
-        ? binding
-        : bindingPatch === null
-          ? null
-          : { ...binding, ...bindingPatch };
-    const candidateSnapshot =
-      snapshotPatch === null
-        ? snapshot
-        : snapshotPatch.context === undefined
-          ? { ...snapshot, ...snapshotPatch }
-          : {
-              ...snapshot,
-              context: { ...snapshot.context, ...snapshotPatch.context },
-            };
-    return expect(
-      verifyWorkflowApprovalBindingV1(
-        candidateBinding,
-        candidateSnapshot as never
-      )
-    ).toEqual({ ok: false, reason });
-  });
+  ])[])(
+    "reports %s without accepting a stale binding",
+    (reason, bindingPatch, snapshotPatch) => {
+      const snapshot = awaitingApproval();
+      const binding = createWorkflowApprovalBindingV1("approval", snapshot);
+      const candidateBinding =
+        bindingPatch === "binding"
+          ? binding
+          : bindingPatch === null
+            ? null
+            : { ...binding, ...bindingPatch };
+      const candidateSnapshot =
+        snapshotPatch === null
+          ? snapshot
+          : snapshotPatch.context === undefined
+            ? { ...snapshot, ...snapshotPatch }
+            : {
+                ...snapshot,
+                context: { ...snapshot.context, ...snapshotPatch.context },
+              };
+      return expect(
+        verifyWorkflowApprovalBindingV1(
+          candidateBinding,
+          candidateSnapshot as never
+        )
+      ).toEqual({ ok: false, reason });
+    }
+  );
 
   it.each([
     ["machineId", "other-machine", "machine-mismatch"],
     ["machineVersion", 2, "version-mismatch"],
-  ] as const)("rejects a snapshot whose %s changes after validation", (field, staleValue, reason) => {
-    const snapshot = awaitingApproval();
-    const binding = createWorkflowApprovalBindingV1("approval", snapshot);
-    let reads = 0;
-    const changingSnapshot = { ...snapshot } as Record<string, unknown>;
-    Object.defineProperty(changingSnapshot, field, {
-      enumerable: true,
-      get: () => {
-        reads += 1;
-        return reads === 1 ? snapshot[field] : staleValue;
-      },
-    });
-    return expect(
-      verifyWorkflowApprovalBindingV1(binding, changingSnapshot as never)
-    ).toEqual({ ok: false, reason });
-  });
+  ] as const)(
+    "rejects a snapshot whose %s changes after validation",
+    (field, staleValue, reason) => {
+      const snapshot = awaitingApproval();
+      const binding = createWorkflowApprovalBindingV1("approval", snapshot);
+      let reads = 0;
+      const changingSnapshot = { ...snapshot } as Record<string, unknown>;
+      Object.defineProperty(changingSnapshot, field, {
+        enumerable: true,
+        get: () => {
+          reads += 1;
+          return reads === 1 ? snapshot[field] : staleValue;
+        },
+      });
+      return expect(
+        verifyWorkflowApprovalBindingV1(binding, changingSnapshot as never)
+      ).toEqual({ ok: false, reason });
+    }
+  );
 
   return it("rejects an approval event whose public ID differs from its valid binding", () => {
     const snapshot = awaitingApproval();
@@ -881,46 +884,46 @@ describe("projection replay failures", () => {
     ["sequence-mismatch", { snapshot: { sequence: 2 } }],
     ["journal-head-mismatch", { snapshot: { journalHeadHash: H } }],
     ["projection-mismatch", { snapshot: { context: { messageCount: 1 } } }],
-  ] as readonly (readonly [
-    string,
-    ProjectionPatch,
-  ])[])("reports %s for malformed or divergent projections", (reason, patch) => {
-    const fixture = projectionFixture();
-    const candidateSnapshot =
-      patch.snapshot === undefined
-        ? fixture.snapshot
-        : patch.snapshot.context === undefined
-          ? { ...fixture.snapshot, ...patch.snapshot }
+  ] as readonly (readonly [string, ProjectionPatch])[])(
+    "reports %s for malformed or divergent projections",
+    (reason, patch) => {
+      const fixture = projectionFixture();
+      const candidateSnapshot =
+        patch.snapshot === undefined
+          ? fixture.snapshot
+          : patch.snapshot.context === undefined
+            ? { ...fixture.snapshot, ...patch.snapshot }
+            : {
+                ...fixture.snapshot,
+                context: {
+                  ...fixture.snapshot.context,
+                  ...patch.snapshot.context,
+                },
+              };
+      const candidateInitial =
+        patch.initialSnapshot === undefined
+          ? fixture.start
+          : { ...fixture.start, ...patch.initialSnapshot };
+      const candidateEntry =
+        patch.entry === undefined
+          ? fixture.entry
           : {
-              ...fixture.snapshot,
-              context: {
-                ...fixture.snapshot.context,
-                ...patch.snapshot.context,
-              },
+              ...fixture.entry,
+              ...patch.entry,
+              event:
+                patch.entry.event === undefined
+                  ? fixture.entry.event
+                  : { ...fixture.entry.event, ...patch.entry.event },
             };
-    const candidateInitial =
-      patch.initialSnapshot === undefined
-        ? fixture.start
-        : { ...fixture.start, ...patch.initialSnapshot };
-    const candidateEntry =
-      patch.entry === undefined
-        ? fixture.entry
-        : {
-            ...fixture.entry,
-            ...patch.entry,
-            event:
-              patch.entry.event === undefined
-                ? fixture.entry.event
-                : { ...fixture.entry.event, ...patch.entry.event },
-          };
-    return expect(
-      verifyWorkflowProjectionV1({
-        initialSnapshot: candidateInitial as never,
-        snapshot: candidateSnapshot as never,
-        journal: [candidateEntry as never],
-      })
-    ).toMatchObject({ ok: false, reason });
-  });
+      return expect(
+        verifyWorkflowProjectionV1({
+          initialSnapshot: candidateInitial as never,
+          snapshot: candidateSnapshot as never,
+          journal: [candidateEntry as never],
+        })
+      ).toMatchObject({ ok: false, reason });
+    }
+  );
 
   return it("reports replay failure for a valid event that is invalid from the replayed state", () => {
     const start = initial();

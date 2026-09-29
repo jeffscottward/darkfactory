@@ -117,7 +117,9 @@ const seed = async () => {
   return result;
 };
 
-describe.sequential("DF-040 and DF-046 through DF-050 development seeds", () => {
+describe("DF-040 and DF-046 through DF-050 development seeds", {
+  concurrent: false,
+}, () => {
   beforeAll(async () => {
     testDatabase = await createPostgresTestDatabase();
     databaseResource = createNodeDatabase({

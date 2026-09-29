@@ -136,6 +136,47 @@ describe("source-bound pre-push", () => {
     ).toBe(true);
   });
 
+  it("isolates verification lanes from the hook's repository environment", () => {
+    const hookEnvironment = {
+      GIT_DIR: "/outer/.git",
+      GIT_INDEX_FILE: "/outer/.git/index",
+      GIT_WORK_TREE: "/outer",
+      GIT_SSH_COMMAND: "ssh -i key",
+      GIT_ASKPASS: "/bin/askpass",
+    };
+    const previous = Object.fromEntries(
+      Object.keys(hookEnvironment).map((key) => [key, process.env[key]])
+    );
+    Object.assign(process.env, hookEnvironment);
+    try {
+      expect(run()).toBe(0);
+    } finally {
+      for (const [key, value] of Object.entries(previous)) {
+        if (value === undefined) Reflect.deleteProperty(process.env, key);
+        else process.env[key] = value;
+      }
+    }
+    const laneCalls = mocks.spawnSync.mock.calls.filter(
+      ([executable, arguments_]) =>
+        executable === "bun" && arguments_[0] === "run"
+    );
+    expect(laneCalls).toHaveLength(1);
+    const laneEnvironment = laneCalls[0]?.[2].env as NodeJS.ProcessEnv;
+    for (const key of ["GIT_DIR", "GIT_INDEX_FILE", "GIT_WORK_TREE"]) {
+      expect(laneEnvironment).not.toHaveProperty(key);
+    }
+    expect(laneEnvironment).toMatchObject({
+      GIT_SSH_COMMAND: "ssh -i key",
+      GIT_ASKPASS: "/bin/askpass",
+    });
+    // The hook's own checks still target the pushing repository.
+    return expect(
+      mocks.spawnSync.mock.calls
+        .filter(([executable]) => executable === "git")
+        .every(([, , options]) => !("env" in options))
+    ).toBe(true);
+  });
+
   it("blocks publication when core fails", () => {
     mocks.spawnSync.mockImplementation((executable, arguments_) => {
       if (executable === "bun" && arguments_[1] === "verify:prepush") {
@@ -184,10 +225,13 @@ describe("source-bound pre-push", () => {
       "Executing Bun must exactly match",
       () => mocks.readFileSync.mockReturnValue("9.9.9\n"),
     ],
-  ] as const)("warns about a %s Bun pin without blocking local lanes", (_name, detail, arrange) => {
-    arrange();
-    return expectRuntimeWarning(detail);
-  });
+  ] as const)(
+    "warns about a %s Bun pin without blocking local lanes",
+    (_name, detail, arrange) => {
+      arrange();
+      return expectRuntimeWarning(detail);
+    }
+  );
 
   it.each([
     ["nonzero exit", result(9), "exit 9"],
@@ -197,15 +241,18 @@ describe("source-bound pre-push", () => {
       "bun unavailable",
     ],
     ["termination signal", result(null, "", { signal: "SIGTERM" }), "SIGTERM"],
-  ] as const)("warns about a PATH-resolved bun %s without blocking local lanes", (_name, failedResult, detail) => {
-    mocks.spawnSync.mockImplementation((executable, arguments_) => {
-      if (executable === "bun" && arguments_[0] === "--version") {
-        return failedResult;
-      }
-      return gitSuccess(executable, arguments_);
-    });
-    return expectRuntimeWarning(detail);
-  });
+  ] as const)(
+    "warns about a PATH-resolved bun %s without blocking local lanes",
+    (_name, failedResult, detail) => {
+      mocks.spawnSync.mockImplementation((executable, arguments_) => {
+        if (executable === "bun" && arguments_[0] === "--version") {
+          return failedResult;
+        }
+        return gitSuccess(executable, arguments_);
+      });
+      return expectRuntimeWarning(detail);
+    }
+  );
 
   it("warns about a mismatched PATH-resolved bun without blocking local lanes", () => {
     mocks.spawnSync.mockImplementation((executable, arguments_) => {
@@ -350,20 +397,19 @@ describe("source-bound pre-push", () => {
     return expect(invokedLanes()).toEqual(lanes);
   });
 
-  it.each([
-    " M src/index.ts\0",
-    "M  src/index.ts\0",
-    "MM src/index.ts\0",
-  ])("rejects dirty tracked source %j before local lanes", (dirty) => {
-    mocks.spawnSync.mockImplementation((executable, arguments_) => {
-      if (arguments_.includes("status")) {
-        return result(0, dirty);
-      }
-      return gitSuccess(executable, arguments_);
-    });
-    expect(run()).toBe(1);
-    return expect(invokedLanes()).toEqual([]);
-  });
+  it.each([" M src/index.ts\0", "M  src/index.ts\0", "MM src/index.ts\0"])(
+    "rejects dirty tracked source %j before local lanes",
+    (dirty) => {
+      mocks.spawnSync.mockImplementation((executable, arguments_) => {
+        if (arguments_.includes("status")) {
+          return result(0, dirty);
+        }
+        return gitSuccess(executable, arguments_);
+      });
+      expect(run()).toBe(1);
+      return expect(invokedLanes()).toEqual([]);
+    }
+  );
 
   it("inspects only tracked files so untracked and ignored files never block a push", () => {
     expect(run()).toBe(0);
@@ -438,20 +484,19 @@ describe("source-bound pre-push", () => {
     return expect(runScripts).toHaveBeenCalledExactlyOnceWith(lanes);
   });
 
-  it.each([
-    "check-ref-format",
-    "rev-parse",
-    "status",
-  ])("propagates failed Git prerequisite %s", (failed) => {
-    mocks.spawnSync.mockImplementation((executable, arguments_) => {
-      if (arguments_.includes(failed)) {
-        return result(19);
-      }
-      return gitSuccess(executable, arguments_);
-    });
-    expect(run()).toBe(19);
-    return expect(invokedLanes()).toEqual([]);
-  });
+  it.each(["check-ref-format", "rev-parse", "status"])(
+    "propagates failed Git prerequisite %s",
+    (failed) => {
+      mocks.spawnSync.mockImplementation((executable, arguments_) => {
+        if (arguments_.includes(failed)) {
+          return result(19);
+        }
+        return gitSuccess(executable, arguments_);
+      });
+      expect(run()).toBe(19);
+      return expect(invokedLanes()).toEqual([]);
+    }
+  );
 
   it("rejects non-commit tag objects rather than silently using HEAD", () => {
     mocks.spawnSync.mockImplementation((executable, arguments_) => {
@@ -488,19 +533,19 @@ describe("source-bound pre-push", () => {
     );
   });
 
-  it.each([
-    "readInput",
-    "runScripts",
-  ])("blocks thrown %s errors", (dependency) => {
-    const failure = new Error("unavailable prerequisite");
-    const throwFailure = () => {
-      throw failure;
-    };
-    expect(run(update(), { [dependency]: throwFailure })).toBe(1);
-    return expect(console.error).toHaveBeenCalledWith(
-      expect.stringContaining(failure.message)
-    );
-  });
+  it.each(["readInput", "runScripts"])(
+    "blocks thrown %s errors",
+    (dependency) => {
+      const failure = new Error("unavailable prerequisite");
+      const throwFailure = () => {
+        throw failure;
+      };
+      expect(run(update(), { [dependency]: throwFailure })).toBe(1);
+      return expect(console.error).toHaveBeenCalledWith(
+        expect.stringContaining(failure.message)
+      );
+    }
+  );
 
   it("blocks non-Error lane failures", () => {
     const runScripts = () => {

@@ -130,8 +130,7 @@ export const createDocsFileSystem = async (
       try {
         return await readBounded(path);
       } catch (error) {
-        if ((error as NodeJS.ErrnoException).code === "ENOENT")
-          return undefined;
+        if ((error as NodeJS.ErrnoException).code === "ENOENT") return;
         throw error;
       }
     },

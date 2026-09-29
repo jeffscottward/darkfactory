@@ -1,5 +1,6 @@
 {
   "name": "@darkfactory/web",
+  "brick": "app",
   "version": "0.2.1",
   "license": "MIT",
   "repository": {
@@ -49,6 +50,7 @@
     "@vitejs/plugin-rsc": "catalog:",
     "esbuild": "catalog:",
     "typescript": "catalog:",
+    "typescript-api": "catalog:",
     "vite": "catalog:",
     "vitest": "catalog:",
     "wrangler": "catalog:"

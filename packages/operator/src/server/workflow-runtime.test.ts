@@ -741,12 +741,14 @@ describe("operator workflow approval idempotency", () => {
 
   it("binds and approves an exact-boundary multibyte submit scope", async () => {
     const scope = {
-      repositoryId: "darkfactory",
-      paths: [
-        ...Array.from({ length: 15 }, () => "é".repeat(128)),
-        "é".repeat(84),
-      ],
+      repositoryId: SCOPE.repositoryId,
+      paths: [...Array.from({ length: 15 }, () => "é".repeat(128)), ""],
     };
+    // Fill the last path to the exact byte boundary for any repository id length.
+    const remaining =
+      MAX_WORKFLOW_SCOPE_BYTES -
+      new TextEncoder().encode(canonicalJsonV1(scope)).byteLength;
+    scope.paths[15] = `${"é".repeat(Math.floor(remaining / 2))}${"a".repeat(remaining % 2)}`;
     const fake = fakeRepository();
     const port = portFor(fake);
     const submitted = await port.submit({
@@ -838,46 +840,46 @@ describe("operator workflow approval idempotency", () => {
     return expect(fake.decideApprovalAndAppend).toHaveBeenCalledOnce();
   });
 
-  it.each([
-    "approve",
-    "reject",
-  ] as const)("maps the %s missing-run mutation race to the canonical public error", async (action) => {
-    const fake = fakeRepository();
-    const port = portFor(fake);
-    const run = await awaitingRun(fake, port);
-    const stored = await fake.repository.findProjectionByOwner(
-      run.submitted.run.id,
-      "owner-1"
-    );
-    if (stored === null)
-      throw new Error("Expected the awaiting run projection");
-    const lookup = vi
-      .spyOn(fake.repository, "findProjectionByOwner")
-      .mockResolvedValueOnce(stored)
-      .mockResolvedValueOnce(null);
-    const { stale: _stale, ...approval } = run.approval;
+  it.each(["approve", "reject"] as const)(
+    "maps the %s missing-run mutation race to the canonical public error",
+    async (action) => {
+      const fake = fakeRepository();
+      const port = portFor(fake);
+      const run = await awaitingRun(fake, port);
+      const stored = await fake.repository.findProjectionByOwner(
+        run.submitted.run.id,
+        "owner-1"
+      );
+      if (stored === null)
+        throw new Error("Expected the awaiting run projection");
+      const lookup = vi
+        .spyOn(fake.repository, "findProjectionByOwner")
+        .mockResolvedValueOnce(stored)
+        .mockResolvedValueOnce(null);
+      const { stale: _stale, ...approval } = run.approval;
 
-    const operation =
-      action === "approve"
-        ? port.approve({
-            ownerId: "owner-1",
-            actorUserId: "operator-1",
-            runId: run.submitted.run.id,
-            requestId: "missing-during-approve",
-            approval,
-          })
-        : port.reject({
-            ownerId: "owner-1",
-            actorUserId: "operator-1",
-            runId: run.submitted.run.id,
-            requestId: "missing-during-reject",
-            reason: "Not ready",
-          });
+      const operation =
+        action === "approve"
+          ? port.approve({
+              ownerId: "owner-1",
+              actorUserId: "operator-1",
+              runId: run.submitted.run.id,
+              requestId: "missing-during-approve",
+              approval,
+            })
+          : port.reject({
+              ownerId: "owner-1",
+              actorUserId: "operator-1",
+              runId: run.submitted.run.id,
+              requestId: "missing-during-reject",
+              reason: "Not ready",
+            });
 
-    await expectWorkflowPortError(operation, "NOT_FOUND");
-    expect(lookup).toHaveBeenCalledTimes(2);
-    return expect(fake.decideApprovalAndAppend).not.toHaveBeenCalled();
-  });
+      await expectWorkflowPortError(operation, "NOT_FOUND");
+      expect(lookup).toHaveBeenCalledTimes(2);
+      return expect(fake.decideApprovalAndAppend).not.toHaveBeenCalled();
+    }
+  );
   return it("maps an absent approval run through the port-level projection guard", async () => {
     const fake = fakeRepository();
     const port = portFor(fake);
@@ -2029,37 +2031,40 @@ describe("operator approval replay binding comparisons", () =>
     ["journalHeadHash", "f".repeat(64)],
     ["effectHash", "f".repeat(64)],
     ["effectScope", '{"paths":["other"],"repositoryId":"darkfactory"}'],
-  ] as const)("rejects a replay whose %s changes after event identity lookup", async (field, staleValue) => {
-    const fake = fakeRepository();
-    const port = portFor(fake);
-    const run = await awaitingRun(fake, port);
-    const { stale: _stale, ...approval } = run.approval;
-    await port.approve({
-      ownerId: "owner-1",
-      actorUserId: "operator-1",
-      runId: run.submitted.run.id,
-      requestId: "initial-approval",
-      approval,
-    });
-    let reads = 0;
-    const replay = { ...approval } as Record<string, unknown>;
-    Object.defineProperty(replay, field, {
-      enumerable: true,
-      get: () => {
-        reads += 1;
-        return reads === 1 ? approval[field] : staleValue;
-      },
-    });
-    return await expect(
-      port.approve({
+  ] as const)(
+    "rejects a replay whose %s changes after event identity lookup",
+    async (field, staleValue) => {
+      const fake = fakeRepository();
+      const port = portFor(fake);
+      const run = await awaitingRun(fake, port);
+      const { stale: _stale, ...approval } = run.approval;
+      await port.approve({
         ownerId: "owner-1",
         actorUserId: "operator-1",
         runId: run.submitted.run.id,
-        requestId: "replayed-approval",
-        approval: replay as never,
-      })
-    ).rejects.toMatchObject({ code: "STALE_APPROVAL" });
-  }));
+        requestId: "initial-approval",
+        approval,
+      });
+      let reads = 0;
+      const replay = { ...approval } as Record<string, unknown>;
+      Object.defineProperty(replay, field, {
+        enumerable: true,
+        get: () => {
+          reads += 1;
+          return reads === 1 ? approval[field] : staleValue;
+        },
+      });
+      return await expect(
+        port.approve({
+          ownerId: "owner-1",
+          actorUserId: "operator-1",
+          runId: run.submitted.run.id,
+          requestId: "replayed-approval",
+          approval: replay as never,
+        })
+      ).rejects.toMatchObject({ code: "STALE_APPROVAL" });
+    }
+  ));
 
 describe("operator workflow remaining defaults and replay paths", () => {
   it("applies list defaults without optional state or cursor filters", async () => {
@@ -2110,22 +2115,25 @@ describe("operator workflow remaining defaults and replay paths", () => {
     ["journalHeadHash", "f".repeat(64)],
     ["effectHash", "f".repeat(64)],
     ["effectScope", '{"paths":["other"],"repositoryId":"darkfactory"}'],
-  ] as const)("rejects a fresh approval with mismatched %s", async (field, value) => {
-    const fake = fakeRepository();
-    const port = portFor(fake);
-    const run = await awaitingRun(fake, port);
-    const { stale: _stale, ...approval } = run.approval;
-    await expect(
-      port.approve({
-        ownerId: "owner-1",
-        actorUserId: "operator-1",
-        runId: run.submitted.run.id,
-        requestId: "mismatched-approval",
-        approval: { ...approval, [field]: value },
-      })
-    ).rejects.toMatchObject({ code: "STALE_APPROVAL" });
-    return expect(fake.decideApprovalAndAppend).not.toHaveBeenCalled();
-  });
+  ] as const)(
+    "rejects a fresh approval with mismatched %s",
+    async (field, value) => {
+      const fake = fakeRepository();
+      const port = portFor(fake);
+      const run = await awaitingRun(fake, port);
+      const { stale: _stale, ...approval } = run.approval;
+      await expect(
+        port.approve({
+          ownerId: "owner-1",
+          actorUserId: "operator-1",
+          runId: run.submitted.run.id,
+          requestId: "mismatched-approval",
+          approval: { ...approval, [field]: value },
+        })
+      ).rejects.toMatchObject({ code: "STALE_APPROVAL" });
+      return expect(fake.decideApprovalAndAppend).not.toHaveBeenCalled();
+    }
+  );
 
   return it("uses validation fallback for an unexpected cancel persistence failure", async () => {
     const fake = fakeRepository();

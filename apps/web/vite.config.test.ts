@@ -1,6 +1,6 @@
 import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
-import ts from "typescript";
+import ts from "typescript-api";
 import { describe, expect, it, vi } from "vitest";
 import viteConfig from "./vite.config";
 
@@ -17,6 +17,13 @@ vi.mock("@cloudflare/vite-plugin", () => ({
   cloudflare: pluginMocks.cloudflare,
 }));
 vi.mock("vinext", () => ({ default: pluginMocks.vinext }));
+
+// Vitest 5 clears mock state before every test, so keep the calls made while
+// vite.config was imported.
+const importCalls = {
+  cloudflare: [...pluginMocks.cloudflare.mock.calls],
+  vinext: [...pluginMocks.vinext.mock.calls],
+};
 
 describe("TypeScript package typecheck", () => {
   it("keeps the package typecheck on its strict dedicated config", async () => {
@@ -68,17 +75,21 @@ describe("Vite application plugin contract", () => {
   });
 
   it("preserves Vinext route discovery and Cloudflare Worker environments", () => {
-    expect(pluginMocks.vinext).toHaveBeenCalledWith({
-      nextConfig: {
-        pageExtensions: ["tsx", "ts", "jsx", "js"],
+    expect(importCalls.vinext).toContainEqual([
+      {
+        nextConfig: {
+          pageExtensions: ["tsx", "ts", "jsx", "js"],
+        },
       },
-    });
-    expect(pluginMocks.cloudflare).toHaveBeenCalledWith({
-      viteEnvironment: {
-        name: "rsc",
-        childEnvironments: ["ssr"],
+    ]);
+    expect(importCalls.cloudflare).toContainEqual([
+      {
+        viteEnvironment: {
+          name: "rsc",
+          childEnvironments: ["ssr"],
+        },
       },
-    });
+    ]);
   });
 
   it("runs the environment policy last and isolates known and unknown environments", () => {

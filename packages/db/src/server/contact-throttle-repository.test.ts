@@ -110,15 +110,18 @@ describe("contact throttle repository", () => {
     ["too long", "a".repeat(65)],
     ["non-hex", `${"a".repeat(63)}g`],
     ["null", null],
-  ] as const)("rejects %s keys before opening a transaction", async (_label, keyHash) => {
-    const double = createThrottleDatabase([]);
-    const repository = createContactThrottleRepository(double.database);
+  ] as const)(
+    "rejects %s keys before opening a transaction",
+    async (_label, keyHash) => {
+      const double = createThrottleDatabase([]);
+      const repository = createContactThrottleRepository(double.database);
 
-    await expect(repository.consume(keyHash as string)).rejects.toThrow(
-      new TypeError("keyHash must be a lowercase SHA-256 HMAC")
-    );
-    return expect(double.database.transaction).not.toHaveBeenCalled();
-  });
+      await expect(repository.consume(keyHash as string)).rejects.toThrow(
+        new TypeError("keyHash must be a lowercase SHA-256 HMAC")
+      );
+      return expect(double.database.transaction).not.toHaveBeenCalled();
+    }
+  );
 
   it("inserts a new key below capacity using the default cleanup and quota policy", async () => {
     const double = createThrottleDatabase([
@@ -230,24 +233,27 @@ describe("contact throttle repository", () => {
   it.each([
     [null, 1],
     [37, 37],
-  ] as const)("denies a new key at table capacity with retry %s normalized to %s", async (databaseRetry, expectedRetry) => {
-    const double = createThrottleDatabase([
-      newKeyScenario({
-        row_count: 2,
-        retry_after_seconds: databaseRetry,
-      }),
-    ]);
-    const repository = createContactThrottleRepository(double.database, {
-      maxRows: 2,
-    });
+  ] as const)(
+    "denies a new key at table capacity with retry %s normalized to %s",
+    async (databaseRetry, expectedRetry) => {
+      const double = createThrottleDatabase([
+        newKeyScenario({
+          row_count: 2,
+          retry_after_seconds: databaseRetry,
+        }),
+      ]);
+      const repository = createContactThrottleRepository(double.database, {
+        maxRows: 2,
+      });
 
-    await expect(repository.consume(KEY_HASH)).resolves.toEqual({
-      allowed: false,
-      remaining: 0,
-      retryAfterSeconds: expectedRetry,
-    });
-    return expect(double.records[0]!.statements).toHaveLength(5);
-  });
+      await expect(repository.consume(KEY_HASH)).resolves.toEqual({
+        allowed: false,
+        remaining: 0,
+        retryAfterSeconds: expectedRetry,
+      });
+      return expect(double.records[0]!.statements).toHaveLength(5);
+    }
+  );
 
   it("fails closed when the capacity query returns no row", async () => {
     const double = createThrottleDatabase([

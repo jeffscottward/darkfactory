@@ -1,5 +1,6 @@
 {
   "name": "@darkfactory/operator",
+  "brick": "agent-sdlc",
   "version": "0.2.1",
   "license": "MIT",
   "repository": {

@@ -489,22 +489,21 @@ describe("account service", () => {
       code: "STORAGE_ERROR",
       message: "Account storage is unavailable",
     },
-  ] as const)("maps repository failures to the stable $code contract", async ({
-    failure,
-    code,
-    message,
-  }) => {
-    const repositories = accountRepositories();
-    vi.mocked(repositories.addresses.listByUserId).mockRejectedValue(failure);
+  ] as const)(
+    "maps repository failures to the stable $code contract",
+    async ({ failure, code, message }) => {
+      const repositories = accountRepositories();
+      vi.mocked(repositories.addresses.listByUserId).mockRejectedValue(failure);
 
-    return await expect(
-      createAccountService(repositories).listAddresses(principal)
-    ).rejects.toMatchObject({
-      name: "AccountServiceError",
-      code,
-      message,
-    });
-  });
+      return await expect(
+        createAccountService(repositories).listAddresses(principal)
+      ).rejects.toMatchObject({
+        name: "AccountServiceError",
+        code,
+        message,
+      });
+    }
+  );
 
   return it("preserves an already classified account failure", async () => {
     const repositories = accountRepositories();

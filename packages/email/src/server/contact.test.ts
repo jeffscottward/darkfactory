@@ -105,8 +105,11 @@ describe("renderContactEmail", () => {
       label: "oversized message",
       value: { ...contactInput, message: "m".repeat(5001) },
     },
-  ])("rejects $label", async ({ value }) =>
-    await expect(renderContactEmail(value)).rejects.toThrow());
+  ])(
+    "rejects $label",
+    async ({ value }) =>
+      await expect(renderContactEmail(value)).rejects.toThrow()
+  );
 });
 
 describe("selectContactEmailPort", () => {
@@ -353,22 +356,25 @@ describe("createResendContactEmailPort", () => {
     ["blank", "  "],
     ["oversized", `${"a".repeat(245)}@example.test`],
     ["malformed", "invalid"],
-  ])("fails closed for a $0 recipient without constructing a client", async (_case, recipient) => {
-    const clientFactory = vi.fn();
-    const email = createResendContactEmailPort({
-      recipient,
-      apiKey: "re_test_key",
-      from: "DarkFactory <noreply@example.test>",
-      clientFactory,
-    });
+  ])(
+    "fails closed for a $0 recipient without constructing a client",
+    async (_case, recipient) => {
+      const clientFactory = vi.fn();
+      const email = createResendContactEmailPort({
+        recipient,
+        apiKey: "re_test_key",
+        from: "DarkFactory <noreply@example.test>",
+        clientFactory,
+      });
 
-    await expect(email.sendContact(contactInput)).resolves.toMatchObject({
-      status: "not-delivered",
-      provider: "disabled",
-      code: "CONTACT_RECIPIENT_INVALID",
-    });
-    return expect(clientFactory).not.toHaveBeenCalled();
-  });
+      await expect(email.sendContact(contactInput)).resolves.toMatchObject({
+        status: "not-delivered",
+        provider: "disabled",
+        code: "CONTACT_RECIPIENT_INVALID",
+      });
+      return expect(clientFactory).not.toHaveBeenCalled();
+    }
+  );
 
   it.each([
     ["missing API key", undefined, "DarkFactory <noreply@example.test>"],

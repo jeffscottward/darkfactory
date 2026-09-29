@@ -146,7 +146,6 @@ const emitRequestDatabaseDiagnostic = (
     diagnosticSink?.(diagnostic);
   } catch {
     // A diagnostic failure must not turn a handled driver event into a crash.
-    undefined;
   }
 };
 
@@ -210,7 +209,6 @@ const closeRequestDatabaseClient = (
           client.connection.stream.destroy();
         } catch {
           // The socket is already unusable; releasing admission below is what matters.
-          undefined;
         }
         throw error;
       } finally {
@@ -265,7 +263,6 @@ export const createRequestDatabase = async (
       await close();
     } catch {
       // The central close path reports the end failure.
-      undefined;
     }
     throw error;
   }

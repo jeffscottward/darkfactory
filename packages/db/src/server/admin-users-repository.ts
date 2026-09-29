@@ -44,7 +44,7 @@ const toBase64Url = (value: string): string => {
   return btoa(binary)
     .replaceAll("+", "-")
     .replaceAll("/", "_")
-    .replace(/=+$/u, "");
+    .replace(/[=]+$/u, "");
 };
 
 const fromBase64Url = (value: string): string => {

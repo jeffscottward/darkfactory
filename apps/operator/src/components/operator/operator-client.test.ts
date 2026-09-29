@@ -184,7 +184,7 @@ describe("operator oRPC transport", () => {
       gateway,
       {
         title: "  Pilot run  ",
-        repositoryId: " DarkFactory ",
+        repositoryId: " Sample-Repo ",
         scopePaths: " packages/state \r\n apps/web ",
       },
       "submission-attempt-1"
@@ -193,7 +193,7 @@ describe("operator oRPC transport", () => {
     expect(gateway.submit).toHaveBeenCalledWith(
       "  Pilot run  ",
       {
-        repositoryId: "darkfactory",
+        repositoryId: "sample-repo",
         paths: ["packages/state", "apps/web"],
       },
       "submission-attempt-1"

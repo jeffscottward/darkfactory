@@ -533,16 +533,14 @@ describe("workflow persistence primitives", () => {
     );
   });
 
-  it.each([
-    undefined,
-    1n,
-    Symbol("value"),
-    () => undefined,
-  ])("rejects non-JSON primitive %#", (value) => {
-    return expect(() => canonicalWorkflowJson(value)).toThrow(
-      WorkflowPersistenceInputError
-    );
-  });
+  it.each([undefined, 1n, Symbol("value"), () => undefined])(
+    "rejects non-JSON primitive %#",
+    (value) => {
+      return expect(() => canonicalWorkflowJson(value)).toThrow(
+        WorkflowPersistenceInputError
+      );
+    }
+  );
 
   it("allows the same object in sibling branches while rejecting ancestor cycles", () => {
     const child = { value: 1 };
@@ -556,18 +554,18 @@ describe("workflow persistence primitives", () => {
     { previousHash: GENESIS_WORKFLOW_JOURNAL_HASH, sequence: 0 },
     { previousHash: GENESIS_WORKFLOW_JOURNAL_HASH, sequence: 1.5 },
     { previousHash: GENESIS_WORKFLOW_JOURNAL_HASH, sequence: Number.NaN },
-  ])("rejects invalid journal hash material %#", ({
-    previousHash,
-    sequence,
-  }) => {
-    return expect(() =>
-      hashWorkflowJournalEntryV1({
-        previousHash,
-        sequence,
-        event: EVENT,
-      })
-    ).toThrow(WorkflowPersistenceInputError);
-  });
+  ])(
+    "rejects invalid journal hash material %#",
+    ({ previousHash, sequence }) => {
+      return expect(() =>
+        hashWorkflowJournalEntryV1({
+          previousHash,
+          sequence,
+          event: EVENT,
+        })
+      ).toThrow(WorkflowPersistenceInputError);
+    }
+  );
 
   it("builds one atomic SKIP LOCKED claim with bounded fenced leases", async () => {
     const execute = vi.fn(async (_statement: SQL) => ({ rows: [] }));
@@ -753,57 +751,63 @@ describe("workflow persistence primitives", () => {
     ]);
   });
 
-  it.each([
-    null,
-    new Date(Number.NaN),
-  ])("rejects invalid retained-resource retry date %#", async (retryAt) => {
-    const { fake, repository } = repositoryFor();
-    await expect(
-      repository.releaseRetainedResource({
-        runId: "run-1",
-        leaseOwner: "cleanup-worker",
-        fence: 2,
-        retryAt: retryAt as Date,
-      })
-    ).rejects.toBeInstanceOf(WorkflowPersistenceInputError);
-    return expect(fake.executed).toHaveLength(0);
-  });
+  it.each([null, new Date(Number.NaN)])(
+    "rejects invalid retained-resource retry date %#",
+    async (retryAt) => {
+      const { fake, repository } = repositoryFor();
+      await expect(
+        repository.releaseRetainedResource({
+          runId: "run-1",
+          leaseOwner: "cleanup-worker",
+          fence: 2,
+          retryAt: retryAt as Date,
+        })
+      ).rejects.toBeInstanceOf(WorkflowPersistenceInputError);
+      return expect(fake.executed).toHaveLength(0);
+    }
+  );
 
   it.each([
     [[{ run_id: "run-1" }], true],
     [[], false],
-  ] as const)("completes exactly one live retained-resource lease %#", async (rows, expected) => {
-    const { repository } = repositoryFor({ executes: [rows] });
-    return await expect(
-      repository.completeRetainedResource({
-        runId: "run-1",
-        leaseOwner: "cleanup-worker",
-        fence: 2,
-      })
-    ).resolves.toBe(expected);
-  });
+  ] as const)(
+    "completes exactly one live retained-resource lease %#",
+    async (rows, expected) => {
+      const { repository } = repositoryFor({ executes: [rows] });
+      return await expect(
+        repository.completeRetainedResource({
+          runId: "run-1",
+          leaseOwner: "cleanup-worker",
+          fence: 2,
+        })
+      ).resolves.toBe(expected);
+    }
+  );
 
   it.each([
     [[{ run_id: "run-1" }], true],
     [[], false],
-  ] as const)("fails exactly one live retained-resource lease %#", async (rows, expected) => {
-    const { fake, repository } = repositoryFor({ executes: [rows] });
-    await expect(
-      repository.failRetainedResource({
-        runId: "run-1",
-        leaseOwner: "cleanup-worker",
-        fence: 2,
-        error: " cleanup failed ",
-      })
-    ).resolves.toBe(expected);
-    const compiled = new PgDialect().sqlToQuery(fake.executed[0] as SQL);
-    return expect(compiled.params).toEqual([
-      " cleanup failed ",
-      "run-1",
-      "cleanup-worker",
-      2,
-    ]);
-  });
+  ] as const)(
+    "fails exactly one live retained-resource lease %#",
+    async (rows, expected) => {
+      const { fake, repository } = repositoryFor({ executes: [rows] });
+      await expect(
+        repository.failRetainedResource({
+          runId: "run-1",
+          leaseOwner: "cleanup-worker",
+          fence: 2,
+          error: " cleanup failed ",
+        })
+      ).resolves.toBe(expected);
+      const compiled = new PgDialect().sqlToQuery(fake.executed[0] as SQL);
+      return expect(compiled.params).toEqual([
+        " cleanup failed ",
+        "run-1",
+        "cleanup-worker",
+        2,
+      ]);
+    }
+  );
 
   return it.each([
     [
@@ -906,14 +910,17 @@ describe("workflow projection reads", () => {
     projectionFixture([EVENT], { snapshot: { machineId: "other-machine" } }),
     projectionFixture([EVENT], { snapshot: { machineVersion: 2 } }),
     projectionFixture([EVENT], { snapshot: { state: "planning" } }),
-  ])("fails closed for corrupted projection material %#", async (projection) => {
-    const { repository } = repositoryFor({
-      selects: projectionSelects(projection),
-    });
-    return await expect(
-      repository.findProjectionByOwner("run-1", "owner-1")
-    ).rejects.toBeInstanceOf(WorkflowProjectionIntegrityError);
-  });
+  ])(
+    "fails closed for corrupted projection material %#",
+    async (projection) => {
+      const { repository } = repositoryFor({
+        selects: projectionSelects(projection),
+      });
+      return await expect(
+        repository.findProjectionByOwner("run-1", "owner-1")
+      ).rejects.toBeInstanceOf(WorkflowProjectionIntegrityError);
+    }
+  );
 
   return it.each([
     ["", "owner-1"],
@@ -1020,18 +1027,21 @@ describe("workflow creation", () => {
       owner_count: 0,
       global_count: 0,
     },
-  ])("creates a run with explicit identity for admission counts %#", async (admission) => {
-    const projection = projectionFixture();
-    const { fake, repository } = repositoryFor({
-      executes: [[], [], [], [admission]],
-      inserts: [[], [], []],
-      selects: projectionSelects(projection),
-    });
-    await expect(
-      repository.createRun(createInput(projection))
-    ).resolves.toEqual(projection);
-    return expect(methodValues(fake, "insert")).toHaveLength(3);
-  });
+  ])(
+    "creates a run with explicit identity for admission counts %#",
+    async (admission) => {
+      const projection = projectionFixture();
+      const { fake, repository } = repositoryFor({
+        executes: [[], [], [], [admission]],
+        inserts: [[], [], []],
+        selects: projectionSelects(projection),
+      });
+      await expect(
+        repository.createRun(createInput(projection))
+      ).resolves.toEqual(projection);
+      return expect(methodValues(fake, "insert")).toHaveLength(3);
+    }
+  );
 
   it.each([
     { ownerId: " " },
@@ -1267,39 +1277,39 @@ describe("workflow appends", () => {
     ).toBe(false);
   });
 
-  it.each([
-    { runId: "other-run" },
-    { requestHash: "1".repeat(64) },
-  ])("rejects a conflicting duplicate event %#", async (conflict) => {
-    const before = projectionFixture();
-    const existing = {
-      ...before.journal[0]!,
-      eventId: SECOND_EVENT.eventId,
-      ...conflict,
-    };
-    const { fake, repository } = repositoryFor({
-      executes: [[]],
-      selects: [[before.run], [existing]],
-    });
-    await expect(repository.append(appendInput(before))).rejects.toBeInstanceOf(
-      WorkflowConcurrencyError
-    );
-    return expect(fake.lifecycle.rollbacks).toBe(1);
-  });
+  it.each([{ runId: "other-run" }, { requestHash: "1".repeat(64) }])(
+    "rejects a conflicting duplicate event %#",
+    async (conflict) => {
+      const before = projectionFixture();
+      const existing = {
+        ...before.journal[0]!,
+        eventId: SECOND_EVENT.eventId,
+        ...conflict,
+      };
+      const { fake, repository } = repositoryFor({
+        executes: [[]],
+        selects: [[before.run], [existing]],
+      });
+      await expect(
+        repository.append(appendInput(before))
+      ).rejects.toBeInstanceOf(WorkflowConcurrencyError);
+      return expect(fake.lifecycle.rollbacks).toBe(1);
+    }
+  );
 
-  it.each([
-    { expectedSequence: 2 },
-    { expectedHeadHash: "1".repeat(64) },
-  ])("rejects a stale append predecessor %#", async (overrides) => {
-    const before = projectionFixture();
-    const { repository } = repositoryFor({
-      executes: [[]],
-      selects: [[before.run], []],
-    });
-    return await expect(
-      repository.append(appendInput(before, SECOND_EVENT, overrides))
-    ).rejects.toBeInstanceOf(WorkflowConcurrencyError);
-  });
+  it.each([{ expectedSequence: 2 }, { expectedHeadHash: "1".repeat(64) }])(
+    "rejects a stale append predecessor %#",
+    async (overrides) => {
+      const before = projectionFixture();
+      const { repository } = repositoryFor({
+        executes: [[]],
+        selects: [[before.run], []],
+      });
+      return await expect(
+        repository.append(appendInput(before, SECOND_EVENT, overrides))
+      ).rejects.toBeInstanceOf(WorkflowConcurrencyError);
+    }
+  );
 
   it("rejects an append for a run outside the owner scope", async () => {
     const { repository } = repositoryFor({
@@ -1369,41 +1379,43 @@ describe("workflow appends", () => {
     { effectHash: "1".repeat(64), effectScope: null },
     { effectHash: null, effectScope: "scope" },
   ];
-  it.each(
-    invalidAppendedSnapshotOverrides
-  )("rejects an invalid appended snapshot %#", async (snapshotOverrides) => {
-    const before = projectionFixture();
-    const base = appendInput(before);
-    const { repository } = repositoryFor({
-      executes: [[]],
-      selects: [[before.run], []],
-    });
-    return await expect(
-      repository.append({
-        ...base,
-        snapshot: { ...base.snapshot, ...snapshotOverrides },
-      })
-    ).rejects.toBeInstanceOf(WorkflowPersistenceInputError);
-  });
+  it.each(invalidAppendedSnapshotOverrides)(
+    "rejects an invalid appended snapshot %#",
+    async (snapshotOverrides) => {
+      const before = projectionFixture();
+      const base = appendInput(before);
+      const { repository } = repositoryFor({
+        executes: [[]],
+        selects: [[before.run], []],
+      });
+      return await expect(
+        repository.append({
+          ...base,
+          snapshot: { ...base.snapshot, ...snapshotOverrides },
+        })
+      ).rejects.toBeInstanceOf(WorkflowPersistenceInputError);
+    }
+  );
 
   it.each([
     { updates: [[], []] },
     { updates: [[projectionFixture([EVENT, SECOND_EVENT]).snapshot], []] },
-  ])("rolls back when an optimistic projection update loses %#", async ({
-    updates,
-  }) => {
-    const before = projectionFixture();
-    const { fake, repository } = repositoryFor({
-      executes: [[]],
-      selects: [[before.run], []],
-      inserts: [[]],
-      updates,
-    });
-    await expect(repository.append(appendInput(before))).rejects.toBeInstanceOf(
-      WorkflowConcurrencyError
-    );
-    return expect(fake.lifecycle.rollbacks).toBe(1);
-  });
+  ])(
+    "rolls back when an optimistic projection update loses %#",
+    async ({ updates }) => {
+      const before = projectionFixture();
+      const { fake, repository } = repositoryFor({
+        executes: [[]],
+        selects: [[before.run], []],
+        inserts: [[]],
+        updates,
+      });
+      await expect(
+        repository.append(appendInput(before))
+      ).rejects.toBeInstanceOf(WorkflowConcurrencyError);
+      return expect(fake.lifecycle.rollbacks).toBe(1);
+    }
+  );
 
   return it("rolls back when effect idempotency conflicts", async () => {
     const before = projectionFixture();
@@ -1486,12 +1498,15 @@ describe("workflow owner-scoped lists", () => {
     ["listEvidenceByOwner", "run-1", ""],
     ["listMessagesByOwner", "", "owner-1"],
     ["listMessagesByOwner", "run-1", ""],
-  ] as const)("validates %s ownership input", async (method, runId, ownerId) => {
-    const { repository } = repositoryFor();
-    return await expect(
-      repository[method](runId, ownerId)
-    ).rejects.toBeInstanceOf(WorkflowPersistenceInputError);
-  });
+  ] as const)(
+    "validates %s ownership input",
+    async (method, runId, ownerId) => {
+      const { repository } = repositoryFor();
+      return await expect(
+        repository[method](runId, ownerId)
+      ).rejects.toBeInstanceOf(WorkflowPersistenceInputError);
+    }
+  );
 
   it("lists unfiltered runs with the default page bound", async () => {
     const rows = [projectionFixture().run];
@@ -1665,29 +1680,28 @@ describe("workflow approvals", () => {
     { snapshotOverrides: { journalHeadHash: "3".repeat(64) } },
     { snapshotOverrides: { effectHash: "3".repeat(64) } },
     { snapshotOverrides: { effectScope: "other-scope" } },
-  ])("rejects stale approval binding %#", async ({
-    snapshot,
-    input,
-    snapshotOverrides,
-  }) => {
-    const bound = projectionFixture([EVENT], {
-      run: { state: "planning" },
-      snapshot: {
-        state: "planning",
-        effectHash: "2".repeat(64),
-        effectScope: "packages/db",
-      },
-    });
-    const persistedSnapshot =
-      snapshot === null ? [] : [{ ...bound.snapshot, ...snapshotOverrides }];
-    const { repository } = repositoryFor({
-      executes: [[]],
-      selects: [[bound.run], persistedSnapshot],
-    });
-    return await expect(
-      repository.createApproval(approvalInput(bound, input))
-    ).rejects.toBeInstanceOf(StaleWorkflowApprovalError);
-  });
+  ])(
+    "rejects stale approval binding %#",
+    async ({ snapshot, input, snapshotOverrides }) => {
+      const bound = projectionFixture([EVENT], {
+        run: { state: "planning" },
+        snapshot: {
+          state: "planning",
+          effectHash: "2".repeat(64),
+          effectScope: "packages/db",
+        },
+      });
+      const persistedSnapshot =
+        snapshot === null ? [] : [{ ...bound.snapshot, ...snapshotOverrides }];
+      const { repository } = repositoryFor({
+        executes: [[]],
+        selects: [[bound.run], persistedSnapshot],
+      });
+      return await expect(
+        repository.createApproval(approvalInput(bound, input))
+      ).rejects.toBeInstanceOf(StaleWorkflowApprovalError);
+    }
+  );
 });
 
 describe("workflow evidence and messages", () => {
@@ -1738,21 +1752,22 @@ describe("workflow evidence and messages", () => {
     { data: [] },
     { data: { value: "x".repeat(49 * 1024) } },
   ];
-  it.each(
-    invalidEvidenceInputOverrides
-  )("rejects invalid evidence input %#", async (overrides) => {
-    const { repository } = repositoryFor();
-    return await expect(
-      repository.addEvidence({
-        runId: "run-1",
-        ownerId: "owner-1",
-        kind: "result",
-        summary: "summary",
-        data: {},
-        ...overrides,
-      })
-    ).rejects.toBeInstanceOf(WorkflowPersistenceInputError);
-  });
+  it.each(invalidEvidenceInputOverrides)(
+    "rejects invalid evidence input %#",
+    async (overrides) => {
+      const { repository } = repositoryFor();
+      return await expect(
+        repository.addEvidence({
+          runId: "run-1",
+          ownerId: "owner-1",
+          kind: "result",
+          summary: "summary",
+          data: {},
+          ...overrides,
+        })
+      ).rejects.toBeInstanceOf(WorkflowPersistenceInputError);
+    }
+  );
 
   it("rejects evidence for a run outside the owner scope", async () => {
     const { repository } = repositoryFor({
@@ -1795,29 +1810,32 @@ describe("workflow evidence and messages", () => {
   it.each([
     { rows: [{ id: "evidence-1" }], expected: { id: "evidence-1" } },
     { rows: [], expected: null },
-  ] as const)("finds one owner-scoped evidence record or null", async ({
-    rows,
-    expected,
-  }) => {
-    const { repository } = repositoryFor({
-      selects: [rows.map((evidence) => ({ evidence }))],
-    });
-    return await expect(
-      repository.findEvidenceByOwner("evidence-1", "run-1", "owner-1")
-    ).resolves.toEqual(expected);
-  });
+  ] as const)(
+    "finds one owner-scoped evidence record or null",
+    async ({ rows, expected }) => {
+      const { repository } = repositoryFor({
+        selects: [rows.map((evidence) => ({ evidence }))],
+      });
+      return await expect(
+        repository.findEvidenceByOwner("evidence-1", "run-1", "owner-1")
+      ).resolves.toEqual(expected);
+    }
+  );
 
   it.each([
     ["", "run-1", "owner-1"],
     ["evidence-1", "", "owner-1"],
     ["evidence-1", "run-1", ""],
-  ])("validates owner-scoped evidence lookup %#", async (id, runId, ownerId) => {
-    const { fake, repository } = repositoryFor();
-    await expect(
-      repository.findEvidenceByOwner(id, runId, ownerId)
-    ).rejects.toBeInstanceOf(WorkflowPersistenceInputError);
-    return expect(fake.queries).toHaveLength(0);
-  });
+  ])(
+    "validates owner-scoped evidence lookup %#",
+    async (id, runId, ownerId) => {
+      const { fake, repository } = repositoryFor();
+      await expect(
+        repository.findEvidenceByOwner(id, runId, ownerId)
+      ).rejects.toBeInstanceOf(WorkflowPersistenceInputError);
+      return expect(fake.queries).toHaveLength(0);
+    }
+  );
 
   describe("atomic operator message append", () => {
     const before = projectionFixture();
@@ -1958,26 +1976,26 @@ describe("workflow evidence and messages", () => {
       return expect(fake.lifecycle.rollbacks).toBe(1);
     });
 
-    it.each([
-      "completed",
-      "cancelled",
-    ] as const)("rejects a new message before inserting into a %s run", async (state) => {
-      const terminal = projectionFixture([EVENT], {
-        run: { state },
-        snapshot: { state },
-      });
-      const { fake, repository } = repositoryFor({
-        executes: [[]],
-        selects: [[terminal.run], []],
-      });
-      await expect(
-        repository.addMessageAndAppend(messageAppendInput(terminal))
-      ).rejects.toBeInstanceOf(WorkflowRunTerminalError);
-      expect(fake.queries.filter(({ kind }) => kind === "insert")).toHaveLength(
-        0
-      );
-      return expect(fake.lifecycle.rollbacks).toBe(1);
-    });
+    it.each(["completed", "cancelled"] as const)(
+      "rejects a new message before inserting into a %s run",
+      async (state) => {
+        const terminal = projectionFixture([EVENT], {
+          run: { state },
+          snapshot: { state },
+        });
+        const { fake, repository } = repositoryFor({
+          executes: [[]],
+          selects: [[terminal.run], []],
+        });
+        await expect(
+          repository.addMessageAndAppend(messageAppendInput(terminal))
+        ).rejects.toBeInstanceOf(WorkflowRunTerminalError);
+        expect(
+          fake.queries.filter(({ kind }) => kind === "insert")
+        ).toHaveLength(0);
+        return expect(fake.lifecycle.rollbacks).toBe(1);
+      }
+    );
 
     it("rejects noncanonical operator snapshots and effects before any write", async () => {
       const canonical = messageAppendInput(before).append!;
@@ -2161,23 +2179,22 @@ describe("workflow evidence and messages", () => {
           ...projectionSelects(after),
         ],
       },
-    ])("rolls back every write when the $label step fails", async ({
-      inserts,
-      updates,
-      selects,
-    }) => {
-      const { fake, repository } = repositoryFor({
-        executes: [[]],
-        selects,
-        inserts,
-        updates,
-      });
-      await expect(
-        repository.addMessageAndAppend(messageAppendInput(before))
-      ).rejects.toBeInstanceOf(Error);
-      expect(fake.lifecycle.rollbacks).toBe(1);
-      return expect(fake.lifecycle.commits).toBe(0);
-    });
+    ])(
+      "rolls back every write when the $label step fails",
+      async ({ inserts, updates, selects }) => {
+        const { fake, repository } = repositoryFor({
+          executes: [[]],
+          selects,
+          inserts,
+          updates,
+        });
+        await expect(
+          repository.addMessageAndAppend(messageAppendInput(before))
+        ).rejects.toBeInstanceOf(Error);
+        expect(fake.lifecycle.rollbacks).toBe(1);
+        return expect(fake.lifecycle.commits).toBe(0);
+      }
+    );
 
     it.each([
       { content: "" },
@@ -2197,40 +2214,42 @@ describe("workflow evidence and messages", () => {
       { runId: "other-run" },
       { ownerId: "other-owner" },
       { event: { ...SECOND_EVENT, occurredAt: "2026-07-29T12:02:00.000Z" } },
-    ])("rejects an append that does not match the operator message %#", async (appendChanges) => {
-      const append = messageAppendInput(before).append!;
-      const { fake, repository } = repositoryFor();
-      await expect(
-        repository.addMessageAndAppend(
-          messageAppendInput(before, {
-            append: { ...append, ...appendChanges },
-          })
-        )
-      ).rejects.toBeInstanceOf(WorkflowPersistenceInputError);
-      return expect(fake.queries).toHaveLength(0);
-    });
+    ])(
+      "rejects an append that does not match the operator message %#",
+      async (appendChanges) => {
+        const append = messageAppendInput(before).append!;
+        const { fake, repository } = repositoryFor();
+        await expect(
+          repository.addMessageAndAppend(
+            messageAppendInput(before, {
+              append: { ...append, ...appendChanges },
+            })
+          )
+        ).rejects.toBeInstanceOf(WorkflowPersistenceInputError);
+        return expect(fake.queries).toHaveLength(0);
+      }
+    );
 
-    it.each([
-      undefined,
-      -1,
-      1.5,
-    ])("rejects invalid durable message count %#", async (messageCount) => {
-      const snapshot = {
-        ...before.snapshot,
-        context: {
-          ...before.snapshot.context,
-          messageCount,
-        },
-      };
-      const { fake, repository } = repositoryFor({
-        executes: [[]],
-        selects: [[before.run], [], [snapshot]],
-      });
-      await expect(
-        repository.addMessageAndAppend(messageAppendInput(before))
-      ).rejects.toBeInstanceOf(WorkflowProjectionIntegrityError);
-      return expect(fake.lifecycle.rollbacks).toBe(1);
-    });
+    it.each([undefined, -1, 1.5])(
+      "rejects invalid durable message count %#",
+      async (messageCount) => {
+        const snapshot = {
+          ...before.snapshot,
+          context: {
+            ...before.snapshot.context,
+            messageCount,
+          },
+        };
+        const { fake, repository } = repositoryFor({
+          executes: [[]],
+          selects: [[before.run], [], [snapshot]],
+        });
+        await expect(
+          repository.addMessageAndAppend(messageAppendInput(before))
+        ).rejects.toBeInstanceOf(WorkflowProjectionIntegrityError);
+        return expect(fake.lifecycle.rollbacks).toBe(1);
+      }
+    );
 
     it("rejects a fresh operator message without its atomic append", async () => {
       const { fake, repository } = repositoryFor({
@@ -2386,20 +2405,28 @@ describe("workflow outbox leases", () => {
   it.each([
     [{ id: "effect-1" }, true],
     [[], false],
-  ] as const)("heartbeats only one matching live fence", async (rows, expected) => {
-    const { fake, repository } = repositoryFor({
-      executes: [Array.isArray(rows) ? rows : [rows]],
-    });
-    await expect(
-      repository.heartbeatEffect({
-        id: "effect-1",
-        leaseOwner: "worker-1",
-        fence: 2,
-      })
-    ).resolves.toBe(expected);
-    const compiled = new PgDialect().sqlToQuery(fake.executed[0] as SQL);
-    return expect(compiled.params).toEqual([30_000, "effect-1", "worker-1", 2]);
-  });
+  ] as const)(
+    "heartbeats only one matching live fence",
+    async (rows, expected) => {
+      const { fake, repository } = repositoryFor({
+        executes: [Array.isArray(rows) ? rows : [rows]],
+      });
+      await expect(
+        repository.heartbeatEffect({
+          id: "effect-1",
+          leaseOwner: "worker-1",
+          fence: 2,
+        })
+      ).resolves.toBe(expected);
+      const compiled = new PgDialect().sqlToQuery(fake.executed[0] as SQL);
+      return expect(compiled.params).toEqual([
+        30_000,
+        "effect-1",
+        "worker-1",
+        2,
+      ]);
+    }
+  );
 
   it("uses an explicit heartbeat lease duration", async () => {
     const { fake, repository } = repositoryFor({ executes: [[]] });
@@ -2413,63 +2440,67 @@ describe("workflow outbox leases", () => {
     return expect(compiled.params[0]).toBe(300_000);
   });
 
-  it.each([
-    0, 300_001, 1.5,
-  ])("rejects invalid heartbeat lease duration %s", async (leaseMilliseconds) => {
-    const { repository } = repositoryFor();
-    return await expect(
-      repository.heartbeatEffect({
-        id: "effect-1",
-        leaseOwner: "worker-1",
-        fence: 2,
-        leaseMilliseconds,
-      })
-    ).rejects.toBeInstanceOf(WorkflowPersistenceInputError);
-  });
+  it.each([0, 300_001, 1.5])(
+    "rejects invalid heartbeat lease duration %s",
+    async (leaseMilliseconds) => {
+      const { repository } = repositoryFor();
+      return await expect(
+        repository.heartbeatEffect({
+          id: "effect-1",
+          leaseOwner: "worker-1",
+          fence: 2,
+          leaseMilliseconds,
+        })
+      ).rejects.toBeInstanceOf(WorkflowPersistenceInputError);
+    }
+  );
 
   it.each([
     [{ id: "effect-1" }, true],
     [[], false],
-  ] as const)("releases only one matching failed lease", async (rows, expected) => {
-    const retryAt = new Date("2026-07-29T13:00:00.000Z");
-    const { fake, repository } = repositoryFor({
-      executes: [Array.isArray(rows) ? rows : [rows]],
-    });
-    await expect(
-      repository.failEffect({
-        id: "effect-1",
-        leaseOwner: "worker-1",
-        fence: 2,
-        error: " temporary failure ",
+  ] as const)(
+    "releases only one matching failed lease",
+    async (rows, expected) => {
+      const retryAt = new Date("2026-07-29T13:00:00.000Z");
+      const { fake, repository } = repositoryFor({
+        executes: [Array.isArray(rows) ? rows : [rows]],
+      });
+      await expect(
+        repository.failEffect({
+          id: "effect-1",
+          leaseOwner: "worker-1",
+          fence: 2,
+          error: " temporary failure ",
+          retryAt,
+        })
+      ).resolves.toBe(expected);
+      const compiled = new PgDialect().sqlToQuery(fake.executed[0] as SQL);
+      return expect(compiled.params).toEqual([
+        " temporary failure ",
         retryAt,
-      })
-    ).resolves.toBe(expected);
-    const compiled = new PgDialect().sqlToQuery(fake.executed[0] as SQL);
-    return expect(compiled.params).toEqual([
-      " temporary failure ",
-      retryAt,
-      "effect-1",
-      "worker-1",
-      2,
-    ]);
-  });
+        "effect-1",
+        "worker-1",
+        2,
+      ]);
+    }
+  );
 
-  return it.each([
-    "",
-    "x".repeat(4 * 1024 + 1),
-  ])("rejects invalid failure text %#", async (error) => {
-    const { fake, repository } = repositoryFor();
-    await expect(
-      repository.failEffect({
-        id: "effect-1",
-        leaseOwner: "worker-1",
-        fence: 2,
-        error,
-        retryAt: new Date(),
-      })
-    ).rejects.toBeInstanceOf(WorkflowPersistenceInputError);
-    return expect(fake.executed).toHaveLength(0);
-  });
+  return it.each(["", "x".repeat(4 * 1024 + 1)])(
+    "rejects invalid failure text %#",
+    async (error) => {
+      const { fake, repository } = repositoryFor();
+      await expect(
+        repository.failEffect({
+          id: "effect-1",
+          leaseOwner: "worker-1",
+          fence: 2,
+          error,
+          retryAt: new Date(),
+        })
+      ).rejects.toBeInstanceOf(WorkflowPersistenceInputError);
+      return expect(fake.executed).toHaveLength(0);
+    }
+  );
 });
 
 const decisionInput = (
@@ -2548,7 +2579,7 @@ describe("workflow approval decisions", () => {
       repository.decideApprovalAndAppend(decisionInput(before))
     ).resolves.toEqual({ duplicate: false, projection: after });
     const approvalUpdate = fake.queries
-      .filter(({ kind }) => kind === "update")[0]!
+      .find(({ kind }) => kind === "update")!
       .methods.find(({ name }) => name === "set")!.arguments[0] as Record<
       string,
       unknown
@@ -2595,7 +2626,7 @@ describe("workflow approval decisions", () => {
     await seed.repository.decideApprovalAndAppend(input);
     const decisionRequestHash = (
       seed.fake.queries
-        .filter(({ kind }) => kind === "update")[0]!
+        .find(({ kind }) => kind === "update")!
         .methods.find(({ name }) => name === "set")!.arguments[0] as Record<
         string,
         unknown
@@ -2660,7 +2691,7 @@ describe("workflow approval decisions", () => {
     await seed.repository.decideApprovalAndAppend(input);
     const decisionRequestHash = (
       seed.fake.queries
-        .filter(({ kind }) => kind === "update")[0]!
+        .find(({ kind }) => kind === "update")!
         .methods.find(({ name }) => name === "set")!.arguments[0] as Record<
         string,
         unknown
@@ -2739,17 +2770,20 @@ describe("workflow approval decisions", () => {
   it.each([
     { append: { runId: "other-run" } },
     { append: { ownerId: "other-owner" } },
-  ])("requires decision and append to identify one owned run %#", async (changes) => {
-    const before = projectionFixture();
-    const base = decisionInput(before);
-    const { repository } = repositoryFor();
-    return await expect(
-      repository.decideApprovalAndAppend({
-        ...base,
-        append: { ...base.append, ...changes.append },
-      })
-    ).rejects.toThrow("must identify the same owned run");
-  });
+  ])(
+    "requires decision and append to identify one owned run %#",
+    async (changes) => {
+      const before = projectionFixture();
+      const base = decisionInput(before);
+      const { repository } = repositoryFor();
+      return await expect(
+        repository.decideApprovalAndAppend({
+          ...base,
+          append: { ...base.append, ...changes.append },
+        })
+      ).rejects.toThrow("must identify the same owned run");
+    }
+  );
 
   it.each([
     { approval: null },
@@ -2761,33 +2795,31 @@ describe("workflow approval decisions", () => {
     { snapshotOverrides: { journalHeadHash: "3".repeat(64) } },
     { snapshotOverrides: { effectHash: "3".repeat(64) } },
     { snapshotOverrides: { effectScope: "other-scope" } },
-  ])("rejects every stale approval decision binding %#", async ({
-    approval,
-    approvalOverrides,
-    snapshot,
-    snapshotOverrides,
-  }) => {
-    const before = projectionFixture([EVENT], {
-      run: { state: "planning" },
-      snapshot: {
-        state: "planning",
-        effectHash: "2".repeat(64),
-        effectScope: "packages/db",
-      },
-    });
-    const approvalRows =
-      approval === null ? [] : [pendingApproval(before, approvalOverrides)];
-    const snapshotRows =
-      snapshot === null ? [] : [{ ...before.snapshot, ...snapshotOverrides }];
-    const { fake, repository } = repositoryFor({
-      executes: [[]],
-      selects: [[before.run], approvalRows, [], snapshotRows],
-    });
-    await expect(
-      repository.decideApprovalAndAppend(decisionInput(before))
-    ).rejects.toBeInstanceOf(StaleWorkflowApprovalError);
-    return expect(fake.lifecycle.rollbacks).toBe(1);
-  });
+  ])(
+    "rejects every stale approval decision binding %#",
+    async ({ approval, approvalOverrides, snapshot, snapshotOverrides }) => {
+      const before = projectionFixture([EVENT], {
+        run: { state: "planning" },
+        snapshot: {
+          state: "planning",
+          effectHash: "2".repeat(64),
+          effectScope: "packages/db",
+        },
+      });
+      const approvalRows =
+        approval === null ? [] : [pendingApproval(before, approvalOverrides)];
+      const snapshotRows =
+        snapshot === null ? [] : [{ ...before.snapshot, ...snapshotOverrides }];
+      const { fake, repository } = repositoryFor({
+        executes: [[]],
+        selects: [[before.run], approvalRows, [], snapshotRows],
+      });
+      await expect(
+        repository.decideApprovalAndAppend(decisionInput(before))
+      ).rejects.toBeInstanceOf(StaleWorkflowApprovalError);
+      return expect(fake.lifecycle.rollbacks).toBe(1);
+    }
+  );
 
   return it("rolls back when a concurrent decision wins the update", async () => {
     const before = projectionFixture([EVENT], {
@@ -2838,34 +2870,40 @@ describe("workflow effect finalization", () => {
   it.each([
     ["completed", null],
     ["dead", "effect failed"],
-  ] as const)("atomically applies a %s finalization", async (terminal, expectedError) => {
-    const before = projectionFixture();
-    const after = projectionFixture([EVENT, SECOND_EVENT]);
-    const { fake, repository } = repositoryFor({
-      executes: [[], [{ id: "effect-1" }]],
-      selects: [[before.run], [], ...projectionSelects(after)],
-      inserts: [[], [{ id: "evidence-effect-1" }]],
-      updates: [[after.snapshot], [after.run]],
-    });
-    await expect(
-      repository.finalizeEffect(finalizationInput(before, terminal))
-    ).resolves.toEqual({ status: "applied", projection: after });
-    const finalizedSql = new PgDialect().sqlToQuery(fake.executed[1] as SQL);
-    expect(finalizedSql.params).toContain("effect-1");
-    if (expectedError === null) {
-      expect(finalizedSql.sql).toContain("published_at");
-    } else {
-      expect(finalizedSql.params).toContain(expectedError);
-      expect(finalizedSql.sql).toContain("dead_at");
+  ] as const)(
+    "atomically applies a %s finalization",
+    async (terminal, expectedError) => {
+      const before = projectionFixture();
+      const after = projectionFixture([EVENT, SECOND_EVENT]);
+      const { fake, repository } = repositoryFor({
+        executes: [[], [{ id: "effect-1" }]],
+        selects: [[before.run], [], ...projectionSelects(after)],
+        inserts: [[], [{ id: "evidence-effect-1" }]],
+        updates: [[after.snapshot], [after.run]],
+      });
+      await expect(
+        repository.finalizeEffect(finalizationInput(before, terminal))
+      ).resolves.toEqual({ status: "applied", projection: after });
+      const finalizedSql = new PgDialect().sqlToQuery(fake.executed[1] as SQL);
+      expect(finalizedSql.params).toContain("effect-1");
+      if (expectedError === null) {
+        expect(finalizedSql.sql).toContain("published_at");
+      } else {
+        expect(finalizedSql.params).toContain(expectedError);
+        expect(finalizedSql.sql).toContain("dead_at");
+      }
+      const evidence = methodValues(fake, "insert")[1] as Record<
+        string,
+        unknown
+      >;
+      expect(evidence).toMatchObject({
+        id: "evidence-effect-1",
+        kind: `effect.${terminal === "completed" ? "succeeded" : "failed"}`,
+        summary: `effect ${terminal === "completed" ? "succeeded" : "failed"}`,
+      });
+      return expect(fake.lifecycle).toEqual({ commits: 1, rollbacks: 0 });
     }
-    const evidence = methodValues(fake, "insert")[1] as Record<string, unknown>;
-    expect(evidence).toMatchObject({
-      id: "evidence-effect-1",
-      kind: `effect.${terminal === "completed" ? "succeeded" : "failed"}`,
-      summary: `effect ${terminal === "completed" ? "succeeded" : "failed"}`,
-    });
-    return expect(fake.lifecycle).toEqual({ commits: 1, rollbacks: 0 });
-  });
+  );
 
   it("persists an immutable retained resource for implementation evidence", async () => {
     const before = projectionFixture();
@@ -2932,29 +2970,30 @@ describe("workflow effect finalization", () => {
     { rows: [] },
     { rows: [{ ownerId: "other-owner", evidenceId: "evidence-effect-1" }] },
     { rows: [{ ownerId: "owner-1", evidenceId: "other-evidence" }] },
-  ])("rejects a conflicting retained-resource insert %#", async ({
-    rows: resourceRows,
-  }) => {
-    const before = projectionFixture();
-    const after = projectionFixture([EVENT, SECOND_EVENT]);
-    const { fake, repository } = repositoryFor({
-      executes: [[], [{ id: "effect-1" }]],
-      selects: [[before.run], [], ...projectionSelects(after), resourceRows],
-      inserts: [[], [{ id: "evidence-effect-1" }], []],
-      updates: [[after.snapshot], [after.run]],
-    });
-    await expect(
-      repository.finalizeEffect(
-        finalizationInput(before, "completed", {
-          evidence: {
-            ...finalizationInput(before).evidence,
-            kind: "implement.succeeded",
-          },
-        })
-      )
-    ).rejects.toBeInstanceOf(WorkflowConcurrencyError);
-    return expect(fake.lifecycle.rollbacks).toBe(1);
-  });
+  ])(
+    "rejects a conflicting retained-resource insert %#",
+    async ({ rows: resourceRows }) => {
+      const before = projectionFixture();
+      const after = projectionFixture([EVENT, SECOND_EVENT]);
+      const { fake, repository } = repositoryFor({
+        executes: [[], [{ id: "effect-1" }]],
+        selects: [[before.run], [], ...projectionSelects(after), resourceRows],
+        inserts: [[], [{ id: "evidence-effect-1" }], []],
+        updates: [[after.snapshot], [after.run]],
+      });
+      await expect(
+        repository.finalizeEffect(
+          finalizationInput(before, "completed", {
+            evidence: {
+              ...finalizationInput(before).evidence,
+              kind: "implement.succeeded",
+            },
+          })
+        )
+      ).rejects.toBeInstanceOf(WorkflowConcurrencyError);
+      return expect(fake.lifecycle.rollbacks).toBe(1);
+    }
+  );
 
   it("acknowledges an exact already-applied durable finalization", async () => {
     const before = projectionFixture();
@@ -3007,19 +3046,19 @@ describe("workflow effect finalization", () => {
   it.each([
     { terminalRows: [] },
     { terminalRows: [{ id: "effect-1" }], projectionRows: [[]] },
-  ])("returns stale when no matching durable finalization exists %#", async ({
-    terminalRows,
-    projectionRows,
-  }) => {
-    const before = projectionFixture();
-    const { repository } = repositoryFor({
-      executes: [[], []],
-      selects: [[before.run], terminalRows, ...(projectionRows ?? [])],
-    });
-    return await expect(
-      repository.finalizeEffect(finalizationInput(before))
-    ).resolves.toEqual({ status: "stale", projection: null });
-  });
+  ])(
+    "returns stale when no matching durable finalization exists %#",
+    async ({ terminalRows, projectionRows }) => {
+      const before = projectionFixture();
+      const { repository } = repositoryFor({
+        executes: [[], []],
+        selects: [[before.run], terminalRows, ...(projectionRows ?? [])],
+      });
+      return await expect(
+        repository.finalizeEffect(finalizationInput(before))
+      ).resolves.toEqual({ status: "stale", projection: null });
+    }
+  );
 
   it("checks dead-at durability for a stale dead finalization", async () => {
     const before = projectionFixture();
@@ -3077,40 +3116,39 @@ describe("workflow effect finalization", () => {
         rows: [{ id: "evidence-effect-1", requestHash: "1".repeat(64) }],
       },
     ];
-  it.each(
-    conflictingDurableFinalizationEvidenceCases
-  )("rejects conflicting durable finalization evidence %#", async ({
-    rows: evidenceRows,
-  }) => {
-    const before = projectionFixture();
-    const after = projectionFixture([EVENT, SECOND_EVENT]);
-    const seed = repositoryFor({
-      executes: [[], [{ id: "effect-1" }]],
-      selects: [[before.run], [], ...projectionSelects(after)],
-      inserts: [[], [{ id: "evidence-effect-1" }]],
-      updates: [[after.snapshot], [after.run]],
-    });
-    const input = finalizationInput(before);
-    await seed.repository.finalizeEffect(input);
-    const requestHash = (
-      methodValues(seed.fake, "insert")[0] as Record<string, unknown>
-    )["requestHash"];
-    const durable = projectionFixture([EVENT, SECOND_EVENT], {
-      journal: [after.journal[0]!, { ...after.journal[1]!, requestHash }],
-    });
-    const { repository } = repositoryFor({
-      executes: [[], []],
-      selects: [
-        [durable.run],
-        [{ id: "effect-1" }],
-        ...projectionSelects(durable),
-        evidenceRows,
-      ],
-    });
-    return await expect(
-      repository.finalizeEffect(input)
-    ).rejects.toBeInstanceOf(WorkflowConcurrencyError);
-  });
+  it.each(conflictingDurableFinalizationEvidenceCases)(
+    "rejects conflicting durable finalization evidence %#",
+    async ({ rows: evidenceRows }) => {
+      const before = projectionFixture();
+      const after = projectionFixture([EVENT, SECOND_EVENT]);
+      const seed = repositoryFor({
+        executes: [[], [{ id: "effect-1" }]],
+        selects: [[before.run], [], ...projectionSelects(after)],
+        inserts: [[], [{ id: "evidence-effect-1" }]],
+        updates: [[after.snapshot], [after.run]],
+      });
+      const input = finalizationInput(before);
+      await seed.repository.finalizeEffect(input);
+      const requestHash = (
+        methodValues(seed.fake, "insert")[0] as Record<string, unknown>
+      )["requestHash"];
+      const durable = projectionFixture([EVENT, SECOND_EVENT], {
+        journal: [after.journal[0]!, { ...after.journal[1]!, requestHash }],
+      });
+      const { repository } = repositoryFor({
+        executes: [[], []],
+        selects: [
+          [durable.run],
+          [{ id: "effect-1" }],
+          ...projectionSelects(durable),
+          evidenceRows,
+        ],
+      });
+      return await expect(
+        repository.finalizeEffect(input)
+      ).rejects.toBeInstanceOf(WorkflowConcurrencyError);
+    }
+  );
 
   it("accepts an idempotent evidence insert conflict during first finalization", async () => {
     const before = projectionFixture();
@@ -3154,24 +3192,23 @@ describe("workflow effect finalization", () => {
         rows: [{ id: "evidence-effect-1", requestHash: "1".repeat(64) }],
       },
     ];
-  it.each(
-    conflictingFirstFinalizationEvidenceCases
-  )("rolls back a conflicting first-finalization evidence insert %#", async ({
-    rows: evidenceRows,
-  }) => {
-    const before = projectionFixture();
-    const after = projectionFixture([EVENT, SECOND_EVENT]);
-    const { fake, repository } = repositoryFor({
-      executes: [[], [{ id: "effect-1" }]],
-      selects: [[before.run], [], ...projectionSelects(after), evidenceRows],
-      inserts: [[], []],
-      updates: [[after.snapshot], [after.run]],
-    });
-    await expect(
-      repository.finalizeEffect(finalizationInput(before))
-    ).rejects.toBeInstanceOf(WorkflowConcurrencyError);
-    return expect(fake.lifecycle.rollbacks).toBe(1);
-  });
+  it.each(conflictingFirstFinalizationEvidenceCases)(
+    "rolls back a conflicting first-finalization evidence insert %#",
+    async ({ rows: evidenceRows }) => {
+      const before = projectionFixture();
+      const after = projectionFixture([EVENT, SECOND_EVENT]);
+      const { fake, repository } = repositoryFor({
+        executes: [[], [{ id: "effect-1" }]],
+        selects: [[before.run], [], ...projectionSelects(after), evidenceRows],
+        inserts: [[], []],
+        updates: [[after.snapshot], [after.run]],
+      });
+      await expect(
+        repository.finalizeEffect(finalizationInput(before))
+      ).rejects.toBeInstanceOf(WorkflowConcurrencyError);
+      return expect(fake.lifecycle.rollbacks).toBe(1);
+    }
+  );
 
   it.each([
     { id: "" },
@@ -3208,18 +3245,21 @@ describe("workflow effect finalization", () => {
     { evidence: { runId: "other-run" } },
     { append: { ownerId: "other-owner" } },
     { evidence: { ownerId: "other-owner" } },
-  ])("requires finalization artifacts to identify one owned run %#", async (changes) => {
-    const before = projectionFixture();
-    const base = finalizationInput(before);
-    const { repository } = repositoryFor();
-    return await expect(
-      repository.finalizeEffect({
-        ...base,
-        append: { ...base.append, ...(changes.append ?? {}) },
-        evidence: { ...base.evidence, ...(changes.evidence ?? {}) },
-      })
-    ).rejects.toThrow("must identify one owned run");
-  });
+  ])(
+    "requires finalization artifacts to identify one owned run %#",
+    async (changes) => {
+      const before = projectionFixture();
+      const base = finalizationInput(before);
+      const { repository } = repositoryFor();
+      return await expect(
+        repository.finalizeEffect({
+          ...base,
+          append: { ...base.append, ...(changes.append ?? {}) },
+          evidence: { ...base.evidence, ...(changes.evidence ?? {}) },
+        })
+      ).rejects.toThrow("must identify one owned run");
+    }
+  );
 
   it("requires terminal error text for a dead effect", async () => {
     const input = finalizationInput(projectionFixture(), "dead", {
@@ -3307,53 +3347,56 @@ describe("workflow effect finalization", () => {
     { journalHeadHash: "5".repeat(64) },
     { effectHash: "5".repeat(64) },
     { effectScope: "other-scope" },
-  ])("rolls back an approval not bound to the finalized projection %#", async (approvalChanges) => {
-    const before = projectionFixture();
-    const effectHash = "4".repeat(64);
-    const effectScope = "packages/db";
-    const baseAppend = appendInput(before);
-    const append = {
-      ...baseAppend,
-      snapshot: {
-        ...baseAppend.snapshot,
-        state: "planning" as const,
+  ])(
+    "rolls back an approval not bound to the finalized projection %#",
+    async (approvalChanges) => {
+      const before = projectionFixture();
+      const effectHash = "4".repeat(64);
+      const effectScope = "packages/db";
+      const baseAppend = appendInput(before);
+      const append = {
+        ...baseAppend,
+        snapshot: {
+          ...baseAppend.snapshot,
+          state: "planning" as const,
+          effectHash,
+          effectScope,
+        },
+      };
+      const after = projectionFixture([EVENT, SECOND_EVENT], {
+        run: { state: "planning" },
+        snapshot: { state: "planning", effectHash, effectScope },
+      });
+      const approval = {
+        id: "approval-finalized",
+        runId: "run-1",
+        ownerId: "owner-1",
+        machineId: "darkfactory-pilot" as const,
+        machineVersion: 1 as const,
+        eventVersion: 1 as const,
+        snapshotSequence: 2,
+        journalHeadHash: after.run.headHash,
         effectHash,
         effectScope,
-      },
-    };
-    const after = projectionFixture([EVENT, SECOND_EVENT], {
-      run: { state: "planning" },
-      snapshot: { state: "planning", effectHash, effectScope },
-    });
-    const approval = {
-      id: "approval-finalized",
-      runId: "run-1",
-      ownerId: "owner-1",
-      machineId: "darkfactory-pilot" as const,
-      machineVersion: 1 as const,
-      eventVersion: 1 as const,
-      snapshotSequence: 2,
-      journalHeadHash: after.run.headHash,
-      effectHash,
-      effectScope,
-      ...approvalChanges,
-    };
-    const { fake, repository } = repositoryFor({
-      executes: [[], [{ id: "effect-1" }]],
-      selects: [[before.run], [], ...projectionSelects(after)],
-      inserts: [[], [{ id: "evidence-effect-1" }]],
-      updates: [[after.snapshot], [after.run]],
-    });
-    await expect(
-      repository.finalizeEffect(
-        finalizationInput(before, "completed", {
-          append,
-          approval,
-        })
-      )
-    ).rejects.toBeInstanceOf(StaleWorkflowApprovalError);
-    return expect(fake.lifecycle.rollbacks).toBe(1);
-  });
+        ...approvalChanges,
+      };
+      const { fake, repository } = repositoryFor({
+        executes: [[], [{ id: "effect-1" }]],
+        selects: [[before.run], [], ...projectionSelects(after)],
+        inserts: [[], [{ id: "evidence-effect-1" }]],
+        updates: [[after.snapshot], [after.run]],
+      });
+      await expect(
+        repository.finalizeEffect(
+          finalizationInput(before, "completed", {
+            append,
+            approval,
+          })
+        )
+      ).rejects.toBeInstanceOf(StaleWorkflowApprovalError);
+      return expect(fake.lifecycle.rollbacks).toBe(1);
+    }
+  );
 
   it("accepts an exact approval insert conflict", async () => {
     const before = projectionFixture();
@@ -3478,56 +3521,55 @@ describe("workflow effect finalization", () => {
       ],
     },
   ];
-  it.each(
-    conflictingApprovalInsertCases
-  )("rejects a conflicting approval insert %#", async ({
-    rows: approvalRows,
-  }) => {
-    const before = projectionFixture();
-    const effectHash = "4".repeat(64);
-    const effectScope = "packages/db";
-    const baseAppend = appendInput(before);
-    const append = {
-      ...baseAppend,
-      snapshot: {
-        ...baseAppend.snapshot,
-        state: "planning" as const,
+  it.each(conflictingApprovalInsertCases)(
+    "rejects a conflicting approval insert %#",
+    async ({ rows: approvalRows }) => {
+      const before = projectionFixture();
+      const effectHash = "4".repeat(64);
+      const effectScope = "packages/db";
+      const baseAppend = appendInput(before);
+      const append = {
+        ...baseAppend,
+        snapshot: {
+          ...baseAppend.snapshot,
+          state: "planning" as const,
+          effectHash,
+          effectScope,
+        },
+      };
+      const after = projectionFixture([EVENT, SECOND_EVENT], {
+        run: { state: "planning" },
+        snapshot: { state: "planning", effectHash, effectScope },
+      });
+      const approval = {
+        id: "approval-finalized",
+        runId: "run-1",
+        ownerId: "owner-1",
+        machineId: "darkfactory-pilot" as const,
+        machineVersion: 1 as const,
+        eventVersion: 1 as const,
+        snapshotSequence: 2,
+        journalHeadHash: after.run.headHash,
         effectHash,
         effectScope,
-      },
-    };
-    const after = projectionFixture([EVENT, SECOND_EVENT], {
-      run: { state: "planning" },
-      snapshot: { state: "planning", effectHash, effectScope },
-    });
-    const approval = {
-      id: "approval-finalized",
-      runId: "run-1",
-      ownerId: "owner-1",
-      machineId: "darkfactory-pilot" as const,
-      machineVersion: 1 as const,
-      eventVersion: 1 as const,
-      snapshotSequence: 2,
-      journalHeadHash: after.run.headHash,
-      effectHash,
-      effectScope,
-    };
-    const { fake, repository } = repositoryFor({
-      executes: [[], [{ id: "effect-1" }]],
-      selects: [[before.run], [], ...projectionSelects(after), approvalRows],
-      inserts: [[], [{ id: "evidence-effect-1" }], []],
-      updates: [[after.snapshot], [after.run]],
-    });
-    await expect(
-      repository.finalizeEffect(
-        finalizationInput(before, "completed", {
-          append,
-          approval,
-        })
-      )
-    ).rejects.toBeInstanceOf(WorkflowConcurrencyError);
-    return expect(fake.lifecycle.rollbacks).toBe(1);
-  });
+      };
+      const { fake, repository } = repositoryFor({
+        executes: [[], [{ id: "effect-1" }]],
+        selects: [[before.run], [], ...projectionSelects(after), approvalRows],
+        inserts: [[], [{ id: "evidence-effect-1" }], []],
+        updates: [[after.snapshot], [after.run]],
+      });
+      await expect(
+        repository.finalizeEffect(
+          finalizationInput(before, "completed", {
+            append,
+            approval,
+          })
+        )
+      ).rejects.toBeInstanceOf(WorkflowConcurrencyError);
+      return expect(fake.lifecycle.rollbacks).toBe(1);
+    }
+  );
 
   it("acknowledges an exact finalization replay with its durable approval", async () => {
     const before = projectionFixture();
@@ -3727,26 +3769,26 @@ describe("workflow effect finalization", () => {
     });
   });
 
-  return it.each([
-    undefined,
-    null,
-  ])("normalizes an absent approval decision reason %#", async (reason) => {
-    const before = projectionFixture();
-    const base = decisionInput(before);
-    const { repository } = repositoryFor({
-      executes: [[]],
-      selects: [[]],
-    });
-    return await expect(
-      repository.decideApprovalAndAppend({
-        ...base,
-        approval: {
-          ...base.approval,
-          ...(reason === undefined ? {} : { reason }),
-        },
-      })
-    ).rejects.toBeInstanceOf(WorkflowRunNotFoundError);
-  });
+  return it.each([undefined, null])(
+    "normalizes an absent approval decision reason %#",
+    async (reason) => {
+      const before = projectionFixture();
+      const base = decisionInput(before);
+      const { repository } = repositoryFor({
+        executes: [[]],
+        selects: [[]],
+      });
+      return await expect(
+        repository.decideApprovalAndAppend({
+          ...base,
+          approval: {
+            ...base.approval,
+            ...(reason === undefined ? {} : { reason }),
+          },
+        })
+      ).rejects.toBeInstanceOf(WorkflowRunNotFoundError);
+    }
+  );
 });
 
 describe("workflow run capacity admission", () => {
@@ -3806,22 +3848,25 @@ describe("workflow run capacity admission", () => {
   it.each([
     MAX_WORKFLOW_RUN_SUBMISSIONS_PER_OWNER,
     MAX_WORKFLOW_RUN_SUBMISSIONS_PER_OWNER + 1,
-  ])("rejects owner submission count %s without writes or count disclosure", async (submissionCount) => {
-    const { fake, repository } = repositoryFor({
-      executes: [[], [], [], admissionRows(0, 0, submissionCount, 120)],
-    });
+  ])(
+    "rejects owner submission count %s without writes or count disclosure",
+    async (submissionCount) => {
+      const { fake, repository } = repositoryFor({
+        executes: [[], [], [], admissionRows(0, 0, submissionCount, 120)],
+      });
 
-    const failure = await repository
-      .createRun(createInput())
-      .catch((error: unknown) => error);
-    expect(failure).toEqual(new WorkflowRunSubmissionRateError(120));
-    expect(failure).toMatchObject({ retryAfterSeconds: 120 });
-    expect(String(failure)).not.toMatch(
-      new RegExp(String(MAX_WORKFLOW_RUN_SUBMISSIONS_PER_OWNER))
-    );
-    expect(methodValues(fake, "insert")).toHaveLength(0);
-    return expect(fake.lifecycle).toEqual({ commits: 0, rollbacks: 1 });
-  });
+      const failure = await repository
+        .createRun(createInput())
+        .catch((error: unknown) => error);
+      expect(failure).toEqual(new WorkflowRunSubmissionRateError(120));
+      expect(failure).toMatchObject({ retryAfterSeconds: 120 });
+      expect(String(failure)).not.toMatch(
+        new RegExp(String(MAX_WORKFLOW_RUN_SUBMISSIONS_PER_OWNER))
+      );
+      expect(methodValues(fake, "insert")).toHaveLength(0);
+      return expect(fake.lifecycle).toEqual({ commits: 0, rollbacks: 1 });
+    }
+  );
 
   it("uses database time and owner-created index predicates across terminal states", async () => {
     const projection = projectionFixture();
@@ -3859,28 +3904,28 @@ describe("workflow run capacity admission", () => {
     ).resolves.toEqual(projection);
   });
 
-  it.each([
-    "completed",
-    "cancelled",
-  ] as const)("counts terminal churn and rejects a new %s run at the submission cap", async (state) => {
-    const projection = projectionFixture([EVENT], {
-      run: { state },
-      snapshot: { state },
-    });
-    const { fake, repository } = repositoryFor({
-      executes: [
-        [],
-        [],
-        [],
-        admissionRows(0, 0, MAX_WORKFLOW_RUN_SUBMISSIONS_PER_OWNER, 90),
-      ],
-    });
+  it.each(["completed", "cancelled"] as const)(
+    "counts terminal churn and rejects a new %s run at the submission cap",
+    async (state) => {
+      const projection = projectionFixture([EVENT], {
+        run: { state },
+        snapshot: { state },
+      });
+      const { fake, repository } = repositoryFor({
+        executes: [
+          [],
+          [],
+          [],
+          admissionRows(0, 0, MAX_WORKFLOW_RUN_SUBMISSIONS_PER_OWNER, 90),
+        ],
+      });
 
-    await expect(repository.createRun(createInput(projection))).rejects.toEqual(
-      new WorkflowRunSubmissionRateError(90)
-    );
-    return expect(methodValues(fake, "insert")).toHaveLength(0);
-  });
+      await expect(
+        repository.createRun(createInput(projection))
+      ).rejects.toEqual(new WorkflowRunSubmissionRateError(90));
+      return expect(methodValues(fake, "insert")).toHaveLength(0);
+    }
+  );
 
   it("rejects at the per-owner active cap without writing or exposing counts", async () => {
     const { fake, repository } = repositoryFor({
@@ -4384,35 +4429,35 @@ describe("workflow capacity integrity edge coverage", () => {
     ...overrides,
   });
 
-  it.each([
-    "completed",
-    "cancelled",
-  ] as const)("admits a terminal %s run below the durable rate without enforcing active capacity", async (state) => {
-    const projection = projectionFixture([EVENT], {
-      run: { state },
-      snapshot: { state },
-    });
-    const { fake, repository } = repositoryFor({
-      executes: [
-        [],
-        [],
-        [],
-        [
-          validAdmission({
-            owner_count: "invalid",
-            global_count: "invalid",
-          }),
+  it.each(["completed", "cancelled"] as const)(
+    "admits a terminal %s run below the durable rate without enforcing active capacity",
+    async (state) => {
+      const projection = projectionFixture([EVENT], {
+        run: { state },
+        snapshot: { state },
+      });
+      const { fake, repository } = repositoryFor({
+        executes: [
+          [],
+          [],
+          [],
+          [
+            validAdmission({
+              owner_count: "invalid",
+              global_count: "invalid",
+            }),
+          ],
         ],
-      ],
-      inserts: [[], [], []],
-      selects: projectionSelects(projection),
-    });
-    await expect(
-      repository.createRun(createInput(projection))
-    ).resolves.toEqual(projection);
-    expect(fake.executed).toHaveLength(4);
-    return expect(methodValues(fake, "insert")).toHaveLength(3);
-  });
+        inserts: [[], [], []],
+        selects: projectionSelects(projection),
+      });
+      await expect(
+        repository.createRun(createInput(projection))
+      ).resolves.toEqual(projection);
+      expect(fake.executed).toHaveLength(4);
+      return expect(methodValues(fake, "insert")).toHaveLength(3);
+    }
+  );
 
   it("fails closed when the admission query returns no row", async () => {
     const { fake, repository } = repositoryFor({
@@ -4432,47 +4477,48 @@ describe("workflow capacity integrity edge coverage", () => {
     "1.5",
     "-1",
     String(Number.MAX_SAFE_INTEGER + 1),
-  ])("fails closed for malformed submission count %#", async (submissionCount) => {
-    const { fake, repository } = repositoryFor({
-      executes: [
-        [],
-        [],
-        [],
-        [validAdmission({ submission_count: submissionCount })],
-      ],
-    });
-    await expect(repository.createRun(createInput())).rejects.toThrow(
-      "invalid submission count"
-    );
-    expect(methodValues(fake, "insert")).toHaveLength(0);
-    return expect(fake.lifecycle).toEqual({ commits: 0, rollbacks: 1 });
-  });
-
-  it.each([
-    undefined,
-    null,
-    "0",
-    "invalid",
-  ])("fails closed for malformed retry guidance %# at the durable cap", async (retryAfterSeconds) => {
-    const { fake, repository } = repositoryFor({
-      executes: [
-        [],
-        [],
-        [],
-        [
-          validAdmission({
-            submission_count: String(MAX_WORKFLOW_RUN_SUBMISSIONS_PER_OWNER),
-            retry_after_seconds: retryAfterSeconds,
-          }),
+  ])(
+    "fails closed for malformed submission count %#",
+    async (submissionCount) => {
+      const { fake, repository } = repositoryFor({
+        executes: [
+          [],
+          [],
+          [],
+          [validAdmission({ submission_count: submissionCount })],
         ],
-      ],
-    });
-    await expect(repository.createRun(createInput())).rejects.toThrow(
-      "invalid retry guidance"
-    );
-    expect(methodValues(fake, "insert")).toHaveLength(0);
-    return expect(fake.lifecycle).toEqual({ commits: 0, rollbacks: 1 });
-  });
+      });
+      await expect(repository.createRun(createInput())).rejects.toThrow(
+        "invalid submission count"
+      );
+      expect(methodValues(fake, "insert")).toHaveLength(0);
+      return expect(fake.lifecycle).toEqual({ commits: 0, rollbacks: 1 });
+    }
+  );
+
+  it.each([undefined, null, "0", "invalid"])(
+    "fails closed for malformed retry guidance %# at the durable cap",
+    async (retryAfterSeconds) => {
+      const { fake, repository } = repositoryFor({
+        executes: [
+          [],
+          [],
+          [],
+          [
+            validAdmission({
+              submission_count: String(MAX_WORKFLOW_RUN_SUBMISSIONS_PER_OWNER),
+              retry_after_seconds: retryAfterSeconds,
+            }),
+          ],
+        ],
+      });
+      await expect(repository.createRun(createInput())).rejects.toThrow(
+        "invalid retry guidance"
+      );
+      expect(methodValues(fake, "insert")).toHaveLength(0);
+      return expect(fake.lifecycle).toEqual({ commits: 0, rollbacks: 1 });
+    }
+  );
 
   return it.each([
     { owner_count: "invalid" },

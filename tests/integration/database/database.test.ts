@@ -222,7 +222,9 @@ const columnNames = async (tableName: string): Promise<string[]> => {
   return rows.map((row) => row.column_name);
 };
 
-describe.sequential("DF-031 through DF-039 ordinary Postgres persistence", () => {
+describe("DF-031 through DF-039 ordinary Postgres persistence", {
+  concurrent: false,
+}, () => {
   beforeAll(async () => {
     testDatabase = await createPostgresTestDatabase();
     databaseResource = createNodeDatabase({

@@ -62,12 +62,12 @@ describe("AI package boundaries", () => {
     );
   });
 
-  return it.each([
-    "workerd",
-    "worker",
-  ])("prefers the real %s module when Worker and browser conditions coexist", (workerCondition) => {
-    expect(resolveExport([workerCondition, "browser"])).toMatch(
-      /\/packages\/ai\/src\/server\/groq\.ts$/
-    );
-  });
+  return it.each(["workerd", "worker"])(
+    "prefers the real %s module when Worker and browser conditions coexist",
+    (workerCondition) => {
+      expect(resolveExport([workerCondition, "browser"])).toMatch(
+        /\/packages\/ai\/src\/server\/groq\.ts$/
+      );
+    }
+  );
 });

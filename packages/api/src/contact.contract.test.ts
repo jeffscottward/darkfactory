@@ -86,7 +86,8 @@ describe("DF-076 contact contract", () => {
         ...validInput,
         [field]: value,
       })
-    ).toThrow());
+    ).toThrow()
+  );
 
   it("limits output to the three truthful delivery states", () => {
     expect(ContactSubmitOutputSchema.parse({ status: "sent" })).toEqual({

@@ -1,157 +1,85 @@
-# DarkFactory Conventions
+# Conventions
 
-These conventions keep DarkFactory predictable for people and AI agents. `AGENTS.md` defines mandatory execution policy; `ARCHITECTURE.md` defines boundaries and decision rationale.
+Code rules. Workflow is in [AGENTS.md](AGENTS.md), boundaries in [ARCHITECTURE.md](ARCHITECTURE.md). Biome (`ultracite/core`, configured in `biome.jsonc`) and `tsconfig.base.json` enforce most of this; run `bun run check`.
+
+## Modules
+
+- ESM only. `verbatimModuleSyntax` is on, so import types with `import type`.
+- Use named exports. Default exports are only for framework entry files (`page.tsx`, `layout.tsx`, configs).
+- Import other packages only through their `exports` map (`@darkfactory/email/server`), never `src/` paths.
+- Put server-only code behind `./server` or a `./server/<name>` subpath. Its `browser` condition points to an `unsupported` stub that throws.
+- Route handlers, CLI entry files and adapters hold no business rules: they parse input, call a service and map the result.
+
+## TypeScript
+
+- `strict`, `noUncheckedIndexedAccess`, `exactOptionalPropertyTypes`, `noImplicitReturns`, `noImplicitOverride` and `verbatimModuleSyntax` are on. Do not relax them per file.
+- No `any`, no `@ts-ignore`. Narrow `unknown` with Zod or type guards.
+- Prefer `Readonly<{ … }>` object types and `as const` tuples. Derive unions from the tuple: `type EmailAdapterId = (typeof EMAIL_ADAPTERS)[number]`.
+- Validate every external input with Zod: env, requests, provider responses and YAML.
 
 ## Naming
 
-| Item | Convention | Example |
+| Thing | Style | Example |
 | --- | --- | --- |
-| Directories and authored files | kebab-case | `feature-stub/`, `account-menu.tsx` |
-| TypeScript functions and values | camelCase; verb-first for actions | `createFeatureItem`, `parseInput` |
-| Components, classes, types, schemas exposed as types | PascalCase | `FeatureCard`, `FeatureItem` |
-| Constants and environment variables | UPPER_SNAKE_CASE | `DEFAULT_PAGE_SIZE`, `DATABASE_URL` |
-| Boolean values | `is`, `has`, `can`, or `should` prefix | `isEnabled`, `canManageUsers` |
-| oRPC procedures | stable noun/verb names inside a feature namespace | `featureItem.create` |
-| Application events | lowercase dotted namespace and past-tense fact | `feature-item.created` |
-| Routes | lowercase kebab-case; nouns for resources | `/account/preferences` |
-| PostgreSQL objects | snake_case, explicit plural tables | `feature_items`, `owner_id` |
-| Tests | subject plus `.test.ts`/`.test.tsx`; e2e journey plus `.spec.ts` | `feature.service.test.ts` |
+| Files and folders | kebab-case | `contact-throttle-repository.ts` |
+| Types, classes, components | PascalCase | `ContactServiceError`, `StatCard` |
+| Functions, variables | camelCase, verb first | `createResendEmailPort`, `parseServerEnv` |
+| Constants | SCREAMING_SNAKE | `REQUEST_DATABASE_POOL_MAX_CONNECTIONS` |
+| Error codes | SCREAMING_SNAKE, stable | `TOO_MANY_REQUESTS`, `EMAIL_PROVIDER_UNAVAILABLE` |
+| Event names | `entity.past-tense-action`, kebab-case | `contact.submitted`, `feature-item.archived` |
 
-Use domain-neutral names in the foundation. Do not encode a sample company, industry, funnel, trading concept, or vertical into shared APIs or navigation.
+## Errors
 
-## Decomposition and file size
+- Model expected failures as data or as a typed error with a stable `code`, never as a bare message:
 
-- Start with small pure functions and independently composable components.
-- Keep tiny related units together in a focused `index.ts`; a four-line function does not require a four-line file.
-- Split when a unit gains independent reuse, independent tests, a meaningful feature/domain/provider boundary, or enough growth that scanning becomes difficult.
-- A file that mixes transport, domain logic, persistence, and provider calls must be split by responsibility regardless of length.
-- File size is a signal, not a quota. Do not create arbitrary line limits or fragment a cohesive unit to satisfy a metric.
-- Scripts compose `parse → validate → plan → apply → verify → report`; CLI handlers contain no business logic.
-- React components compose primitives and extracted behaviors. Do not duplicate or wrap a shadcn primitive without a concrete project-level purpose.
+  ```ts
+  export type ContactServiceErrorCode = "TOO_MANY_REQUESTS" | "SERVICE_UNAVAILABLE";
 
-## TypeScript source
+  export class ContactServiceError extends Error {
+    readonly code: ContactServiceErrorCode;
+    constructor(code: ContactServiceErrorCode) {
+      super(CONTACT_SERVICE_ERROR_MESSAGES[code]);
+      this.name = "ContactServiceError";
+      this.code = code;
+    }
+  }
+  ```
 
-Author application logic, features, React UI, contracts, schemas, services, adapters, scripts, and tests in strict TypeScript: `.ts`, or `.tsx` for files containing JSX.
+- Adapters return result unions instead of throwing provider errors upward: `{ status: "failed"; code; retryable }` for email, `{ status: "failed"; category; retryable }` for AI.
+- Map errors to HTTP once, at the contract. Each contract declares its codes and statuses (for example `CONTACT_ERRORS` in `packages/api/src/contracts/contact.ts`).
+- Codes are public API: never rename one; add a new code instead.
+- Never return stack traces, SQL or provider payloads to a client. Never swallow an error without logging it as an event.
 
-- Relative imports use explicit `.ts`/`.tsx` extensions (`allowImportingTsExtensions`); workspace packages import through their declared exports.
-- Every package extends the strict `tsconfig.base.json` (`strict`, `exactOptionalPropertyTypes`, `noUncheckedIndexedAccess`, `noPropertyAccessFromIndexSignature`); do not loosen compiler options per package.
-- Biome owns formatting and linting for all authored TypeScript; `bun run format` and `bun run lint` must pass.
-- Add `alchemy.run.ts` only when a real supported ancillary Cloudflare resource is enabled; while none is enabled, no Alchemy program or dependency belongs in the repository. Keep tool-required configuration files thin and delegate into feature/package code.
-- Pin and verify Bun, Node.js 24.21.0, Vite, React/RSC, and vinext together. Bun runs scripts and TypeScript; compatible local CLIs use `bunx --bun --no-install`. pnpm owns installation, workspace selection, and the sole lockfile. Package-local CLIs run from their owning package context. Explicit Node execution requires a measured incompatibility: Vitest uses Node for V8 coverage; `vinext dev` uses Node because Bun 1.3.14 does not implement the WebSocket events required by Vite's development server; and Vinext build/deploy CLIs use Node because their Bun-generated production bundle omits authored routes despite reporting success.
+## Logging and events
 
-Never:
-
-- use `any` or unchecked casts to silence the type checker;
-- hand-edit generated TypeScript;
-- let a configuration entrypoint accumulate application behavior.
-
-## Imports and exports
-
-- Prefer named exports. Use a default export only when a framework or tool requires it.
-- Each feature/package exposes a deliberate local public surface through its `index.ts` or documented entrypoint.
-- Import another feature or package through that public surface; never deep-import internals.
-- Keep local barrels narrow. Avoid repository-wide barrels, circular re-exports, and re-exports that hide ownership.
-- Import domain/application abstractions, not provider implementations. Wire adapters only in composition roots.
-- Remove obsolete exports when moving a symbol; do not leave aliases or compatibility shims unless an external contract explicitly requires them.
-
-## Feature verticals
-
-A feature may contain:
-
-```text
-feature-name/
-├── index.ts
-├── feature.contract.ts
-├── feature.schema.ts
-├── feature.service.ts
-├── feature.store.ts          port or feature repository interface
-├── feature.events.ts
-├── feature.machine.ts        only for a real lifecycle
-├── feature.state.ts          only for local UI state
-├── components/
-├── client/
-├── server/
-└── tests/
-```
-
-Use only the files the feature needs. The structure is a boundary vocabulary, not mandatory empty scaffolding. Keep feature-specific behavior in the vertical; promote a unit to a package only when multiple real consumers share its contract.
-
-## Contracts, routes, and data
-
-- Write schema, contract, typed success result, typed failure result, and authorization expectation before the implementation.
-- oRPC contracts are the sole API definition. Generate OpenAPI and clients from them; do not maintain parallel handwritten specifications.
-- Route and procedure handlers parse transport context, invoke one application operation, and map its result. They do not contain domain rules or direct database/provider calls.
-- Validate untrusted input at the boundary and preserve validated types inward. Validate external provider output before it enters application code.
-- Use Drizzle stores/repositories in the database package. Keep transactions explicit at the application boundary that owns the operation.
-- Make schema changes through reviewed migrations. Never mutate production schema at application startup.
-- Use UTC timestamps, explicit nullability, stable identifiers, and database constraints for invariants the database can enforce.
-- PostgreSQL owns durable state. Query tooling owns server cache; the URL owns shareable navigation/filter state; Zustand owns only ephemeral local UI state.
-- Prefer PostgreSQL core, then an extension/pattern, before proposing external data infrastructure. Record the measured reason for every exception.
-
-## Errors, events, and logging
-
-- Represent expected failures with stable typed domain/application errors. Include safe machine-readable codes and actionable messages.
-- Map errors once at the oRPC boundary. Do not leak SQL, provider responses, stack traces, file paths, or secrets to clients.
-- Catch only when adding context, translating an error, compensating, or recovering. Preserve the cause and never silently continue.
-- Events describe facts that already happened. Keep payloads minimal, typed, versionable, and free of secrets or unnecessary personal data.
-- Emit semantic application events through evlog. Do not use ad hoc console logging for operational behavior.
-- Product events go through the analytics port/PostHog adapter. Traces, metrics, and technical logs use OpenTelemetry. Provider SDKs remain in adapters.
-- Attach request/trace IDs and relevant entity IDs where safe. Redact credentials, cookies, authorization headers, tokens, addresses, dates of birth, and raw user/provider payloads.
-
-## State and effects
-
-- Use plain TypeScript functions for pure domain logic.
-- Use XState only for explicit states and transitions; persist durable transition history in PostgreSQL.
-- Use Zustand for local view coordination such as open panels, unsaved UI state, or temporary filters—not fetched server data or durable preferences.
-- Use Effect when resource safety, typed failure composition, retry/timeout policy, cancellation, or concurrency justifies the added model.
-- TanStack Devtools is development-only.
-
-## Biome scope and exception rationale
-
-`biome.jsonc` records a one-line rationale beside every disabled or overridden rule. The configuration owns the exact file scopes; these conventions preserve the reasons for every non-default scope and rule exception:
-
-- `packages/api/openapi.json` is generated deterministically by `@darkfactory/api`; the stale check owns its exact bytes.
-- `useLiteralKeys` is disabled only for the listed files that intentionally inspect validated dynamic records and `ProcessEnv`; TypeScript's `noPropertyAccessFromIndexSignature` requires bracket access.
-- `useTopLevelRegex` is disabled only for bounded security parsers and one-shot tests that keep regexes beside the invariant they prove; none execute in an unbounded hot path.
-- `noBitwiseOperators` is disabled only where file modes, inode identities, checksums, and PNG bytes require exact bitwise operations; ordinary application code remains checked.
-- `useAwait` is disabled only where async test doubles intentionally satisfy promise-returning contracts.
-- `noExcessiveCognitiveComplexity` is disabled only for fail-closed validators that keep their ordered ownership and cleanup checks in one auditable boundary.
-- `noControlCharactersInRegex` is disabled only where matching control bytes is the security behavior under test.
-- `noMisplacedAssertion` is disabled only where assertions inside injected lifecycle callbacks are the observable contract of the tests.
+- Emit semantic events through a `StructuredEventSink` (evlog in the app). Do not use `console.*` in application code.
+- An event has `eventId`, `name`, `occurredAt` and `correlation` (request id), and optionally `action`, `entityId`, `entityType`, `outcome`, `source`, `errorCategory`, `durationMs` and `attributes`. See `SemanticEvent` in `packages/observability/src/port.ts`.
+- Pass attributes through `redact` (`packages/observability/src/redaction.ts`). Never log secrets, tokens, cookies, emails or message bodies.
+- Traces and metrics go through `TelemetryPort`, product analytics through `AnalyticsPort`.
 
 ## Testing
 
-- New behavior and bug fixes start with a test that fails for the intended observable reason. Do not write source-text, implementation-detail, or tautological tests.
-- Unit tests cover pure rules, schemas, state transitions, typed errors, and boundary cases.
-- Integration tests cover real contracts, Drizzle repositories, migrations, authentication boundaries, transactions, and adapters against controlled local dependencies.
-- End-to-end tests cover critical user journeys through the rendered application, including authentication and the generic feature flow.
-- Keep tests deterministic, isolated, parallel-safe, and independent of production credentials or live providers. Use explicit test/local adapters, never silent mocks in production code.
-- A regression test must fail if the plausible bug returns. Test names describe behavior and outcome.
-- Run the narrow test while iterating, then the applicable root lifecycle. Local pre-push keeps `verify:core` (static plus unit/contract/operations). Full `verify`/`ci` and GitHub Actions use `verify:core:ci` (static plus `test:e2e-helpers`), with unit/contract/operations owned once by coverage; integration and browser own their separate suites. All four mandatory lanes and all four 100% coverage thresholds remain. pnpm remains the package/workspace owner, and package-local Vitest execution through Node is the measured exception for Bun 1.3.14's misloading of Vitest's Vite `zod` dependency and missing V8 `node:inspector` coverage APIs.
-- Never skip, weaken, snapshot-away, or delete a failing test to obtain green status.
+- Put Vitest tests next to the code: `*.test.ts`, and `*.contract.test.ts` for contracts. Integration tests live in `tests/integration/`, Playwright specs in `tests/e2e/` (`*.a11y.spec.ts` for axe). Layers: [docs/testing.md](docs/testing.md).
+- Use the fakes from each brick's `./test` export (`createRecordingAiPort`, `createRecordingAnalyticsPort`, `createRecordingEventSink`, `createRecordingTelemetry`). Do not mock vendor SDKs in feature tests.
+- Coverage must stay at 100% for lines, branches, functions and statements. Do not add coverage exclusions: `scripts/ci/test-invariants.test.ts` pins the exclusion list and fails if a tracked source file is not measured. Do not add coverage-ignore comments either (reviewed, not machine-checked).
+- One behavior per test, named after the behavior.
 
-## UI and accessibility
+## Feature slice layout
 
-- Use Tailwind tokens and shadcn primitives before custom controls. Shared UI belongs in `packages/ui`; feature compositions remain in their vertical.
-- Typography is entirely sans serif: Manrope for display/headings and Public Sans for body/UI by default. Do not add serif fonts.
-- Public pages use restrained editorial hierarchy and responsive composition inspired by `https://www.squarespace.com/`; authenticated pages use practical patterns inspired by `https://ui.shadcn.com/blocks`. References inspire; never copy their layouts, copy, assets, branding, or trade dress.
-- Use semantic HTML, associated labels, logical heading order, descriptive controls, keyboard access, visible focus, sufficient contrast, useful empty/error/loading states, and 44×44 px minimum targets.
-- Honor `prefers-reduced-motion` in CSS. Do not add a user-facing reduced-motion profile preference.
-- Verify layouts at 375, 768, 1024, and 1440 px and support content expansion without clipping or fixed-height assumptions.
-- Support light/dark/system mode and the configured ten palettes with the same semantic tokens. Avoid dark-only and purple/cyan glow-heavy “AI” aesthetics.
+`bun run generate:feature <name>` creates this layout. Hand-written features follow it too.
 
-## Placeholders and sample identities
+```text
+packages/db/src/generated/<name>/schema.ts        Drizzle table
+packages/db/src/generated/<name>/repository.ts    owner-scoped repository
+packages/db/migrations/<tag>.sql                  migration
+packages/api/src/generated/<name>/contract.ts     oRPC contract + Zod schemas + errors
+packages/api/src/generated/<name>/service.ts      service (depends on the repository port)
+apps/web/src/features/<name>/index.ts             the feature's public surface
+apps/web/src/features/<name>/names.ts             route, table and API identifiers
+apps/web/src/features/<name>/feature.test.ts      tests
+apps/web/src/features/<name>/graphify.json        navigation metadata
+apps/web/src/app/(portal)/<plural>/page.tsx       portal page (presentation)
+docs/features/<name>.md                           feature doc
+```
 
-- Placeholder copy and data remain generic; they demonstrate structure, not a business model or prescribed information architecture.
-- `placehold.co` may supply generic multi-page imagery. Fake avatars and a fake favicon are acceptable.
-- Use clearly fictional names, reserved `.test` emails, non-routable/sample contact data, and development-only credentials. Never use real identities or production-like secrets.
-- Do not label fictional privacy profiles or infer sensitive traits. A date-of-birth field may exist, but logging and displays must treat it as sensitive.
-- Placeholder assets and content must not ship as deceptive claims or third-party impersonation.
-
-## Commits and documentation
-
-- Keep each commit focused on one coherent behavior or documentation change. Include its contract, tests, migrations/generated artifacts, and directly affected docs in that same commit.
-- Do not mix unrelated cleanup, formatting, dependency upgrades, or architectural changes.
-- Use the repository's conventional commit style with an imperative summary; explain the reason when it is not obvious.
-- Update `ARCHITECTURE.md` for boundary or decision changes, `CONVENTIONS.md` for rules, and `AGENTS.md` for executable agent policy.
-- After a push, follow configured GitHub checks to completion and fix repository-owned failures before declaring the work complete.
+The generator also updates `.darkfactory/features.json`, `apps/web/src/features/generated-navigation.ts`, `packages/db/migrations/meta/_journal.json` and the `*-registry.ts` files under `packages/api/src/generated/` and `packages/db/src/generated/`; never edit those by hand. Paths under `generated/` and `generated-navigation.ts` are excluded from coverage, so keep hand-written logic out of them. Put view-model mapping (contract output → plain props) in the feature folder, not in the page or in `packages/ui`.

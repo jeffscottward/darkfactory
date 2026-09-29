@@ -160,7 +160,7 @@ describe("semantic server-safe primitives", () => {
       createElement(StatCard, { label: "Open items", value: "12" })
     );
     const avatar = markup(
-      createElement(Avatar, { fallback: "JS", name: "Jeff Scott" })
+      createElement(Avatar, { fallback: "AL", name: "Ada Lovelace" })
     );
     const separator = markup(createElement(Separator, {}));
 
@@ -168,7 +168,7 @@ describe("semantic server-safe primitives", () => {
     expect(stat).toContain("<dt");
     expect(stat).toContain("<dd");
     expect(avatar).toContain('role="img"');
-    expect(avatar).toContain('aria-label="Jeff Scott"');
+    expect(avatar).toContain('aria-label="Ada Lovelace"');
     return expect(separator).toContain("<hr");
   });
 
@@ -188,9 +188,9 @@ describe("semantic server-safe primitives", () => {
         ),
         createElement(Badge, { variant: "outline" }, "Outlined"),
         createElement(Avatar, {
-          fallback: "JS",
+          fallback: "AL",
           imageProps: { loading: "lazy" },
-          name: "Jeff Scott",
+          name: "Ada Lovelace",
           src: "https://assets.example.test/avatar.png",
         }),
         createElement(
@@ -214,7 +214,7 @@ describe("semantic server-safe primitives", () => {
     expect(rendered).toContain("Content");
     expect(rendered).toContain("Footer");
     expect(rendered).toContain("Outlined");
-    expect(rendered).toContain('alt="Jeff Scott"');
+    expect(rendered).toContain('alt="Ada Lovelace"');
     expect(rendered).toContain('loading="lazy"');
     expect(rendered).toContain("Not required");
     expect(rendered).toContain('aria-orientation="vertical"');

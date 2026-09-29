@@ -1,4 +1,3 @@
-import { constants } from "node:fs";
 import {
   link,
   lstat,
@@ -15,6 +14,18 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
+
+// A mutable copy of node:fs constants lets one test remove O_NOFOLLOW from the
+// already-loaded generator modules. Re-importing them under vi.doMock would
+// create a second module instance whose coverage Vitest 5 does not merge.
+const fsMocks = vi.hoisted(() => ({
+  constants: {} as Record<string, number | undefined>,
+}));
+vi.mock("node:fs", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("node:fs")>();
+  Object.assign(fsMocks.constants, actual.constants);
+  return { ...actual, constants: fsMocks.constants };
+});
 
 import {
   type ApplyGenerationDependencies,
@@ -99,7 +110,8 @@ describe("DF-069/DF-070 arguments and canonical names", () => {
     { arguments_: ["--unknown", "order-item"] },
     { arguments_: ["order-item", "--dry-run", "--dry-run"] },
   ])("rejects ambiguous invocation %#", ({ arguments_ }) =>
-    expect(() => parseGeneratorArguments(arguments_)).toThrow());
+    expect(() => parseGeneratorArguments(arguments_)).toThrow()
+  );
 
   it.each([
     "../escape",
@@ -126,7 +138,8 @@ describe("DF-069/DF-070 arguments and canonical names", () => {
     "lpt1",
     "lpt9",
   ])("rejects unsafe/nonportable name %j", (name) =>
-    expect(() => validateFeatureName(name)).toThrow());
+    expect(() => validateFeatureName(name)).toThrow()
+  );
 
   it("rejects empty and non-string feature names", () => {
     expect(() => validateFeatureName("")).toThrow("Feature name is invalid");
@@ -333,36 +346,42 @@ describe("DF-069 issued deterministic planning", () => {
       },
       undefined,
     ],
-  ])("rejects tampered registry metadata: %s", async (_label, mutateRegistry, mutateJournal) => {
-    const { root } = await fixture();
-    const initial = await createGenerationPlan(
-      root,
-      validateFeatureName("order-item")
-    );
-    await applyGenerationPlan(initial);
-    const registryPath = join(root, ".darkfactory/features.json");
-    const journalPath = join(root, "packages/db/migrations/meta/_journal.json");
-    const registry = JSON.parse(await readFile(registryPath, "utf8"));
-    const journal = JSON.parse(await readFile(journalPath, "utf8"));
-    mutateRegistry?.(registry);
-    mutateJournal?.(journal);
-    await writeFile(
-      registryPath,
-      `${JSON.stringify(registry, null, 2)}\n`,
-      "utf8"
-    );
-    await writeFile(
-      journalPath,
-      `${JSON.stringify(journal, null, 2)}\n`,
-      "utf8"
-    );
-    const before = await listFixtureEntries(root);
+  ])(
+    "rejects tampered registry metadata: %s",
+    async (_label, mutateRegistry, mutateJournal) => {
+      const { root } = await fixture();
+      const initial = await createGenerationPlan(
+        root,
+        validateFeatureName("order-item")
+      );
+      await applyGenerationPlan(initial);
+      const registryPath = join(root, ".darkfactory/features.json");
+      const journalPath = join(
+        root,
+        "packages/db/migrations/meta/_journal.json"
+      );
+      const registry = JSON.parse(await readFile(registryPath, "utf8"));
+      const journal = JSON.parse(await readFile(journalPath, "utf8"));
+      mutateRegistry?.(registry);
+      mutateJournal?.(journal);
+      await writeFile(
+        registryPath,
+        `${JSON.stringify(registry, null, 2)}\n`,
+        "utf8"
+      );
+      await writeFile(
+        journalPath,
+        `${JSON.stringify(journal, null, 2)}\n`,
+        "utf8"
+      );
+      const before = await listFixtureEntries(root);
 
-    await expect(
-      createGenerationPlan(root, validateFeatureName("invoice-item"))
-    ).rejects.toMatchObject({ code: "PLAN_INVALID" });
-    return expect(await listFixtureEntries(root)).toEqual(before);
-  });
+      await expect(
+        createGenerationPlan(root, validateFeatureName("invoice-item"))
+      ).rejects.toMatchObject({ code: "PLAN_INVALID" });
+      return expect(await listFixtureEntries(root)).toEqual(before);
+    }
+  );
 
   return it("rejects unissued and rebound structural plans without writes", async () => {
     const first = await fixture();
@@ -979,33 +998,21 @@ describe("DF-069 transactional live apply and verification", () => {
 
   it("uses portable verification flags when O_NOFOLLOW is unavailable", async () => {
     const { root } = await fixture();
-    vi.doMock("node:fs", () => ({
-      constants: { ...constants, O_NOFOLLOW: undefined },
-    }));
-    vi.resetModules();
+    const noFollow = fsMocks.constants["O_NOFOLLOW"];
+    Reflect.deleteProperty(fsMocks.constants, "O_NOFOLLOW");
 
     try {
-      const [
-        { applyGenerationPlan: applyPortably },
-        { createGenerationPlan: createPortablePlan },
-        { verifyGeneration: verifyPortably },
-      ] = await Promise.all([
-        import("../../scripts/generate-feature/apply.ts"),
-        import("../../scripts/generate-feature/plan.ts"),
-        import("../../scripts/generate-feature/verify.ts"),
-      ]);
-      const plan = await createPortablePlan(
+      const plan = await createGenerationPlan(
         root,
         validateFeatureName("order-item")
       );
-      await applyPortably(plan);
-      return await expect(verifyPortably(plan)).resolves.toMatchObject({
+      await applyGenerationPlan(plan);
+      return await expect(verifyGeneration(plan)).resolves.toMatchObject({
         isValid: true,
         filesChecked: plan.files.length,
       });
     } finally {
-      vi.doUnmock("node:fs");
-      vi.resetModules();
+      fsMocks.constants["O_NOFOLLOW"] = noFollow;
     }
   });
 
@@ -1021,6 +1028,7 @@ describe("DF-069 transactional live apply and verification", () => {
         })
       ),
     }));
+    vi.resetModules();
 
     try {
       const { generateFeature: generateWithoutVerification } = await import(

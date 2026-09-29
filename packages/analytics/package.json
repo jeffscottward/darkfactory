@@ -1,5 +1,6 @@
 {
   "name": "@darkfactory/analytics",
+  "brick": "capability",
   "version": "0.2.1",
   "license": "MIT",
   "repository": {

@@ -139,16 +139,16 @@ describe("config package boundaries", () => {
       message:
         "@darkfactory/config/server/capabilities is unavailable in browser bundles",
     },
-  ])("retains the $specifier poison throw in a browser-condition Vite bundle", ({
-    specifier,
-    message,
-  }) => {
-    const bundle = bundleBrowserPoisonModule(specifier);
+  ])(
+    "retains the $specifier poison throw in a browser-condition Vite bundle",
+    ({ specifier, message }) => {
+      const bundle = bundleBrowserPoisonModule(specifier);
 
-    expect(bundle.status).toBe(0);
-    expect(bundle.stderr).toBe("");
-    expect(bundle.stdout).toContain(message);
-  });
+      expect(bundle.status).toBe(0);
+      expect(bundle.stderr).toBe("");
+      expect(bundle.stdout).toContain(message);
+    }
+  );
 
   it.each([
     {
@@ -170,50 +170,48 @@ describe("config package boundaries", () => {
       message:
         "@darkfactory/config/server/capabilities is unavailable in browser bundles",
     },
-  ])("fails closed for $specifier under browser resolution", async ({
-    specifier,
-    poisonPath,
-    runtimePath,
-    message,
-  }) => {
-    const manifest = JSON.parse(
-      await readFile(new URL("../package.json", import.meta.url), "utf8")
-    );
-    const subpath = specifier.slice("@darkfactory/config".length);
-    const poisonSource = await readFile(
-      new URL(poisonPath, import.meta.url),
-      "utf8"
-    );
-
-    expect(manifest.exports[`.${subpath}`].browser).toBe(
-      `./src${poisonPath.slice(1)}`
-    );
-    expect(poisonSource).not.toMatch(/^\s*import\s/m);
-    expect(poisonSource).not.toMatch(forbiddenServerDependencies);
-    expectBrowserImportToFailClosed(specifier, message);
-
-    for (const workerCondition of ["workerd", "worker"]) {
-      const resolution = spawnSync(
-        process.execPath,
-        [
-          "--conditions",
-          workerCondition,
-          "--conditions",
-          "browser",
-          "--input-type=module",
-          "--eval",
-          `console.log(import.meta.resolve(${JSON.stringify(specifier)}))`,
-        ],
-        { cwd: workspaceRoot, encoding: "utf8" }
+  ])(
+    "fails closed for $specifier under browser resolution",
+    async ({ specifier, poisonPath, runtimePath, message }) => {
+      const manifest = JSON.parse(
+        await readFile(new URL("../package.json", import.meta.url), "utf8")
+      );
+      const subpath = specifier.slice("@darkfactory/config".length);
+      const poisonSource = await readFile(
+        new URL(poisonPath, import.meta.url),
+        "utf8"
       );
 
-      expect(resolution.status).toBe(0);
-      expect(
-        resolution.stdout.trim().replaceAll("\\", "/").endsWith(runtimePath)
-      ).toBe(true);
-      expect(resolution.stderr).toBe("");
+      expect(manifest.exports[`.${subpath}`].browser).toBe(
+        `./src${poisonPath.slice(1)}`
+      );
+      expect(poisonSource).not.toMatch(/^\s*import\s/m);
+      expect(poisonSource).not.toMatch(forbiddenServerDependencies);
+      expectBrowserImportToFailClosed(specifier, message);
+
+      for (const workerCondition of ["workerd", "worker"]) {
+        const resolution = spawnSync(
+          process.execPath,
+          [
+            "--conditions",
+            workerCondition,
+            "--conditions",
+            "browser",
+            "--input-type=module",
+            "--eval",
+            `console.log(import.meta.resolve(${JSON.stringify(specifier)}))`,
+          ],
+          { cwd: workspaceRoot, encoding: "utf8" }
+        );
+
+        expect(resolution.status).toBe(0);
+        expect(
+          resolution.stdout.trim().replaceAll("\\", "/").endsWith(runtimePath)
+        ).toBe(true);
+        expect(resolution.stderr).toBe("");
+      }
     }
-  });
+  );
 
   it("keeps normal server and database imports operational", async () => {
     const [
