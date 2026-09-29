@@ -120,12 +120,19 @@ describe("package graph docs", () => {
   it("renders a Mermaid flowchart grouped by role and a package table", () => {
     const rendered = renderPackageGraph(buildPackageGraph(sources()));
     expect(rendered).toContain('subgraph appBricks["Apps"]');
+    // Node ids follow the npm scope, which init may set apart from the slug.
+    const id = (name: string): string =>
+      name.slice(1).replaceAll(/[^A-Za-z0-9]/gu, "_");
     expect(rendered).toContain(
-      'darkfactory_web["<b>web</b><br/>The web app."]'
+      `${id("@darkfactory/web")}["<b>web</b><br/>The web app."]`
     );
-    expect(rendered).toContain("darkfactory_web --> darkfactory_api");
-    expect(rendered).toContain("darkfactory_api --> darkfactory_db");
-    expect(rendered).not.toContain("darkfactory_root");
+    expect(rendered).toContain(
+      `${id("@darkfactory/web")} --> ${id("@darkfactory/api")}`
+    );
+    expect(rendered).toContain(
+      `${id("@darkfactory/api")} --> ${id("@darkfactory/db")}`
+    );
+    expect(rendered).not.toContain(id("@darkfactory/root"));
     expect(rendered).not.toContain("capabilityBricks");
     expect(rendered).toContain("| capability | tooling |");
     expect(rendered).toContain(

@@ -6,6 +6,8 @@ import {
   parseInitArguments,
   planInit,
   projectSlugOf,
+  TEMPLATE_REPOSITORY,
+  TEMPLATE_ROOT_COMMIT,
   TEMPLATE_SLUG,
   type TrackedFile,
   WORKERS_PLACEHOLDER,
@@ -55,7 +57,7 @@ const postSteps = (
   // Not frozen: the lockfile's workspace importers change with the scope.
   ["pnpm", ["install", "--no-frozen-lockfile"]],
   ["bun", ["run", "docs:generate"]],
-  ["bun", ["run", "api:openapi:generate"]],
+  ["bun", ["run", "openapi:generate"]],
   [
     "pnpm",
     ["--filter", `${identity.scope}/auth`, "run", "auth:schema:generate"],
@@ -126,22 +128,182 @@ const applyPlan = async (
   for (const path of plan.deletions) await dependencies.files.remove(path);
 };
 
-const nextSteps = (identity: InitIdentity): readonly string[] => [
-  "",
-  `Initialized ${identity.name}. Changes are staged; review them with: git diff --cached --stat`,
-  "Next steps:",
-  "  1. bun run setup",
-  `  2. bun run dev   (https://${identity.slug}.localhost)`,
-  "  3. git commit -m 'chore: initialize project'",
-  `  4. Create the GitHub repository ${identity.repo} and push:`,
-  "       git remote rename origin template",
-  `       gh repo create ${identity.repo} --private --source=. --remote=origin --push`,
-  ...(identity.workersSubdomain === undefined
-    ? [
-        `  5. Replace ${WORKERS_PLACEHOLDER} in apps/web/wrangler.jsonc with your workers.dev subdomain before deploying staging.`,
-      ]
-    : []),
-];
+/** Runs git and returns its trimmed stdout; throws with stderr on failure. */
+const git = async (
+  dependencies: InitDependencies,
+  arguments_: readonly string[]
+): Promise<string> => {
+  const result = await dependencies.capture("git", arguments_);
+  if (result.exitCode !== 0) {
+    throw new Error(
+      `git ${arguments_.join(" ")} failed: ${result.stderr.trim()}`
+    );
+  }
+  return result.stdout.trim();
+};
+
+const TEMPLATE_REFS = [
+  "for-each-ref",
+  "--format=%(refname)",
+  `--contains=${TEMPLATE_ROOT_COMMIT}`,
+] as const;
+
+type FreshHistory = Readonly<{
+  /** HEAD's branch, e.g. refs/heads/main. */
+  branch: string;
+  /** Remote-tracking refs and tags that reach the template's commits. */
+  refs: readonly string[];
+}>;
+
+type History = Readonly<{
+  /** HEAD still reaches the template's root commit. */
+  template: boolean;
+  /** Set with --fresh-history: what replaceHistory drops. */
+  fresh: FreshHistory | undefined;
+}>;
+
+/**
+ * Checks, before anything is written, that --fresh-history can drop every
+ * ref to the template's commits without losing local work.
+ */
+const prepareFreshHistory = async (
+  dependencies: InitDependencies
+): Promise<FreshHistory> => {
+  const branch = await git(dependencies, ["symbolic-ref", "--quiet", "HEAD"]);
+  await git(dependencies, ["var", "GIT_AUTHOR_IDENT"]);
+  const refs = (await git(dependencies, TEMPLATE_REFS))
+    .split("\n")
+    .filter((ref) => ref !== "" && ref !== branch);
+  const local = refs.filter((ref) => !/^refs\/(?:remotes|tags)\//u.test(ref));
+  if (local.length > 0) {
+    throw new Error(
+      `These refs also carry the template history; delete them first: ${local.join(", ")}`
+    );
+  }
+  return { branch, refs };
+};
+
+/** Throws, before anything is written, when --fresh-history cannot run. */
+const inspectHistory = async (
+  dependencies: InitDependencies,
+  freshHistory: boolean
+): Promise<History> => {
+  // An unborn or unreadable HEAD has no history to leak.
+  const roots = await dependencies.capture("git", [
+    "rev-list",
+    "--max-parents=0",
+    "HEAD",
+  ]);
+  const template = roots.stdout.split("\n").includes(TEMPLATE_ROOT_COMMIT);
+  if (!freshHistory) return { template, fresh: undefined };
+  if (!template) {
+    throw new Error("this checkout has no template history to replace.");
+  }
+  return { template, fresh: await prepareFreshHistory(dependencies) };
+};
+
+/**
+ * Commits the staged tree as a new root commit on HEAD's branch, then drops
+ * the remotes and tags that still reach the template's commits.
+ */
+const replaceHistory = async (
+  identity: InitIdentity,
+  fresh: FreshHistory,
+  dependencies: InitDependencies
+): Promise<void> => {
+  const tree = await git(dependencies, ["write-tree"]);
+  const commit = await git(dependencies, [
+    "commit-tree",
+    tree,
+    "-m",
+    `chore: initialize ${identity.name}`,
+  ]);
+  await git(dependencies, ["update-ref", fresh.branch, commit]);
+  const remotes = (await git(dependencies, ["remote"]))
+    .split("\n")
+    .filter((remote) =>
+      fresh.refs.some((ref) => ref.startsWith(`refs/remotes/${remote}/`))
+    );
+  for (const remote of remotes) {
+    await git(dependencies, ["remote", "remove", remote]);
+  }
+  for (const ref of fresh.refs) {
+    if (!remotes.some((remote) => ref.startsWith(`refs/remotes/${remote}/`))) {
+      await git(dependencies, ["update-ref", "-d", ref]);
+    }
+  }
+  const left = await git(dependencies, TEMPLATE_REFS);
+  if (left !== "") {
+    throw new Error(`Template history is still reachable from: ${left}`);
+  }
+  dependencies.log(
+    `Replaced the template history with root commit ${commit.slice(0, 12)}; removed ${remotes.length} remote(s) and ${fresh.refs.length} ref(s) to it.`
+  );
+};
+
+const UNREPLACED =
+  "The template history is still in place: do not push this checkout.";
+
+/** Post-steps, then --fresh-history; false after reporting a failure. */
+const finish = async (
+  identity: InitIdentity,
+  skipInstall: boolean,
+  history: History,
+  dependencies: InitDependencies
+): Promise<boolean> => {
+  if (skipInstall) {
+    dependencies.log(
+      "Skipped post-steps (--skip-install): pnpm install, docs:generate, openapi:generate, auth:schema:generate, format."
+    );
+  } else if (!(await runPostSteps(identity, dependencies))) {
+    if (history.fresh !== undefined) dependencies.error(UNREPLACED);
+    return false;
+  }
+  if (history.fresh === undefined) return true;
+  try {
+    await replaceHistory(identity, history.fresh, dependencies);
+    return true;
+  } catch (error) {
+    dependencies.error((error as Error).message);
+    dependencies.error(UNREPLACED);
+    return false;
+  }
+};
+
+/** Never suggests pushing a checkout that still carries the template's history. */
+const nextSteps = (
+  identity: InitIdentity,
+  history: History
+): readonly string[] => {
+  const publish = `gh repo create ${identity.repo} --private --source=. --remote=origin --push`;
+  const commit = "git commit -m 'chore: initialize project'";
+  let publishing = [commit, `git push   (no remote yet? ${publish})`];
+  if (history.fresh !== undefined) publishing = [publish];
+  else if (history.template) {
+    publishing = [
+      commit,
+      `Do not push this checkout: it still carries the template's Git history. To publish, create the repository with \`gh repo create ${identity.repo} --template ${TEMPLATE_REPOSITORY} --private --clone\` and run init there, or run init with --fresh-history in a fresh clone.`,
+    ];
+  }
+  const steps = [
+    "bun run setup",
+    `bun run dev   (https://${identity.slug}.localhost)`,
+    ...publishing,
+    ...(identity.workersSubdomain === undefined
+      ? [
+          `Replace ${WORKERS_PLACEHOLDER} in apps/web/wrangler.jsonc with your workers.dev subdomain before deploying staging.`,
+        ]
+      : []),
+  ];
+  return [
+    "",
+    history.fresh === undefined
+      ? `Initialized ${identity.name}. Changes are staged; review them with: git diff --cached --stat`
+      : `Initialized ${identity.name} as a single root commit, with no template history.`,
+    "Next steps:",
+    ...steps.map((step, index) => `  ${index + 1}. ${step}`),
+  ];
+};
 
 export const runInit = async (
   arguments_: readonly string[],
@@ -157,11 +319,25 @@ export const runInit = async (
     dependencies.error(INIT_USAGE);
     return 2;
   }
-  const { identity, dryRun, force, skipInstall } = parsed.options;
+  const {
+    identity,
+    dryRun,
+    force,
+    skipInstall,
+    withoutOperator,
+    freshHistory,
+  } = parsed.options;
 
   const refusal = await cleanTree(dependencies);
   if (refusal !== undefined) {
     dependencies.error(refusal);
+    return 1;
+  }
+  let history: History;
+  try {
+    history = await inspectHistory(dependencies, freshHistory);
+  } catch (error) {
+    dependencies.error(`--fresh-history: ${(error as Error).message}`);
     return 1;
   }
   const files = await readTrackedFiles(dependencies);
@@ -181,7 +357,7 @@ export const runInit = async (
   }
   let plan: InitPlan;
   try {
-    plan = planInit(identity, files);
+    plan = planInit(identity, files, { withoutOperator });
   } catch (error) {
     dependencies.error((error as Error).message);
     return 1;
@@ -209,13 +385,7 @@ export const runInit = async (
     return 1;
   }
 
-  if (skipInstall) {
-    dependencies.log(
-      "Skipped post-steps (--skip-install): pnpm install, docs:generate, api:openapi:generate, auth:schema:generate, format."
-    );
-  } else if (!(await runPostSteps(identity, dependencies))) {
-    return 1;
-  }
-  for (const line of nextSteps(identity)) dependencies.log(line);
+  if (!(await finish(identity, skipInstall, history, dependencies))) return 1;
+  for (const line of nextSteps(identity, history)) dependencies.log(line);
   return 0;
 };

@@ -1,8 +1,9 @@
-import { execFileSync } from "node:child_process";
+import { execFile, execFileSync } from "node:child_process";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { promisify } from "node:util";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { withoutGitRepositoryEnvironment } from "../lib/git-env.ts";
 import { regularFilesOf, runInit } from "./apply.ts";
@@ -127,4 +128,127 @@ describe("bun run init", () => {
       await rm(directory, { recursive: true, force: true });
     }
   }, 180_000);
+
+  it("turns a plain clone into one fresh, operator-free commit that passes check and tests", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "init-fresh-"));
+    const clone = join(directory, "project");
+    // --fresh-history commits with the caller's Git identity.
+    vi.stubEnv("GIT_AUTHOR_NAME", "init");
+    vi.stubEnv("GIT_AUTHOR_EMAIL", "init@example.com");
+    vi.stubEnv("GIT_COMMITTER_NAME", "init");
+    vi.stubEnv("GIT_COMMITTER_EMAIL", "init@example.com");
+    // The clone's own Vitest and Turbo runs must not see this Vitest worker.
+    const environment = Object.fromEntries(
+      Object.entries(withoutGitRepositoryEnvironment(process.env)).filter(
+        ([key]) => !(key.startsWith("VITEST") || key === "NODE_ENV")
+      )
+    );
+    const failures: string[] = [];
+    const execute = async (
+      command: string,
+      arguments_: readonly string[]
+    ): Promise<number> => {
+      try {
+        await promisify(execFile)(command, [...arguments_], {
+          cwd: clone,
+          env: environment,
+          maxBuffer: 256 * 1024 * 1024,
+        });
+        return 0;
+      } catch (error) {
+        const failure = error as { stdout?: string; stderr?: string };
+        failures.push(
+          `${command} ${arguments_.join(" ")}\n${`${failure.stdout}${failure.stderr}`.slice(-6000)}`
+        );
+        return 1;
+      }
+    };
+    try {
+      execFileSync(
+        "git",
+        [
+          "clone",
+          "--quiet",
+          "--local",
+          "--no-hardlinks",
+          repositoryRoot,
+          clone,
+        ],
+        { env: cloneEnvironment }
+      );
+      vi.spyOn(process.stdout, "write").mockImplementation(() => true);
+      const errors = vi
+        .spyOn(process.stderr, "write")
+        .mockImplementation(() => true);
+
+      expect(
+        await runInit(
+          [...IDENTITY_ARGUMENTS, "--without-operator", "--fresh-history"],
+          { ...nodeInitDependencies(clone), run: execute }
+        )
+      ).toBe(0);
+      expect(failures).toEqual([]);
+      expect(errors).not.toHaveBeenCalled();
+
+      // One root commit, and no ref, remote or tag reaches the template.
+      const git = (...arguments_: string[]): string =>
+        execFileSync("git", arguments_, {
+          cwd: clone,
+          encoding: "utf8",
+          env: environment,
+          maxBuffer: 64 * 1024 * 1024,
+        });
+      expect(git("rev-list", "--all", "--count").trim()).toBe("1");
+      expect(git("remote")).toBe("");
+      expect(git("tag", "--list")).toBe("");
+      expect(git("status", "--porcelain")).toBe("");
+
+      // Nothing of the agent-SDLC plane is left to import, run or configure.
+      const paths = regularFilesOf(git("ls-files", "-s", "-z"));
+      const read = (path: string): Promise<string> =>
+        readFile(join(clone, path), "utf8");
+      const manifests = paths.filter((path) =>
+        /^(?:apps|packages)\/[^/]+\/package\.json$/u.test(path)
+      );
+      expect(manifests.length).toBeGreaterThan(5);
+      for (const path of manifests) {
+        expect(JSON.parse(await read(path)).brick).not.toBe("agent-sdlc");
+      }
+      expect(paths).not.toContain("docs/operator.md");
+      const root = JSON.parse(await read("package.json")) as Record<
+        string,
+        Record<string, string>
+      >;
+      expect(
+        JSON.stringify([root["scripts"], root["devDependencies"]])
+      ).not.toMatch(/operator|@acme\/jobs/u);
+      expect(await read(".env.example")).not.toMatch(/WORKFLOW_/u);
+      expect(await read("packages/config/src/server.ts")).not.toMatch(
+        /WORKFLOW_/u
+      );
+      const importsPlane =
+        /(?:\bfrom\s*|\bimport\s*\(\s*|\bmock\s*\(\s*)["']@acme\/(?:jobs|operator)\b/u;
+      const importers: string[] = [];
+      for (const path of paths.filter((path) =>
+        /\.[cm]?[jt]sx?$/u.test(path)
+      )) {
+        if (importsPlane.test(await read(path))) importers.push(path);
+      }
+      expect(importers).toEqual([]);
+
+      // The renamed project passes its own gates.
+      for (const script of [
+        "check",
+        "docs:check",
+        "test:unit",
+        "test:operations",
+      ]) {
+        expect(await execute("bun", ["run", script])).toBe(0);
+      }
+      expect(failures).toEqual([]);
+    } finally {
+      vi.unstubAllEnvs();
+      await rm(directory, { recursive: true, force: true });
+    }
+  }, 900_000);
 });

@@ -133,12 +133,16 @@ describe("development targets", () => {
     const manifest = JSON.parse(
       await readFile(new URL("../../package.json", import.meta.url), "utf8")
     ) as { scripts: Record<string, string> };
-    for (const [script, target] of [
-      ["dev", "web"],
-      ["operator:dev", "operator"],
-    ] as const) {
+    // `dev` serves web; `<target>:dev` serves an opt-in target and leaves with its brick.
+    const scripts = Object.keys(manifest.scripts).filter(
+      (script) => script === "dev" || script.endsWith(":dev")
+    );
+    expect(scripts).toContain("dev");
+    for (const script of scripts) {
+      const target = script === "dev" ? "web" : script.replace(/:dev$/u, "");
+      expect(Object.keys(DEVELOPMENT_TARGETS)).toContain(target);
       expect(manifest.scripts[script]).toBe(
-        `bun scripts/dev-bindings.ts${target === "operator" ? " operator" : ""} && portless ${DEVELOPMENT_TARGETS[target].routeName} bun scripts/dev.ts ${target}`
+        `bun scripts/dev-bindings.ts${target === "web" ? "" : ` ${target}`} && portless ${DEVELOPMENT_TARGETS[target as keyof typeof DEVELOPMENT_TARGETS].routeName} bun scripts/dev.ts ${target}`
       );
     }
   });
