@@ -21,9 +21,11 @@ import {
   terminateOwnedProcessTree,
   terminateOwnedProcessTreeThen,
   type OwnedProcess,
+  type TerminateOwnedProcessOptions,
 } from "./owned-process-tree.ts"
 
 type MutableChild = ChildProcess & {
+  pid: number | undefined
   exitCode: number | null
   signalCode: NodeJS.Signals | null
   stderr: PassThrough
@@ -210,7 +212,8 @@ describe("owned process spawning and existence", () => {
 describe("owned process tree termination", () => {
   it("refuses unowned processes and owned processes without a PID", async () => {
     const unowned = fakeChild()
-    await expect(terminateOwnedProcessTree(unowned as OwnedProcess)).rejects.toThrow(
+    await expect(// Deliberately unowned: the brand is absent at runtime.
+    terminateOwnedProcessTree(unowned as unknown as OwnedProcess)).rejects.toThrow(
       /not spawned as owned/i,
     )
 
@@ -783,7 +786,8 @@ describe("owned process tree termination", () => {
 
     const refusedCleanup = vi.fn(async () => undefined)
     await expect(terminateOwnedProcessTreeThen(
-      fakeChild() as OwnedProcess,
+      // Deliberately unowned: the brand is absent at runtime.
+      fakeChild() as unknown as OwnedProcess,
       refusedCleanup,
     )).rejects.toThrow(/not spawned as owned/i)
     return expect(refusedCleanup).not.toHaveBeenCalled()

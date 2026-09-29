@@ -23,7 +23,7 @@ const dependencies = (overrides: Partial<CapabilityDependencies["files"]> = {}) 
     readManifest: async () => MANIFEST,
     exists: async () => false,
     commit: async (plan) => {
-      return commits.push(plan)
+      commits.push(plan)
     },
     ...overrides,
   }

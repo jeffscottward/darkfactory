@@ -261,7 +261,7 @@ describe("documentation filesystem", () => {
         arguments_,
       ) as Awaited<ReturnType<typeof mocks.fileSystemActual.lstat>>
       if (String(arguments_[0]) !== apps || ++appsInspections === 1) return stats
-      return Object.assign(stats, { ino: stats.ino + 1 })
+      return Object.assign(stats, { ino: Number(stats.ino) + 1 })
     }
     )
 

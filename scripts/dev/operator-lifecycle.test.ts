@@ -98,7 +98,7 @@ describe("operator development lifecycle", () => {
     const calls: Array<Readonly<{
       command: string
       arguments: readonly string[]
-      options?: CommandOptions
+      options?: CommandOptions | undefined
     }>> = []
 
     const processList = (): string => JSON.stringify([

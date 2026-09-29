@@ -2,6 +2,31 @@ import { createHash } from "node:crypto"
 import { readFile } from "node:fs/promises"
 import { resolve } from "node:path"
 
+// Bun runtime globals used by this script. bun-types is not installed, so declare
+// only the minimal surface this Bun-executed script relies on.
+declare global {
+  interface ImportMeta {
+    readonly dir: string
+  }
+}
+declare const Bun: Readonly<{
+  which: (command: string) => string | null
+  spawn: (
+    command: readonly string[],
+    options: Readonly<{
+      cwd: string
+      env: Readonly<Record<string, string>>
+      stdin: "ignore"
+      stdout: "inherit" | "pipe"
+      stderr: "inherit" | "pipe"
+    }>,
+  ) => Readonly<{
+    stdout: ReadableStream<Uint8Array> | null
+    stderr: ReadableStream<Uint8Array> | null
+    exited: Promise<number>
+  }>
+}>
+
 const CONFIG_DIGEST = "2bf863dec20f96b200995f953a7f7b055e5738f6f3bbc830185cff03e0f8500d"
 const ARGV_DIGEST = "0970fa90d3ab277f28b29a75762d2e81be2a9b60fc280d4122a663ac57ff2eff"
 const VERIFIER_ARGUMENTS = Object.freeze([

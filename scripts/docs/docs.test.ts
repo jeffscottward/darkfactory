@@ -30,7 +30,7 @@ const fixture = (generated?: string) => {
       discoverPackageManifests: async () => [...manifests.entries()].reverse().map(([path, source]) => ({ path, source })),
       readGenerated: async () => generated,
       writeGenerated: async (path, content) => {
-        return writes.push([path, content])
+        writes.push([path, content])
       }
     },
   }

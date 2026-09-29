@@ -180,29 +180,29 @@ describe("E2E lifecycle cleanup", () => {
         cleanPreviewArtifacts: async () => {
           expect(processExists(address.pid)).toBe(false)
           expect(await portAcceptsConnections(address.port)).toBe(false)
-          return cleanupOrder.push("preview")
+          cleanupOrder.push("preview")
         },
         cleanWorkerBindings: async () => {
           expect(processExists(child.pid!)).toBe(false)
           expect(processExists(address.pid)).toBe(false)
-          return cleanupOrder.push("worker-bindings")
+          cleanupOrder.push("worker-bindings")
         },
         closePreviewCaptureServer: async () => {
           expect(processExists(address.pid)).toBe(false)
-          return cleanupOrder.push("preview-server")
+          cleanupOrder.push("preview-server")
         },
         database: fakeDatabase,
         dropDatabase: async () => {
           expect(processExists(child.pid!)).toBe(false)
           expect(processExists(address.pid)).toBe(false)
           expect(await portAcceptsConnections(address.port)).toBe(false)
-          return cleanupOrder.push("database")
+          cleanupOrder.push("database")
         },
         releaseOwnerLock: async () => {
-          return cleanupOrder.push("route-lock")
+          cleanupOrder.push("route-lock")
         },
         releaseWorkerBindingsLock: async () => {
-          return cleanupOrder.push("worker-bindings-lock")
+          cleanupOrder.push("worker-bindings-lock")
         },
         server: child,
       })
@@ -265,13 +265,13 @@ describe("E2E lifecycle cleanup", () => {
     )
     const cleanupPromise = cleanupE2ELifecycle({
       cleanPreviewArtifacts: async () => {
-        return cleanupOrder.push("preview")
+        cleanupOrder.push("preview")
       },
       closePreviewCaptureServer: async () => {
         cleanupOrder.push("preview-server:start")
         captureCloseStarted()
         await captureReleased
-        return cleanupOrder.push("preview-server:drained")
+        cleanupOrder.push("preview-server:drained")
       },
       dropDatabase: async () => undefined,
     })

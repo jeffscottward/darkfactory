@@ -79,7 +79,8 @@ const markerHandle = ({
       close,
       readFile: vi.fn(async () => content),
       stat,
-    } as Parameters<typeof inspectAndCloseOwnedMarker>[0],
+      // Partial FileHandle double: only the members the inspector uses.
+    } as unknown as Parameters<typeof inspectAndCloseOwnedMarker>[0],
   }
 }
 

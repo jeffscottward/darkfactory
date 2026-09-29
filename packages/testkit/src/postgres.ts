@@ -86,7 +86,7 @@ const activeDatabases = new WeakMap<PostgresTestDatabase, TestDatabaseState>()
 const cleanupPromises = new WeakMap<PostgresTestDatabase, Promise<void>>()
 
 const assertTestEnvironment = (): void => {
-  if (process.env.NODE_ENV !== "test" && process.env["APP_ENV"] !== "test") {
+  if (process.env["NODE_ENV"] !== "test" && process.env["APP_ENV"] !== "test") {
     throw new Error("Postgres test database lifecycle requires NODE_ENV=test or APP_ENV=test")
   }
 }

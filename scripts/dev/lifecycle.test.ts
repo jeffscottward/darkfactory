@@ -616,7 +616,7 @@ describe("PM2 and portless lifecycle", () => {
           certificatePath: ".certs/.private/certificate.pem",
           keyPath: ".certs/.private/key.pem",
           commit: async () => {
-            return certificatesCommitted = true
+            certificatesCommitted = true
           },
           cleanup: async () => undefined,
         }
@@ -700,10 +700,10 @@ describe("PM2 and portless lifecycle", () => {
         certificatePath: "/private/certificate.pem",
         keyPath: "/private/key.pem",
         cleanup: async () => {
-          return cleanupCalls += 1
+          cleanupCalls += 1
         },
         commit: async () => {
-          return commitCalls += 1
+          commitCalls += 1
         }
       }),
     }

@@ -47,7 +47,7 @@ const databaseCli = vi.hoisted(() => {
       _database: unknown,
       options: Readonly<{
         environment: "development" | "test"
-        prepareIdentity: (identities: typeof identities) => Promise<unknown>
+        prepareIdentity: (seedIdentities: typeof identities) => Promise<unknown>
       }>,
     ) => {
       await options.prepareIdentity(identities)

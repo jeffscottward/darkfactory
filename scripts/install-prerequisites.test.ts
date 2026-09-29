@@ -354,7 +354,7 @@ const runInstaller = (
   cwd: new URL("..", installer),
   encoding: "utf8",
   env: {
-    PATH: `${join(fixture.home, ".local", "bin")}:${fixture.bin}:${process.env.PATH ?? ""}`,
+    PATH: `${join(fixture.home, ".local", "bin")}:${fixture.bin}:${process.env["PATH"] ?? ""}`,
     HOME: fixture.home,
     DARKFACTORY_INSTALL_PLATFORM: platform,
     DARKFACTORY_INSTALL_LOCAL_BIN: join(fixture.home, ".local", "bin"),

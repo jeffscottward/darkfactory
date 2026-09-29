@@ -4,11 +4,13 @@ import { createServer, type IncomingMessage, type ServerResponse } from "node:ht
 import {
   createPreviewContactEmailPort,
   createPreviewEmailPort,
-  type ContactEmailInput,
-  type EmailVerificationEmailInput,
-  type PasswordResetEmailInput,
   type PreviewEmailBinding,
 } from "@darkfactory/email/server"
+import type {
+  ContactEmailInput,
+  EmailVerificationEmailInput,
+  PasswordResetEmailInput,
+} from "@darkfactory/email"
 
 const CAPTURE_PATH = "/v1/capture"
 const MAX_REQUEST_BYTES = 64 * 1024
@@ -53,12 +55,12 @@ const parsePayload = (value: unknown): CapturePayload | null => {
     return null
   }
   if (
-    value.version !== 1 ||
-    typeof value.runId !== "string" ||
-    !isRecord(value.input) ||
-    (value.operation !== "contact" &&
-      value.operation !== "reset-password" &&
-      value.operation !== "verify-email")
+    value["version"] !== 1 ||
+    typeof value["runId"] !== "string" ||
+    !isRecord(value["input"]) ||
+    (value["operation"] !== "contact" &&
+      value["operation"] !== "reset-password" &&
+      value["operation"] !== "verify-email")
   ) {
     return null
   }

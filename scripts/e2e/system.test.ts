@@ -922,16 +922,16 @@ describe("artifact scanner system dependencies", () => {
       )
       await rm(join(paths.e2e, "fake.zip"))
 
-      const results2=[];for (const magic of [
+      for (const magic of [
         Buffer.from([0xfd, 0x37, 0x7a, 0x58, 0x5a, 0x00]),
         Buffer.from("BZh", "ascii"),
         Buffer.from([0x37, 0x7a, 0xbc, 0xaf, 0x27, 0x1c]),
       ]) {
         await writeFile(join(paths.e2e, "compressed.bin"), magic)
-        results2.push(await expect(dependencies.collectEntries(scannerPaths(proof))).rejects.toThrow(
+        await expect(dependencies.collectEntries(scannerPaths(proof))).rejects.toThrow(
           /unsupported compressed artifact format/i,
-        ))
-      };return results2;
+        )
+      }
     }
     )
   }

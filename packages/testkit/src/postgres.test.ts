@@ -573,10 +573,6 @@ describe.sequential("PostgreSQL test database creation and connections", () => {
         this.omittedHost = omittedHost
       }
 
-      override get hostname(): string {
-        return this.omittedHost ? "" : super.hostname
-      }
-
       override toString(): string {
         const serialized = super.toString()
         return this.omittedHost
@@ -584,6 +580,15 @@ describe.sequential("PostgreSQL test database creation and connections", () => {
           : serialized
       }
     }
+    // lib.dom declares URL#hostname as a field, so a class accessor cannot override it.
+    Object.defineProperty(OmittedHostURL.prototype, "hostname", {
+      configurable: true,
+      get(this: OmittedHostURL): string {
+        return this.omittedHost
+          ? ""
+          : Reflect.get(NativeURL.prototype, "hostname", this) as string
+      },
+    })
     vi.stubGlobal("URL", OmittedHostURL)
     process.env["PGHOST"] = "foreign-production-db.example"
 
@@ -1773,7 +1778,7 @@ describe.sequential("PostgreSQL drop cleanup", () => {
           }
           cleanupClient.end.mockImplementationOnce(async () => {
             await Promise.resolve()
-            return nowMillis = 5_001
+            nowMillis = 5_001
           }
           )
         }

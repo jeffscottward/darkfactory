@@ -53,7 +53,7 @@ const confirmationEnvironmentFrom = (
 
 const main = async (): Promise<void> => {
   const command = commandFrom(process.argv[2])
-  const environment = developmentEnvironmentFrom(process.env.APP_ENV)
+  const environment = developmentEnvironmentFrom(process.env["APP_ENV"])
   confirmationEnvironmentFrom(process.argv.slice(3), environment)
 
   const [authModule, configModule, databaseConfigModule, databaseModule] =

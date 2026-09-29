@@ -739,7 +739,7 @@ describe("external E2E artifact scanner", () => {
       version: 1,
       runId: "run_safe",
       artifacts: [evidenceRecord],
-    }, [{ ...actual, binary: "unsupported" }]))).resolves.toMatchObject({
+    }, [{ ...actual, binary: "unsupported" } as ReturnType<typeof entry>]))).resolves.toMatchObject({
       ok: false,
       purged: true,
       failureCategory: "evidence-contract-validation",
@@ -754,7 +754,7 @@ describe("external E2E artifact scanner", () => {
         path: "test-results/evidence/run_safe/unreferenced.bin",
         content: "safe",
         binary: "unsupported",
-      },
+      } as ReturnType<typeof entry>,
     ])).resolves.toMatchObject({
       ok: false,
       purged: true,

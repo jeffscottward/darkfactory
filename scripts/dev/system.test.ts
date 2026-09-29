@@ -149,7 +149,7 @@ describe("development Node process adapter", () => {
       windowsHide: true,
       env: expect.objectContaining({ PATH: "/override/bin", SAFE_FLAG: "enabled" }),
     })
-    expect(capturedOptions?.env).not.toHaveProperty("DATABASE_URL")
+    expect(capturedOptions?.["env"]).not.toHaveProperty("DATABASE_URL")
 
     mocks.execFile.mockImplementationOnce((
       _command: string,
@@ -172,7 +172,8 @@ describe("development Node process adapter", () => {
       _command: string,
       _arguments: readonly string[],
       _options: Record<string, unknown>,
-      callback: (error: NodeJS.ErrnoException, stdout: string, stderr: string) => void,
+      // execFile surfaces a numeric exit status in `code` for non-zero exits.
+      callback: (error: Error & { code: number }, stdout: string, stderr: string) => void,
     ) => callback(Object.assign(new Error("failed"), { code: 9 }), "partial", "failure"))
     return await expect(nodeProcessAdapter.run("failed", [])).resolves.toEqual({
       exitCode: 9,
@@ -347,7 +348,7 @@ describe("development Node process adapter", () => {
     mocks.request.mockImplementationOnce((
       _url: URL,
       _options: Record<string, unknown>,
-      respond: (response: { statusCode?: number; resume: () => void }) => void,
+      respond: (response: { statusCode?: number | undefined; resume: () => void }) => void,
     ) => ({
       end: vi.fn(() => {
         respond({ statusCode: undefined, resume })

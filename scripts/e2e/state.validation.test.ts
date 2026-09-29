@@ -258,7 +258,7 @@ describe("E2E suite report sanitization", () => {
         scan: Object.freeze({
           ...scan,
           findings: [{
-            category: "secret-assignment",
+            category: "secret-assignment" as const,
             path: "private/path.json",
           }],
         }),
