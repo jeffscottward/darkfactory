@@ -2,7 +2,7 @@
   "name": "@darkfactory/observability",
   "brick": "product",
   "description": "Telemetry port: OpenTelemetry traces and metrics, evlog events and redaction.",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "license": "MIT",
   "repository": {
     "type": "git",

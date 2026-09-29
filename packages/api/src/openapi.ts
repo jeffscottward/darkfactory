@@ -5,7 +5,7 @@ import { appContract } from "./contract.ts";
 
 export const OPENAPI_INFO = {
   title: "DarkFactory API",
-  version: "0.3.0",
+  version: "0.3.1",
 } as const;
 
 export const buildOpenApiDocument = async (): Promise<OpenAPI.Document> => {

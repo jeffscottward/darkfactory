@@ -4,9 +4,14 @@ Notable changes to DarkFactory will be documented in this file. The format is ba
 
 ## [Unreleased]
 
+## [0.3.1] - 2026-09-29
+
+Security fix release. Covers [#40](https://github.com/jeffscottward/darkfactory/pull/40), [#43](https://github.com/jeffscottward/darkfactory/pull/43), [#46](https://github.com/jeffscottward/darkfactory/pull/46), [#47](https://github.com/jeffscottward/darkfactory/pull/47) and [#48](https://github.com/jeffscottward/darkfactory/pull/48). If you built the operator verifier image with 0.3.0 or earlier, follow the rebuild steps under Security.
+
 ### Changed
 
 - Pre-push takes about 37 s instead of about 80 s. The init clone acceptance test (clone, init, install) moved to its own `acceptance` Vitest project, which the CI coverage lane runs with coverage; run it locally with `bun run test:acceptance`. (#48)
+- Test tooling: jsdom 30 and `@testing-library/react` 16.3.3. (#43, #40)
 
 ### Fixed
 
@@ -16,8 +21,15 @@ Notable changes to DarkFactory will be documented in this file. The format is ba
 
 ### Security
 
-- The operator verifier image no longer receives local secrets. Its `Dockerfile.dockerignore` re-included whole `apps/` and `packages/` subtrees, so `.dev.vars`, `.env*` files and host `node_modules` were copied into the image. It is now an allowlist of files, and an invariant test rejects directory re-includes. Rebuild the image with `verifier:image:setup`. (#47)
+- The operator verifier image leaked local secrets. Its `Dockerfile.dockerignore` re-included whole `apps/` and `packages/` subtrees, so each app's `.dev.vars` (which holds every non-empty value from `.env`), other `.env*` files and host `node_modules` were copied into the image. Code under verification could read them; the container has no network, but its results flow back to the operator. The allowlist now names files only, and an invariant test rejects directory re-includes. (#47)
 - The verifier image fetches pnpm as a checksum-pinned registry tarball instead of an unpinned `npm install --global`, and its Bun base defaults to a digest-pinned `oven/bun:1.3.14`. `DARKFACTORY_VERIFIER_BASE_IMAGE` is now an optional override, which must still be digest-pinned. (#47)
+
+To remove the exposure, rebuilding is not enough: the worker keeps running the image pinned in `.env`.
+
+1. Rebuild: `pnpm --filter @darkfactory/jobs verifier:image:setup`.
+2. Set `WORKFLOW_VERIFIER_IMAGE_DIGEST` in `.env` to the printed digest, then restart `worker:pilot`.
+3. Delete the old image (`docker image rm <old digest>`) and remove it from any registry it was pushed to.
+4. Rotate the real credentials that were in that checkout's `.env` when the old image was built (provider API keys, database passwords, auth secrets).
 
 ## [0.3.0] - 2026-09-29
 
@@ -143,7 +155,8 @@ Covers [#36](https://github.com/jeffscottward/darkfactory/pull/36), [#37](https:
 - Updated direct and transitive build dependencies to resolve eight published advisories: [GHSA-67mh-4wv8-2f99](https://github.com/advisories/GHSA-67mh-4wv8-2f99), [GHSA-g7r4-m6w7-qqqr](https://github.com/advisories/GHSA-g7r4-m6w7-qqqr), [GHSA-r5fr-rjxr-66jc](https://github.com/advisories/GHSA-r5fr-rjxr-66jc) / CVE-2026-4800, [GHSA-f23m-r3pf-42rh](https://github.com/advisories/GHSA-f23m-r3pf-42rh) / CVE-2026-2950, [GHSA-xxjr-mmjv-4gpg](https://github.com/advisories/GHSA-xxjr-mmjv-4gpg) / CVE-2025-13465, [GHSA-f88m-g3jw-g9cj](https://github.com/advisories/GHSA-f88m-g3jw-g9cj) / CVE-2026-33327, CVE-2026-33328, CVE-2026-35590, and CVE-2026-35591, [GHSA-pm4m-ph32-ghv5](https://github.com/advisories/GHSA-pm4m-ph32-ghv5), and [GHSA-mh99-v99m-4gvg](https://github.com/advisories/GHSA-mh99-v99m-4gvg). A current `pnpm audit` reports zero known vulnerabilities.
 - No published DarkFactory-specific security advisory or NVD CVE record matching the project name or repository was identified when this first release was prepared. This bounded statement is not a claim that the software is vulnerability-free.
 
-[Unreleased]: https://github.com/jeffscottward/darkfactory/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/jeffscottward/darkfactory/compare/v0.3.1...HEAD
+[0.3.1]: https://github.com/jeffscottward/darkfactory/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/jeffscottward/darkfactory/compare/v0.2.1...v0.3.0
 [0.2.1]: https://github.com/jeffscottward/darkfactory/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/jeffscottward/darkfactory/compare/v0.1.0...v0.2.0
