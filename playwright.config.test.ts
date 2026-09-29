@@ -261,7 +261,8 @@ describe("canonical Playwright runtime", () => {
     expect(playwrightConfig.testIgnore).toEqual(["**/helpers/**"]);
     expect(playwrightConfig.preserveOutput).toBe("failures-only");
     expect(playwrightConfig.failOnFlakyTests).toBe(Boolean(process.env["CI"]));
-    expect(playwrightConfig.use?.ignoreHTTPSErrors).toBe(true);
+    expect(playwrightConfig.retries).toBe(process.env["CI"] ? 1 : 0);
+    expect(playwrightConfig.use).not.toHaveProperty("ignoreHTTPSErrors");
     expect(playwrightConfig.use?.screenshot).toBe("off");
     expect(playwrightConfig.use?.trace).toBe("off");
     expect(playwrightConfig.use?.video).toBe("off");

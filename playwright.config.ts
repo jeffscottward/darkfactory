@@ -207,7 +207,7 @@ export default defineConfig({
   forbidOnly: isCI,
   failOnFlakyTests: isCI,
   preserveOutput: "failures-only",
-  retries: isCI ? 2 : 0,
+  retries: isCI ? 1 : 0,
   workers: 1,
   reporter: [
     ["list"],
@@ -215,7 +215,6 @@ export default defineConfig({
   ],
   use: {
     baseURL,
-    ignoreHTTPSErrors: true,
     screenshot: "off",
     trace: "off",
     video: "off",
