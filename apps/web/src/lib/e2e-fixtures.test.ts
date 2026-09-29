@@ -121,7 +121,6 @@ describe("E2E-only route fixtures", () => {
         "/repo/test-results/e2e-runs/run_123/previews/auth",
     };
 
-    const results = [];
     for (const runId of [
       undefined,
       "",
@@ -129,16 +128,13 @@ describe("E2E-only route fixtures", () => {
       "run.with.dot",
       "x".repeat(129),
     ]) {
-      results.push(
-        expect(() =>
-          resolveE2eEmailPreviewOptions({
-            ...base,
-            ...(runId === undefined ? {} : { E2E_RUN_ID: runId }),
-          })
-        ).toThrowError("E2E_RUN_ID is required for E2E email previews")
-      );
+      expect(() =>
+        resolveE2eEmailPreviewOptions({
+          ...base,
+          ...(runId === undefined ? {} : { E2E_RUN_ID: runId }),
+        })
+      ).toThrowError("E2E_RUN_ID is required for E2E email previews");
     }
-    return results;
   });
 
   return it("rejects an absent or unparsable preview capture endpoint", () => {
@@ -151,21 +147,17 @@ describe("E2E-only route fixtures", () => {
         "/repo/test-results/e2e-runs/run_123/previews/auth",
     };
 
-    const results1 = [];
     for (const endpoint of [undefined, "not a URL"]) {
-      results1.push(
-        expect(() =>
-          resolveE2eEmailPreviewOptions({
-            ...base,
-            ...(endpoint === undefined
-              ? {}
-              : { E2E_EMAIL_PREVIEW_ENDPOINT: endpoint }),
-          })
-        ).toThrowError(
-          "E2E_EMAIL_PREVIEW_ENDPOINT must be an exact loopback capture URL"
-        )
+      expect(() =>
+        resolveE2eEmailPreviewOptions({
+          ...base,
+          ...(endpoint === undefined
+            ? {}
+            : { E2E_EMAIL_PREVIEW_ENDPOINT: endpoint }),
+        })
+      ).toThrowError(
+        "E2E_EMAIL_PREVIEW_ENDPOINT must be an exact loopback capture URL"
       );
     }
-    return results1;
   });
 });

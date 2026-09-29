@@ -49,7 +49,6 @@ describe("resolveOtlpSignalUrls", () => {
         allowedHosts: ["10.0.0.1"],
       })
     ).toBeUndefined();
-    const results = [];
     for (const endpoint of [
       "javascript:secret-provider-body",
       "not a URL password=hidden",
@@ -57,15 +56,12 @@ describe("resolveOtlpSignalUrls", () => {
       "https://collector.example.test/otlp?token=hidden",
       "https://collector.example.test/otlp#secret",
     ]) {
-      results.push(
-        expect(
-          resolveOtlpSignalUrls(endpoint, {
-            allowedHosts: ["collector.example.test"],
-          })
-        ).toBeUndefined()
-      );
+      expect(
+        resolveOtlpSignalUrls(endpoint, {
+          allowedHosts: ["collector.example.test"],
+        })
+      ).toBeUndefined();
     }
-    return results;
   });
 
   it("supports normalized loopback forms only when explicitly enabled", () => {
@@ -192,23 +188,19 @@ describe("resolveOtlpSignalUrls", () => {
       });
     }
 
-    const results1 = [];
     for (const [endpoint, allowedHost] of [
       ["https://100.127.0.1", "100.127.0.1"],
       ["https://172.31.0.1", "172.31.0.1"],
       ["https://198.19.0.1", "198.19.0.1"],
       ["https://[::]", "::"],
     ] as const) {
-      results1.push(
-        expect(
-          resolveOtlpSignalUrls(endpoint, {
-            allowedHosts: [allowedHost],
-            allowInsecureLocalhost: true,
-          })
-        ).toBeUndefined()
-      );
+      expect(
+        resolveOtlpSignalUrls(endpoint, {
+          allowedHosts: [allowedHost],
+          allowInsecureLocalhost: true,
+        })
+      ).toBeUndefined();
     }
-    return results1;
   });
 });
 
@@ -566,23 +558,19 @@ describe("initializeTelemetry", () => {
       throwingHeaders,
     ];
 
-    const results2 = [];
     for (const headers of invalidHeaders) {
-      results2.push(
-        expect(
-          initializeTelemetry({
-            enabled: true,
-            serviceName: "darkfactory-test",
-            otlpHeaders: headers as Readonly<Record<string, string>>,
-            testExport: true,
-          }).state
-        ).toEqual({
-          status: "unconfigured",
-          reason: "headers-invalid",
-        })
-      );
+      expect(
+        initializeTelemetry({
+          enabled: true,
+          serviceName: "darkfactory-test",
+          otlpHeaders: headers as Readonly<Record<string, string>>,
+          testExport: true,
+        }).state
+      ).toEqual({
+        status: "unconfigured",
+        reason: "headers-invalid",
+      });
     }
-    return results2;
   });
 
   it("provides frozen no-op handles and preserves callback outcomes while inactive", async () => {

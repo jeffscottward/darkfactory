@@ -19,7 +19,6 @@ export const RecoverableErrorFixture = () => {
     }
     window.sessionStorage.setItem(recoveryMarker, "1");
     setPhase("throw");
-    return undefined;
   }, []);
 
   if (phase === "checking") return <PublicLoading />;

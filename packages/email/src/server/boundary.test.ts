@@ -14,15 +14,11 @@ describe("email package boundaries", () => {
       readFile(new URL("./preview.ts", import.meta.url), "utf8"),
       readFile(new URL("./contact-preview.ts", import.meta.url), "utf8"),
     ]);
-    const results = [];
     for (const source of previewSources) {
-      results.push(
-        expect(source).not.toMatch(
-          /const\s+DEFAULT_PREVIEW_DIRECTORY\s*=\s*fileURLToPath/
-        )
+      expect(source).not.toMatch(
+        /const\s+DEFAULT_PREVIEW_DIRECTORY\s*=\s*fileURLToPath/
       );
     }
-    return results;
   });
 
   return it("routes browser server imports to a provider-free poison module", async () => {
@@ -87,6 +83,5 @@ describe("email package boundaries", () => {
       ).toBe(true);
       expect(workerResolution.stderr).toBe("");
     }
-    return undefined;
   });
 });

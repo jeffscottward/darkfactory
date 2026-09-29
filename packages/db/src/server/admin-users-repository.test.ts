@@ -260,9 +260,7 @@ describe("admin user cursor", () => {
     expect(() => decodeAdminUsersCursor(cursor)).toThrow(
       InvalidAdminUsersCursorError
     );
-    return undefined;
   });
-  return undefined;
 });
 
 describe("admin user directory", () => {
@@ -430,5 +428,4 @@ describe("admin user directory", () => {
       createAdminUsersRepository(double.database).search({ limit: 10 })
     ).rejects.toBe(denial);
   });
-  return undefined;
 });

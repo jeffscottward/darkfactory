@@ -216,23 +216,19 @@ describe("Better Auth email verification configuration", () => {
       }).toThrowError("verificationRateLimitMax must be a positive integer");
     }
 
-    const results = [];
     for (const invalidSignInMax of [0, -1, 1.5, Number.MAX_SAFE_INTEGER + 1]) {
-      results.push(
-        expect(() =>
-          createAuth({
-            database: {} as never,
-            secret: "auth-test-secret-with-at-least-32-characters",
-            baseURL: BASE_URL,
-            email,
-            scheduleBackgroundTask: () => undefined,
-            rateLimitEnabled: false,
-            signInRateLimitMax: invalidSignInMax,
-          })
-        ).toThrowError("signInRateLimitMax must be a positive integer")
-      );
+      expect(() =>
+        createAuth({
+          database: {} as never,
+          secret: "auth-test-secret-with-at-least-32-characters",
+          baseURL: BASE_URL,
+          email,
+          scheduleBackgroundTask: () => undefined,
+          rateLimitEnabled: false,
+          signInRateLimitMax: invalidSignInMax,
+        })
+      ).toThrowError("signInRateLimitMax must be a positive integer");
     }
-    return results;
   });
 
   it("delegates the exact trusted Better Auth URL to the operation-specific port", async () => {
@@ -405,17 +401,13 @@ describe("Better Auth email verification configuration", () => {
       );
     }
 
-    const results1 = [];
     for (const expiresIn of [0, -60, 60.5, 61, Number.MAX_SAFE_INTEGER + 1]) {
-      results1.push(
-        expect(() => {
-          return createConfiguredAuth(email, 60 * 60, undefined, expiresIn);
-        }).toThrowError(
-          "resetPasswordTokenExpiresInSeconds must be a positive whole-minute integer"
-        )
+      expect(() => {
+        return createConfiguredAuth(email, 60 * 60, undefined, expiresIn);
+      }).toThrowError(
+        "resetPasswordTokenExpiresInSeconds must be a positive whole-minute integer"
       );
     }
-    return results1;
   });
 
   return it("installs the email normalization hook used by manual verification requests", () => {

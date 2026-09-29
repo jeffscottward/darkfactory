@@ -119,7 +119,6 @@ const fixture = (
     writeText: async (path, content) => {
       writes.push([path, content]);
       files.set(path, content);
-      return undefined;
     },
     listSourceFiles: async () => [...sourceFiles.keys()].reverse(),
     resetGraphOutput: async (path) => {
@@ -410,7 +409,6 @@ describe("Graphify workflow", () => {
       calculateGraphDigest(graphWith([{ id: "group", nodes: ["a", "b", "c"] }]))
     ).not.toThrow();
 
-    const results = [];
     for (const hyperedges of [
       [{ id: "group" }],
       [{ id: "group", nodes: ["a", "b"] }],
@@ -422,13 +420,10 @@ describe("Graphify workflow", () => {
       ],
       [{ id: "a", nodes: ["a", "b", "c"] }],
     ]) {
-      results.push(
-        expect(() => calculateGraphDigest(graphWith(hyperedges))).toThrow(
-          /hyperedge/i
-        )
+      expect(() => calculateGraphDigest(graphWith(hyperedges))).toThrow(
+        /hyperedge/i
       );
     }
-    return results;
   });
 
   it("accepts the alternate hyperedge member key and rejects identity and link boundaries", () => {
@@ -465,25 +460,21 @@ describe("Graphify workflow", () => {
       )
     ).toThrow(/invalid node identity/i);
 
-    const results1 = [];
     for (const link of [
       null,
       { source: 1, target: "b" },
       { source: "a", target: 2 },
       { source: "missing", target: "b" },
     ]) {
-      results1.push(
-        expect(() =>
-          calculateGraphDigest(
-            JSON.stringify({
-              nodes,
-              links: [link],
-            })
-          )
-        ).toThrow(/invalid link endpoint/i)
-      );
+      expect(() =>
+        calculateGraphDigest(
+          JSON.stringify({
+            nodes,
+            links: [link],
+          })
+        )
+      ).toThrow(/invalid link endpoint/i);
     }
-    return results1;
   });
 
   it("builds with a supported argument array and records source, config, and graph digests", async () => {
@@ -914,7 +905,6 @@ describe("Graphify workflow", () => {
       JSON.stringify({ ...valid, sourceFileCount: 1.5 }),
     ];
 
-    const results2 = [];
     for (const manifest of invalidManifests) {
       const state = fixture({ graphExists: true, manifest });
       await expect(
@@ -924,9 +914,8 @@ describe("Graphify workflow", () => {
         fresh: false,
         reason: "Graph manifest is missing or malformed",
       });
-      results2.push(expect(state.writes).toHaveLength(0));
+      expect(state.writes).toHaveLength(0);
     }
-    return results2;
   });
 
   it("distinguishes each stale digest decision from a Graphify version change", async () => {

@@ -292,7 +292,6 @@ export const OperatorRunDetail = ({
       requestRevision.current += 1;
       currentOutput.current = null;
       cancelAutomaticRefresh();
-      return undefined;
     };
   }, [cancelAutomaticRefresh, id, load]);
 

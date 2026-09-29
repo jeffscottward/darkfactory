@@ -916,19 +916,15 @@ describe("external E2E artifact scanner", () => {
         stats: { expected: 1, skipped: 0, unexpected: 0, flaky: "0" },
       }),
     ];
-    const results1 = [];
     for (const content of invalidReports) {
-      results1.push(
-        await expect(
-          scan([entry(reportPath, content), required[1]!, actual])
-        ).resolves.toMatchObject({
-          ok: false,
-          purged: true,
-          failureCategory: "evidence-contract-validation",
-        })
-      );
+      await expect(
+        scan([entry(reportPath, content), required[1]!, actual])
+      ).resolves.toMatchObject({
+        ok: false,
+        purged: true,
+        failureCategory: "evidence-contract-validation",
+      });
     }
-    return results1;
   });
 
   it("validates exact bounded structured evidence for both artifact profiles", async () => {
@@ -1218,7 +1214,6 @@ describe("external E2E artifact scanner", () => {
       Buffer.from("IHDR", "ascii"),
       Buffer.alloc(4),
     ]);
-    const results2 = [];
     for (const [runId, content] of [
       [
         "metadata_png",
@@ -1245,13 +1240,10 @@ describe("external E2E artifact scanner", () => {
         unsafe.root,
         unsafe.proof
       );
-      results2.push(
-        await expect(
-          scanArtifactPaths(unsafe.runId, unsafe.paths, dependencies, true)
-        ).resolves.toMatchObject({ ok: false, purged: true })
-      );
+      await expect(
+        scanArtifactPaths(unsafe.runId, unsafe.paths, dependencies, true)
+      ).resolves.toMatchObject({ ok: false, purged: true });
     }
-    return results2;
   });
 
   it("returns only allowlisted catch categories, zero unvalidated counts, and purges", async () => {

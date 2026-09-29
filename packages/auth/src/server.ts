@@ -324,7 +324,6 @@ export const createAuth = (options: AuthFactoryOptions) => {
         if (signedInUser) {
           await ensureUserResources(options.database, signedInUser);
         }
-        return undefined;
       }),
     },
     rateLimit: {
@@ -426,7 +425,6 @@ export const createAuth = (options: AuthFactoryOptions) => {
         create: {
           after: async (user) => {
             await ensureUserResources(options.database, user);
-            return undefined;
           },
         },
       },
@@ -434,7 +432,6 @@ export const createAuth = (options: AuthFactoryOptions) => {
         create: {
           before: async (session) => {
             await requireActiveUserId(options.database, session.userId);
-            return undefined;
           },
         },
       },

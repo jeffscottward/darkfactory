@@ -1708,21 +1708,17 @@ describe("address repository", () => {
       })
     ).rejects.toBeInstanceOf(OptimisticConcurrencyError);
 
-    const results = [];
     for (const double of [missingDouble, staleDouble]) {
       expect(queryParameters(double.operations[0]!)).toEqual([
         double === missingDouble ? "address_missing" : "address_home",
         "user_alice",
         PREVIOUS_VERSION,
       ]);
-      results.push(
-        expect(queryParameters(double.operations[1]!)).toEqual([
-          double === missingDouble ? "address_missing" : "address_home",
-          "user_alice",
-        ])
-      );
+      expect(queryParameters(double.operations[1]!)).toEqual([
+        double === missingDouble ? "address_missing" : "address_home",
+        "user_alice",
+      ]);
     }
-    return results;
   });
 
   it("atomically applies every supplied field while replacing the primary optimistically", async () => {

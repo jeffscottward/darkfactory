@@ -69,13 +69,11 @@ beforeEach(() => {
     return `hashed::${String(password)}`;
   });
   mocks.verifyPassword.mockResolvedValue(true);
-  return undefined;
 });
 
 afterEach(() => {
   vi.useRealTimers();
   vi.restoreAllMocks();
-  return undefined;
 });
 
 type MiddlewareContext = Readonly<{
@@ -556,7 +554,6 @@ describe("createAuth hooks", () => {
     } else {
       for (const trap of traps) expect(trap).not.toHaveBeenCalled();
     }
-    return undefined;
   });
 
   it("allows an inactive current session to sign out", async () => {
@@ -659,7 +656,6 @@ describe("createAuth hooks", () => {
         body: { code: errorCode, message: "Account is unavailable" },
       });
     }
-    return undefined;
   });
 
   return it("fails closed when the session user lookup returns no row", async () => {
@@ -764,7 +760,6 @@ describe("fetch-native auth handler status gate", () => {
     await expect(response.text()).resolves.toBe(body);
     expect(getSession).not.toHaveBeenCalled();
     expect(handler).toHaveBeenCalledOnce();
-    return undefined;
   });
 
   it.each([
@@ -803,7 +798,6 @@ describe("fetch-native auth handler status gate", () => {
     });
     expect(getSession).not.toHaveBeenCalled();
     expect(handler).toHaveBeenCalledOnce();
-    return undefined;
   });
 
   it("normalizes the JSON media type before applying the GET session gate", async () => {
@@ -888,7 +882,6 @@ describe("fetch-native auth handler status gate", () => {
     await expect(jsonBody(response)).resolves.toEqual(expectedBody);
     expect(getSession).not.toHaveBeenCalled();
     expect(handler).toHaveBeenCalledOnce();
-    return undefined;
   });
 
   it("preserves the redacted JSON parse failure for GET session", async () => {
@@ -926,7 +919,6 @@ describe("fetch-native auth handler status gate", () => {
     ).rejects.toThrowError("Authentication JSON response is malformed");
     expect(getSession).not.toHaveBeenCalled();
     expect(handler).toHaveBeenCalledOnce();
-    return undefined;
   });
 
   it.each([
@@ -944,7 +936,6 @@ describe("fetch-native auth handler status gate", () => {
     expect(response.status).toBe(403);
     expect(getSession).toHaveBeenCalledOnce();
     expect(handler).not.toHaveBeenCalled();
-    return undefined;
   });
 
   it.each([
@@ -1034,7 +1025,6 @@ describe("fetch-native auth handler status gate", () => {
     } else {
       for (const trap of traps) expect(trap).not.toHaveBeenCalled();
     }
-    return undefined;
   });
 
   return it("propagates a status lookup failure before invoking Better Auth", async () => {
@@ -1209,7 +1199,6 @@ describe("fetch-native auth response normalization", () => {
       "cache-control": "no-store",
       "content-type": "application/json",
     });
-    const results = [];
     for (const header of [
       "content-encoding",
       "content-length",
@@ -1218,9 +1207,8 @@ describe("fetch-native auth response normalization", () => {
       "set-cookie",
       "x-provider-request-id",
     ]) {
-      results.push(expect(normalized.headers.get(header)).toBeNull());
+      expect(normalized.headers.get(header)).toBeNull();
     }
-    return results;
   });
 
   it.each([
@@ -1768,7 +1756,6 @@ describe("development seed identity preparation", () => {
   });
 
   it("reports a missing or passwordless credential without creating resources", async () => {
-    const results1 = [];
     for (const accounts of [
       [],
       [{ ...seedCredential(), password: undefined }],
@@ -1790,9 +1777,8 @@ describe("development seed identity preparation", () => {
       await expect(
         applyIdentity(IDENTITY, true, database as never)
       ).rejects.toThrowError("Seed credential is unavailable");
-      results1.push(expect(state.profiles.size).toBe(0));
+      expect(state.profiles.size).toBe(0);
     }
-    return results1;
   });
 
   it("redacts a malformed credential hash failure", async () => {

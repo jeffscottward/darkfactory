@@ -1426,13 +1426,9 @@ describe("OMP CLI adapter", () => {
     expect(environment["AWS_ACCESS_KEY_ID"]).toBe(sentinels.awsAccess);
     expect(environment["UNRELATED_SECRET"]).toBeUndefined();
     expect(result.output.redacted).toBe(true);
-    const results1 = [];
     for (const sentinel of Object.values(sentinels)) {
-      results1.push(
-        expect(JSON.stringify(result.output)).not.toContain(sentinel)
-      );
+      expect(JSON.stringify(result.output)).not.toContain(sentinel);
     }
-    return results1;
   });
 
   it("redacts secrets and caps combined output before returning it", async () => {
@@ -1591,11 +1587,9 @@ describe("OMP CLI adapter", () => {
       exitCode: null,
       signal: "SIGTERM",
     });
-    const results2 = [];
     for (const result of mocks.spawn.mock.results) {
-      results2.push(expect(result.value.kill).toHaveBeenCalledWith("SIGTERM"));
+      expect(result.value.kill).toHaveBeenCalledWith("SIGTERM");
     }
-    return results2;
   });
 
   it("captures mixed string and buffer chunks and clamps negative clock movement", async () => {
@@ -2449,7 +2443,6 @@ describe("OMP CLI adapter", () => {
       },
     ];
 
-    const results3 = [];
     for (const testCase of cases) {
       const adapter = createOmpCliAdapter({
         repositoriesRoot,
@@ -2463,9 +2456,8 @@ describe("OMP CLI adapter", () => {
       expect(result.status).toBe(testCase.expected);
       expect(result.verification?.digest).toBeNull();
       expect(result.verification?.resultBytes).toBeLessThanOrEqual(32 * 1024);
-      results3.push(await result.lifecycle!.finalize("persisted"));
+      await result.lifecycle!.finalize("persisted");
     }
-    return results3;
   });
 
   it("disposes plan worktrees when durable persistence retries", async () => {
@@ -2568,18 +2560,14 @@ describe("OMP CLI adapter", () => {
     ).toBe(false);
   });
   it("rejects invalid verifier output limits at adapter construction", () => {
-    const results4 = [];
     for (const verifierMaxResultBytes of [0, 1_048_577, 1.5]) {
-      results4.push(
-        expect(() =>
-          createOmpCliAdapter({
-            repositoriesRoot,
-            verifierMaxResultBytes,
-          })
-        ).toThrow(OmpConfigurationError)
-      );
+      expect(() =>
+        createOmpCliAdapter({
+          repositoriesRoot,
+          verifierMaxResultBytes,
+        })
+      ).toThrow(OmpConfigurationError);
     }
-    return results4;
   });
   it("rejects an unapproved verifier identity", () => {
     return expect(() =>
@@ -2600,15 +2588,13 @@ describe("OMP CLI adapter", () => {
     ]) {
       expect(isVerifierControlPath(path), path).toBe(true);
     }
-    const results5 = [];
     for (const path of [
       "apps/web/app/page.civet",
       "packages/auth/src/server.ts",
       "docs/architecture.md",
     ]) {
-      results5.push(expect(isVerifierControlPath(path), path).toBe(false));
+      expect(isVerifierControlPath(path), path).toBe(false);
     }
-    return results5;
   });
 
   it("rejects a retained workspace when its control manifest no longer matches source", async () => {
@@ -2917,7 +2903,6 @@ describe("OMP CLI adapter", () => {
     });
     await combinedResult.lifecycle!.finalize("persisted");
 
-    const results6 = [];
     for (const error of [
       new Error("verifier unavailable"),
       new OmpProcessTerminationError(),
@@ -2936,18 +2921,15 @@ describe("OMP CLI adapter", () => {
       await retained.implementation.lifecycle!.finalize("persisted");
       callbackWith(null, "generic OMP success");
       if (error instanceof OmpProcessTerminationError) {
-        results6.push(
-          await expect(
-            adapter.execute(verificationRequestFor(retained))
-          ).rejects.toBe(error)
-        );
+        await expect(
+          adapter.execute(verificationRequestFor(retained))
+        ).rejects.toBe(error);
       } else {
         const result = await adapter.execute(verificationRequestFor(retained));
         expect(result).toMatchObject({ status: "failed", verification: null });
-        results6.push(await result.lifecycle!.finalize("persisted"));
+        await result.lifecycle!.finalize("persisted");
       }
     }
-    return results6;
   });
 
   it("builds directory, symlink, and deletion implementation artifacts", async () => {
@@ -2994,7 +2976,6 @@ describe("OMP CLI adapter", () => {
         },
       },
     ] as const;
-    const results7 = [];
     for (const testCase of cases) {
       if (testCase.source !== undefined) {
         await writeFile(scopedFile, testCase.source);
@@ -3013,9 +2994,8 @@ describe("OMP CLI adapter", () => {
       ).toContainEqual(testCase.expected);
       await result.lifecycle!.finalize("persisted");
       await rm(scopedFile, { force: true });
-      results7.push(trackedPaths.clear());
+      trackedPaths.clear();
     }
-    return results7;
   });
 
   it("fails artifact creation for an oversized changed file while retaining bounded change evidence", async () => {
@@ -3190,18 +3170,14 @@ describe("OMP CLI adapter", () => {
         { path: "a/b", kind: "deleted" },
       ],
     ];
-    const results8 = [];
     for (const entries of malformedEntries) {
-      results8.push(
-        expect(() =>
-          decodeOmpImplementationArtifact(
-            artifactFor(valueFor(entries)),
-            changeHash
-          )
-        ).toThrow(OmpRequestError)
-      );
+      expect(() =>
+        decodeOmpImplementationArtifact(
+          artifactFor(valueFor(entries)),
+          changeHash
+        )
+      ).toThrow(OmpRequestError);
     }
-    return results8;
   });
 
   it("applies ordered artifact operations and rejects forged filesystem boundaries", async () => {
@@ -3346,19 +3322,15 @@ describe("OMP CLI adapter", () => {
       },
     ] as const;
 
-    const results9 = [];
     for (const testCase of forgedCases) {
       await expect(
         applyOmpImplementationArtifact(root, artifactFor(testCase.entries))
       ).rejects.toThrow("OMP implementation artifact is invalid");
       expect(await readFile(marker, "utf8"), testCase.label).toBe("preserved");
-      results9.push(
-        expect(await readFile(outside, "utf8"), testCase.label).toBe(
-          "outside-preserved"
-        )
+      expect(await readFile(outside, "utf8"), testCase.label).toBe(
+        "outside-preserved"
       );
     }
-    return results9;
   });
 
   it("covers symlinked, missing, and escaped verifier manifests", async () => {
@@ -3419,15 +3391,11 @@ describe("OMP CLI adapter", () => {
       ["digest", "/tmp/workspace", "/tmp/cid", "sha256:bad", validName],
       ["name", "/tmp/workspace", "/tmp/cid", validDigest, "bad"],
     ] as const;
-    const results10 = [];
     for (const [_label, workspace, cidPath, digest, name] of cases) {
-      results10.push(
-        expect(() =>
-          dockerVerifierArgumentsFor(workspace, cidPath, digest, name)
-        ).toThrow(OmpConfigurationError)
-      );
+      expect(() =>
+        dockerVerifierArgumentsFor(workspace, cidPath, digest, name)
+      ).toThrow(OmpConfigurationError);
     }
-    return results10;
   });
 
   it("rejects uncovered adapter configuration and request filesystem boundaries", async () => {
@@ -3961,16 +3929,12 @@ describe("OMP CLI adapter", () => {
       trackedPaths.add(manifestPath);
     }
     await verifyRejectedLayout("verifier-package-count");
-    const results11 = [];
     for (const manifestPath of extraManifests) {
       trackedPaths.delete(manifestPath);
-      results11.push(
-        await rm(dirname(join(repositoryDirectory, manifestPath)), {
-          recursive: true,
-        })
-      );
+      await rm(dirname(join(repositoryDirectory, manifestPath)), {
+        recursive: true,
+      });
     }
-    return results11;
   });
 
   it("normalizes nullish injected verifier streams", async () => {
@@ -4312,7 +4276,6 @@ describe("OMP CLI adapter", () => {
       },
     ] as const;
     const adapter = createOmpCliAdapter({ repositoriesRoot });
-    const results12 = [];
     for (const testCase of cases) {
       callbackWith(null, "implemented", "", async (cwd) => {
         return await writeFile(
@@ -4340,18 +4303,15 @@ describe("OMP CLI adapter", () => {
         await readFile(baselinePath, "utf8")
       ) as Record<string, unknown>;
       await writeFile(baselinePath, JSON.stringify(testCase.mutate(baseline)));
-      results12.push(
-        await expect(
-          adapter.execute(
-            requestFor({
-              workspaceId: `wp1-baseline-${testCase.label}`,
-              effectKind: "implement",
-            })
-          )
-        ).rejects.toThrow("OMP implementation baseline is invalid")
-      );
+      await expect(
+        adapter.execute(
+          requestFor({
+            workspaceId: `wp1-baseline-${testCase.label}`,
+            effectKind: "implement",
+          })
+        )
+      ).rejects.toThrow("OMP implementation baseline is invalid");
     }
-    return results12;
   });
 
   it("WP1 rejects a clean baseline whose serialized manifest exceeds its byte budget", async () => {
@@ -4660,7 +4620,6 @@ describe("OMP CLI adapter", () => {
 
     await writeFile(scopedFile, "before");
     trackedPaths.add("packages/jobs/representative.civet");
-    const results13 = [];
     for (const operation of ["write", "rename"] as const) {
       callbackWith(null, "implemented", "", async (cwd) => {
         return await writeFile(
@@ -4702,9 +4661,8 @@ describe("OMP CLI adapter", () => {
       });
       mocks.WP2writeFileDelegate = undefined;
       mocks.WP2renameDelegate = undefined;
-      results13.push(await result.lifecycle!.finalize("unpersisted"));
+      await result.lifecycle!.finalize("unpersisted");
     }
-    return results13;
   });
 
   it("WP2 detects owner disappearance and deterministic cleanup ownership races", async () => {
@@ -4723,7 +4681,6 @@ describe("OMP CLI adapter", () => {
     );
 
     const adapter = createOmpCliAdapter({ repositoriesRoot });
-    const results14 = [];
     for (const race of ["baseline", "marker"] as const) {
       const retained = await WP2prepareRetained(
         adapter,
@@ -4766,9 +4723,8 @@ describe("OMP CLI adapter", () => {
       );
       mocks.WP2readFileDelegate = undefined;
       mocks.WP2rmDelegate = undefined;
-      results14.push(await adapter.cleanupRetainedWorkspace(cleanup));
+      await adapter.cleanupRetainedWorkspace(cleanup);
     }
-    return results14;
   });
 
   it("WP2 fails closed across cleanup path, root, git, and filesystem boundaries", async () => {
@@ -5929,7 +5885,6 @@ describe("OMP CLI adapter", () => {
   });
 
   it("WP4 propagates typed verifier termination and cleanup errors unchanged", async () => {
-    const results15 = [];
     for (const error of [
       new OmpProcessTerminationError(),
       new OmpWorkspaceCleanupError(),
@@ -5949,13 +5904,10 @@ describe("OMP CLI adapter", () => {
       await prepared.implementation.lifecycle!.finalize("persisted");
       callbackWith(null, "verification");
 
-      results15.push(
-        await expect(
-          adapter.execute(verificationRequestFor(prepared))
-        ).rejects.toBe(error)
-      );
+      await expect(
+        adapter.execute(verificationRequestFor(prepared))
+      ).rejects.toBe(error);
     }
-    return results15;
   });
 
   it("preserves verifier runner termination when verifier lock release fails", async () => {
@@ -6279,7 +6231,6 @@ describe("OMP CLI adapter", () => {
   });
 
   it("rejects each recovered implementation mismatch after valid preflight", async () => {
-    const results16 = [];
     for (const mismatch of [
       "change-hash",
       "artifact-digest",
@@ -6352,12 +6303,11 @@ describe("OMP CLI adapter", () => {
       mocks.WP4readFileDelegate = undefined;
       expect(boundaryMutations).toBe(1);
       if (mismatch !== "change-hash") {
-        results16.push(expect(recoveredFileReads).toBe(1));
+        expect(recoveredFileReads).toBe(1);
       } else {
-        results16.push(void 0);
+        void 0;
       }
     }
-    return results16;
   });
 
   it("preserves the primary typed error when ordinary worktree cleanup fails", async () => {
@@ -6712,7 +6662,6 @@ describe("OMP CLI adapter", () => {
       })
     ).toThrow("OMP Wayfinder skills root must be absolute");
     const adapter = createOmpCliAdapter({ repositoriesRoot });
-    const results17 = [];
     for (const request of [
       requestFor({ skillProfile: "other" as never }),
       requestFor({ skillProfile: "wayfinder", effectKind: "implement" }),
@@ -6721,13 +6670,10 @@ describe("OMP CLI adapter", () => {
         workspaceId: "unsafe:wayfinder",
       }),
     ]) {
-      results17.push(
-        await expect(adapter.execute(request)).rejects.toBeInstanceOf(
-          OmpRequestError
-        )
+      await expect(adapter.execute(request)).rejects.toBeInstanceOf(
+        OmpRequestError
       );
     }
-    return results17;
   });
 
   it("fails closed for every Wayfinder skill bundle security limit", async () => {

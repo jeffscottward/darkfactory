@@ -124,7 +124,6 @@ describe("createUiStore", () => {
       JSON.stringify({ version: 1, state: validState, extra: true }),
     ];
 
-    const results = [];
     for (const malformed of malformedSnapshots) {
       const store = createUiStore();
       const before = store.getState();
@@ -133,11 +132,8 @@ describe("createUiStore", () => {
       expect(parseUiStateSnapshot(malformed)).toBeNull();
       expect(store.getState().hydrate(malformed)).toBe(false);
       expect(store.getState()).toBe(before);
-      results.push(
-        expect(store.getState().dehydrate()).toEqual(beforeSnapshot)
-      );
+      expect(store.getState().dehydrate()).toEqual(beforeSnapshot);
     }
-    return results;
   });
 
   it("does not execute hostile accessors or proxy traps during hydration", () => {

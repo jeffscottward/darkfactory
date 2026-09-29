@@ -490,7 +490,6 @@ describe("createResendContactEmailPort", () => {
       },
     ];
 
-    const results = [];
     for (const { send, expected } of cases) {
       const email = createResendContactEmailPort({
         recipient: "support@example.test",
@@ -505,11 +504,8 @@ describe("createResendContactEmailPort", () => {
         provider: "resend",
         ...expected,
       });
-      results.push(
-        expect(JSON.stringify(result)).not.toContain(providerSecret)
-      );
+      expect(JSON.stringify(result)).not.toContain(providerSecret);
     }
-    return results;
   });
 
   return it("adapts the default Resend SDK response without a network request", async () => {
@@ -542,18 +538,14 @@ describe("createPreviewContactEmailPort", () => {
       })
     ).toThrowError("unavailable in production");
 
-    const results1 = [];
     for (const maxArtifacts of [0, -1, 1.5]) {
-      results1.push(
-        expect(() =>
-          createPreviewContactEmailPort({
-            environment: "test",
-            maxArtifacts,
-          })
-        ).toThrowError("maxArtifacts must be a positive integer")
-      );
+      expect(() =>
+        createPreviewContactEmailPort({
+          environment: "test",
+          maxArtifacts,
+        })
+      ).toThrowError("maxArtifacts must be a positive integer");
     }
-    return results1;
   });
 
   it("uses the default preview options while returning a redacted render failure", async () => {
@@ -581,20 +573,16 @@ describe("createPreviewContactEmailPort", () => {
     await mkdir(targetDirectory);
     await symlink(targetDirectory, symbolicDirectory, "dir");
 
-    const results2 = [];
     for (const unsafeDirectory of [ordinaryFile, symbolicDirectory]) {
       const email = createPreviewContactEmailPort({
         environment: "test",
         directory: unsafeDirectory,
       });
-      results2.push(
-        await expect(email.sendContact(contactInput)).resolves.toMatchObject({
-          status: "not-delivered",
-          code: "CONTACT_PREVIEW_WRITE_FAILED",
-        })
-      );
+      await expect(email.sendContact(contactInput)).resolves.toMatchObject({
+        status: "not-delivered",
+        code: "CONTACT_PREVIEW_WRITE_FAILED",
+      });
     }
-    return results2;
   });
 
   it("fails closed for a symbolic-link ancestor in the preview path", async () => {
@@ -763,7 +751,6 @@ describe("createPreviewContactEmailPort", () => {
       ],
     ];
 
-    const results3 = [];
     for (const identities of scenarios) {
       vi.doUnmock("node:fs/promises");
       vi.resetModules();
@@ -788,9 +775,8 @@ describe("createPreviewContactEmailPort", () => {
         status: "not-delivered",
         code: "CONTACT_PREVIEW_WRITE_FAILED",
       });
-      results3.push(expect(lstat).toHaveBeenCalledTimes(identities.length));
+      expect(lstat).toHaveBeenCalledTimes(identities.length);
     }
-    return results3;
   });
 
   return it("detects a symbolic-link ancestor introduced after canonicalization", async () => {

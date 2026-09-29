@@ -69,29 +69,20 @@ describe("GitHub workflow invariants", () => {
     });
     expect(lines).toHaveLength(parsedUses.length);
     expect(parsedUses.length).toBeGreaterThan(0);
-    const results = [];
     for (const { file, line } of lines) {
-      results.push(
-        expect(line, file).toMatch(
-          /^(?:-\s+)?uses:\s+[\w.-]+\/[\w./-]+@[0-9a-f]{40}\s+#\s+v\d[\w.-]*$/
-        )
+      expect(line, file).toMatch(
+        /^(?:-\s+)?uses:\s+[\w.-]+\/[\w./-]+@[0-9a-f]{40}\s+#\s+v\d[\w.-]*$/
       );
     }
-    return results;
   });
 
   it("never triggers on pull_request_target", () => {
-    const results1 = [];
     for (const { file, workflow } of workflows) {
-      results1.push(
-        expect(triggers(workflow.on), file).not.toContain("pull_request_target")
-      );
+      expect(triggers(workflow.on), file).not.toContain("pull_request_target");
     }
-    return results1;
   });
 
   it("defaults every workflow token to no or read-only permissions", () => {
-    const results2 = [];
     for (const { file, workflow } of workflows) {
       const permissions = workflow.permissions;
       if (permissions === "read-all") continue;
@@ -103,9 +94,8 @@ describe("GitHub workflow invariants", () => {
       )) {
         results3.push(expect(["read", "none"], file).toContain(scope));
       }
-      results2.push(results3);
+      results3;
     }
-    return results2;
   });
 
   it("never persists checkout credentials", () => {
@@ -113,13 +103,9 @@ describe("GitHub workflow invariants", () => {
       return step.uses?.startsWith("actions/checkout@");
     });
     expect(checkouts.length).toBeGreaterThan(0);
-    const results4 = [];
     for (const { file, id, step } of checkouts) {
-      results4.push(
-        expect(step.with?.["persist-credentials"], `${file}#${id}`).toBe(false)
-      );
+      expect(step.with?.["persist-credentials"], `${file}#${id}`).toBe(false);
     }
-    return results4;
   });
 
   it("runs exactly the four CI verification lanes", () => {

@@ -245,7 +245,6 @@ export const FeatureItemEditor = ({
     );
     return () => {
       isActive = false;
-      return undefined;
     };
   }, [gateway, id]);
 
@@ -256,7 +255,6 @@ export const FeatureItemEditor = ({
       restoreArchiveTriggerRef.current = false;
       archiveTriggerRef.current?.focus();
     }
-    return undefined;
   }, [confirmArchive]);
 
   const setSafeFeedbackFocus = () =>

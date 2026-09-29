@@ -311,7 +311,6 @@ describe("createResendEmailPort", () => {
   });
 
   it("marks Resend throttling and server failures retryable without exposing details", async () => {
-    const results = [];
     for (const error of [
       { name: "rate_limit_exceeded", statusCode: 429 },
       { name: "application_error", statusCode: 500 },
@@ -333,13 +332,11 @@ describe("createResendEmailPort", () => {
         code: "EMAIL_PROVIDER_UNAVAILABLE",
         retryable: true,
       });
-      results.push(expect(JSON.stringify(result)).not.toContain(error.name));
+      expect(JSON.stringify(result)).not.toContain(error.name);
     }
-    return results;
   });
 
   it("does not retry daily or monthly quota exhaustion", async () => {
-    const results1 = [];
     for (const name of ["daily_quota_exceeded", "monthly_quota_exceeded"]) {
       const send = vi.fn().mockResolvedValue({
         data: null,
@@ -360,9 +357,8 @@ describe("createResendEmailPort", () => {
         code: "EMAIL_PROVIDER_REJECTED",
         retryable: false,
       });
-      results1.push(expect(JSON.stringify(result)).not.toContain(name));
+      expect(JSON.stringify(result)).not.toContain(name);
     }
-    return results1;
   });
 
   it("returns a redacted typed failure and never logs provider secrets or message content", async () => {

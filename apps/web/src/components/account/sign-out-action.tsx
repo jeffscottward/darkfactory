@@ -127,12 +127,10 @@ export const SignOutAction = ({
 
   useEffect(() => {
     setIsHydrated(true);
-    return undefined;
   }, []);
 
   useEffect(() => {
     restoreSignOutFocusAfterCommit(state, buttonRef.current);
-    return undefined;
   }, [state]);
   return (
     <SignOutActionView

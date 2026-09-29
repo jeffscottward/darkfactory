@@ -89,15 +89,11 @@ describe("renderPasswordResetEmail", () => {
       resetUrl.replace("raw-reset-token", "nested/token"),
     ];
 
-    const results = [];
     for (const unsafeUrl of unsafeUrls) {
-      results.push(
-        await expect(
-          renderPasswordResetEmail({ ...resetInput, resetUrl: unsafeUrl })
-        ).rejects.toThrowError("resetUrl must be a trusted password reset URL")
-      );
+      await expect(
+        renderPasswordResetEmail({ ...resetInput, resetUrl: unsafeUrl })
+      ).rejects.toThrowError("resetUrl must be a trusted password reset URL");
     }
-    return results;
   });
 
   it("accepts Better Auth's exact relative reset callback", async () => {

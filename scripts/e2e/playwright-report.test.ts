@@ -239,13 +239,9 @@ describe("Playwright JSON report redaction", () => {
       variants.map((_, index) => `artifact-${index}`)
     );
     expect(content).not.toContain(secret);
-    const results1 = [];
     for (const scalar of collectJsonScalars(sanitized)) {
-      results1.push(
-        expect(reconstructSensitiveText(scalar)).not.toContain(secret)
-      );
+      expect(reconstructSensitiveText(scalar)).not.toContain(secret);
     }
-    return results1;
   });
 
   it("fails closed for short values and preserves overlapping literal redaction", async () => {
@@ -307,7 +303,6 @@ describe("Playwright JSON report redaction", () => {
       { name: "short", body: "[REDACTED]" },
       { name: "overlap", body: "[REDACTED]" },
     ]);
-    const results2 = [];
     for (const knownValue of [
       shortSecret,
       longerSecret,
@@ -321,9 +316,8 @@ describe("Playwright JSON report redaction", () => {
           expect(reconstructSensitiveText(scalar)).not.toContain(knownValue)
         );
       }
-      results2.push(results3);
+      results3;
     }
-    return results2;
   });
 
   it("renames sensitive member names deterministically without key collisions", async () => {
@@ -527,7 +521,6 @@ describe("Playwright JSON report redaction", () => {
       sanitizePlaywrightJsonReport(nestedDirectory, [])
     ).rejects.toThrow("Playwright report file is invalid");
 
-    const results4 = [];
     for (const [name, fixture, message] of [
       ["primitive", "null", "Playwright report configuration is malformed"],
       ["missing-config", "{}", "Playwright report configuration is malformed"],
@@ -552,9 +545,8 @@ describe("Playwright JSON report redaction", () => {
       await expect(sanitizePlaywrightJsonReport(path, [])).rejects.toThrow(
         message
       );
-      results4.push(await rm(path));
+      await rm(path);
     }
-    return results4;
   });
 
   it("fails closed when redaction would expand the report beyond its bound", async () => {

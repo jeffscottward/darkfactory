@@ -196,7 +196,6 @@ describe("DF-076 bounded contact request body", () => {
     );
 
     const unknown = await createContactThrottleKey(requestWith(), secret);
-    const results = [];
     for (const candidate of [
       "203.0.113",
       "203.0.113.256",
@@ -204,13 +203,10 @@ describe("DF-076 bounded contact request body", () => {
       "2001:db8::1%en0",
       "x".repeat(46) + ":",
     ]) {
-      results.push(
-        expect(
-          await createContactThrottleKey(requestWith(candidate), secret)
-        ).toBe(unknown)
-      );
+      expect(
+        await createContactThrottleKey(requestWith(candidate), secret)
+      ).toBe(unknown);
     }
-    return results;
   });
 
   it("passes through bodyless requests without manufacturing a payload", async () => {
@@ -273,7 +269,6 @@ describe("DF-076 bounded contact request body", () => {
   });
 
   it("streams bodies with bounded or non-numeric declared lengths", async () => {
-    const results1 = [];
     for (const declaredLength of ["7", "not-declared"]) {
       const request = new Request(
         "https://darkfactory.localhost/api/orpc/contact/submit",
@@ -287,11 +282,8 @@ describe("DF-076 bounded contact request body", () => {
       const result = await bufferContactRequest(request);
       expect(result.tooLarge).toBe(false);
       expect(await result.request.text()).toBe("bounded");
-      results1.push(
-        expect(result.request.headers.get("content-length")).toBe("7")
-      );
+      expect(result.request.headers.get("content-length")).toBe("7");
     }
-    return results1;
   });
 
   return it("rejects a declared oversized request even when it has no body", async () => {

@@ -211,7 +211,6 @@ describe.sequential("DF-041 through DF-045 Better Auth integration", () => {
       rateLimitEnabled: false,
     });
     handler = createAuthHandler(auth);
-    return undefined;
   });
 
   afterEach(async () => await Promise.all(backgroundTasks));

@@ -139,7 +139,6 @@ describe("CSS theme contract", () => {
       }
     }
 
-    const results = [];
     for (const selector of [
       ':root,\n[data-mode="light"],\n[data-mode="system"]',
       '[data-mode="dark"]',
@@ -151,17 +150,11 @@ describe("CSS theme contract", () => {
           `${selector} ${status} boundary`
         ).toBeGreaterThanOrEqual(3);
       }
-      results.push(
-        expect(
-          contrast(
-            tokens["destructive-subtle"]!,
-            tokens["destructive-border"]!
-          ),
-          `${selector} destructive boundary`
-        ).toBeGreaterThanOrEqual(3)
-      );
+      expect(
+        contrast(tokens["destructive-subtle"]!, tokens["destructive-border"]!),
+        `${selector} destructive boundary`
+      ).toBeGreaterThanOrEqual(3);
     }
-    return results;
   });
 
   it("keeps every canonical palette perceptually distinct", async () => {
@@ -173,7 +166,6 @@ describe("CSS theme contract", () => {
       ),
     }));
 
-    const results1 = [];
     for (const mode of ["light", "dark"] as const) {
       const results2 = [];
       for (let index = 0; index < catalog.length; index += 1) {
@@ -197,9 +189,8 @@ describe("CSS theme contract", () => {
         }
         results2.push(results3);
       }
-      results1.push(results2);
+      results2;
     }
-    return results1;
   });
 
   return it("owns mode-aware palette swatch presentation", async () => {

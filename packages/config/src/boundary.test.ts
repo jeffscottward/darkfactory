@@ -148,7 +148,6 @@ describe("config package boundaries", () => {
     expect(bundle.status).toBe(0);
     expect(bundle.stderr).toBe("");
     expect(bundle.stdout).toContain(message);
-    return undefined;
   });
 
   it.each([
@@ -214,7 +213,6 @@ describe("config package boundaries", () => {
       ).toBe(true);
       expect(resolution.stderr).toBe("");
     }
-    return undefined;
   });
 
   it("keeps normal server and database imports operational", async () => {
@@ -251,12 +249,8 @@ describe("config package boundaries", () => {
       },
     ];
 
-    const results = [];
     for (const { specifier, message } of poisonModules) {
-      results.push(
-        await expect(import(specifier)).rejects.toThrowError(message)
-      );
+      await expect(import(specifier)).rejects.toThrowError(message);
     }
-    return results;
   });
 });

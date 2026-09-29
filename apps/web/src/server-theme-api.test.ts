@@ -302,16 +302,12 @@ describe("server theme API forwarding", () => {
         requestId: null,
       });
 
-    const results = [];
     for (const failure of [
       null,
       { status: 401, code: "OTHER" },
       { status: 403, code: "UNAUTHORIZED" },
     ]) {
-      results.push(
-        await expect(load(failure)).resolves.toBe(INDETERMINATE_THEME)
-      );
+      await expect(load(failure)).resolves.toBe(INDETERMINATE_THEME);
     }
-    return results;
   });
 });

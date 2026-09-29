@@ -704,7 +704,6 @@ describe("doctor", () => {
       status: "pass",
     });
 
-    const results = [];
     for (const [stdout, detail] of [
       ["", /not running/i],
       ["42", /malformed/i],
@@ -722,16 +721,13 @@ describe("doctor", () => {
           },
         })
       );
-      results.push(
-        expect(
-          report.checks.find(({ name }) => name === "Postgres")
-        ).toMatchObject({
-          status: "fail",
-          detail: expect.stringMatching(detail),
-        })
-      );
+      expect(
+        report.checks.find(({ name }) => name === "Postgres")
+      ).toMatchObject({
+        status: "fail",
+        detail: expect.stringMatching(detail),
+      });
     }
-    return results;
   });
 
   it("filters non-object Compose entries before selecting a healthy Postgres service", async () => {
@@ -870,7 +866,6 @@ describe("doctor", () => {
 
   it("maps nonzero, malformed, and stale PM2 process inspection", async () => {
     const base = healthyDependencies();
-    const results1 = [];
     for (const [stdout, exitCode, detail] of [
       ["", 1, /unknown/i],
       ["{", 0, /malformed|conflicting/i],
@@ -902,16 +897,13 @@ describe("doctor", () => {
           },
         })
       );
-      results1.push(
-        expect(
-          report.checks.find(({ name }) => name === "PM2 process")
-        ).toMatchObject({
-          status: "fail",
-          detail: expect.stringMatching(detail),
-        })
-      );
+      expect(
+        report.checks.find(({ name }) => name === "PM2 process")
+      ).toMatchObject({
+        status: "fail",
+        detail: expect.stringMatching(detail),
+      });
     }
-    return results1;
   });
 
   it("uses empty capability classifications after a manifest failure", async () => {

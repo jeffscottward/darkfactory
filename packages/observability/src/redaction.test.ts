@@ -1118,16 +1118,12 @@ describe("redactSemanticEvent", () => {
       [prototypeFailure, "raw-correlation-prototype-trap-secret"],
     ];
 
-    const results = [];
     for (const [correlation, secret] of invalid) {
-      results.push(
-        expectInvalidSemanticEvent(
-          makeSemanticEvent({ correlation, ignored: secret }),
-          secret
-        )
+      expectInvalidSemanticEvent(
+        makeSemanticEvent({ correlation, ignored: secret }),
+        secret
       );
     }
-    return results;
   });
 
   it("rejects missing or invalid request IDs and omits invalid optional correlation fields", () => {
@@ -1310,9 +1306,7 @@ describe("redactSemanticEvent", () => {
     } as unknown as Record<string, unknown>;
     Object.defineProperty(setterOnly, "attributes", {
       enumerable: true,
-      set(_value: unknown) {
-        return undefined;
-      },
+      set(_value: unknown) {},
     });
     return expectInvalidSemanticEvent(
       setterOnly,
@@ -1363,7 +1357,6 @@ describe("redactSemanticEvent", () => {
   });
 
   it("retains each canonical source and both outcomes", () => {
-    const results1 = [];
     for (const source of ["api", "system", "web", "worker"] as const) {
       const output = redactSemanticEvent(
         makeSemanticEvent({
@@ -1372,17 +1365,13 @@ describe("redactSemanticEvent", () => {
         })
       );
       expect(output.source).toBe(source);
-      results1.push(
-        expect(output.outcome).toBe(source === "api" ? "success" : "failure")
-      );
+      expect(output.outcome).toBe(source === "api" ? "success" : "failure");
     }
-    return results1;
   });
 
   it("rejects non-numeric, fractional, and negative reflective array lengths", () => {
     const hostileLengths = ["1", 1.5, -1] as const;
 
-    const results2 = [];
     for (const length of hostileLengths) {
       const array = new Proxy([0], {
         get(target, key, receiver) {
@@ -1390,9 +1379,8 @@ describe("redactSemanticEvent", () => {
         },
       });
 
-      results2.push(expect(redact(array)).toBe("[Unserializable]"));
+      expect(redact(array)).toBe("[Unserializable]");
     }
-    return results2;
   });
 
   return it("skips inherited enumeration and contains a disappearing own descriptor", () => {

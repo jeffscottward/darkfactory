@@ -69,6 +69,5 @@ describe("AI package boundaries", () => {
     expect(resolveExport([workerCondition, "browser"])).toMatch(
       /\/packages\/ai\/src\/server\/groq\.ts$/
     );
-    return undefined;
   });
 });

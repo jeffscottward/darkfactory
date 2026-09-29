@@ -42,7 +42,6 @@ export const generateFeature = async (
   const application = await applyGenerationPlan(plan, {
     afterPromotion: async () => {
       verification = await verifyGeneration(plan);
-      return undefined;
     },
   });
   if (!verification)

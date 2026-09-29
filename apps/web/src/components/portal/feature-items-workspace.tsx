@@ -86,13 +86,11 @@ export const FeatureItemsWorkspace = ({
     void pendingLoad;
     return () => {
       loadRevision.current += 1;
-      return undefined;
     };
   }, [load]);
 
   useEffect(() => {
     if (archiveCandidate !== null) confirmButtonRef.current?.focus();
-    return undefined;
   }, [archiveCandidate]);
 
   const requestArchive = (

@@ -200,20 +200,16 @@ describe("getPortalSession", () => {
 
   it("accepts the canonical fallback and rejects every non-origin URL shape", () => {
     expect(resolvePortalAppUrl("").protocol).toBe("https:");
-    const results = [];
     for (const configured of [
       "https://portal.example.test/path",
       "https://portal.example.test?query=1",
       "https://portal.example.test#fragment",
       "not a URL",
     ]) {
-      results.push(
-        expect(() => resolvePortalAppUrl(configured)).toThrow(
-          "Portal application URL must be a clean HTTPS origin"
-        )
+      expect(() => resolvePortalAppUrl(configured)).toThrow(
+        "Portal application URL must be a clean HTTPS origin"
       );
     }
-    return results;
   });
 
   it("accepts Date expirations and trims bounded administrator names", () => {
@@ -332,44 +328,36 @@ describe("getPortalSession", () => {
         }),
     ];
 
-    const results1 = [];
     for (const response of responses) {
-      results1.push(
-        await expect(
-          getPortalSession({
-            cookieHeader: "better-auth.session_token=opaque",
-            fetch: vi.fn(async () => response()),
-            now: new Date("2029-01-01T00:00:00.000Z"),
-          })
-        ).resolves.toBeNull()
-      );
+      await expect(
+        getPortalSession({
+          cookieHeader: "better-auth.session_token=opaque",
+          fetch: vi.fn(async () => response()),
+          now: new Date("2029-01-01T00:00:00.000Z"),
+        })
+      ).resolves.toBeNull();
     }
-    return results1;
   });
 
   it("clamps finite deadlines and uses the default for non-finite input", async () => {
-    const results2 = [];
     for (const timeoutMs of [-10, 20_000, Number.NaN]) {
-      results2.push(
-        await expect(
-          getPortalSession({
-            cookieHeader: "better-auth.session_token=opaque",
-            fetch: vi.fn(
-              async () =>
-                new Response(JSON.stringify(activeSession), {
-                  headers: { "content-length": "not-declared" },
-                })
-            ),
-            now: new Date("2029-01-01T00:00:00.000Z"),
-            timeoutMs,
-          })
-        ).resolves.toMatchObject({
-          userId: "user-1",
-          role: "member",
+      await expect(
+        getPortalSession({
+          cookieHeader: "better-auth.session_token=opaque",
+          fetch: vi.fn(
+            async () =>
+              new Response(JSON.stringify(activeSession), {
+                headers: { "content-length": "not-declared" },
+              })
+          ),
+          now: new Date("2029-01-01T00:00:00.000Z"),
+          timeoutMs,
         })
-      );
+      ).resolves.toMatchObject({
+        userId: "user-1",
+        role: "member",
+      });
     }
-    return results2;
   });
 
   it("uses the global session transport when no fetch override is supplied", async () => {

@@ -76,7 +76,6 @@ describe("auth package boundaries", () => {
       ).toBe(true);
       expect(resolution.stderr).toBe("");
     }
-    return undefined;
   });
 
   it("keeps normal server imports and client/type subpaths operational", () => {

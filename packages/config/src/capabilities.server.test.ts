@@ -129,9 +129,7 @@ describe("capability inventory", () => {
       return forbiddenDisabledDependencies.test(dependency);
     });
     expect(disabledDependencies).toEqual([]);
-    return undefined;
   });
-  return undefined;
 });
 
 describe("capability readiness", () => {
@@ -354,5 +352,4 @@ describe("capability readiness", () => {
       Object.values(result).every(({ reason }) => reason === undefined)
     ).toBe(true);
   });
-  return undefined;
 });

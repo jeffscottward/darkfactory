@@ -211,16 +211,12 @@ describe("coverage measures every authored source file", () => {
       matchesAny(file, COVERAGE_EXCLUDE_ALLOWLIST.slice(1))
     );
     expect(unmeasured).toEqual(allowlisted);
-    const results = [];
     for (const pattern of COVERAGE_EXCLUDE_ALLOWLIST) {
-      results.push(
-        expect(
-          tracked.some((file) => matchesGlob(file, pattern)),
-          `stale exclusion ${pattern}`
-        ).toBe(true)
-      );
+      expect(
+        tracked.some((file) => matchesGlob(file, pattern)),
+        `stale exclusion ${pattern}`
+      ).toBe(true);
     }
-    return results;
   });
 });
 

@@ -153,13 +153,11 @@ afterEach(async () => {
   mocks.resetFileSystem();
   mocks.resetCompiler();
   vi.clearAllMocks();
-  const results = [];
   for (const [name, value] of Object.entries(previous)) {
     if (value === undefined) {
-      results.push(delete process.env[name]);
-    } else results.push((process.env[name] = value));
+      delete process.env[name];
+    } else process.env[name] = value;
   }
-  return results;
 });
 
 const exists = async (path: string): Promise<boolean> => {

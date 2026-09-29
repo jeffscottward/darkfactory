@@ -76,20 +76,16 @@ describe("renderEmailVerificationEmail", () => {
       `${verificationUrl}&token=second-token`,
     ];
 
-    const results = [];
     for (const unsafeUrl of unsafeUrls) {
-      results.push(
-        await expect(
-          renderEmailVerificationEmail({
-            ...verificationInput,
-            verificationUrl: unsafeUrl,
-          })
-        ).rejects.toThrowError(
-          "verificationUrl must be a trusted email verification URL"
-        )
+      await expect(
+        renderEmailVerificationEmail({
+          ...verificationInput,
+          verificationUrl: unsafeUrl,
+        })
+      ).rejects.toThrowError(
+        "verificationUrl must be a trusted email verification URL"
       );
     }
-    return results;
   });
 
   it("accepts an explicitly configured trusted application origin", async () => {

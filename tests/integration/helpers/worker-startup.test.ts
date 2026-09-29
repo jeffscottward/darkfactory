@@ -161,7 +161,6 @@ describe("Worker startup bind retries", () => {
       cleanupStarted();
       await new Promise<void>((resolve) => (finishCleanup = resolve));
       output = `\u001b[31m${bindError(41_001)}\u001b[0m\r\n`;
-      return undefined;
     });
     const startup = startWorkerWithRetry({
       allocatePort,
@@ -318,7 +317,6 @@ describe("Worker startup bind retries", () => {
           },
           stop: async () => {
             vi.setSystemTime(Date.now() + 20);
-            return undefined;
           },
           output: () => bindError(41_001),
           deadline: 100,

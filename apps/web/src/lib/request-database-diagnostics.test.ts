@@ -15,7 +15,6 @@ describe("createRequestDatabaseDiagnosticSink", () => {
     const sink = {
       emit: vi.fn((event: SemanticEvent) => {
         events.push(event);
-        return undefined;
       }),
     };
     const scheduled: Promise<unknown>[] = [];

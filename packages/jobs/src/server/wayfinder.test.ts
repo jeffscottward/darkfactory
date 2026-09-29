@@ -400,11 +400,9 @@ describe("local Wayfinder execution adapter", () => {
       redacted: true,
       stdout: planReviewFor(expectedArtifact),
     });
-    const results = [];
     for (const redaction of redactions) {
-      results.push(expect(result.output.stdout).not.toContain(redaction));
+      expect(result.output.stdout).not.toContain(redaction);
     }
-    return results;
   });
 
   it("bounds and redacts tracker plan content before worker persistence", async () => {
@@ -876,7 +874,6 @@ describe("local Wayfinder execution adapter", () => {
   });
 
   it("never removes a file or symlink that replaces its owned staging directory", async () => {
-    const results1 = [];
     for (const replacementKind of ["file", "symlink"] as const) {
       const repositoriesRoot = await createRepositoriesRoot();
       const artifact = await mapOnlyTrackerArtifactFor(
@@ -918,13 +915,11 @@ describe("local Wayfinder execution adapter", () => {
         expect((await lstat(replacement)).isSymbolicLink()).toBe(true);
       }
       await expect(readFile(marker, "utf8")).resolves.toBe(replacementKind);
-      results1.push((filesystemMocks.symlink = undefined));
+      filesystemMocks.symlink = undefined;
     }
-    return results1;
   });
 
   it("rejects a missing or digest-mismatched direct target after linking", async () => {
-    const results2 = [];
     for (const persistedCase of ["missing", "digest-mismatch"] as const) {
       const repositoriesRoot = await createRepositoriesRoot();
       const artifact = await mapOnlyTrackerArtifactFor(
@@ -968,9 +963,8 @@ describe("local Wayfinder execution adapter", () => {
           "# Conflicting direct target\n"
         );
       }
-      results2.push((filesystemMocks.symlink = undefined));
+      filesystemMocks.symlink = undefined;
     }
-    return results2;
   });
 
   it("accepts an identical direct replay and rejects a conflicting direct artifact", async () => {
@@ -1050,7 +1044,6 @@ describe("local Wayfinder execution adapter", () => {
 
   it("rejects malformed, absolute, and out-of-scratch tracker links", async () => {
     const cases = ["malformed", "absolute", "out-of-scratch"] as const;
-    const results3 = [];
     for (const linkCase of cases) {
       const repositoriesRoot = await createRepositoriesRoot();
       const artifact = await trackerArtifactFor(
@@ -1093,9 +1086,8 @@ describe("local Wayfinder execution adapter", () => {
           artifact,
         })
       ).rejects.toThrow("Wayfinder tracker publication failed");
-      results3.push(expect(await readlink(target)).toBe(linkText));
+      expect(await readlink(target)).toBe(linkText);
     }
-    return results3;
   });
 
   it("rejects a receipt whose private stage becomes an outside symlink before resolution", async () => {
@@ -1145,7 +1137,6 @@ describe("local Wayfinder execution adapter", () => {
 
   it("rejects each malformed publication receipt component without following it", async () => {
     const receiptUuid = "00000000-0000-4000-8000-000000000003";
-    const results4 = [];
     for (const malformedPart of [
       "path-separator",
       "digest-separator",
@@ -1179,9 +1170,8 @@ describe("local Wayfinder execution adapter", () => {
           artifact,
         })
       ).rejects.toThrow("Wayfinder tracker publication failed");
-      results4.push(expect(await readlink(target)).toBe(linkText));
+      expect(await readlink(target)).toBe(linkText);
     }
-    return results4;
   });
 
   it("rejects every unstable publication receipt identity recheck", async () => {
@@ -1192,7 +1182,6 @@ describe("local Wayfinder execution adapter", () => {
       ...(typeof process.getuid === "function" ? ["owner"] : []),
       "link",
     ] as const;
-    const results5 = [];
     for (const identityCase of identityCases) {
       const repositoriesRoot = await createRepositoriesRoot();
       const artifact = await mapOnlyTrackerArtifactFor(
@@ -1254,9 +1243,8 @@ describe("local Wayfinder execution adapter", () => {
 
       filesystemMocks.lstat = undefined;
       filesystemMocks.readlink = undefined;
-      results5.push(expect(await readlink(target)).toBe(receipt));
+      expect(await readlink(target)).toBe(receipt);
     }
-    return results5;
   });
 
   it("publishes safely when the runtime does not expose a UID API", async () => {
@@ -1622,7 +1610,6 @@ describe("local Wayfinder execution adapter", () => {
   });
 
   it("rejects matching published trackers whose private modes were weakened", async () => {
-    const results6 = [];
     for (const weakened of ["tracker", "issues", "map"] as const) {
       const repositoriesRoot = await createRepositoriesRoot();
       const artifact = await trackerArtifactFor();
@@ -1644,18 +1631,15 @@ describe("local Wayfinder execution adapter", () => {
         await chmod(join(tracker, "issues"), 0o755);
       } else await chmod(join(tracker, "map.md"), 0o644);
 
-      results6.push(
-        await expect(
-          persistLocalWayfinderTrackerArtifact({
-            repositoriesRoot,
-            repositoryId: "darkfactory",
-            runId: artifact.runId,
-            artifact,
-          })
-        ).rejects.toThrow("Wayfinder tracker publication failed")
-      );
+      await expect(
+        persistLocalWayfinderTrackerArtifact({
+          repositoriesRoot,
+          repositoryId: "darkfactory",
+          runId: artifact.runId,
+          artifact,
+        })
+      ).rejects.toThrow("Wayfinder tracker publication failed");
     }
-    return results6;
   });
 
   it("normalizes unexpected target metadata failures before publication", async () => {

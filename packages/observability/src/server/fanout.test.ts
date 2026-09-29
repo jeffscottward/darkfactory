@@ -63,7 +63,6 @@ describe("createSemanticEventFanout", () => {
     const sink: StructuredEventSink = {
       emit: vi.fn((event: SemanticEvent) => {
         sinkEvents.push(event);
-        return undefined;
       }),
     };
     const analyticsCapture = vi.fn(async () => ({
@@ -308,7 +307,6 @@ describe("createSemanticEventFanout", () => {
       ],
     ] as const;
 
-    const results = [];
     for (const [adapterResult, expectedStatus] of cases) {
       const capture = vi.fn(async () => adapterResult);
       const resolveConsent = vi.fn(() => "granted" as const);
@@ -322,13 +320,11 @@ describe("createSemanticEventFanout", () => {
 
       expect(resolveConsent).toHaveBeenCalledWith(baseEvent.correlation);
       expect(capture).toHaveBeenCalledOnce();
-      results.push(expect(result.analytics).toBe(expectedStatus));
+      expect(result.analytics).toBe(expectedStatus);
     }
-    return results;
   });
 
   it("records span failure while still attempting both span operations", async () => {
-    const results1 = [];
     for (const failingOperation of ["event", "metric"] as const) {
       const addEvent = vi.fn((_event: SemanticEvent) => {
         if (failingOperation === "event") {
@@ -355,15 +351,12 @@ describe("createSemanticEventFanout", () => {
 
       expect(addEvent).toHaveBeenCalledOnce();
       expect(recordMetric).toHaveBeenCalledOnce();
-      results1.push(
-        expect(result).toEqual({
-          structuredEvent: "emitted",
-          span: "failed",
-          analytics: "skipped",
-        })
-      );
+      expect(result).toEqual({
+        structuredEvent: "emitted",
+        span: "failed",
+        analytics: "skipped",
+      });
     }
-    return results1;
   });
 
   it("contains an asynchronous sink failure and a broken lifetime hook", async () => {

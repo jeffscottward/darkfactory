@@ -608,7 +608,6 @@ describe.sequential("DF-040 and DF-046 through DF-050 development seeds", () => 
       password: DEVELOPMENT_PASSWORD,
     };
 
-    const results1 = [];
     for (const environment of ["production", "staging", undefined]) {
       const hash = vi.spyOn(developmentSeedCrypto, "hashPassword");
       try {
@@ -624,16 +623,13 @@ describe.sequential("DF-040 and DF-046 through DF-050 development seeds", () => 
           )
         ).rejects.toThrow(/development or test/i);
         expect(hash).not.toHaveBeenCalled();
-        results1.push(
-          await expect(
-            tableCounts(["user", "account", "profiles", "user_preferences"])
-          ).resolves.toEqual([0, 0, 0, 0])
-        );
+        await expect(
+          tableCounts(["user", "account", "profiles", "user_preferences"])
+        ).resolves.toEqual([0, 0, 0, 0]);
       } finally {
         hash.mockRestore();
       }
     }
-    return results1;
   });
 
   it("preflights a late-persona credential collision before creating any identity", async () => {
@@ -714,7 +710,6 @@ describe.sequential("DF-040 and DF-046 through DF-050 development seeds", () => 
     const assurer = vi.fn<EnsureSeedIdentity>();
     const preparer = vi.fn<PrepareSeedIdentities>().mockResolvedValue(assurer);
 
-    const results2 = [];
     for (const environment of ["production", "staging", "", undefined]) {
       await expect(
         seedDevelopment(databaseResource.db, {
@@ -725,8 +720,7 @@ describe.sequential("DF-040 and DF-046 through DF-050 development seeds", () => 
 
       expect(preparer).not.toHaveBeenCalled();
       expect(assurer).not.toHaveBeenCalled();
-      results2.push(expect(await tableCount("user")).toBe(1));
+      expect(await tableCount("user")).toBe(1);
     }
-    return results2;
   });
 });

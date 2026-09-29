@@ -155,7 +155,6 @@ const ThemeEffects = ({
     unsubscribeRef.current = undefined;
     applyTheme(store);
     setReconciliationVersion((version) => version + 1);
-    return undefined;
   }, [initialPreference, store, themeAuthority]);
 
   useEffect(() => {

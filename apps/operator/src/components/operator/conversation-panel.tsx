@@ -67,7 +67,6 @@ export const ConversationPanel = ({
     mounted.current = true;
     return () => {
       mounted.current = false;
-      return undefined;
     };
   }, []);
 

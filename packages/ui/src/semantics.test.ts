@@ -241,7 +241,6 @@ describe("semantic server-safe primitives", () => {
       )
     );
 
-    const results = [];
     for (const text of [
       "Platform",
       "Public architecture",
@@ -251,9 +250,8 @@ describe("semantic server-safe primitives", () => {
       "Section description",
       "Refresh",
     ]) {
-      results.push(expect(rendered).toContain(text));
+      expect(rendered).toContain(text);
     }
-    return results;
   });
 });
 

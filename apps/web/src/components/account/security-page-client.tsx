@@ -43,7 +43,6 @@ export const SecurityPageClient = () => {
 
   useEffect(() => {
     void load();
-    return undefined;
   }, [load]);
 
   const revokeOthers = async (): Promise<void> => {

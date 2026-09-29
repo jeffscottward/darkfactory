@@ -225,7 +225,6 @@ const OperatorSubmitForm = ({
     mounted.current = true;
     return () => {
       mounted.current = false;
-      return undefined;
     };
   }, []);
 
@@ -362,7 +361,6 @@ export const OperatorWorkspace = ({
     void load();
     return () => {
       requestRevision.current += 1;
-      return undefined;
     };
   }, [load]);
 

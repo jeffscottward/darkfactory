@@ -251,18 +251,14 @@ describe("application navigation manifest", () => {
       ALL_NAVIGATION.length
     );
 
-    const results = [];
     for (const group of [
       PUBLIC_NAVIGATION,
       PORTAL_NAVIGATION,
       ACCOUNT_NAVIGATION,
       ADMIN_NAVIGATION,
     ]) {
-      results.push(
-        expect(new Set(group.map((item) => item.href)).size).toBe(group.length)
-      );
+      expect(new Set(group.map((item) => item.href)).size).toBe(group.length);
     }
-    return results;
   });
 
   it("maps every exposed destination to a real page while future definitions remain non-navigable", async () => {
@@ -271,15 +267,11 @@ describe("application navigation manifest", () => {
     ).map((item) => item.href);
     expect(exposedRoutes).toEqual([...EXPOSED_ROUTE_PATHS]);
     expect(Object.keys(ROUTE_PAGE_FILES)).toEqual(exposedRoutes);
-    const results1 = [];
     for (const pageFile of Object.values(ROUTE_PAGE_FILES)) {
-      results1.push(
-        await expect(
-          access(new URL(`./app/${pageFile}`, import.meta.url))
-        ).resolves.toBeUndefined()
-      );
+      await expect(
+        access(new URL(`./app/${pageFile}`, import.meta.url))
+      ).resolves.toBeUndefined();
     }
-    return results1;
   });
 
   return it("marks exact and nested destinations without falsely selecting sibling routes", () => {
@@ -840,7 +832,6 @@ describe("shared shell semantics", () => {
     } finally {
       vi.unstubAllGlobals();
     }
-    return undefined;
   });
 });
 
@@ -948,7 +939,6 @@ describe("theme and UI runtime boundaries", () => {
   });
 
   it("fails closed for non-record and invalid-date trusted preferences", async () => {
-    const results2 = [];
     for (const preference of [
       null,
       [],
@@ -963,19 +953,16 @@ describe("theme and UI runtime boundaries", () => {
         updatedAt: "2026-07-25T00:00:00.000Z",
       },
     ]) {
-      results2.push(
-        await expect(
-          resolveRequestTheme({
-            cookieHeader: null,
-            loadTrustedPreference: async () => preference,
-          })
-        ).resolves.toMatchObject({
-          authority: "trusted",
-          preference: DEFAULT_ANONYMOUS_THEME,
+      await expect(
+        resolveRequestTheme({
+          cookieHeader: null,
+          loadTrustedPreference: async () => preference,
         })
-      );
+      ).resolves.toMatchObject({
+        authority: "trusted",
+        preference: DEFAULT_ANONYMOUS_THEME,
+      });
     }
-    return results2;
   });
 
   return it("evaluates route exposure against an explicit runtime manifest", () => {

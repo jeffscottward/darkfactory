@@ -183,19 +183,15 @@ describe("workflow v1 contract", () => {
       },
     ];
 
-    const results = [];
     for (const invalidScope of invalidScopes) {
       expect(isWorkflowEffectScopeV1(invalidScope)).toBe(false);
-      results.push(
-        expect(() =>
-          live(initial(), {
-            ...submit(),
-            scope: invalidScope as WorkflowEffectScopeV1,
-          })
-        ).toThrow("Invalid workflow event")
-      );
+      expect(() =>
+        live(initial(), {
+          ...submit(),
+          scope: invalidScope as WorkflowEffectScopeV1,
+        })
+      ).toThrow("Invalid workflow event");
     }
-    return results;
   });
 
   it("completes the successful path with bounded hash/id payloads", () => {
@@ -321,7 +317,6 @@ describe("workflow v1 contract", () => {
       effectKind: "implement",
       failure,
     }).snapshot;
-    const results1 = [];
     for (const snapshot of [
       initial(),
       planning(),
@@ -329,38 +324,31 @@ describe("workflow v1 contract", () => {
       verifying(),
       implementationBlocked,
     ]) {
-      results1.push(
-        expect(() =>
-          live(snapshot, {
-            ...base(`invalid-revision-${snapshot.state}`),
-            type: "PLAN_REVISION_REQUESTED",
-            clarification: "Revise this plan.",
-          })
-        ).toThrow()
-      );
+      expect(() =>
+        live(snapshot, {
+          ...base(`invalid-revision-${snapshot.state}`),
+          type: "PLAN_REVISION_REQUESTED",
+          clarification: "Revise this plan.",
+        })
+      ).toThrow();
     }
-    return results1;
   });
 
   it("rejects empty, control-bearing, and oversized plan clarifications", () => {
-    const results2 = [];
     for (const clarification of [
       "",
       "   ",
       "line one\nline two",
       "é".repeat(513),
     ]) {
-      results2.push(
-        expect(() =>
-          live(awaitingApproval(), {
-            ...base("invalid-plan-clarification"),
-            type: "PLAN_REVISION_REQUESTED",
-            clarification,
-          })
-        ).toThrow("Invalid workflow event")
-      );
+      expect(() =>
+        live(awaitingApproval(), {
+          ...base("invalid-plan-clarification"),
+          type: "PLAN_REVISION_REQUESTED",
+          clarification,
+        })
+      ).toThrow("Invalid workflow event");
     }
-    return results2;
   });
 
   it.each([
@@ -692,15 +680,11 @@ describe("canonical serialization constraints", () => {
         omittedSymbol: Symbol("value"),
       })
     ).toBe('{"kept":1}');
-    const results3 = [];
     for (const unsupported of [undefined, () => null, Symbol("value")]) {
-      results3.push(
-        expect(() => canonicalJsonV1(unsupported)).toThrow(
-          "Unsupported canonical JSON root value"
-        )
+      expect(() => canonicalJsonV1(unsupported)).toThrow(
+        "Unsupported canonical JSON root value"
       );
     }
-    return results3;
   });
 
   it("accepts null-prototype records, rejects branded objects, and releases shared ancestors", () => {
@@ -983,7 +967,6 @@ describe("workflow invariant guards", () => {
     expect(isWorkflowRelativePathV1(".")).toBe(true);
     expect(isWorkflowRelativePathV1("é/😀")).toBe(true);
     expect(isWorkflowRelativePathV1("€/😀")).toBe(true);
-    const results4 = [];
     for (const value of [
       undefined,
       "",
@@ -997,9 +980,8 @@ describe("workflow invariant guards", () => {
       "control\u0000path",
       "x".repeat(MAX_WORKFLOW_SCOPE_PATH_BYTES + 1),
     ]) {
-      results4.push(expect(isWorkflowRelativePathV1(value)).toBe(false));
+      expect(isWorkflowRelativePathV1(value)).toBe(false);
     }
-    return results4;
   });
 
   it("parses and freezes a minimal scope while rejecting shape and total-byte violations", () => {
@@ -1021,20 +1003,16 @@ describe("workflow invariant guards", () => {
       MAX_WORKFLOW_SCOPE_BYTES
     );
     expect(isWorkflowEffectScopeV1(oversized)).toBe(false);
-    const results5 = [];
     for (const invalid of [
       null,
       { repositoryId: "darkfactory", paths: ["."], extra: true },
       { repositoryId: "darkfactory", paths: "packages" },
       { repositoryId: "darkfactory", paths: [] },
     ]) {
-      results5.push(
-        expect(() => parseWorkflowEffectScopeV1(invalid)).toThrow(
-          "Invalid workflow effect scope"
-        )
+      expect(() => parseWorkflowEffectScopeV1(invalid)).toThrow(
+        "Invalid workflow effect scope"
       );
     }
-    return results5;
   });
 
   it("checks public state, approval, event, and snapshot invariants", () => {

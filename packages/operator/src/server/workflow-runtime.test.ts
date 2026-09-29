@@ -1253,27 +1253,23 @@ describe("operator workflow pagination", () => {
       cursor: first.nextCursor,
       limit: 101,
     });
-    const results = [];
     for (const [ownerId, state] of [
       ["owner-2", "planning"],
       ["owner-1", "completed"],
     ] as const) {
-      results.push(
-        await expect(
-          port.list(ownerId, {
-            state,
-            limit: 100,
-            cursor: first.nextCursor!,
-          })
-        ).rejects.toEqual(
-          new OperatorWorkflowPortError(
-            "VALIDATION_ERROR",
-            operatorServiceErrorMessage("VALIDATION_ERROR")
-          )
+      await expect(
+        port.list(ownerId, {
+          state,
+          limit: 100,
+          cursor: first.nextCursor!,
+        })
+      ).rejects.toEqual(
+        new OperatorWorkflowPortError(
+          "VALIDATION_ERROR",
+          operatorServiceErrorMessage("VALIDATION_ERROR")
         )
       );
     }
-    return results;
   });
 
   it("encodes an unfiltered next cursor without a workflow state", async () => {
@@ -1525,7 +1521,6 @@ describe("operator workflow port projections and actions", () => {
   });
 
   it("fails closed when a verified projection exposes an incomplete plan identity", async () => {
-    const results1 = [];
     for (const identity of [
       { planEvidenceId: null, planHash: PLAN.digest },
       { planEvidenceId: "plan-evidence", planHash: null },
@@ -1539,18 +1534,14 @@ describe("operator workflow port projections and actions", () => {
         identity
       );
 
-      results1.push(
-        await expectWorkflowPortError(
-          port.detail("owner-1", submitted.run.id),
-          "PROJECTION_INVALID"
-        )
+      await expectWorkflowPortError(
+        port.detail("owner-1", submitted.run.id),
+        "PROJECTION_INVALID"
       );
     }
-    return results1;
   });
 
   it("fails closed when verified plan evidence disappears or changes kind", async () => {
-    const results2 = [];
     for (const corruption of ["missing", "invalid-kind"] as const) {
       const fake = fakeRepository();
       const port = portFor(fake);
@@ -1569,14 +1560,11 @@ describe("operator workflow port projections and actions", () => {
           : { ...evidence, kind: "unexpected-plan-kind" }
       );
 
-      results2.push(
-        await expectWorkflowPortError(
-          port.detail("owner-1", submitted.run.id),
-          "PROJECTION_INVALID"
-        )
+      await expectWorkflowPortError(
+        port.detail("owner-1", submitted.run.id),
+        "PROJECTION_INVALID"
       );
     }
-    return results2;
   });
 
   it("fails closed when replayed durable plan evidence is tampered", async () => {
@@ -1982,7 +1970,6 @@ describe("operator workflow port error mapping", () => {
         scope: { repositoryId: "../invalid", paths: ["."] },
       })
     ).rejects.toMatchObject({ code: "VALIDATION_ERROR" });
-    const results3 = [];
     for (const operation of [
       () =>
         port.cancel({
@@ -1999,11 +1986,8 @@ describe("operator workflow port error mapping", () => {
           requestId: "retry",
         }),
     ]) {
-      results3.push(
-        await expect(operation()).rejects.toMatchObject({ code: "NOT_FOUND" })
-      );
+      await expect(operation()).rejects.toMatchObject({ code: "NOT_FOUND" });
     }
-    return results3;
   });
 });
 

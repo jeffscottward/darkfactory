@@ -35,7 +35,6 @@ describe("observability package boundaries", () => {
   });
 
   it("fails browser-only server resolution closed but lets real Worker conditions win even when browser is also present", () => {
-    const results = [];
     for (const specifier of [
       "@darkfactory/observability/server/otel",
       "@darkfactory/observability/server/evlog",
@@ -47,13 +46,10 @@ describe("observability package boundaries", () => {
       expect(resolveExport(specifier, ["worker", "browser"])).toMatch(
         /\/src\/server\/(otel|evlog|fanout)\.ts$/
       );
-      results.push(
-        expect(resolveExport(specifier, ["workerd", "browser"])).toMatch(
-          /\/src\/server\/(otel|evlog|fanout)\.ts$/
-        )
+      expect(resolveExport(specifier, ["workerd", "browser"])).toMatch(
+        /\/src\/server\/(otel|evlog|fanout)\.ts$/
       );
     }
-    return results;
   });
 
   it("preserves browser poison in a side-effect-only Vite bundle", () => {
@@ -113,23 +109,19 @@ describe("observability package boundaries", () => {
       readFileSync(new URL("../../package.json", import.meta.url), "utf8")
     ) as { exports: Record<string, Record<string, string>> };
 
-    const results1 = [];
     for (const subpath of [
       "./server/otel",
       "./server/evlog",
       "./server/fanout",
     ]) {
-      results1.push(
-        expect(Object.keys(manifest.exports[subpath] ?? {})).toEqual([
-          "workerd",
-          "worker",
-          "browser",
-          "import",
-          "default",
-        ])
-      );
+      expect(Object.keys(manifest.exports[subpath] ?? {})).toEqual([
+        "workerd",
+        "worker",
+        "browser",
+        "import",
+        "default",
+      ]);
     }
-    return results1;
   });
 
   return it("executes the browser poison module as a fail-closed boundary", async () =>

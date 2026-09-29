@@ -102,14 +102,12 @@ describe("normalizeUnknownError", () => {
       42,
     ];
 
-    const results = [];
     for (const value of unknownValues) {
       const normalized = normalizeUnknownError(value);
 
       expect(normalized).toEqual(normalizedError);
-      results.push(expect(JSON.stringify(normalized)).not.toContain(secret));
+      expect(JSON.stringify(normalized)).not.toContain(secret);
     }
-    return results;
   });
 });
 

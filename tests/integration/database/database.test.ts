@@ -880,7 +880,6 @@ describe.sequential("DF-031 through DF-039 ordinary Postgres persistence", () =>
         .map((row) => `${row.table_name}.${row.column_name}`)
     );
 
-    const results1 = [];
     for (const [tableName, expectedColumnNames] of Object.entries(
       expectedColumnsByTable
     )) {
@@ -914,9 +913,8 @@ describe.sequential("DF-031 through DF-039 ordinary Postgres persistence", () =>
           ).toBe(expectedDataType)
         );
       }
-      results1.push(results2);
+      results2;
     }
-    return results1;
   });
 
   it("DF-039 stores offset timestamps as the same UTC instant", async () => {

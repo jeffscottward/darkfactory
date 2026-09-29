@@ -101,7 +101,6 @@ describe("DashboardContent", () => {
   });
 
   it("keeps unavailable and unauthorized rendering identity-neutral", () => {
-    const results = [];
     for (const summaryState of [
       { type: "error" },
       { type: "unauthorized" },
@@ -117,9 +116,8 @@ describe("DashboardContent", () => {
       expect(html).not.toContain("Member access");
       expect(html).not.toContain("Administrator access");
       expect(html).not.toContain("Session authority");
-      results.push(expect(html).not.toContain("Verified by Better Auth"));
+      expect(html).not.toContain("Verified by Better Auth");
     }
-    return results;
   });
 
   return it("renders honest empty data without inventing an unavailable metric", () => {

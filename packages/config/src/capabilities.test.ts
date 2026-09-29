@@ -180,7 +180,6 @@ describe("v0.1 capability manifest", () => {
       ).issues.some(({ path }) => path.startsWith(expectedPath));
       expect(hasExpectedPath).toBe(true);
     }
-    return undefined;
   });
 
   it("rejects duplicate YAML mapping keys", async () => {
@@ -288,7 +287,6 @@ describe("v0.1 capability manifest", () => {
         message: "Manifest exceeds safe parsing limits",
       },
     ]);
-    return undefined;
   });
 
   it("uses stable errors without reflecting attacker-controlled keys", async () => {
@@ -365,19 +363,15 @@ describe("v0.1 capability manifest", () => {
   });
 
   it("rejects non-string and empty manifest sources with one stable issue", () => {
-    const results = [];
     for (const source of [null as never, "   "]) {
-      results.push(
-        expect(captureManifestError(source).issues).toEqual([
-          {
-            code: "invalid_yaml",
-            path: "yaml",
-            message: "Manifest must contain valid, unique-key YAML",
-          },
-        ])
-      );
+      expect(captureManifestError(source).issues).toEqual([
+        {
+          code: "invalid_yaml",
+          path: "yaml",
+          message: "Manifest must contain valid, unique-key YAML",
+        },
+      ]);
     }
-    return results;
   });
 
   it.each([
@@ -615,5 +609,4 @@ describe("v0.1 capability manifest", () => {
     expect(String(failure)).not.toContain(privateDetail);
     return expect(JSON.stringify(failure)).not.toContain(privateDetail);
   });
-  return undefined;
 });

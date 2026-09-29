@@ -224,7 +224,6 @@ describe("operator Wayfinder contract", () => {
       repositoryId: "darkfactory",
       paths: ["packages/operator"],
     };
-    const results = [];
     for (const input of [
       {
         scope: validScope,
@@ -239,13 +238,10 @@ describe("operator Wayfinder contract", () => {
         request: "Plan the operator boundary",
       },
     ]) {
-      results.push(
-        expect(OperatorWayfinderStartInputSchema.safeParse(input).success).toBe(
-          false
-        )
+      expect(OperatorWayfinderStartInputSchema.safeParse(input).success).toBe(
+        false
       );
     }
-    return results;
   });
 
   return it("trims and bounds plan revision clarification", () => {
@@ -272,18 +268,14 @@ describe("operator Wayfinder contract", () => {
       ).toBe(false);
     }
 
-    const results1 = [];
     for (const idempotencyKey of ["", "../revision", "a".repeat(129)]) {
-      results1.push(
-        expect(
-          OperatorWayfinderReviseInputSchema.safeParse({
-            runId: "run-wayfinder-1",
-            idempotencyKey,
-            message: "Keep the plan bounded.",
-          }).success
-        ).toBe(false)
-      );
+      expect(
+        OperatorWayfinderReviseInputSchema.safeParse({
+          runId: "run-wayfinder-1",
+          idempotencyKey,
+          message: "Keep the plan bounded.",
+        }).success
+      ).toBe(false);
     }
-    return results1;
   });
 });

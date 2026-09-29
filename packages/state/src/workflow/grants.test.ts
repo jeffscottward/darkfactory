@@ -34,7 +34,6 @@ describe("workflow repository grants", () => {
     expect(() => parseWorkflowRepositoryGrants("  ")).toThrow(
       WorkflowRepositoryGrantError
     );
-    const results = [];
     for (const value of [
       "*=darkfactory",
       "owner-1=*",
@@ -44,13 +43,10 @@ describe("workflow repository grants", () => {
       "owner-1",
       "=darkfactory",
     ]) {
-      results.push(
-        expect(() => parseWorkflowRepositoryGrants(value)).toThrow(
-          WorkflowRepositoryGrantError
-        )
+      expect(() => parseWorkflowRepositoryGrants(value)).toThrow(
+        WorkflowRepositoryGrantError
       );
     }
-    return results;
   });
 
   it("bounds grant count and encoded bytes", () => {
@@ -83,19 +79,15 @@ describe("workflow repository grants", () => {
   });
 
   it("counts UTF-8 bytes portably before parsing grants", () => {
-    const results1 = [];
     for (const oversized of [
       "é".repeat(8193),
       "€".repeat(5462),
       "😀".repeat(4097),
     ]) {
-      results1.push(
-        expect(() => parseWorkflowRepositoryGrants(oversized)).toThrow(
-          "oversized"
-        )
+      expect(() => parseWorkflowRepositoryGrants(oversized)).toThrow(
+        "oversized"
       );
     }
-    return results1;
   });
 
   it("falls back safely when a UTF-16 character has no code point", () => {
@@ -117,19 +109,13 @@ describe("workflow repository grants", () => {
       (_, index) => `owner-${index}=repository-${index}`
     ).join(",");
     expect(parseWorkflowRepositoryGrants(maximum)).toHaveLength(128);
-    const results2 = [];
     for (const malformed of [
       "owner-=darkfactory",
       "owner=repository-",
       `${"o".repeat(129)}=darkfactory`,
       `owner=${"r".repeat(65)}`,
     ]) {
-      results2.push(
-        expect(() => parseWorkflowRepositoryGrants(malformed)).toThrow(
-          "invalid"
-        )
-      );
+      expect(() => parseWorkflowRepositoryGrants(malformed)).toThrow("invalid");
     }
-    return results2;
   });
 });

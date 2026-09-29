@@ -106,7 +106,6 @@ describe("generate-feature plan validators", () => {
   });
 
   it("rejects malformed registry roots and exact-key violations", () => {
-    const results = [];
     for (const [label, content] of [
       ["malformed JSON", "{"],
       ["null", "null"],
@@ -114,14 +113,11 @@ describe("generate-feature plan validators", () => {
       ["array", "[]"],
       ["wrong root keys", '{"version":1}'],
     ] as const) {
-      results.push(
-        expect(
-          () => generationPlanValidatorsForTest.parseRegistry(content),
-          label
-        ).toThrowError("Feature registry is invalid")
-      );
+      expect(
+        () => generationPlanValidatorsForTest.parseRegistry(content),
+        label
+      ).toThrowError("Feature registry is invalid");
     }
-    return results;
   });
 
   it("rejects every malformed built-in registry field", () => {
@@ -188,17 +184,13 @@ describe("generate-feature plan validators", () => {
       ],
     ];
 
-    const results1 = [];
     for (const [label, mutate] of cases) {
       const value: any = registry();
       mutate(value);
-      results1.push(
-        expect(() => parseRegistryValue(value), label).toThrowError(
-          "Feature registry is invalid"
-        )
+      expect(() => parseRegistryValue(value), label).toThrowError(
+        "Feature registry is invalid"
       );
     }
-    return results1;
   });
 
   it("rejects every malformed generated feature descriptor field", () => {
@@ -329,17 +321,13 @@ describe("generate-feature plan validators", () => {
       ],
     ];
 
-    const results2 = [];
     for (const [label, mutate] of cases) {
       const value: any = registry([descriptor()]);
       mutate(value);
-      results2.push(
-        expect(() => parseRegistryValue(value), label).toThrowError(
-          "Feature registry is invalid"
-        )
+      expect(() => parseRegistryValue(value), label).toThrowError(
+        "Feature registry is invalid"
       );
     }
-    return results2;
   });
 
   it("accepts the exact migration journal schema and increasing unique entries", () => {
@@ -384,17 +372,13 @@ describe("generate-feature plan validators", () => {
         },
       ],
     ];
-    const results3 = [];
     for (const [label, mutate] of cases) {
       const value: any = journal();
       mutate(value);
-      results3.push(
-        expect(() => parseJournalValue(value), label).toThrowError(
-          "Migration journal is invalid"
-        )
+      expect(() => parseJournalValue(value), label).toThrowError(
+        "Migration journal is invalid"
       );
     }
-    return results3;
   });
 
   return it("rejects every malformed migration journal entry field", () => {
@@ -473,17 +457,13 @@ describe("generate-feature plan validators", () => {
       ],
     ];
 
-    const results4 = [];
     for (const [label, mutate] of cases) {
       const value: any = journal([journalEntry()]);
       mutate(value);
-      results4.push(
-        expect(() => parseJournalValue(value), label).toThrowError(
-          "Migration journal is invalid"
-        )
+      expect(() => parseJournalValue(value), label).toThrowError(
+        "Migration journal is invalid"
       );
     }
-    return results4;
   });
 });
 
@@ -501,19 +481,15 @@ describe("createGenerationPlan", () => {
     expect(plan.files.every((file) => Object.isFrozen(file))).toBe(true);
     expect(() => assertGenerationPlanIntegrity(plan)).not.toThrow();
 
-    const results5 = [];
     for (const clone of [
       { ...plan },
       { ...plan, files: [...plan.files] },
       { ...plan, targetRoot: `${plan.targetRoot}-rebound` },
     ]) {
-      results5.push(
-        expect(() =>
-          assertGenerationPlanIntegrity(clone as GenerationPlan)
-        ).toThrowError("Generation plan capability was not issued")
-      );
+      expect(() =>
+        assertGenerationPlanIntegrity(clone as GenerationPlan)
+      ).toThrowError("Generation plan capability was not issued");
     }
-    return results5;
   });
 
   it("rejects inconsistent caller-supplied name forms before filesystem access", async () => {

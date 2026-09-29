@@ -239,7 +239,6 @@ export const FeatureItemCreateWorkflow = ({
 
   useEffect(() => {
     stepRef.current?.focus();
-    return undefined;
   }, [stateName]);
 
   const updateName = (value: string) => {

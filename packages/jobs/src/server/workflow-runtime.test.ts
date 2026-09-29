@@ -1460,7 +1460,6 @@ describe("workflow runtime composition", () => {
   });
 
   it("reuses the durable approval event for grant and reject retries after the clock advances", async () => {
-    const results = [];
     for (const decision of ["granted", "rejected"] as const) {
       const fake = fakeRepository();
       const adapter: OmpCliAdapter = {
@@ -1534,11 +1533,8 @@ describe("workflow runtime composition", () => {
         (append) => append.event.eventId === event.eventId
       );
       expect(approvalAppends).toHaveLength(2);
-      results.push(
-        expect(approvalAppends[1]!.event.occurredAt).toBe(occurredAt)
-      );
+      expect(approvalAppends[1]!.event.occurredAt).toBe(occurredAt);
     }
-    return results;
   });
 
   it("exposes worker stop so active OMP execution settles before runtime shutdown", async () => {
@@ -2066,7 +2062,6 @@ describe("workflow runtime composition", () => {
       ).rejects.toBeInstanceOf(TypeError);
     }
 
-    const results1 = [];
     for (const executionMetadata of [
       { executionMode: "pilot" as const },
       {
@@ -2096,11 +2091,8 @@ describe("workflow runtime composition", () => {
         limit: 1,
         leaseMilliseconds: 1000,
       });
-      results1.push(
-        expect(claimed!.taskMetadata).toMatchObject(executionMetadata)
-      );
+      expect(claimed!.taskMetadata).toMatchObject(executionMetadata);
     }
-    return results1;
   });
 
   it("retries retryable failures with exponential delay, then dead-letters the final attempt", async () => {
@@ -2868,20 +2860,16 @@ describe("workflow runtime composition", () => {
         },
       },
     ];
-    const results2 = [];
     for (const result of malformedVerifierResults) {
-      results2.push(
-        await expect(
-          application.completeEffect({
-            ...metadata,
-            result: result as never,
-          })
-        ).rejects.toThrow(
-          "verification completion is not bound to implementation evidence"
-        )
+      await expect(
+        application.completeEffect({
+          ...metadata,
+          result: result as never,
+        })
+      ).rejects.toThrow(
+        "verification completion is not bound to implementation evidence"
       );
     }
-    return results2;
   });
 
   it("rejects plan evidence on non-plan completion", async () => {

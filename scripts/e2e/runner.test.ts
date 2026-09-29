@@ -103,7 +103,6 @@ describe("serialized E2E journey runner", () => {
       "anonymous-public-visual",
       "no-binary",
     ]);
-    const results1 = [];
     for (const [position, call] of calls.entries()) {
       const runId = `run_${position + 1}`;
       const profile = prepared[position]?.[1];
@@ -145,13 +144,10 @@ describe("serialized E2E journey runner", () => {
         "runId",
         "version",
       ]);
-      results1.push(
-        expect(JSON.stringify(call.environment)).not.toContain(
-          `private-nonce-${runId}`
-        )
+      expect(JSON.stringify(call.environment)).not.toContain(
+        `private-nonce-${runId}`
       );
     }
-    return results1;
   });
 
   it("continues after nonzero runs only when both termination proofs are present", async () => {
@@ -647,7 +643,6 @@ describe("serialized E2E journey runner", () => {
       },
     ] as const;
 
-    const results2 = [];
     for (const [index, lifecycle] of cases.entries()) {
       const purgeRequests: boolean[] = [];
       const report = await runJourneySuite("e2e", {
@@ -676,16 +671,13 @@ describe("serialized E2E journey runner", () => {
         lifecycle.expectedOk ? "complete" : "execute"
       );
       if (lifecycle.lifecycleStatus === "cleanup-failed") {
-        results2.push(
-          expect(report.results[0]?.diagnostics).toContain(
-            "E2E lifecycle cleanup failed; resources retained"
-          )
+        expect(report.results[0]?.diagnostics).toContain(
+          "E2E lifecycle cleanup failed; resources retained"
         );
       } else {
-        results2.push(void 0);
+        void 0;
       }
     }
-    return results2;
   });
 
   it("emits only bounded safe progress in exact dependency order", async () => {

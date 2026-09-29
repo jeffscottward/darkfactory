@@ -452,7 +452,6 @@ describe("workflow outbox worker", () => {
       }).padEnd(MAX_WORKFLOW_SCOPE_BYTES + 1, " "),
     ];
 
-    const results1 = [];
     for (const effectScope of invalidScopes) {
       const repository = outbox([[claim({ effectScope })]]);
       const omp = adapter();
@@ -478,9 +477,8 @@ describe("workflow outbox worker", () => {
         })
       );
       expect(repository.heartbeatEffect).not.toHaveBeenCalled();
-      results1.push(expect(omp.execute).not.toHaveBeenCalled());
+      expect(omp.execute).not.toHaveBeenCalled();
     }
-    return results1;
   });
 
   it("delimits a bounded human task title while retaining identifier validation", async () => {
@@ -733,7 +731,6 @@ describe("workflow outbox worker", () => {
       leaseOwner: "worker-a",
       authorizeRepository,
     };
-    const results2 = [];
     for (const options of [
       { ...base, leaseOwner: "" },
       { ...base, authorizeRepository: undefined as never },
@@ -746,13 +743,10 @@ describe("workflow outbox worker", () => {
       { ...base, batchSize: 0 },
       { ...base, batchSize: 33 },
     ]) {
-      results2.push(
-        expect(() => createWorkflowOutboxWorker(options)).toThrow(
-          WorkflowWorkerConfigurationError
-        )
+      expect(() => createWorkflowOutboxWorker(options)).toThrow(
+        WorkflowWorkerConfigurationError
       );
     }
-    return results2;
   });
 
   it("dead-letters every malformed claim boundary and reports lost failure leases", async () => {
@@ -1024,7 +1018,6 @@ describe("workflow outbox worker", () => {
       "no-changes",
       "aborted",
     ] as const;
-    const results3 = [];
     for (const status of statuses) {
       const repository = outbox([[claim({ effectKind: "implement" })]], {
         failEffect: vi.fn(async () => status !== "output-limit"),
@@ -1051,25 +1044,21 @@ describe("workflow outbox worker", () => {
           status: status === "output-limit" ? "lease-lost" : "failed",
         },
       ]);
-      results3.push(
-        expect(repository.failEffect).toHaveBeenCalledWith(
-          expect.objectContaining({
-            result: expect.objectContaining({
-              failureCode: status,
-              eventType: "EFFECT_FAILED",
-              retryable: status !== "aborted",
-              changeHash: "c".repeat(64),
-              changedPaths: ["packages/jobs"],
-            }),
-          })
-        )
+      expect(repository.failEffect).toHaveBeenCalledWith(
+        expect.objectContaining({
+          result: expect.objectContaining({
+            failureCode: status,
+            eventType: "EFFECT_FAILED",
+            retryable: status !== "aborted",
+            changeHash: "c".repeat(64),
+            changedPaths: ["packages/jobs"],
+          }),
+        })
       );
     }
-    return results3;
   });
 
   it("loses a claim on heartbeat rejection and heartbeat failure during execution", async () => {
-    const results4 = [];
     for (const heartbeatError of [false, new Error("heartbeat unavailable")]) {
       let finish: (() => void) | undefined;
       const heartbeatEffect = vi
@@ -1108,13 +1097,11 @@ describe("workflow outbox worker", () => {
         { id: "effect-1", status: "lease-lost" },
       ]);
       expect(repository.completeEffect).not.toHaveBeenCalled();
-      results4.push(expect(repository.failEffect).not.toHaveBeenCalled());
+      expect(repository.failEffect).not.toHaveBeenCalled();
     }
-    return results4;
   });
 
   it("propagates owned process termination failures but dead-letters ordinary adapter errors", async () => {
-    const results5 = [];
     for (const error of [
       new OmpProcessTerminationError(),
       new Error("ordinary adapter failure"),
@@ -1133,20 +1120,16 @@ describe("workflow outbox worker", () => {
       });
       if (error instanceof OmpProcessTerminationError) {
         await expect(worker.runOnce()).rejects.toBe(error);
-        results5.push(expect(repository.failEffect).not.toHaveBeenCalled());
+        expect(repository.failEffect).not.toHaveBeenCalled();
       } else {
-        results5.push(
-          await expect(worker.runOnce()).resolves.toEqual([
-            { id: "effect-1", status: "failed" },
-          ])
-        );
+        await expect(worker.runOnce()).resolves.toEqual([
+          { id: "effect-1", status: "failed" },
+        ]);
       }
     }
-    return results5;
   });
 
   it("normalizes exception failure persistence dispositions", async () => {
-    const results6 = [];
     for (const [persistence, status] of [
       [true, "failed"],
       ["persisted", "failed"],
@@ -1169,13 +1152,10 @@ describe("workflow outbox worker", () => {
         authorizeRepository,
       });
 
-      results6.push(
-        await expect(worker.runOnce()).resolves.toEqual([
-          { id: "effect-1", status },
-        ])
-      );
+      await expect(worker.runOnce()).resolves.toEqual([
+        { id: "effect-1", status },
+      ]);
     }
-    return results6;
   });
   it("propagates fatal cleanup rejection after committing completion", async () => {
     const cleanupError = new OmpWorkspaceCleanupError();
@@ -1515,7 +1495,6 @@ describe("workflow outbox worker", () => {
     return expect(lostFinalize).toHaveBeenCalledWith("unpersisted");
   });
   it("finalizes failed execution lifecycle according to terminal persistence", async () => {
-    const results7 = [];
     for (const persisted of [true, false]) {
       const finalize = vi.fn(async () => undefined);
       const repository = outbox([[claim()]], {
@@ -1539,13 +1518,10 @@ describe("workflow outbox worker", () => {
           status: persisted ? "failed" : "lease-lost",
         },
       ]);
-      results7.push(
-        expect(finalize).toHaveBeenCalledWith(
-          persisted ? "persisted" : "unpersisted"
-        )
+      expect(finalize).toHaveBeenCalledWith(
+        persisted ? "persisted" : "unpersisted"
       );
     }
-    return results7;
   });
   it("marks a retry disposition before the same claim later persists successfully", async () => {
     const firstFinalize = vi.fn(async () => undefined);

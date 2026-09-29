@@ -135,7 +135,6 @@ describe("operator service projection boundary", () => {
   });
 
   it("enforces owner scope for workspace, list, and both detail owner fields", async () => {
-    const results = [];
     for (const operation of [
       createOperatorService(
         portFor({
@@ -166,9 +165,8 @@ describe("operator service projection boundary", () => {
       ).detail(principal, "run-1"),
     ]) {
       const failure = await operation.catch((error: unknown) => error);
-      results.push(expect(failure).toMatchObject({ code: "FORBIDDEN" }));
+      expect(failure).toMatchObject({ code: "FORBIDDEN" });
     }
-    return results;
   });
 
   it("rejects missing and unverified details", async () => {
@@ -565,7 +563,6 @@ describe("operator service projection boundary", () => {
         sensitive: true,
       },
     ];
-    const results1 = [];
     for (const batchStart of [0, 8]) {
       const batch = cases.slice(batchStart, batchStart + 8);
       const service = createOperatorService(
@@ -602,9 +599,8 @@ describe("operator service projection boundary", () => {
           results2.push(void 0);
         }
       }
-      results1.push(results2);
+      results2;
     }
-    return results1;
   });
 
   it("fails closed for sensitive structured JSON values", async () => {

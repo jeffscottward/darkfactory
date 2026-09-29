@@ -58,7 +58,6 @@ export const PublicHeader = ({
     shell.inert = true;
     return () => {
       shell.inert = wasInert;
-      return undefined;
     };
   }, [mobileNavigationOpen]);
 

@@ -54,7 +54,6 @@ export const SessionRedirect = ({
       .catch(() => void (isActive && setIsChecking(false)));
     return () => {
       isActive = false;
-      return undefined;
     };
   }, [auth, callbackURL, router]);
 

@@ -372,15 +372,11 @@ describe("owned run capability encoding", () => {
         proof.runId,
       ],
     ] as const;
-    const results1 = [];
     for (const [candidate, expectedRunId] of invalidAdoptions) {
-      results1.push(
-        expect(() =>
-          decodeOwnedRunAdoption(encodeJson(candidate), expectedRunId)
-        ).toThrow(/invalid owned E2E adoption/i)
-      );
+      expect(() =>
+        decodeOwnedRunAdoption(encodeJson(candidate), expectedRunId)
+      ).toThrow(/invalid owned E2E adoption/i);
     }
-    return results1;
   });
   it("rejects mismatched lifecycle paths and replaced root capabilities", async () => {
     return await withOwnedRun(async (root, proof) => {

@@ -84,7 +84,6 @@ describe("development database reset", () => {
   });
 
   it("rejects every non-development environment before opening a transaction", async () => {
-    const results = [];
     for (const environment of ["production", "staging", "", undefined, null]) {
       const double = createResetDatabaseDouble();
       let thrown: unknown;
@@ -102,9 +101,8 @@ describe("development database reset", () => {
           "Development reset requires an explicit development or test environment",
       });
       expect(double.transaction).not.toHaveBeenCalled();
-      results.push(expect(double.execute).not.toHaveBeenCalled());
+      expect(double.execute).not.toHaveBeenCalled();
     }
-    return results;
   });
 
   it("preserves transaction-provider failures and records rollback", async () => {

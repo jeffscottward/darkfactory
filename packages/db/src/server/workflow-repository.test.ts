@@ -372,19 +372,15 @@ describe("workflow persistence primitives", () => {
     const cyclic: Record<string, unknown> = {};
     cyclic["self"] = cyclic;
 
-    const results = [];
     for (const value of [
       cyclic,
       { amount: Number.NaN },
       { date: new Date() },
     ]) {
-      results.push(
-        expect(() => canonicalWorkflowJson(value)).toThrow(
-          WorkflowPersistenceInputError
-        )
+      expect(() => canonicalWorkflowJson(value)).toThrow(
+        WorkflowPersistenceInputError
       );
     }
-    return results;
   });
 
   it("hashes the exact versioned machine, sequence, predecessor, and event material", () => {
@@ -2012,7 +2008,6 @@ describe("workflow evidence and messages", () => {
           ],
         },
       ];
-      const results1 = [];
       for (const append of invalidAppends) {
         const { fake, repository } = repositoryFor({
           executes: [[]],
@@ -2028,13 +2023,10 @@ describe("workflow evidence and messages", () => {
         expect(
           fake.queries.filter(({ kind }) => kind === "insert")
         ).toHaveLength(0);
-        results1.push(
-          expect(
-            fake.queries.filter(({ kind }) => kind === "update")
-          ).toHaveLength(0)
-        );
+        expect(
+          fake.queries.filter(({ kind }) => kind === "update")
+        ).toHaveLength(0);
       }
-      return results1;
     });
 
     it("allows the exact message cap and rejects the next fresh message", async () => {
@@ -2691,7 +2683,6 @@ describe("workflow approval decisions", () => {
         },
       },
     ];
-    const results2 = [];
     for (const conflict of conflicts) {
       const { repository } = repositoryFor({
         executes: [[]],
@@ -2702,13 +2693,10 @@ describe("workflow approval decisions", () => {
           [before.snapshot],
         ],
       });
-      results2.push(
-        await expect(
-          repository.decideApprovalAndAppend(input)
-        ).rejects.toBeInstanceOf(StaleWorkflowApprovalError)
-      );
+      await expect(
+        repository.decideApprovalAndAppend(input)
+      ).rejects.toBeInstanceOf(StaleWorkflowApprovalError);
     }
-    return results2;
   });
 
   it.each([
@@ -3671,7 +3659,6 @@ describe("workflow effect finalization", () => {
       { ...approval, effectHash: "5".repeat(64) },
       { ...approval, effectScope: "other-scope" },
     ];
-    const results3 = [];
     for (const conflict of conflicts) {
       const replay = repositoryFor({
         executes: [[], []],
@@ -3688,13 +3675,10 @@ describe("workflow effect finalization", () => {
           conflict === null ? [] : [conflict],
         ],
       });
-      results3.push(
-        await expect(
-          replay.repository.finalizeEffect(input)
-        ).rejects.toBeInstanceOf(WorkflowConcurrencyError)
-      );
+      await expect(
+        replay.repository.finalizeEffect(input)
+      ).rejects.toBeInstanceOf(WorkflowConcurrencyError);
     }
-    return results3;
   });
 
   it("maps an exact duplicate append after lease finalization to already-applied", async () => {
@@ -4171,16 +4155,14 @@ describe("workflow bounded owner-scoped read paths", () => {
     ).resolves.toEqual([]);
     expect(empty.fake.transactionOptions).toHaveLength(0);
 
-    const results4 = [];
     for (const ownerId of ["owner-1", "owner-2"]) {
       const { fake, repository } = repositoryFor({ selects: [[]] });
       await expect(
         repository.listProjectionsByOwner(ownerId, ["run-missing"])
       ).resolves.toEqual([]);
       expect(fake.transactionOptions).toHaveLength(1);
-      results4.push(expect(fake.queries).toHaveLength(1));
+      expect(fake.queries).toHaveLength(1);
     }
-    return results4;
   });
 
   it("preserves projection integrity validation in the bulk path", async () => {

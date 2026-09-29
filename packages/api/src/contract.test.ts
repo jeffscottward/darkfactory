@@ -30,51 +30,39 @@ describe("DF-051/052 oRPC application contract", () => {
   it("publishes every feature operation and the real admin operation", async () => {
     const document = await buildOpenApiDocument();
 
-    const results = [];
     for (const [method, path, operationId] of expectedOperations.slice(0, 7)) {
       const operation = document.paths![path]?.[method];
       expect(operation, `${method.toUpperCase()} ${path}`).toBeDefined();
       expect(operation?.operationId).toBe(operationId);
-      results.push(
-        expect(operation?.tags).toContain(
-          operationId.startsWith("admin.") ? "Admin" : "Feature items"
-        )
+      expect(operation?.tags).toContain(
+        operationId.startsWith("admin.") ? "Admin" : "Feature items"
       );
     }
-    return results;
   });
 
   it("documents authenticated theme read and exact update operations", async () => {
     const document = await buildOpenApiDocument();
 
-    const results1 = [];
     for (const [method, path, operationId] of expectedOperations.slice(7)) {
       const operation = document.paths![path]?.[method];
       expect(operation, `${method.toUpperCase()} ${path}`).toBeDefined();
       expect(operation?.operationId).toBe(operationId);
       expect(operation?.tags).toEqual(["Preferences"]);
-      results1.push(
-        expect(Object.keys(operation?.responses ?? {})).toEqual(
-          expect.arrayContaining(["401", "422", "503"])
-        )
+      expect(Object.keys(operation?.responses ?? {})).toEqual(
+        expect.arrayContaining(["401", "422", "503"])
       );
     }
-    return results1;
   });
 
   it("documents typed expected errors for every owner-scoped feature operation", async () => {
     const document = await buildOpenApiDocument();
 
-    const results2 = [];
     for (const [method, path, operationId] of expectedOperations.slice(0, 6)) {
       const responses = document.paths![path]?.[method]?.responses;
-      results2.push(
-        expect(Object.keys(responses ?? {}), operationId).toEqual(
-          expect.arrayContaining(expectedErrorStatuses)
-        )
+      expect(Object.keys(responses ?? {}), operationId).toEqual(
+        expect.arrayContaining(expectedErrorStatuses)
       );
     }
-    return results2;
   });
 
   it("documents authentication, authorization, and storage failures for admin", async () => {

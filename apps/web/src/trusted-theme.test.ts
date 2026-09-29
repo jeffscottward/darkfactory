@@ -541,7 +541,6 @@ describe("trusted theme controls", () => {
   });
 
   it("fails closed when the semantic callback lacks anonymous authority", () => {
-    const results = [];
     for (const authority of ["trusted", "indeterminate"] as const) {
       let store: ReturnType<typeof useUiStoreApi> | undefined;
       let selectPreference:
@@ -562,14 +561,11 @@ describe("trusted theme controls", () => {
 
       selectPreference?.({ themeMode: "light", palette: "blue" });
 
-      results.push(
-        expect(store?.getState()).toMatchObject({
-          themeMode: "dark",
-          palette: "rose",
-        })
-      );
+      expect(store?.getState()).toMatchObject({
+        themeMode: "dark",
+        palette: "rose",
+      });
     }
-    return results;
   });
 
   it("keeps anonymous selection local and clears stale account feedback without a client", async () => {
@@ -848,7 +844,6 @@ describe("trusted theme controls", () => {
   });
 
   it("consumes non-anonymous bootstrap authority once without exposing the payload", () => {
-    const results1 = [];
     for (const authority of ["trusted", "indeterminate"] as const) {
       const consumption = { consumed: false };
       expect(
@@ -858,16 +853,13 @@ describe("trusted theme controls", () => {
         })
       ).toBeUndefined();
       expect(consumption.consumed).toBe(true);
-      results1.push(
-        expect(
-          consumeInitialThemeBootstrap(authority, consumption, {
-            themeMode: "light",
-            palette: "blue",
-          })
-        ).toBeUndefined()
-      );
+      expect(
+        consumeInitialThemeBootstrap(authority, consumption, {
+          themeMode: "light",
+          palette: "blue",
+        })
+      ).toBeUndefined();
     }
-    return results1;
   });
 
   it("rejects every malformed bootstrap shape and avoids redundant store writes", () => {
@@ -1010,7 +1002,6 @@ describe("trusted theme controls", () => {
       },
     ] as const;
 
-    const results2 = [];
     for (const testCase of cases) {
       const store = createUiStore();
       const errors: Array<string | null> = [];
@@ -1030,13 +1021,11 @@ describe("trusted theme controls", () => {
         store,
       });
       expect(errors).toEqual([null, testCase.expected]);
-      results2.push(expect(pending).toEqual([true, false]));
+      expect(pending).toEqual([true, false]);
     }
-    return results2;
   });
 
   it("leaves stale trusted requests pending for their replacement owner", async () => {
-    const results3 = [];
     for (const staleBoundary of ["authority", "epoch", "sequence"] as const) {
       const store = createUiStore();
       const gate = deferred<ThemePreferenceOutput>();
@@ -1088,9 +1077,8 @@ describe("trusted theme controls", () => {
 
       expect(update).not.toHaveBeenCalled();
       expect(errors).toEqual([null]);
-      results3.push(expect(pending).toEqual([true]));
+      expect(pending).toEqual([true]);
     }
-    return results3;
   });
 
   it("hydrates anonymous browser state, synchronizes mutations, and cleans stale subscriptions", () => {
@@ -1192,7 +1180,6 @@ describe("trusted theme controls", () => {
       },
     ];
 
-    const results4 = [];
     for (const testCase of cases) {
       themeHookRuntime.reset();
       themeComponentRuntime.reset();
@@ -1216,14 +1203,11 @@ describe("trusted theme controls", () => {
 
       expect(browser.setItem).toHaveBeenCalledTimes(testCase.expectedStorage);
       expect(browser.cookieWrites).toHaveLength(testCase.expectedCookies);
-      results4.push(
-        expect(browser.documentElement.dataset).toEqual({
-          mode: "dark",
-          palette: "rose",
-        })
-      );
+      expect(browser.documentElement.dataset).toEqual({
+        mode: "dark",
+        palette: "rose",
+      });
     }
-    return results4;
   });
 
   it("propagates non-object browser persistence failures", () => {

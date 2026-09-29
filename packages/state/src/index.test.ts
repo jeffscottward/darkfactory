@@ -38,7 +38,6 @@ describe("theme contracts", () => {
       expect(isPalette(palette)).toBe(true);
     }
 
-    const results = [];
     for (const value of [
       "studio",
       "Neutral",
@@ -51,9 +50,8 @@ describe("theme contracts", () => {
       10,
       {},
     ]) {
-      results.push(expect(isPalette(value)).toBe(false));
+      expect(isPalette(value)).toBe(false);
     }
-    return results;
   });
 
   it("validates only light, dark, and system theme modes", () => {

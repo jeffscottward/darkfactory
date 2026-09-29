@@ -242,20 +242,16 @@ describe("portal route leaf composition", () => {
   });
 
   return it("announces every portal loading boundary without exposing live data", () => {
-    const results = [];
     for (const loading of [
       AccountLoading(),
       AdminLoading(),
       DashboardLoading(),
       FeatureItemsLoading(),
     ]) {
-      results.push(
-        expect(loading.props).toMatchObject({
-          "aria-busy": "true",
-          role: "status",
-        })
-      );
+      expect(loading.props).toMatchObject({
+        "aria-busy": "true",
+        role: "status",
+      });
     }
-    return results;
   });
 });

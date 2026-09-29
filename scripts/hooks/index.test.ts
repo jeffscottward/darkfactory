@@ -46,7 +46,6 @@ beforeEach(() => {
       ? spawnResult(0, `${BUN_VERSION}\n`)
       : spawnResult(0);
   });
-  return undefined;
 });
 
 afterEach(() => {

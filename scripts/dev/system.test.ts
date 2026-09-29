@@ -344,13 +344,9 @@ describe("development Node process adapter", () => {
 
     expect(mocks.readFile).toHaveBeenCalledTimes(4);
     expect(mocks.readFile).toHaveBeenCalledWith("/home/test/.portless/ca.pem");
-    const results = [];
     for (const call of mocks.request.mock.calls) {
-      results.push(
-        expect(call[1]).toMatchObject({ ca: localCa, rejectUnauthorized: true })
-      );
+      expect(call[1]).toMatchObject({ ca: localCa, rejectUnauthorized: true });
     }
-    return results;
   });
 
   it("keeps status bounds and rejects unavailable or untrusted HTTPS probes", async () => {

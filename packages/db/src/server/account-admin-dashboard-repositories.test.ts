@@ -51,7 +51,6 @@ describe("admin user directory cursor", () => {
     expect(() => decodeAdminUsersCursor(cursor)).toThrow(
       InvalidAdminUsersCursorError
     );
-    return undefined;
   });
 });
 
@@ -154,7 +153,6 @@ describe("dashboard feature summary", () => {
   });
 
   it("returns an empty summary at both accepted recent-limit boundaries", async () => {
-    const results = [];
     for (const recentLimit of [0, 100]) {
       const double = createDashboardDatabaseDouble();
       await expect(
@@ -169,9 +167,8 @@ describe("dashboard feature summary", () => {
         archived: 0,
         recent: [],
       });
-      results.push(expect(double.limit).toHaveBeenCalledWith(recentLimit));
+      expect(double.limit).toHaveBeenCalledWith(recentLimit);
     }
-    return results;
   });
 
   it("rejects blank owners and invalid recent limits before querying", async () => {

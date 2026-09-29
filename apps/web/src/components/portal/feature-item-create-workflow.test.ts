@@ -661,5 +661,4 @@ describe("feature item create workflow", () => {
       return expect(create).toHaveBeenCalledTimes(2);
     });
   }
-  return undefined;
 });

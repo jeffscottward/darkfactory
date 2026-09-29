@@ -72,7 +72,6 @@ describe("local operator environment", () => {
 
   it("rejects every unsafe callback shape before navigation", () => {
     const tooLong = `/operator/${"a".repeat(2048)}`;
-    const results = [];
     for (const value of [
       undefined,
       null,
@@ -83,9 +82,8 @@ describe("local operator environment", () => {
       "/operator#settings",
       "/operator/\u0000settings",
     ]) {
-      results.push(expect(safeOperatorCallbackPath(value)).toBe("/operator"));
+      expect(safeOperatorCallbackPath(value)).toBe("/operator");
     }
-    return results;
   });
 
   it("accepts the workspace root but rejects an adjacent path prefix", () => {

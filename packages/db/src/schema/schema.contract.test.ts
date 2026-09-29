@@ -608,7 +608,6 @@ describe("DarkFactory-owned schema", () => {
   });
 
   return it("stores all DarkFactory timestamps in UTC-capable columns", () => {
-    const results1 = [];
     for (const table of [
       profiles,
       addresses,
@@ -625,8 +624,7 @@ describe("DarkFactory-owned schema", () => {
           expect(candidate.getSQLType()).toBe("timestamp with time zone")
         );
       }
-      results1.push(results2);
+      results2;
     }
-    return results1;
   });
 });

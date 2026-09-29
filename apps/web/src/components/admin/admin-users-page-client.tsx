@@ -69,7 +69,6 @@ export const AdminUsersPageClient = () => {
 
   useEffect(() => {
     void load("");
-    return undefined;
   }, [load]);
 
   const search = (rawQuery: string): void => {

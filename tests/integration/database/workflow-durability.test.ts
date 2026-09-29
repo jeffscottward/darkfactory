@@ -1506,7 +1506,6 @@ describe.sequential("workflow durability on real PostgreSQL", () => {
   it("returns only a complete old or new projection during concurrent appends", async () => {
     const ownerId = await createOwner();
     let projection = await createRun(ownerId);
-    const results = [];
     for (const index in [1, 2, 3, 4, 5, 6, 7, 8]) {
       const event = eventFor(
         nextId(`concurrent-${index}`),
@@ -1523,9 +1522,8 @@ describe.sequential("workflow durability on real PostgreSQL", () => {
         projection.run.headSequence,
         appended.projection.run.headSequence,
       ]).toContain(observed!.run.headSequence);
-      results.push((projection = appended.projection));
+      projection = appended.projection;
     }
-    return results;
   });
 
   it("stores only redacted bounded effect, evidence, message, and error content", async () => {

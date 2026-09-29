@@ -409,21 +409,17 @@ describe("pilot workflow worker", () => {
   });
 
   it("rejects invalid polling shutdown deadlines", () => {
-    const results = [];
     for (const shutdownTimeoutMs of [0, 99, 60_001, Number.NaN]) {
-      results.push(
-        expect(() =>
-          createPilotPollingWorker({
-            runOnce: vi.fn(async () => []),
-            stopRuntime: vi.fn(async () => undefined),
-            close: vi.fn(async () => undefined),
-            pollIntervalMs: 1,
-            shutdownTimeoutMs,
-          })
-        ).toThrow(PilotWorkerConfigurationError)
-      );
+      expect(() =>
+        createPilotPollingWorker({
+          runOnce: vi.fn(async () => []),
+          stopRuntime: vi.fn(async () => undefined),
+          close: vi.fn(async () => undefined),
+          pollIntervalMs: 1,
+          shutdownTimeoutMs,
+        })
+      ).toThrow(PilotWorkerConfigurationError);
     }
-    return results;
   });
 
   it("starts once, wakes a pending poll, and supports stopping before start", async () => {

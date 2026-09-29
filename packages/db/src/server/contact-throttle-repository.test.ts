@@ -307,14 +307,12 @@ describe("contact throttle repository", () => {
       { allowed: false, remaining: 0, retryAfterSeconds: 900 },
     ]);
     expect(double.records).toHaveLength(2);
-    const results1 = [];
     for (const record of double.records) {
       expect(statementText(record.statements[0])).toContain(
         "pg_advisory_xact_lock"
       );
       expect(compiled(record.statements[0]).params).toEqual([KEY_HASH]);
-      results1.push(expect(record.lifecycle).toEqual(["begin", "commit"]));
+      expect(record.lifecycle).toEqual(["begin", "commit"]);
     }
-    return results1;
   });
 });

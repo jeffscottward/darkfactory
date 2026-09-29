@@ -121,13 +121,9 @@ describe("destinationForSession", () => {
       { data: { session: { id: "session-1" } }, error: { code: "FAILED" } },
     ];
 
-    const results = [];
     for (const response of malformedResponses) {
-      results.push(
-        expect(destinationForSession(response, "/feature-items")).toBeNull()
-      );
+      expect(destinationForSession(response, "/feature-items")).toBeNull();
     }
-    return results;
   });
 
   return it("returns only an allowlisted local destination for an object session", () => {

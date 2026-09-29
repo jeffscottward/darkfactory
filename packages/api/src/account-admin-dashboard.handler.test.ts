@@ -272,16 +272,14 @@ describe("account/admin/dashboard router", () => {
       correlation: { requestId: "request-account-1", actorId: "member-1" },
     });
     const serialized = JSON.stringify(events[0]);
-    const results = [];
     for (const secret of [
       "private@example.test",
       "private-phone",
       "private biography",
       "New Name",
     ]) {
-      results.push(expect(serialized).not.toContain(secret));
+      expect(serialized).not.toContain(secret);
     }
-    return results;
   });
 
   it("maps stale account writes to typed 409 without emitting success", async () => {

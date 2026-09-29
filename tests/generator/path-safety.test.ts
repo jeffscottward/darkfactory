@@ -79,7 +79,6 @@ describe("generate-feature path safety", () => {
     expect(() =>
       assertSafeRelativePath("apps/web/src/features/item.ts")
     ).not.toThrow();
-    const results = [];
     for (const unsafePath of [
       "",
       resolve(sep, "absolute"),
@@ -90,13 +89,10 @@ describe("generate-feature path safety", () => {
       "apps/../web",
       "apps/web/..",
     ]) {
-      results.push(
-        expect(() => assertSafeRelativePath(unsafePath)).toThrowError(
-          "Generated path is unsafe"
-        )
+      expect(() => assertSafeRelativePath(unsafePath)).toThrowError(
+        "Generated path is unsafe"
       );
     }
-    return results;
   });
 
   it("captures immutable identities and distinguishes every identity mismatch", async () => {

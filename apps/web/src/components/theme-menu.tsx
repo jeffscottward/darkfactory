@@ -130,7 +130,6 @@ export const ThemeMenu = () => {
     requestSequence.current += 1;
     setError(null);
     setPending(false);
-    return undefined;
   }, [authority]);
   useLayoutEffect(() => {
     const invalidate = (): void => {

@@ -354,11 +354,9 @@ describe("router authentication context", () => {
         }),
     ];
 
-    const results = [];
     for (const operation of operations) {
-      results.push(await expectDefinedError(operation(), "UNAUTHORIZED", 401));
+      await expectDefinedError(operation(), "UNAUTHORIZED", 401);
     }
-    return results;
   });
 
   it.each([

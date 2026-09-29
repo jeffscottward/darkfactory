@@ -499,7 +499,6 @@ describe("DF-069 transactional live apply and verification", () => {
   });
 
   it("rejects missing and stale replacement targets after planning", async () => {
-    const results = [];
     for (const mutation of ["missing", "stale"] as const) {
       const { root } = await fixture();
       const plan = await createGenerationPlan(
@@ -517,20 +516,15 @@ describe("DF-069 transactional live apply and verification", () => {
       });
       expect(await listFixtureEntries(root)).toEqual(before);
       if (mutation === "missing") {
-        results.push(
-          await expect(readFile(registryPath, "utf8")).rejects.toMatchObject({
-            code: "ENOENT",
-          })
-        );
+        await expect(readFile(registryPath, "utf8")).rejects.toMatchObject({
+          code: "ENOENT",
+        });
       } else {
-        results.push(
-          await expect(readFile(registryPath, "utf8")).resolves.toBe(
-            "user registry edit"
-          )
+        await expect(readFile(registryPath, "utf8")).resolves.toBe(
+          "user registry edit"
         );
       }
     }
-    return results;
   });
 
   it("serializes different features that share generated registries", async () => {
@@ -571,7 +565,6 @@ describe("DF-069 transactional live apply and verification", () => {
   });
 
   it("refuses occupied feature-owned directories without writing", async () => {
-    const results1 = [];
     for (const relativeDirectory of [
       "apps/web/src/features/order-item",
       "apps/web/src/app/(portal)/order-items",
@@ -587,9 +580,8 @@ describe("DF-069 transactional live apply and verification", () => {
       await expect(
         createGenerationPlan(root, validateFeatureName("order-item"))
       ).rejects.toMatchObject({ code: "TARGET_COLLISION" });
-      results1.push(expect(await listFixtureEntries(root)).toEqual(before));
+      expect(await listFixtureEntries(root)).toEqual(before);
     }
-    return results1;
   });
   it("refuses feature-owned directory occupancy introduced after planning", async () => {
     const { root } = await fixture();

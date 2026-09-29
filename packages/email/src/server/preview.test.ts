@@ -229,15 +229,13 @@ describe("createPreviewEmailPort", () => {
 
     if (result.status !== "previewed") throw new Error("Expected preview");
     expect((await lstat(directory)).mode & 0o777).toBe(0o700);
-    const results = [];
     for (const path of [
       result.artifactPath,
       result.artifactPath.replace(/\.html$/, ".txt"),
       metadataPathFor(result.artifactPath),
     ]) {
-      results.push(expect((await lstat(path)).mode & 0o777).toBe(0o600));
+      expect((await lstat(path)).mode & 0o777).toBe(0o600);
     }
-    return results;
   });
 
   it("keeps traversal-shaped internal names and recipient data out of filenames", async () => {
@@ -353,13 +351,11 @@ describe("createPreviewEmailPort", () => {
       return fileName.endsWith(".metadata.json");
     });
     expect(metadataFiles.length).toBeLessThanOrEqual(2);
-    const results1 = [];
     for (const metadataFile of metadataFiles) {
       const artifactName = metadataFile.slice(0, -".metadata.json".length);
       expect(retainedFiles).toContain(`${artifactName}.html`);
-      results1.push(expect(retainedFiles).toContain(`${artifactName}.txt`));
+      expect(retainedFiles).toContain(`${artifactName}.txt`);
     }
-    return results1;
   });
 
   it("rejects a preview group larger than its byte retention bound", async () => {
@@ -700,7 +696,6 @@ describe("createPreviewEmailPort", () => {
   });
 
   it("validates retention bounds independently before constructing the port", () => {
-    const results2 = [];
     for (const options of [
       { maxArtifacts: 0 },
       { maxArtifacts: -1 },
@@ -709,16 +704,13 @@ describe("createPreviewEmailPort", () => {
       { maxBytes: -1 },
       { maxBytes: 1.5 },
     ]) {
-      results2.push(
-        expect(() =>
-          createPreviewEmailPort({
-            environment: "test",
-            ...options,
-          })
-        ).toThrowError("Preview retention bounds must be positive integers")
-      );
+      expect(() =>
+        createPreviewEmailPort({
+          environment: "test",
+          ...options,
+        })
+      ).toThrowError("Preview retention bounds must be positive integers");
     }
-    return results2;
   });
 
   it("normalizes a valid run identifier and rejects malformed bindings", async () => {
@@ -749,24 +741,20 @@ describe("createPreviewEmailPort", () => {
       ).toThrowError("Preview email binding runId is invalid");
     }
 
-    const results3 = [];
     for (const hmacKey of [
       "",
       "a".repeat(42),
       "a".repeat(44),
       `${"a".repeat(42)}!`,
     ]) {
-      results3.push(
-        expect(() =>
-          createPreviewEmailPort({
-            environment: "test",
-            directory,
-            binding: { runId: "run", hmacKey },
-          })
-        ).toThrowError("Preview email binding HMAC key is invalid")
-      );
+      expect(() =>
+        createPreviewEmailPort({
+          environment: "test",
+          directory,
+          binding: { runId: "run", hmacKey },
+        })
+      ).toThrowError("Preview email binding HMAC key is invalid");
     }
-    return results3;
   });
 
   it("maps renderer rejection to a typed failure without touching the directory", async () => {

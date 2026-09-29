@@ -627,29 +627,25 @@ describe("operator development lifecycle", () => {
   });
 
   it("allows macOS text encoding metadata for both owned process profiles", () => {
-    const results = [];
     for (const [profile, processId] of [
       [WEB_DEVELOPMENT_PROFILE, 7],
       [OPERATOR_DEVELOPMENT_PROFILE, 19],
     ] as const) {
-      results.push(
-        expect(
-          parsePm2ProcessList(
-            JSON.stringify([
-              pm2Process(profile, "online", processId, {
-                env: { __CF_USER_TEXT_ENCODING: "0x1F5:0x0:0x0" },
-              }),
-            ]),
-            TEST_CWD,
-            profile
-          )
-        ).toEqual({
-          status: "online",
-          processId,
-        })
-      );
+      expect(
+        parsePm2ProcessList(
+          JSON.stringify([
+            pm2Process(profile, "online", processId, {
+              env: { __CF_USER_TEXT_ENCODING: "0x1F5:0x0:0x0" },
+            }),
+          ]),
+          TEST_CWD,
+          profile
+        )
+      ).toEqual({
+        status: "online",
+        processId,
+      });
     }
-    return results;
   });
 
   return it("validates operator ownership independently from the web process", () => {

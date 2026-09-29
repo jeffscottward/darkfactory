@@ -275,7 +275,6 @@ const retainedPort = (
 
 describe("terminal OMP resource reconciliation", () => {
   it("rejects every invalid reconciler bound", () => {
-    const results = [];
     for (const overrides of [
       { limit: 0 },
       { limit: 33 },
@@ -284,18 +283,15 @@ describe("terminal OMP resource reconciliation", () => {
       { heartbeatMilliseconds: 0 },
       { leaseMilliseconds: 10, heartbeatMilliseconds: 10 },
     ]) {
-      results.push(
-        expect(() =>
-          createWorkflowTerminalReconciler({
-            repository: retainedPort(),
-            leaseOwner: "worker-1",
-            cleanup: vi.fn(async () => undefined),
-            ...overrides,
-          })
-        ).toThrow(TypeError)
-      );
+      expect(() =>
+        createWorkflowTerminalReconciler({
+          repository: retainedPort(),
+          leaseOwner: "worker-1",
+          cleanup: vi.fn(async () => undefined),
+          ...overrides,
+        })
+      ).toThrow(TypeError);
     }
-    return results;
   });
   it("returns an empty live batch without invoking cleanup or persistence", async () => {
     const cleanup = vi.fn(async () => undefined);
@@ -336,7 +332,6 @@ describe("terminal OMP resource reconciliation", () => {
   });
 
   it("fails closed before cleanup when the initial heartbeat loses ownership or throws", async () => {
-    const results1 = [];
     for (const heartbeat of [false, new Error("heartbeat unavailable")]) {
       const cleanup = vi.fn(async () => undefined);
       const repository = retainedPort({
@@ -353,15 +348,11 @@ describe("terminal OMP resource reconciliation", () => {
         }).runOnce()
       ).resolves.toEqual([]);
       expect(cleanup).not.toHaveBeenCalled();
-      results1.push(
-        expect(repository.completeRetainedResource).not.toHaveBeenCalled()
-      );
+      expect(repository.completeRetainedResource).not.toHaveBeenCalled();
     }
-    return results1;
   });
 
   it("drops completion when a live heartbeat loses ownership across cleanup outcomes", async () => {
-    const results2 = [];
     for (const cleanupRejects of [false, true]) {
       const heartbeatRetainedResource = vi
         .fn()
@@ -383,19 +374,16 @@ describe("terminal OMP resource reconciliation", () => {
             );
           })
       );
-      results2.push(
-        await expect(
-          createWorkflowTerminalReconciler({
-            repository: retainedPort({ heartbeatRetainedResource }),
-            leaseOwner: "worker-1",
-            cleanup,
-            leaseMilliseconds: 20,
-            heartbeatMilliseconds: 1,
-          }).runOnce()
-        ).resolves.toEqual([])
-      );
+      await expect(
+        createWorkflowTerminalReconciler({
+          repository: retainedPort({ heartbeatRetainedResource }),
+          leaseOwner: "worker-1",
+          cleanup,
+          leaseMilliseconds: 20,
+          heartbeatMilliseconds: 1,
+        }).runOnce()
+      ).resolves.toEqual([]);
     }
-    return results2;
   });
 
   it("does not issue queued renewals after a heartbeat reports lost ownership", async () => {

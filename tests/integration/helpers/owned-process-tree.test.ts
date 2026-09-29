@@ -54,7 +54,6 @@ const fixtureAddress = async (
       clearTimeout(timeout);
       return reject(error);
     });
-    return undefined;
   });
 
 const portAcceptsConnections = async (port: number): Promise<boolean> => {
@@ -84,7 +83,6 @@ const waitForOwnedExit = async (
   if (child.exitCode !== null || child.signalCode !== null) return;
   await new Promise<void>((resolve) => {
     child.once("exit", () => resolve());
-    return undefined;
   });
 };
 
@@ -163,7 +161,6 @@ describe("owned process-tree lifecycle", () => {
           child,
           async () => {
             cleaned = true;
-            return undefined;
           },
           { platform: "win32" }
         )
@@ -174,5 +171,4 @@ describe("owned process-tree lifecycle", () => {
       await terminateOwnedProcessTree(child).catch(() => undefined);
     }
   });
-  return undefined;
 });

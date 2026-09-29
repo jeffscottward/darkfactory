@@ -156,7 +156,6 @@ export const createRecordingTelemetry = (
     forceFlush: async () => undefined,
     dispose: async () => {
       disposed = true;
-      return undefined;
     },
   };
 };
@@ -167,7 +166,6 @@ export const createRecordingEventSink = (): RecordingEventSink => {
     events,
     emit: (event) => {
       events.push(redactSemanticEvent(event));
-      return undefined;
     },
   };
 };

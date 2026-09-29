@@ -63,7 +63,5 @@ describe("root lifecycle orchestration", () => {
       "verify:core",
     ]);
     expect(tokenize(scripts.ci)).toEqual(["bun", "run", "verify"]);
-    return undefined;
   });
-  return undefined;
 });

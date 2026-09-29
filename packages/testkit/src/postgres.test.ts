@@ -211,13 +211,9 @@ afterEach(() => {
   cryptoState.digestOverride = undefined;
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
-  const results = [];
   for (const [name, value] of Object.entries(environmentSnapshot)) {
-    results.push(
-      restoreEnvironmentValue(name as keyof typeof environmentSnapshot, value)
-    );
+    restoreEnvironmentValue(name as keyof typeof environmentSnapshot, value);
   }
-  return results;
 });
 
 describe.sequential("testkit deterministic fixtures and exports", () => {
@@ -2443,7 +2439,6 @@ describe.sequential("PostgreSQL drop cleanup", () => {
       const cleanupResult = dropPostgresTestDatabase(database).then(
         () => {
           cleanupSettled = true;
-          return undefined;
         },
         (error: unknown) => {
           cleanupSettled = true;

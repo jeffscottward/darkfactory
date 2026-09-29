@@ -283,13 +283,11 @@ describe("operator workflow components", () => {
     expect(blocked).toContain("Planning stopped before a plan was available.");
     expect(blocked).not.toContain("Wayfinder is preparing");
 
-    const results = [];
     for (const terminalState of ["completed", "cancelled"] as const) {
       const terminal = missingPlanMarkup(terminalState);
       expect(terminal).toContain("No plan is available for this run.");
-      results.push(expect(terminal).not.toContain("Wayfinder is preparing"));
+      expect(terminal).not.toContain("Wayfinder is preparing");
     }
-    return results;
   });
 
   it("renders absent, fresh, conflicted, and busy approval checkpoints", () => {

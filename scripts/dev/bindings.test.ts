@@ -108,7 +108,6 @@ describe("development Worker bindings", () => {
       MAX_BINDING_BYTES
     );
 
-    const results = [];
     for (const invalid of [
       "",
       "\n",
@@ -117,13 +116,10 @@ describe("development Worker bindings", () => {
       "DATABASE_URL=database\nBETTER_AUTH_SECRET=\nCONTACT_THROTTLE_SECRET=secret\n",
       "DATABASE_URL=database\nBETTER_AUTH_SECRET=secret\n",
     ]) {
-      results.push(
-        await expect(writeWorkerBindings(target, invalid)).rejects.toThrow(
-          /empty|safe size|malformed|incomplete/i
-        )
+      await expect(writeWorkerBindings(target, invalid)).rejects.toThrow(
+        /empty|safe size|malformed|incomplete/i
       );
     }
-    return results;
   });
 
   it("rejects directory and multiply-linked targets", async () => {

@@ -46,7 +46,6 @@ export const PreferencesPageClient = () => {
 
   useEffect(() => {
     void load();
-    return undefined;
   }, [load]);
 
   if (state.type === "loading") {

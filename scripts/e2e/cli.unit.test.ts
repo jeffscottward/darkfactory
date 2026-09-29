@@ -1659,15 +1659,11 @@ describe("scanner envelope parsing", () => {
         failureCategory: "archive-validation",
       },
     ];
-    const results1 = [];
     for (const report of invalidReports) {
-      results1.push(
-        expect(
-          parseScannerReport(scannerEnvelope(report), REPORT_NONCE)
-        ).toBeUndefined()
-      );
+      expect(
+        parseScannerReport(scannerEnvelope(report), REPORT_NONCE)
+      ).toBeUndefined();
     }
-    return results1;
   });
 });
 
@@ -2234,7 +2230,6 @@ describe("default CLI dependency fakes", () => {
       )
     ).resolves.toBe(1);
 
-    const results2 = [];
     for (const [index, fixture] of cases.entries()) {
       expect(sanitizePlaywrightJsonReport).toHaveBeenNthCalledWith(
         index + 1,
@@ -2253,9 +2248,8 @@ describe("default CLI dependency fakes", () => {
           expect(JSON.stringify(processResults)).not.toContain(secret)
         );
       }
-      results2.push(results3);
+      results3;
     }
-    return results2;
   });
 
   it("propagates canonical executable identities with an exact sanitized PATH", async () => {

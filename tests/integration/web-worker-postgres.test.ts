@@ -115,7 +115,6 @@ const runLockContender = async (
     contender.once("exit", (exitCode, signal) => {
       return resolve({ exitCode, signal, stderr, stdout });
     });
-    return undefined;
   });
 };
 
@@ -524,5 +523,4 @@ describe.sequential("Vinext Cloudflare Worker node-postgres runtime", () => {
       })
     ).toBe(true);
   });
-  return undefined;
 });

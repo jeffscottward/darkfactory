@@ -1385,7 +1385,6 @@ describe("E2E lifecycle CLIs", () => {
   });
 
   it("redacts pretty-printed multiline authorization, session, and token structures", () => {
-    const results1 = [];
     for (const unsafe of [
       [
         "{",
@@ -1412,17 +1411,13 @@ describe("E2E lifecycle CLIs", () => {
       expect(rendered).toContain("safe diagnostic before\n");
       expect(rendered).toContain("safe diagnostic after\n");
       expect(rendered).toContain("[REDACTED SENSITIVE PROCESS OUTPUT]\n");
-      results1.push(
-        expect(rendered).not.toMatch(
-          /Opaque(?:AuthorizationValue|SessionValue|ResetTokenValue)123456789/u
-        )
+      expect(rendered).not.toMatch(
+        /Opaque(?:AuthorizationValue|SessionValue|ResetTokenValue)123456789/u
       );
     }
-    return results1;
   });
 
   it("redacts authorization and session pairs across the full bounded output", () => {
-    const results2 = [];
     for (const [name, value] of [
       ["authorization", "Bearer OpaqueLongAuthorizationValue123456789"],
       ["__Secure-better-auth.session_token", "OpaqueLongSessionValue123456789"],
@@ -1440,30 +1435,24 @@ describe("E2E lifecycle CLIs", () => {
       expect(rendered).toContain("safe long diagnostic\n");
       expect(rendered).toContain("safe long tail\n");
       expect(rendered).toContain("[REDACTED SENSITIVE PROCESS OUTPUT]\n");
-      results2.push(expect(rendered).not.toContain(value));
+      expect(rendered).not.toContain(value);
     }
-    return results2;
   });
 
   it("fails closed for Unicode format controls in sensitive structures", () => {
-    const results3 = [];
     for (const unsafe of [
       "safe diagnostic\nauthori\u200bzation: Bearer OpaqueZeroWidthValue123456789",
       "safe diagnostic\nsession\u202e_token=OpaqueBidiValue123456789",
     ]) {
       const rendered = redactProcessOutput(unsafe);
       expect(rendered).toBe("[REDACTED SENSITIVE PROCESS OUTPUT]\n");
-      results3.push(
-        expect(rendered).not.toMatch(
-          /safe diagnostic|Opaque|authorization|session/u
-        )
+      expect(rendered).not.toMatch(
+        /safe diagnostic|Opaque|authorization|session/u
       );
     }
-    return results3;
   });
 
   it("redacts context-free Bearer and Basic credentials", () => {
-    const results4 = [];
     for (const [scheme, credential] of [
       ["Bearer", "OpaqueContextBearerValue123456789"],
       ["Basic", "Q29udGV4dEJhc2ljVmFsdWUxMjM0NTY3ODk="],
@@ -1474,9 +1463,8 @@ describe("E2E lifecycle CLIs", () => {
       expect(rendered).toContain("safe credential diagnostic\n");
       expect(rendered).toContain("safe credential tail\n");
       expect(rendered).toContain("[REDACTED SENSITIVE PROCESS OUTPUT]\n");
-      results4.push(expect(rendered).not.toContain(credential));
+      expect(rendered).not.toContain(credential);
     }
-    return results4;
   });
 
   it("redacts a compact-only credential ending at the final byte", () => {
@@ -1543,7 +1531,6 @@ describe("E2E lifecycle CLIs", () => {
   });
 
   it("redacts relative auth-route tokens across the full bounded query", () => {
-    const results5 = [];
     for (const route of ["reset-password", "verify-email"]) {
       const rendered = redactProcessOutput(
         `safe route diagnostic\n/${route}?padding=${"a".repeat(513)}&token=shortSecret\nsafe route tail\n`
@@ -1551,13 +1538,11 @@ describe("E2E lifecycle CLIs", () => {
       expect(rendered).toContain("safe route diagnostic\n");
       expect(rendered).toContain("safe route tail\n");
       expect(rendered).toContain("[REDACTED SENSITIVE PROCESS OUTPUT]\n");
-      results5.push(expect(rendered).not.toContain("shortSecret"));
+      expect(rendered).not.toContain("shortSecret");
     }
-    return results5;
   });
 
   it("normalizes OSC and interleaved C0 controls before structural redaction", () => {
-    const results6 = [];
     for (const unsafe of [
       '{"authori\u001b]0;terminal-title\u0007zation":"Be\u0000arer Opa\u0008queAuthorizationValue123456789"}',
       '{"name":"__Secure-better-auth.sess\u0000ion_token","value":"OpaqueSess\u0008ionValue123456789"}',
@@ -1570,13 +1555,10 @@ describe("E2E lifecycle CLIs", () => {
       expect(rendered).toContain("safe control diagnostic\n");
       expect(rendered).toContain("safe control tail\n");
       expect(rendered).toContain("[REDACTED SENSITIVE PROCESS OUTPUT]\n");
-      results6.push(
-        expect(rendered).not.toMatch(
-          /Opaque|terminal-title|safe\.invalid|[\u0000-\u0009\u000b-\u001f\u007f]/u
-        )
+      expect(rendered).not.toMatch(
+        /Opaque|terminal-title|safe\.invalid|[\u0000-\u0009\u000b-\u001f\u007f]/u
       );
     }
-    return results6;
   });
 
   it("fails closed for untrusted terminal normalization and aggregate oversize output", () => {
@@ -1600,16 +1582,14 @@ describe("E2E lifecycle CLIs", () => {
   });
 
   it("preserves nonprintable encoded literals in safe diagnostics", () => {
-    const results7 = [];
     for (const safe of [
       String.raw`safe Unicode literal \u001f`,
       "safe decimal entity &#31;",
       "safe hexadecimal entity &#x7f;",
       "safe malformed entity &#;",
     ]) {
-      results7.push(expect(redactProcessOutput(safe)).toBe(safe));
+      expect(redactProcessOutput(safe)).toBe(safe);
     }
-    return results7;
   });
 
   it("fails closed when structural matching metadata cannot be trusted", () => {
@@ -1823,15 +1803,11 @@ describe("E2E lifecycle CLIs", () => {
       "prefix\rError: Dashboard session proof failed: path=/dashboard rendered=error directStatus=500",
     ];
 
-    const results8 = [];
     for (const nearMiss of nearMisses) {
-      results8.push(
-        expect(
-          collectProcessDiagnostics("", `${"x".repeat(17 * 1024)}\n${nearMiss}`)
-        ).toEqual(["stderr: [REDACTED OVERSIZED PROCESS OUTPUT]"])
-      );
+      expect(
+        collectProcessDiagnostics("", `${"x".repeat(17 * 1024)}\n${nearMiss}`)
+      ).toEqual(["stderr: [REDACTED OVERSIZED PROCESS OUTPUT]"]);
     }
-    return results8;
   });
 
   return it("matches exact CRLF diagnostics without shared regular-expression state", () => {

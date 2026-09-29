@@ -401,16 +401,14 @@ describe("dashboard summary loader", () => {
       }
       responses.push(response);
     }
-    const results = [];
     for (const response of responses) {
       const fetcher = vi.fn(async () => response);
       await expect(loadDashboardSummaryState(null, fetcher)).resolves.toEqual({
         type: "error",
       });
       expect(fetcher).toHaveBeenCalledOnce();
-      results.push(expect(vi.getTimerCount()).toBe(0));
+      expect(vi.getTimerCount()).toBe(0);
     }
-    return results;
   });
 
   it("immediately honors authentication invalidation after an initial capacity response", async () => {
@@ -532,20 +530,16 @@ describe("dashboard summary loader", () => {
         )
       ).resolves.toEqual({ type: "error" });
     }
-    const results1 = [];
     for (const failure of [null, "private transport failure"]) {
-      results1.push(
-        await expect(
-          loadDashboardSummaryState(
-            "better-auth.session_token=opaque",
-            async () => {
-              throw failure;
-            }
-          )
-        ).resolves.toEqual({ type: "error" })
-      );
+      await expect(
+        loadDashboardSummaryState(
+          "better-auth.session_token=opaque",
+          async () => {
+            throw failure;
+          }
+        )
+      ).resolves.toEqual({ type: "error" });
     }
-    return results1;
   });
 
   it.each([

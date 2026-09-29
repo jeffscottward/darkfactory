@@ -94,7 +94,6 @@ beforeEach(() => {
   mocks.readFileSync.mockReturnValue(`${BUN_VERSION}\n`);
   mocks.spawnSync.mockImplementation(gitSuccess);
   vi.spyOn(console, "error").mockImplementation(() => undefined);
-  return undefined;
 });
 
 afterEach(() => {
@@ -372,12 +371,10 @@ describe("source-bound pre-push", () => {
       arguments_.includes("status")
     );
     expect(statusCalls).toHaveLength(2);
-    const results = [];
     for (const [, arguments_] of statusCalls) {
       expect(arguments_).toContain("--untracked-files=no");
-      results.push(expect(arguments_).not.toContain("--ignored"));
+      expect(arguments_).not.toContain("--ignored");
     }
-    return results;
   });
 
   it("rejects source files modified by a successful verification lane", () => {

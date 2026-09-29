@@ -108,7 +108,6 @@ export const AddressPageClient = () => {
 
   useEffect(() => {
     void load();
-    return undefined;
   }, [load]);
 
   const save = async (

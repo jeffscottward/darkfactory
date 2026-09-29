@@ -134,13 +134,9 @@ describe("normalizeAuthDestination", () => {
       42,
     ];
 
-    const results = [];
     for (const callback of hostileCallbacks) {
-      results.push(
-        expect(normalizeAuthDestination(callback)).toBe("/dashboard")
-      );
+      expect(normalizeAuthDestination(callback)).toBe("/dashboard");
     }
-    return results;
   });
 
   it("decodes repeatedly and rejects malformed escapes, traversal, and encoded controls", () => {
@@ -174,7 +170,6 @@ describe("normalizeAuthDestination", () => {
   });
 
   return it("prevents auth loops and auth API callbacks", () => {
-    const results1 = [];
     for (const callback of [
       "/sign-in",
       "/sign-up?next=/dashboard",
@@ -183,11 +178,8 @@ describe("normalizeAuthDestination", () => {
       "/verify-email?error=INVALID_TOKEN",
       "/api/auth/get-session",
     ]) {
-      results1.push(
-        expect(normalizeAuthDestination(callback)).toBe("/dashboard")
-      );
+      expect(normalizeAuthDestination(callback)).toBe("/dashboard");
     }
-    return results1;
   });
 });
 

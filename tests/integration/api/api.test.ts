@@ -181,7 +181,6 @@ describe.sequential("DF-045/051/061-064 real PostgreSQL API integration", () => 
     });
     authHandler = createAuthHandler(auth);
     // Vitest treats a returned function as teardown; this handler requires a Request.
-    return undefined;
   });
 
   afterAll(async () => {
@@ -556,7 +555,6 @@ describe.sequential("DF-045/051/061-064 real PostgreSQL API integration", () => 
       "user-preferences.updated",
     ]);
     const serialized = JSON.stringify(events);
-    const results = [];
     for (const pii of [
       "account-member@domain.test",
       "Private Display",
@@ -565,8 +563,7 @@ describe.sequential("DF-045/051/061-064 real PostgreSQL API integration", () => 
       "75001",
       "1990-01-02",
     ])
-      results.push(expect(serialized).not.toContain(pii));
-    return results;
+      expect(serialized).not.toContain(pii);
   });
 
   return it("enforces admin directory policy and serves bounded owner dashboard/search filters", async () => {

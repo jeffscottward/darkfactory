@@ -78,7 +78,6 @@ const body = async (response: Response) =>
 
 describe("confirmed Better Auth session revocation", () => {
   it("rejects GET and cross-origin requests before authentication or mutation", async () => {
-    const results = [];
     for (const candidate of [
       request(TRUSTED_ORIGIN, "GET"),
       request("https://attacker.example"),
@@ -97,9 +96,8 @@ describe("confirmed Better Auth session revocation", () => {
 
       expect(response.status).toBe(candidate.method === "GET" ? 405 : 403);
       expect(currentSession).not.toHaveBeenCalled();
-      results.push(expect(revokeCurrentSession).not.toHaveBeenCalled());
+      expect(revokeCurrentSession).not.toHaveBeenCalled();
     }
-    return results;
   });
 
   it("returns the explicit cross-origin rejection contract", async () => {
@@ -599,7 +597,6 @@ describe("confirmed Better Auth session revocation", () => {
       }),
     ];
 
-    const results1 = [];
     for (const expiryResponse of expiryResponses) {
       const handler = createConfirmedSignOutHandler(
         dependencies({
@@ -608,19 +605,15 @@ describe("confirmed Better Auth session revocation", () => {
       );
       const response = await handler(request());
       expect(response.status).toBe(503);
-      results1.push(
-        expect(await body(response)).toEqual({
-          success: false,
-          code: CONFIRMED_SIGN_OUT_ERROR_CODE,
-          message: "Sign out could not be confirmed.",
-        })
-      );
+      expect(await body(response)).toEqual({
+        success: false,
+        code: CONFIRMED_SIGN_OUT_ERROR_CODE,
+        message: "Sign out could not be confirmed.",
+      });
     }
-    return results1;
   });
 
   it("reads suspended and deactivated Better Auth session identities without the active-user guard", async () => {
-    const results2 = [];
     for (const status of ["suspended", "deactivated"]) {
       const getSession = vi.fn().mockResolvedValue({
         session: { id: `session-${status}` },
@@ -630,16 +623,13 @@ describe("confirmed Better Auth session revocation", () => {
         api: { getSession },
       } as never);
 
-      results2.push(
-        await expect(
-          readIdentity(new Headers({ cookie: ACTIVE_COOKIE }))
-        ).resolves.toEqual({
-          sessionId: `session-${status}`,
-          userId: `user-${status}`,
-        })
-      );
+      await expect(
+        readIdentity(new Headers({ cookie: ACTIVE_COOKIE }))
+      ).resolves.toEqual({
+        sessionId: `session-${status}`,
+        userId: `user-${status}`,
+      });
     }
-    return results2;
   });
 
   it.each([
@@ -687,25 +677,21 @@ describe("confirmed Better Auth session revocation", () => {
     await expect(
       hasValidBetterAuthSessionCookie(new Headers(), SIGNING_SECRET)
     ).resolves.toBe(false);
-    const results3 = [];
     for (const malformedValue of [
       "no-separator",
       ".signature",
       "value.",
       "value.%",
     ]) {
-      results3.push(
-        await expect(
-          hasValidBetterAuthSessionCookie(
-            new Headers({
-              cookie: `better-auth.session_token=${encodeURIComponent(malformedValue)}`,
-            }),
-            SIGNING_SECRET
-          )
-        ).resolves.toBe(false)
-      );
+      await expect(
+        hasValidBetterAuthSessionCookie(
+          new Headers({
+            cookie: `better-auth.session_token=${encodeURIComponent(malformedValue)}`,
+          }),
+          SIGNING_SECRET
+        )
+      ).resolves.toBe(false);
     }
-    return results3;
   });
   it.each([
     [[{ id: "session-current" }], [], "revoked"],

@@ -61,7 +61,6 @@ export const SecurityPanel = ({
       closeRevokeConfirmation();
     }
     wasRevoking.current = isRevoking;
-    return undefined;
   }, [isConfirmingRevoke, isRevoking]);
   if (state.type === "loading") {
     return (

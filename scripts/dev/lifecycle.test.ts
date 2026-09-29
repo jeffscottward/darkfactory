@@ -452,7 +452,6 @@ describe("PM2 and portless lifecycle", () => {
   });
 
   it("purges stale online and stopped process environments on stop", async () => {
-    const results = [];
     for (const status of ["online", "stopped"] as const) {
       const stalePm2 = JSON.stringify([
         pm2Process(status, { BETTER_AUTH_SECRET: "must-not-persist" }),
@@ -471,17 +470,14 @@ describe("PM2 and portless lifecycle", () => {
       });
       expect(fixture.calls).toContainEqual(["pm2", ["delete", "7"]]);
       expect(fixture.calls).toContainEqual(["pm2", ["save"]]);
-      results.push(
-        expect(
-          fixture.calls.filter(([command, args]) => {
-            return (
-              command === "pm2" && (args[0] === "stop" || args[0] === "start")
-            );
-          })
-        ).toHaveLength(0)
-      );
+      expect(
+        fixture.calls.filter(([command, args]) => {
+          return (
+            command === "pm2" && (args[0] === "stop" || args[0] === "start")
+          );
+        })
+      ).toHaveLength(0);
     }
-    return results;
   });
 
   it("reports an unhealthy online route without starting a duplicate", async () => {
@@ -965,15 +961,11 @@ describe("PM2 and portless lifecycle", () => {
       pm2Process("online", { args: [ROUTE_NAME, "other", "dev"] }),
     ];
 
-    const results1 = [];
     for (const process of invalidProcesses) {
-      results1.push(
-        expect(() =>
-          parsePm2ProcessList(JSON.stringify([process]), TEST_CWD)
-        ).toThrow(/unexpected command/i)
-      );
+      expect(() =>
+        parsePm2ProcessList(JSON.stringify([process]), TEST_CWD)
+      ).toThrow(/unexpected command/i);
     }
-    return results1;
   });
 
   it("uses the stable status fallback when a non-Error escapes PM2 parsing", async () => {
@@ -1002,7 +994,6 @@ describe("PM2 and portless lifecycle", () => {
   });
 
   it("does not mutate processes in errored or unknown ownership states", async () => {
-    const results2 = [];
     for (const status of ["errored", "launching"] as const) {
       const fixture = adapter((command, arguments_) => {
         return command === "pm2" && arguments_[0] === "jlist"
@@ -1031,9 +1022,8 @@ describe("PM2 and portless lifecycle", () => {
           );
         })
       ).toBe(false);
-      results2.push(expect(fixture.interactiveCalls).toHaveLength(0));
+      expect(fixture.interactiveCalls).toHaveLength(0);
     }
-    return results2;
   });
 
   it("reports a stale stop deletion failure without saving or stopping", async () => {
