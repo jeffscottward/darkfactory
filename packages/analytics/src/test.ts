@@ -13,7 +13,7 @@ import {
 export type RecordingAnalyticsPort = AnalyticsPort &
   Readonly<{
     captures: readonly AnalyticsCapture[];
-    clear(): void;
+    clear: () => void;
   }>;
 
 const defaultProperties: AnalyticsProperties = Object.freeze({

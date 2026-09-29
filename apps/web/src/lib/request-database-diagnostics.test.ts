@@ -10,44 +10,47 @@ describe("createRequestDatabaseDiagnosticSink", () => {
       "REQUEST_DATABASE_CLIENT_CLOSE_ERROR",
       "request-database.client-close-failed",
     ],
-  ] as const)("schedules one minimal secret-safe event for %s", async (code, name) => {
-    const events: SemanticEvent[] = [];
-    const sink = {
-      emit: vi.fn((event: SemanticEvent) => {
-        events.push(event);
-      }),
-    };
-    const scheduled: Promise<unknown>[] = [];
-    const scheduleBackgroundTask = vi.fn((task: Promise<unknown>) => {
-      return scheduled.push(task);
-    });
-    const diagnosticSink = createRequestDatabaseDiagnosticSink({
-      sink,
-      scheduleBackgroundTask,
-      requestId: "request-safe",
-    });
+  ] as const)(
+    "schedules one minimal secret-safe event for %s",
+    async (code, name) => {
+      const events: SemanticEvent[] = [];
+      const sink = {
+        emit: vi.fn((event: SemanticEvent) => {
+          events.push(event);
+        }),
+      };
+      const scheduled: Promise<unknown>[] = [];
+      const scheduleBackgroundTask = vi.fn((task: Promise<unknown>) => {
+        return scheduled.push(task);
+      });
+      const diagnosticSink = createRequestDatabaseDiagnosticSink({
+        sink,
+        scheduleBackgroundTask,
+        requestId: "request-safe",
+      });
 
-    diagnosticSink(Object.freeze({ code }));
-    await Promise.all(scheduled);
+      diagnosticSink(Object.freeze({ code }));
+      await Promise.all(scheduled);
 
-    expect(scheduleBackgroundTask).toHaveBeenCalledOnce();
-    expect(sink.emit).toHaveBeenCalledOnce();
-    expect(events).toEqual([
-      {
-        eventId: expect.any(String),
-        name,
-        occurredAt: expect.any(String),
-        correlation: { requestId: "request-safe" },
-        outcome: "failure",
-        source: "worker",
-        errorCategory: code,
-      },
-    ]);
-    expect(Number.isNaN(Date.parse(events[0]!.occurredAt))).toBe(false);
-    expect(JSON.stringify(events)).not.toContain("cookie");
-    expect(JSON.stringify(events)).not.toContain("postgres");
-    return expect(JSON.stringify(events)).not.toContain("token");
-  });
+      expect(scheduleBackgroundTask).toHaveBeenCalledOnce();
+      expect(sink.emit).toHaveBeenCalledOnce();
+      expect(events).toEqual([
+        {
+          eventId: expect.any(String),
+          name,
+          occurredAt: expect.any(String),
+          correlation: { requestId: "request-safe" },
+          outcome: "failure",
+          source: "worker",
+          errorCategory: code,
+        },
+      ]);
+      expect(Number.isNaN(Date.parse(events[0]!.occurredAt))).toBe(false);
+      expect(JSON.stringify(events)).not.toContain("cookie");
+      expect(JSON.stringify(events)).not.toContain("postgres");
+      return expect(JSON.stringify(events)).not.toContain("token");
+    }
+  );
 
   it("rejects forged diagnostic codes without scheduling or emitting", () => {
     const emit = vi.fn();

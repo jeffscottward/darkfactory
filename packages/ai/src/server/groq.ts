@@ -117,7 +117,7 @@ const errorMetadata = (
       ...(name === undefined ? {} : { name }),
       ...(statusCode === undefined ? {} : { statusCode }),
     };
-  } catch (_error) {
+  } catch {
     return {};
   }
 };

@@ -235,25 +235,28 @@ describe("Worker startup bind retries", () => {
       null,
       bindError(41_001),
     ],
-  ] as const)("does not retry %s", async (_label, error, exitCode, signalCode, output) => {
-    const child = exitedProcess(exitCode, signalCode);
-    const allocatePort = vi.fn(async () => 41_001);
-    const stop = vi.fn(async () => undefined);
-    await expect(
-      startWorkerWithRetry({
-        allocatePort,
-        start: () => child,
-        waitForReady: async () => {
-          throw error;
-        },
-        stop,
-        output: () => output,
-        deadline: Date.now() + 150_000,
-      })
-    ).rejects.toBe(error);
-    expect(allocatePort).toHaveBeenCalledTimes(1);
-    return expect(stop.mock.calls).toEqual([[child]]);
-  });
+  ] as const)(
+    "does not retry %s",
+    async (_label, error, exitCode, signalCode, output) => {
+      const child = exitedProcess(exitCode, signalCode);
+      const allocatePort = vi.fn(async () => 41_001);
+      const stop = vi.fn(async () => undefined);
+      await expect(
+        startWorkerWithRetry({
+          allocatePort,
+          start: () => child,
+          waitForReady: async () => {
+            throw error;
+          },
+          stop,
+          output: () => output,
+          deadline: Date.now() + 150_000,
+        })
+      ).rejects.toBe(error);
+      expect(allocatePort).toHaveBeenCalledTimes(1);
+      return expect(stop.mock.calls).toEqual([[child]]);
+    }
+  );
 
   it("propagates cleanup failure without allocating another child", async () => {
     const error = new Error("owned descendants remain");

@@ -68,24 +68,23 @@ describe("production web database deployment check", () => {
       readConfig: () =>
         `{ "vars": { "DATABASE_PROVIDER": "hyperdrive" }, ${hyperdriveBinding()} }`,
     },
-  ])("accepts the $provider production profile with its profile message", ({
-    provider,
-    databaseUrl,
-    readConfig,
-  }) => {
-    const report = checkProductionWebDatabaseEndpoint(
-      { DATABASE_PROVIDER: provider, DATABASE_URL: databaseUrl },
-      readConfig
-    );
+  ])(
+    "accepts the $provider production profile with its profile message",
+    ({ provider, databaseUrl, readConfig }) => {
+      const report = checkProductionWebDatabaseEndpoint(
+        { DATABASE_PROVIDER: provider, DATABASE_URL: databaseUrl },
+        readConfig
+      );
 
-    return expect(report).toEqual({
-      ok: true,
-      message:
-        databaseConfig.DATABASE_PROVIDER_PROFILES[
-          provider as databaseConfig.DatabaseProvider
-        ].productionRequirement,
-    });
-  });
+      return expect(report).toEqual({
+        ok: true,
+        message:
+          databaseConfig.DATABASE_PROVIDER_PROFILES[
+            provider as databaseConfig.DatabaseProvider
+          ].productionRequirement,
+      });
+    }
+  );
 
   it.each([
     [
@@ -103,15 +102,18 @@ describe("production web database deployment check", () => {
       "postgresql://private-user:private-password@[invalid",
       /PostgreSQL URL/,
     ],
-  ])("rejects $0 endpoints with credential-free diagnostics", (_label, databaseUrl, expectedMessage) => {
-    const report = checkProductionWebDatabaseEndpoint(
-      productionEnvironment(databaseUrl)
-    );
+  ])(
+    "rejects $0 endpoints with credential-free diagnostics",
+    (_label, databaseUrl, expectedMessage) => {
+      const report = checkProductionWebDatabaseEndpoint(
+        productionEnvironment(databaseUrl)
+      );
 
-    expect(report).toMatchObject({ ok: false, message: expectedMessage });
-    expect(report.message).not.toContain(databaseUrl);
-    return expect(report.message).not.toContain("private-password");
-  });
+      expect(report).toMatchObject({ ok: false, message: expectedMessage });
+      expect(report.message).not.toContain(databaseUrl);
+      return expect(report.message).not.toContain("private-password");
+    }
+  );
 
   it.each([
     {

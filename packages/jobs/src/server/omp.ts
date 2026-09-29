@@ -3390,7 +3390,7 @@ const cleanupDockerVerifierContainer = async (
       if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
     }
     const cleanupBudget = dockerCleanupBudgetFor(cleanupDeadlineAtMs);
-    const cleanup = await runOwnedProcess({
+    const removal = await runOwnedProcess({
       executable: input.dockerExecutable,
       arguments: ["container", "rm", "--force", "--volumes", containerName],
       cwd: input.sessionDirectory,
@@ -3402,7 +3402,7 @@ const cleanupDockerVerifierContainer = async (
       now: input.now,
       startError: "OMP Docker verifier cleanup failed to start",
     });
-    if (cleanup.status !== "succeeded" || cleanup.exitCode !== 0) {
+    if (removal.status !== "succeeded" || removal.exitCode !== 0) {
       const probeBudget = dockerCleanupBudgetFor(cleanupDeadlineAtMs);
       const probe = await runOwnedProcess({
         executable: input.dockerExecutable,
@@ -3932,14 +3932,7 @@ export const createOmpCliAdapter = (
             trustedManifest: trustedVerifierManifest,
             repositoryConfigOverrides: worktree.repositoryConfigOverrides,
           });
-          if (options.verificationRunner !== undefined) {
-            verifierResult = await options.verificationRunner({
-              cwd: verifierWorkspace.cwd,
-              ...(request.signal === undefined
-                ? {}
-                : { signal: request.signal }),
-            });
-          } else {
+          if (options.verificationRunner === undefined) {
             const dockerExecutable = await resolveDockerExecutable();
             verifierResult = await runDockerVerifier({
               dockerExecutable,
@@ -3957,6 +3950,13 @@ export const createOmpCliAdapter = (
               maximumOutputBytes: verifierMaxResultBytes,
               redactions,
               now,
+            });
+          } else {
+            verifierResult = await options.verificationRunner({
+              cwd: verifierWorkspace.cwd,
+              ...(request.signal === undefined
+                ? {}
+                : { signal: request.signal }),
             });
           }
           const sanitizedVerifierOutput = sanitizeOutput(

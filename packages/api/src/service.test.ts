@@ -328,23 +328,23 @@ describe("DF-063 feature service policy", () => {
       failure: new DatabasePersistenceError("list feature items"),
       code: "STORAGE_ERROR",
     },
-  ] as const)("maps repository failures to the stable $code service contract", async ({
-    failure,
-    code,
-  }) => {
-    const service = createFeatureItemService(
-      repository({
-        listByOwner: vi.fn(async () => {
-          throw failure;
-        }),
-      })
-    );
+  ] as const)(
+    "maps repository failures to the stable $code service contract",
+    async ({ failure, code }) => {
+      const service = createFeatureItemService(
+        repository({
+          listByOwner: vi.fn(async () => {
+            throw failure;
+          }),
+        })
+      );
 
-    return await expect(service.list(principal(), {})).rejects.toMatchObject({
-      name: "FeatureServiceError",
-      code,
-    });
-  });
+      return await expect(service.list(principal(), {})).rejects.toMatchObject({
+        name: "FeatureServiceError",
+        code,
+      });
+    }
+  );
 
   it("sanitizes persistence details but preserves unexpected adapter failures", async () => {
     const persistenceService = createFeatureItemService(

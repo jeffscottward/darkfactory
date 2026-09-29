@@ -492,7 +492,7 @@ const toBase64Url = (value: string): string => {
   return btoa(binary)
     .replaceAll("+", "-")
     .replaceAll("/", "_")
-    .replace(/=+$/u, "");
+    .replace(/[=]+$/u, "");
 };
 
 const fromBase64Url = (value: string): string => {
@@ -1759,8 +1759,7 @@ export const createWorkflowRepository = (
           .where(eq(workflowSnapshots.runId, decision.runId))
           .limit(1);
         if (
-          !approval ||
-          approval.status !== "pending" ||
+          approval?.status !== "pending" ||
           !snapshot ||
           approval.snapshotSequence !== run.headSequence ||
           approval.journalHeadHash !== run.headHash ||

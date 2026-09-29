@@ -70,14 +70,17 @@ describe("validateRequestDatabaseEndpoint", () => {
     ["postgres", verifiedPostgresUrl("[2001:db8::1]")],
     ["postgres", verifiedPostgresUrl("127.example.com")],
     ["hyperdrive", undefined],
-  ] as const)("accepts a %s production profile: %s", (provider, connectionString) =>
-    expect(
-      validateRequestDatabaseEndpoint({
-        appEnvironment: "production",
-        provider,
-        connectionString,
-      })
-    ).toBeUndefined());
+  ] as const)(
+    "accepts a %s production profile: %s",
+    (provider, connectionString) =>
+      expect(
+        validateRequestDatabaseEndpoint({
+          appEnvironment: "production",
+          provider,
+          connectionString,
+        })
+      ).toBeUndefined()
+  );
 
   it.each([
     [
@@ -136,24 +139,27 @@ describe("validateRequestDatabaseEndpoint", () => {
       PRODUCTION_PLANETSCALE_POOLED_URL,
       /must be absent in production when DATABASE_PROVIDER=hyperdrive/,
     ],
-  ] as const)("rejects production endpoint with $0 without reflecting credentials", (_label, provider, connectionString, expectedMessage) => {
-    const validate = () =>
-      validateRequestDatabaseEndpoint({
-        appEnvironment: "production",
-        provider,
-        connectionString,
-      });
+  ] as const)(
+    "rejects production endpoint with $0 without reflecting credentials",
+    (_label, provider, connectionString, expectedMessage) => {
+      const validate = () =>
+        validateRequestDatabaseEndpoint({
+          appEnvironment: "production",
+          provider,
+          connectionString,
+        });
 
-    expect(validate).toThrow(RequestDatabaseEndpointError);
-    expect(validate).toThrow(expectedMessage);
-    try {
-      return validate();
-    } catch (error) {
-      if (connectionString)
-        expect(String(error)).not.toContain(connectionString);
-      return expect(String(error)).not.toContain("private-password");
+      expect(validate).toThrow(RequestDatabaseEndpointError);
+      expect(validate).toThrow(expectedMessage);
+      try {
+        return validate();
+      } catch (error) {
+        if (connectionString)
+          expect(String(error)).not.toContain(connectionString);
+        return expect(String(error)).not.toContain("private-password");
+      }
     }
-  });
+  );
 
   it.each([
     "localhost",
@@ -209,7 +215,8 @@ describe("validateRequestDatabaseEndpoint", () => {
         provider,
         connectionString: DATABASE_URL,
       })
-    ).toBeUndefined());
+    ).toBeUndefined()
+  );
 
   return it("fails closed on an unknown provider in every environment", () => {
     for (const appEnvironment of ["development", "production"] as const) {
@@ -303,15 +310,15 @@ describe("composeDatabaseProfile", () => {
       "DATABASE_PROVIDER=hyperdrive requires the HYPERDRIVE request binding"
     ));
 
-  it.each([
-    "postgres",
-    "planetscale",
-  ] as const)("rejects a Hyperdrive binding under the %s provider", (provider) =>
-    expect(() =>
-      composeDatabaseProfile(serverEnvFor(provider), HYPERDRIVE_BINDING)
-    ).toThrow(
-      `a HYPERDRIVE request binding requires DATABASE_PROVIDER=hyperdrive, not ${provider}`
-    ));
+  it.each(["postgres", "planetscale"] as const)(
+    "rejects a Hyperdrive binding under the %s provider",
+    (provider) =>
+      expect(() =>
+        composeDatabaseProfile(serverEnvFor(provider), HYPERDRIVE_BINDING)
+      ).toThrow(
+        `a HYPERDRIVE request binding requires DATABASE_PROVIDER=hyperdrive, not ${provider}`
+      )
+  );
 
   it("rejects request bindings without an explicit trusted platform", () => {
     const compose = () =>

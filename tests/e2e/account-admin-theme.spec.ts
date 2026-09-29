@@ -168,9 +168,7 @@ const installThemeProbe = async (context: BrowserContext): Promise<void> => {
         };
       });
     };
-    if (document.documentElement !== null) {
-      startProbe();
-    } else {
+    if (document.documentElement === null) {
       const rootObserver = new MutationObserver(() => {
         if (document.documentElement === null) {
           return;
@@ -179,6 +177,8 @@ const installThemeProbe = async (context: BrowserContext): Promise<void> => {
         startProbe();
       });
       rootObserver.observe(document, { childList: true });
+    } else {
+      startProbe();
     }
   });
 };

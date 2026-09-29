@@ -125,18 +125,21 @@ describe("retryOnCapacity", () => {
       "another status",
       { defined: false, code: "SERVICE_UNAVAILABLE", status: 500 },
     ],
-  ])("never retries %s even after a capacity response", async (_name, error) => {
-    const transport = vi.fn(async () => capacityResponse());
+  ])(
+    "never retries %s even after a capacity response",
+    async (_name, error) => {
+      const transport = vi.fn(async () => capacityResponse());
 
-    await expect(
-      retryOnCapacity(
-        transport,
-        new AbortController().signal,
-        decodeThrough(() => error)
-      )
-    ).rejects.toBe(error);
-    expect(transport).toHaveBeenCalledOnce();
-  });
+      await expect(
+        retryOnCapacity(
+          transport,
+          new AbortController().signal,
+          decodeThrough(() => error)
+        )
+      ).rejects.toBe(error);
+      expect(transport).toHaveBeenCalledOnce();
+    }
+  );
 
   it("never retries a matching error whose raw response was not capacity", async () => {
     const transport = vi.fn(async () => new Response(null, { status: 503 }));

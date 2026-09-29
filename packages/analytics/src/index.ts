@@ -48,7 +48,7 @@ export type AnalyticsResult =
   | FailedAnalyticsResult;
 
 export interface AnalyticsPort {
-  capture(input: AnalyticsCapture): Promise<AnalyticsResult>;
+  capture: (input: AnalyticsCapture) => Promise<AnalyticsResult>;
 }
 
 export const createDisabledAnalyticsPort = (): AnalyticsPort => ({

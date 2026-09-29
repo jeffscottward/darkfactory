@@ -234,21 +234,22 @@ describe("AnalyticsPort contract", () => {
     return expect(analytics.captures).toEqual([]);
   });
 
-  it.each(
-    malformedCaptureCases
-  )("rejects malformed %s captures across local ports", async (_name, buildCapture) => {
-    const recording = createRecordingAnalyticsPort();
-    const ports = [recording, createDisabledAnalyticsPort()];
+  it.each(malformedCaptureCases)(
+    "rejects malformed %s captures across local ports",
+    async (_name, buildCapture) => {
+      const recording = createRecordingAnalyticsPort();
+      const ports = [recording, createDisabledAnalyticsPort()];
 
-    for (const analytics of ports) {
-      await expect(analytics.capture(buildCapture())).resolves.toEqual({
-        status: "failed",
-        category: "invalid-capture",
-        retryable: false,
-      });
+      for (const analytics of ports) {
+        await expect(analytics.capture(buildCapture())).resolves.toEqual({
+          status: "failed",
+          category: "invalid-capture",
+          retryable: false,
+        });
+      }
+      return expect(recording.captures).toEqual([]);
     }
-    return expect(recording.captures).toEqual([]);
-  });
+  );
 
   it.each([
     { distinctId: "member@domain.test" },
@@ -257,17 +258,20 @@ describe("AnalyticsPort contract", () => {
     { properties: { action: "contains private text" } },
     { properties: { outcome: "maybe" } },
     { properties: { requestId: "request with spaces" } },
-  ] as Partial<AnalyticsCapture>[])("rejects unsafe capture values %#", async (overrides) => {
-    const analytics = createRecordingAnalyticsPort();
-    const result = await analytics.capture(createAnalyticsCapture(overrides));
+  ] as Partial<AnalyticsCapture>[])(
+    "rejects unsafe capture values %#",
+    async (overrides) => {
+      const analytics = createRecordingAnalyticsPort();
+      const result = await analytics.capture(createAnalyticsCapture(overrides));
 
-    expect(result).toEqual({
-      status: "failed",
-      category: "invalid-capture",
-      retryable: false,
-    });
-    return expect(analytics.captures).toEqual([]);
-  });
+      expect(result).toEqual({
+        status: "failed",
+        category: "invalid-capture",
+        retryable: false,
+      });
+      return expect(analytics.captures).toEqual([]);
+    }
+  );
 
   it("returns an explicit disabled result without retaining input", async () => {
     const analytics = createDisabledAnalyticsPort();
@@ -285,15 +289,12 @@ describe("AnalyticsPort contract", () => {
       await analytics.capture(createAnalyticsCapture({ consent: "unknown" }))
     ).toEqual({ status: "skipped", reason: "consent-unknown" });
   });
-  it.each([
-    null,
-    "capture",
-    1,
-    true,
-    [],
-  ])("rejects non-record top-level captures %#", (input) => {
-    return expect(snapshotAnalyticsCapture(input)).toBeUndefined();
-  });
+  it.each([null, "capture", 1, true, []])(
+    "rejects non-record top-level captures %#",
+    (input) => {
+      return expect(snapshotAnalyticsCapture(input)).toBeUndefined();
+    }
+  );
 
   it("accepts only canonical ISO timestamps", () => {
     const canonical = "2026-07-23T12:34:56.000Z";
@@ -375,7 +376,7 @@ describe("AnalyticsPort contract", () => {
   return it("rejects disappearing and non-enumerable data fields without reading them", () => {
     const disappearing = new Proxy(plainCapture(), {
       getOwnPropertyDescriptor: (target, key) => {
-        if (key === "event") return undefined;
+        if (key === "event") return;
         return Reflect.getOwnPropertyDescriptor(target, key);
       },
     });

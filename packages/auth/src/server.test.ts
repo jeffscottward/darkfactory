@@ -244,18 +244,21 @@ describe("safe authorization sessions", () => {
   it.each([
     ["suspended", AUTHORIZATION_ERROR_CODES.ACCOUNT_SUSPENDED],
     ["deactivated", AUTHORIZATION_ERROR_CODES.ACCOUNT_DEACTIVATED],
-  ] as const)("rejects a %s session before returning private identity data", async (status, code) =>
-    await expect(
-      requireSession(
-        authWithSession(sessionValue("member", status)),
-        new Headers()
-      )
-    ).rejects.toMatchObject({
-      name: "AuthAuthorizationError",
-      message: code,
-      code,
-      status: 403,
-    }));
+  ] as const)(
+    "rejects a %s session before returning private identity data",
+    async (status, code) =>
+      await expect(
+        requireSession(
+          authWithSession(sessionValue("member", status)),
+          new Headers()
+        )
+      ).rejects.toMatchObject({
+        name: "AuthAuthorizationError",
+        message: code,
+        code,
+        status: 403,
+      })
+  );
 
   it.each([
     ["role", sessionValue("owner", "active"), "Auth user has an invalid role"],
@@ -264,10 +267,13 @@ describe("safe authorization sessions", () => {
       sessionValue("member", "invited"),
       "Auth user has an invalid status",
     ],
-  ] as const)("rejects an invalid session %s", async (_field, value, message) =>
-    await expect(
-      requireSession(authWithSession(value), new Headers())
-    ).rejects.toThrowError(message));
+  ] as const)(
+    "rejects an invalid session %s",
+    async (_field, value, message) =>
+      await expect(
+        requireSession(authWithSession(value), new Headers())
+      ).rejects.toThrowError(message)
+  );
 
   it("returns only the normalized safe session contract", async () => {
     const result = await requireSession(
@@ -420,39 +426,45 @@ describe("createAuth hooks", () => {
     "/sign-in/email",
     "/request-password-reset",
     "/send-verification-email",
-  ])("normalizes an email for %s without mutating the caller body", async (path) => {
-    const { database } = createResourceDatabase();
-    const beforeHook = createConfiguredAuth(database).options.hooks.before;
-    const body = { email: "  Member@Domain.TEST  ", password: "unchanged" };
+  ])(
+    "normalizes an email for %s without mutating the caller body",
+    async (path) => {
+      const { database } = createResourceDatabase();
+      const beforeHook = createConfiguredAuth(database).options.hooks.before;
+      const body = { email: "  Member@Domain.TEST  ", password: "unchanged" };
 
-    const result = await beforeHook({ path, body, context: {} });
+      const result = await beforeHook({ path, body, context: {} });
 
-    expect(result).toEqual({
-      context: {
-        path,
-        body: { email: "member@domain.test", password: "unchanged" },
-        context: {},
-      },
-    });
-    return expect(body).toEqual({
-      email: "  Member@Domain.TEST  ",
-      password: "unchanged",
-    });
-  });
+      expect(result).toEqual({
+        context: {
+          path,
+          body: { email: "member@domain.test", password: "unchanged" },
+          context: {},
+        },
+      });
+      return expect(body).toEqual({
+        email: "  Member@Domain.TEST  ",
+        password: "unchanged",
+      });
+    }
+  );
 
   it.each([
     ["unrelated path", "/change-password", { email: " Member@Domain.TEST " }],
     ["missing email", "/sign-up/email", { name: "Member" }],
     ["non-string email", "/request-password-reset", { email: null }],
     ["already normalized", "/sign-in/email", { email: "member@domain.test" }],
-  ] as const)("leaves %s request bodies unchanged", async (_case, path, body) => {
-    const { database } = createResourceDatabase();
-    const beforeHook = createConfiguredAuth(database).options.hooks.before;
+  ] as const)(
+    "leaves %s request bodies unchanged",
+    async (_case, path, body) => {
+      const { database } = createResourceDatabase();
+      const beforeHook = createConfiguredAuth(database).options.hooks.before;
 
-    return await expect(
-      beforeHook({ path, body, context: {} })
-    ).resolves.toBeUndefined();
-  });
+      return await expect(
+        beforeHook({ path, body, context: {} })
+      ).resolves.toBeUndefined();
+    }
+  );
 
   it("normalizes email after admitting an active current session", async () => {
     const { database } = createResourceDatabase();
@@ -476,80 +488,90 @@ describe("createAuth hooks", () => {
   it.each([
     ["suspended", AUTHORIZATION_ERROR_CODES.ACCOUNT_SUSPENDED],
     ["deactivated", AUTHORIZATION_ERROR_CODES.ACCOUNT_DEACTIVATED],
-  ] as const)("blocks a %s current session inside Better Auth", async (status, code) => {
-    const { database } = createResourceDatabase();
-    const beforeHook = createConfiguredAuth(database).options.hooks.before;
+  ] as const)(
+    "blocks a %s current session inside Better Auth",
+    async (status, code) => {
+      const { database } = createResourceDatabase();
+      const beforeHook = createConfiguredAuth(database).options.hooks.before;
 
-    return await expect(
-      beforeHook({
-        path: "/change-password",
-        context: { session: { user: { status } } },
-      })
-    ).rejects.toMatchObject({
-      body: { code, message: "Account is unavailable" },
-    });
-  });
+      return await expect(
+        beforeHook({
+          path: "/change-password",
+          context: { session: { user: { status } } },
+        })
+      ).rejects.toMatchObject({
+        body: { code, message: "Account is unavailable" },
+      });
+    }
+  );
 
   it.each([
     ["missing status", undefined],
     ["unknown status", "pending"],
     ["non-string status", null],
-  ] as const)("fails closed for a current session with %s inside Better Auth", async (_case, status) => {
-    const { database } = createResourceDatabase();
-    const beforeHook = createConfiguredAuth(database).options.hooks.before;
+  ] as const)(
+    "fails closed for a current session with %s inside Better Auth",
+    async (_case, status) => {
+      const { database } = createResourceDatabase();
+      const beforeHook = createConfiguredAuth(database).options.hooks.before;
 
-    return await expect(
-      beforeHook({
-        path: "/change-password",
-        context: { session: { user: { status } } },
-      })
-    ).rejects.toMatchObject({
-      body: {
-        code: AUTHORIZATION_ERROR_CODES.FORBIDDEN,
-        message: "Account is unavailable",
-      },
-    });
-  });
+      return await expect(
+        beforeHook({
+          path: "/change-password",
+          context: { session: { user: { status } } },
+        })
+      ).rejects.toMatchObject({
+        body: {
+          code: AUTHORIZATION_ERROR_CODES.FORBIDDEN,
+          message: "Account is unavailable",
+        },
+      });
+    }
+  );
 
   it.each([
     ["undefined", undefined],
     ["null", null],
-  ] as const)("admits a canonically absent %s current session", async (_case, session) => {
-    const { database } = createResourceDatabase();
-    const beforeHook = createConfiguredAuth(database).options.hooks.before;
+  ] as const)(
+    "admits a canonically absent %s current session",
+    async (_case, session) => {
+      const { database } = createResourceDatabase();
+      const beforeHook = createConfiguredAuth(database).options.hooks.before;
 
-    return await expect(
-      beforeHook({
-        path: "/change-password",
-        context: { session },
-      })
-    ).resolves.toBeUndefined();
-  });
-
-  it.each(
-    malformedPresentSessionCases
-  )("fails closed for a malformed %s current session without leaking private failures", async (_case, createCase) => {
-    const { database } = createResourceDatabase();
-    const beforeHook = createConfiguredAuth(database).options.hooks.before;
-    const { session, traps } = createCase();
-
-    await expect(
-      beforeHook({
-        path: "/change-password",
-        context: { session },
-      })
-    ).rejects.toMatchObject({
-      body: {
-        code: AUTHORIZATION_ERROR_CODES.FORBIDDEN,
-        message: "Account is unavailable",
-      },
-    });
-    if (_case.includes("proxy")) {
-      expect(traps[0]).toHaveBeenCalledOnce();
-    } else {
-      for (const trap of traps) expect(trap).not.toHaveBeenCalled();
+      return await expect(
+        beforeHook({
+          path: "/change-password",
+          context: { session },
+        })
+      ).resolves.toBeUndefined();
     }
-  });
+  );
+
+  it.each(malformedPresentSessionCases)(
+    "fails closed for a malformed %s current session without leaking private failures",
+    async (_case, createCase) => {
+      const { database } = createResourceDatabase();
+      const beforeHook = createConfiguredAuth(database).options.hooks.before;
+      const { session, traps } = createCase();
+
+      await expect(
+        beforeHook({
+          path: "/change-password",
+          context: { session },
+        })
+      ).rejects.toMatchObject({
+        body: {
+          code: AUTHORIZATION_ERROR_CODES.FORBIDDEN,
+          message: "Account is unavailable",
+        },
+      });
+      if (_case.includes("proxy")) {
+        expect(traps[0]).toHaveBeenCalledOnce();
+      } else {
+        for (const trap of traps) expect(trap).not.toHaveBeenCalled();
+      }
+    }
+  );
 
   it("allows an inactive current session to sign out", async () => {
     const { database } = createResourceDatabase();
@@ -628,30 +650,33 @@ describe("createAuth hooks", () => {
     ["deactivated", AUTHORIZATION_ERROR_CODES.ACCOUNT_DEACTIVATED],
     ["unknown", AUTHORIZATION_ERROR_CODES.FORBIDDEN],
     [null, AUTHORIZATION_ERROR_CODES.FORBIDDEN],
-  ] as const)("applies the session-create status gate for %s", async (status, errorCode) => {
-    const rows = status === undefined ? [] : [{ status }];
-    const database = {
-      select: vi.fn(() => ({
-        from: vi.fn(() => ({
-          where: vi.fn(() => ({
-            limit: vi.fn().mockResolvedValue(rows),
+  ] as const)(
+    "applies the session-create status gate for %s",
+    async (status, errorCode) => {
+      const rows = status === undefined ? [] : [{ status }];
+      const database = {
+        select: vi.fn(() => ({
+          from: vi.fn(() => ({
+            where: vi.fn(() => ({
+              limit: vi.fn().mockResolvedValue(rows),
+            })),
           })),
         })),
-      })),
-    };
-    const beforeSessionCreate =
-      createConfiguredAuth(database).options.databaseHooks.session.create
-        .before;
-    const result = beforeSessionCreate({ userId: "user-status" });
+      };
+      const beforeSessionCreate =
+        createConfiguredAuth(database).options.databaseHooks.session.create
+          .before;
+      const result = beforeSessionCreate({ userId: "user-status" });
 
-    if (errorCode === undefined) {
-      await expect(result).resolves.toBeUndefined();
-    } else {
-      await expect(result).rejects.toMatchObject({
-        body: { code: errorCode, message: "Account is unavailable" },
-      });
+      if (errorCode === undefined) {
+        await expect(result).resolves.toBeUndefined();
+      } else {
+        await expect(result).rejects.toMatchObject({
+          body: { code: errorCode, message: "Account is unavailable" },
+        });
+      }
     }
-  });
+  );
 
   return it("fails closed when the session user lookup returns no row", async () => {
     const database = {
@@ -689,19 +714,22 @@ describe("fetch-native auth handler status gate", () => {
     "/api/auth/verify-email",
     "/api/auth/reset-password",
     "/api/auth/reset-password/opaque-reset-token",
-  ])("exempts %s so an inactive user can reach the recovery operation", async (path) => {
-    const { auth, getSession, handler } = handlerAuth(
-      new Response("delegated", { status: 422 }),
-      { user: { status: "suspended" } }
-    );
+  ])(
+    "exempts %s so an inactive user can reach the recovery operation",
+    async (path) => {
+      const { auth, getSession, handler } = handlerAuth(
+        new Response("delegated", { status: 422 }),
+        { user: { status: "suspended" } }
+      );
 
-    const response = await createAuthHandler(auth)(request(path));
+      const response = await createAuthHandler(auth)(request(path));
 
-    expect(response.status).toBe(422);
-    await expect(response.text()).resolves.toBe("delegated");
-    expect(getSession).not.toHaveBeenCalled();
-    return expect(handler).toHaveBeenCalledOnce();
-  });
+      expect(response.status).toBe(422);
+      await expect(response.text()).resolves.toBe("delegated");
+      expect(getSession).not.toHaveBeenCalled();
+      return expect(handler).toHaveBeenCalledOnce();
+    }
+  );
 
   const sessionHandlerResponse = (
     body: string | undefined,
@@ -735,27 +763,30 @@ describe("fetch-native auth handler status gate", () => {
     ],
     ["null", "null", 200, "Session Missing"],
     ["empty", "   ", 200, "Session Missing"],
-  ] as const)("uses one handler resolution for a %s GET session response", async (_case, body, status, statusText) => {
-    const { auth, getSession, handler } = handlerAuth(
-      sessionHandlerResponse(body, status, statusText),
-      { user: { status: "suspended" } }
-    );
+  ] as const)(
+    "uses one handler resolution for a %s GET session response",
+    async (_case, body, status, statusText) => {
+      const { auth, getSession, handler } = handlerAuth(
+        sessionHandlerResponse(body, status, statusText),
+        { user: { status: "suspended" } }
+      );
 
-    const response = await createAuthHandler(auth)(
-      request("/api/auth/get-session", "GET")
-    );
+      const response = await createAuthHandler(auth)(
+        request("/api/auth/get-session", "GET")
+      );
 
-    expect(response.status).toBe(status);
-    expect(response.statusText).toBe(statusText);
-    expect(response.headers.get("cache-control")).toBe("no-store");
-    expect(response.headers.get("set-cookie")).toBe(
-      "better-auth.session_data=refreshed; Path=/; HttpOnly"
-    );
-    expect(response.headers.get("x-auth-resolution")).toBe("handler");
-    await expect(response.text()).resolves.toBe(body);
-    expect(getSession).not.toHaveBeenCalled();
-    expect(handler).toHaveBeenCalledOnce();
-  });
+      expect(response.status).toBe(status);
+      expect(response.statusText).toBe(statusText);
+      expect(response.headers.get("cache-control")).toBe("no-store");
+      expect(response.headers.get("set-cookie")).toBe(
+        "better-auth.session_data=refreshed; Path=/; HttpOnly"
+      );
+      expect(response.headers.get("x-auth-resolution")).toBe("handler");
+      await expect(response.text()).resolves.toBe(body);
+      expect(getSession).not.toHaveBeenCalled();
+      expect(handler).toHaveBeenCalledOnce();
+    }
+  );
 
   it.each([
     [
@@ -776,24 +807,27 @@ describe("fetch-native auth handler status gate", () => {
       { user: { status: "pending" } },
       AUTHORIZATION_ERROR_CODES.FORBIDDEN,
     ],
-  ] as const)("fails closed for a %s present GET session without a second lookup", async (_case, session, code) => {
-    const { auth, getSession, handler } = handlerAuth(
-      sessionHandlerResponse(JSON.stringify(session)),
-      null
-    );
+  ] as const)(
+    "fails closed for a %s present GET session without a second lookup",
+    async (_case, session, code) => {
+      const { auth, getSession, handler } = handlerAuth(
+        sessionHandlerResponse(JSON.stringify(session)),
+        null
+      );
 
-    const response = await createAuthHandler(auth)(
-      request("/api/auth/get-session", "GET")
-    );
+      const response = await createAuthHandler(auth)(
+        request("/api/auth/get-session", "GET")
+      );
 
-    expect(response.status).toBe(403);
-    await expect(jsonBody(response)).resolves.toEqual({
-      code,
-      message: "Account is unavailable",
-    });
-    expect(getSession).not.toHaveBeenCalled();
-    expect(handler).toHaveBeenCalledOnce();
-  });
+      expect(response.status).toBe(403);
+      await expect(jsonBody(response)).resolves.toEqual({
+        code,
+        message: "Account is unavailable",
+      });
+      expect(getSession).not.toHaveBeenCalled();
+      expect(handler).toHaveBeenCalledOnce();
+    }
+  );
 
   it("normalizes the JSON media type before applying the GET session gate", async () => {
     const { auth, getSession, handler } = handlerAuth(
@@ -853,31 +887,34 @@ describe("fetch-native auth handler status gate", () => {
       },
       "application/json ; charset=utf-8",
     ],
-  ] as const)("preserves metadata while sanitizing the %s GET session response", async (_case, status, statusText, body, expectedBody, contentType) => {
-    const { auth, getSession, handler } = handlerAuth(
-      sessionHandlerResponse(
-        JSON.stringify(body),
-        status,
-        statusText,
-        contentType
-      ),
-      { user: { status: "suspended" } }
-    );
+  ] as const)(
+    "preserves metadata while sanitizing the %s GET session response",
+    async (_case, status, statusText, body, expectedBody, contentType) => {
+      const { auth, getSession, handler } = handlerAuth(
+        sessionHandlerResponse(
+          JSON.stringify(body),
+          status,
+          statusText,
+          contentType
+        ),
+        { user: { status: "suspended" } }
+      );
 
-    const response = await createAuthHandler(auth)(
-      request("/api/auth/get-session", "GET")
-    );
+      const response = await createAuthHandler(auth)(
+        request("/api/auth/get-session", "GET")
+      );
 
-    expect(response.status).toBe(status);
-    expect(response.statusText).toBe(statusText);
-    expect(response.headers.get("set-cookie")).toBe(
-      "better-auth.session_data=refreshed; Path=/; HttpOnly"
-    );
-    expect(response.headers.get("x-auth-resolution")).toBe("handler");
-    await expect(jsonBody(response)).resolves.toEqual(expectedBody);
-    expect(getSession).not.toHaveBeenCalled();
-    expect(handler).toHaveBeenCalledOnce();
-  });
+      expect(response.status).toBe(status);
+      expect(response.statusText).toBe(statusText);
+      expect(response.headers.get("set-cookie")).toBe(
+        "better-auth.session_data=refreshed; Path=/; HttpOnly"
+      );
+      expect(response.headers.get("x-auth-resolution")).toBe("handler");
+      await expect(jsonBody(response)).resolves.toEqual(expectedBody);
+      expect(getSession).not.toHaveBeenCalled();
+      expect(handler).toHaveBeenCalledOnce();
+    }
+  );
 
   it("preserves the redacted JSON parse failure for GET session", async () => {
     const { auth, getSession, handler } = handlerAuth(
@@ -895,132 +932,150 @@ describe("fetch-native auth handler status gate", () => {
   it.each([
     ["plain text", "text/plain"],
     ["missing content type", null],
-  ] as const)("rejects a nonempty successful %s GET session response", async (_case, contentType) => {
-    const { auth, getSession, handler } = handlerAuth(
-      sessionHandlerResponse(
-        JSON.stringify({
-          session: { token: "must-not-escape" },
-          user: { status: "suspended" },
-        }),
-        200,
-        "OK",
-        contentType
-      ),
-      null
-    );
+  ] as const)(
+    "rejects a nonempty successful %s GET session response",
+    async (_case, contentType) => {
+      const { auth, getSession, handler } = handlerAuth(
+        sessionHandlerResponse(
+          JSON.stringify({
+            session: { token: "must-not-escape" },
+            user: { status: "suspended" },
+          }),
+          200,
+          "OK",
+          contentType
+        ),
+        null
+      );
 
-    await expect(
-      createAuthHandler(auth)(request("/api/auth/get-session", "GET"))
-    ).rejects.toThrowError("Authentication JSON response is malformed");
-    expect(getSession).not.toHaveBeenCalled();
-    expect(handler).toHaveBeenCalledOnce();
-  });
+      await expect(
+        createAuthHandler(auth)(request("/api/auth/get-session", "GET"))
+      ).rejects.toThrowError("Authentication JSON response is malformed");
+      expect(getSession).not.toHaveBeenCalled();
+      expect(handler).toHaveBeenCalledOnce();
+    }
+  );
 
   it.each([
     ["POST method", "/api/auth/get-session", "POST"],
     ["suffix path", "/api/auth/get-session/extra", "GET"],
     ["prefixed path", "/internal/api/auth/get-session", "GET"],
-  ] as const)("requires the exact GET session method and path for %s", async (_case, path, method) => {
-    const { auth, getSession, handler } = handlerAuth(
-      new Response("must not run"),
-      { user: { status: "suspended" } }
-    );
+  ] as const)(
+    "requires the exact GET session method and path for %s",
+    async (_case, path, method) => {
+      const { auth, getSession, handler } = handlerAuth(
+        new Response("must not run"),
+        { user: { status: "suspended" } }
+      );
 
-    const response = await createAuthHandler(auth)(request(path, method));
+      const response = await createAuthHandler(auth)(request(path, method));
 
-    expect(response.status).toBe(403);
-    expect(getSession).toHaveBeenCalledOnce();
-    expect(handler).not.toHaveBeenCalled();
-  });
+      expect(response.status).toBe(403);
+      expect(getSession).toHaveBeenCalledOnce();
+      expect(handler).not.toHaveBeenCalled();
+    }
+  );
 
   it.each([
     ["suspended", AUTHORIZATION_ERROR_CODES.ACCOUNT_SUSPENDED],
     ["deactivated", AUTHORIZATION_ERROR_CODES.ACCOUNT_DEACTIVATED],
-  ] as const)("rejects a protected request for a %s session", async (status, code) => {
-    const { auth, handler } = handlerAuth(new Response("must not run"), {
-      user: { status },
-    });
+  ] as const)(
+    "rejects a protected request for a %s session",
+    async (status, code) => {
+      const { auth, handler } = handlerAuth(new Response("must not run"), {
+        user: { status },
+      });
 
-    const response = await createAuthHandler(auth)(
-      request("/api/auth/change-password")
-    );
+      const response = await createAuthHandler(auth)(
+        request("/api/auth/change-password")
+      );
 
-    expect(response.status).toBe(403);
-    await expect(jsonBody(response)).resolves.toEqual({
-      code,
-      message: "Account is unavailable",
-    });
-    return expect(handler).not.toHaveBeenCalled();
-  });
+      expect(response.status).toBe(403);
+      await expect(jsonBody(response)).resolves.toEqual({
+        code,
+        message: "Account is unavailable",
+      });
+      return expect(handler).not.toHaveBeenCalled();
+    }
+  );
 
   it.each([
     ["canonical missing session", null],
     ["plain active user", { user: { status: "active" } }],
-  ] as const)("delegates a protected request for %s", async (_case, session) => {
-    const { auth, getSession } = handlerAuth(
-      new Response("delegated", { status: 207 }),
-      session
-    );
+  ] as const)(
+    "delegates a protected request for %s",
+    async (_case, session) => {
+      const { auth, getSession } = handlerAuth(
+        new Response("delegated", { status: 207 }),
+        session
+      );
 
-    const response = await createAuthHandler(auth)(
-      request("/api/auth/change-password")
-    );
+      const response = await createAuthHandler(auth)(
+        request("/api/auth/change-password")
+      );
 
-    expect(response.status).toBe(207);
-    await expect(response.text()).resolves.toBe("delegated");
-    return expect(getSession).toHaveBeenCalledOnce();
-  });
+      expect(response.status).toBe(207);
+      await expect(response.text()).resolves.toBe("delegated");
+      return expect(getSession).toHaveBeenCalledOnce();
+    }
+  );
 
   it.each([
     ["missing status", { user: {} }],
     ["unknown status", { user: { status: "pending" } }],
     ["non-string status", { user: { status: null } }],
-  ] as const)("fails closed for an authenticated user with %s", async (_case, session) => {
-    const { auth, getSession, handler } = handlerAuth(
-      new Response("must not run"),
-      session
-    );
+  ] as const)(
+    "fails closed for an authenticated user with %s",
+    async (_case, session) => {
+      const { auth, getSession, handler } = handlerAuth(
+        new Response("must not run"),
+        session
+      );
 
-    const response = await createAuthHandler(auth)(
-      request("/api/auth/change-password")
-    );
+      const response = await createAuthHandler(auth)(
+        request("/api/auth/change-password")
+      );
 
-    expect(response.status).toBe(403);
-    await expect(jsonBody(response)).resolves.toEqual({
-      code: AUTHORIZATION_ERROR_CODES.FORBIDDEN,
-      message: "Account is unavailable",
-    });
-    expect(getSession).toHaveBeenCalledOnce();
-    return expect(handler).not.toHaveBeenCalled();
-  });
+      expect(response.status).toBe(403);
+      await expect(jsonBody(response)).resolves.toEqual({
+        code: AUTHORIZATION_ERROR_CODES.FORBIDDEN,
+        message: "Account is unavailable",
+      });
+      expect(getSession).toHaveBeenCalledOnce();
+      return expect(handler).not.toHaveBeenCalled();
+    }
+  );
 
   it.each([
     ["undefined", () => ({ session: undefined, traps: [] })],
     ...malformedPresentSessionCases,
-  ] as const)("fails closed for a malformed %s without leaking private failures", async (_case, createCase) => {
-    const { session, traps } = createCase();
-    const { auth, getSession, handler } = handlerAuth(
-      new Response("must not run"),
-      session
-    );
+  ] as const)(
+    "fails closed for a malformed %s without leaking private failures",
+    async (_case, createCase) => {
+      const { session, traps } = createCase();
+      const { auth, getSession, handler } = handlerAuth(
+        new Response("must not run"),
+        session
+      );
 
-    const response = await createAuthHandler(auth)(
-      request("/api/auth/change-password")
-    );
+      const response = await createAuthHandler(auth)(
+        request("/api/auth/change-password")
+      );
 
-    expect(response.status).toBe(403);
-    await expect(jsonBody(response)).resolves.toEqual({
-      code: AUTHORIZATION_ERROR_CODES.FORBIDDEN,
-      message: "Account is unavailable",
-    });
-    expect(getSession).toHaveBeenCalledOnce();
-    expect(handler).not.toHaveBeenCalled();
-    if (_case.includes("proxy")) {
-      expect(traps[0]).toHaveBeenCalledOnce();
-    } else {
-      for (const trap of traps) expect(trap).not.toHaveBeenCalled();
+      expect(response.status).toBe(403);
+      await expect(jsonBody(response)).resolves.toEqual({
+        code: AUTHORIZATION_ERROR_CODES.FORBIDDEN,
+        message: "Account is unavailable",
+      });
+      expect(getSession).toHaveBeenCalledOnce();
+      expect(handler).not.toHaveBeenCalled();
+      if (_case.includes("proxy")) {
+        expect(traps[0]).toHaveBeenCalledOnce();
+      } else {
+        for (const trap of traps) expect(trap).not.toHaveBeenCalled();
+      }
     }
-  });
+  );
 
   return it("propagates a status lookup failure before invoking Better Auth", async () => {
     const failure = new Error("session adapter unavailable");
@@ -1042,26 +1097,31 @@ describe("fetch-native auth response normalization", () => {
       422,
       { code: "USER_ALREADY_EXISTS_USE_ANOTHER_EMAIL", message: "duplicate" },
     ],
-  ] as const)("normalizes an accepted signup response from status %s after the response floor", async (status, body) => {
-    vi.useFakeTimers();
-    const { auth } = handlerAuth(Response.json(body, { status }));
-    const pending = createAuthHandler(auth)(request("/api/auth/sign-up/email"));
-    let settled = false;
-    void pending.then(() => {
-      return (settled = true);
-    });
+  ] as const)(
+    "normalizes an accepted signup response from status %s after the response floor",
+    async (status, body) => {
+      vi.useFakeTimers();
+      const { auth } = handlerAuth(Response.json(body, { status }));
+      const pending = createAuthHandler(auth)(
+        request("/api/auth/sign-up/email")
+      );
+      let settled = false;
+      void pending.then(() => {
+        return (settled = true);
+      });
 
-    await vi.advanceTimersByTimeAsync(249);
-    expect(settled).toBe(false);
-    await vi.advanceTimersByTimeAsync(1);
-    const response = await pending;
+      await vi.advanceTimersByTimeAsync(249);
+      expect(settled).toBe(false);
+      await vi.advanceTimersByTimeAsync(1);
+      const response = await pending;
 
-    expect(response.status).toBe(200);
-    expect(response.headers.get("cache-control")).toBe("no-store");
-    return await expect(jsonBody(response)).resolves.toEqual(
-      SAFE_SIGN_UP_RESPONSE
-    );
-  });
+      expect(response.status).toBe(200);
+      expect(response.headers.get("cache-control")).toBe("no-store");
+      return await expect(jsonBody(response)).resolves.toEqual(
+        SAFE_SIGN_UP_RESPONSE
+      );
+    }
+  );
 
   it("skips an extra delay after the delegated signup already consumed the response floor", async () => {
     const { auth } = handlerAuth(
@@ -1209,16 +1269,19 @@ describe("fetch-native auth response normalization", () => {
   it.each([
     ["wrong status", 502, { code: PASSWORD_RESET_DELIVERY_ERROR_CODE }],
     ["wrong code", 503, { code: "EMAIL_PROVIDER_UNAVAILABLE" }],
-  ] as const)("preserves a reset response with the %s", async (_case, status, body) => {
-    const { auth } = handlerAuth(Response.json(body, { status }));
+  ] as const)(
+    "preserves a reset response with the %s",
+    async (_case, status, body) => {
+      const { auth } = handlerAuth(Response.json(body, { status }));
 
-    const response = await createAuthHandler(auth)(
-      request("/api/auth/request-password-reset")
-    );
+      const response = await createAuthHandler(auth)(
+        request("/api/auth/request-password-reset")
+      );
 
-    expect(response.status).toBe(status);
-    return await expect(jsonBody(response)).resolves.toEqual(body);
-  });
+      expect(response.status).toBe(status);
+      return await expect(jsonBody(response)).resolves.toEqual(body);
+    }
+  );
 
   it("preserves a non-JSON reset delivery response", async () => {
     const { auth } = handlerAuth(
@@ -1280,14 +1343,17 @@ describe("fetch-native auth response normalization", () => {
       503,
       { code: PASSWORD_RESET_DELIVERY_ERROR_CODE },
     ],
-  ] as const)("does not hide a Better Auth method/path error for %s", async (_case, path, method, status, body) => {
-    const { auth } = handlerAuth(Response.json(body, { status }));
+  ] as const)(
+    "does not hide a Better Auth method/path error for %s",
+    async (_case, path, method, status, body) => {
+      const { auth } = handlerAuth(Response.json(body, { status }));
 
-    const response = await createAuthHandler(auth)(request(path, method));
+      const response = await createAuthHandler(auth)(request(path, method));
 
-    expect(response.status).toBe(status);
-    return await expect(jsonBody(response)).resolves.toEqual(body);
-  });
+      expect(response.status).toBe(status);
+      return await expect(jsonBody(response)).resolves.toEqual(body);
+    }
+  );
 
   return it("propagates a Better Auth handler failure unchanged", async () => {
     const failure = new Error("Better Auth route failed");
@@ -1367,15 +1433,18 @@ describe("fetch-native auth token sanitization", () => {
       }),
       '{"callbackURL":"/dashboard"}',
     ],
-  ] as const)("returns a %s response body unchanged", async (_case, original, expectedBody) => {
-    const { auth } = handlerAuth(original);
+  ] as const)(
+    "returns a %s response body unchanged",
+    async (_case, original, expectedBody) => {
+      const { auth } = handlerAuth(original);
 
-    const response = await createAuthHandler(auth)(
-      request("/api/auth/callback/credential")
-    );
+      const response = await createAuthHandler(auth)(
+        request("/api/auth/callback/credential")
+      );
 
-    return await expect(response.text()).resolves.toBe(expectedBody);
-  });
+      return await expect(response.text()).resolves.toBe(expectedBody);
+    }
+  );
 
   it("reports malformed JSON with a stable redacted error", async () => {
     const { auth } = handlerAuth(
@@ -1605,26 +1674,32 @@ describe("development seed identity preparation", () => {
     ["image", { image: "https://assets.domain.test/other.png" }],
     ["role", { role: "admin" }],
     ["password", { password: "AnotherPassword!42" }],
-  ] as const)("rejects an unprepared identity with a changed %s", async (_field, override) => {
-    const seed = createSeedAdapter();
-    const { database, state } = createResourceDatabase();
-    mocks.context = { internalAdapter: seed.adapter };
-    const applyIdentity = await ensureDevelopmentSeedIdentity(
-      {
-        environment: "test",
-        secret: "seed-test-secret-at-least-thirty-two-characters",
-      },
-      [IDENTITY]
-    );
-    const unprepared = { ...IDENTITY, ...override } as DevelopmentSeedIdentity;
+  ] as const)(
+    "rejects an unprepared identity with a changed %s",
+    async (_field, override) => {
+      const seed = createSeedAdapter();
+      const { database, state } = createResourceDatabase();
+      mocks.context = { internalAdapter: seed.adapter };
+      const applyIdentity = await ensureDevelopmentSeedIdentity(
+        {
+          environment: "test",
+          secret: "seed-test-secret-at-least-thirty-two-characters",
+        },
+        [IDENTITY]
+      );
+      const unprepared = {
+        ...IDENTITY,
+        ...override,
+      } as DevelopmentSeedIdentity;
 
-    await expect(
-      applyIdentity(unprepared, false, database as never)
-    ).rejects.toThrowError("Seed identity was not prepared");
-    expect(mocks.betterAuth).not.toHaveBeenCalled();
-    expect(state.profiles.size).toBe(0);
-    return expect(state.preferences.size).toBe(0);
-  });
+      await expect(
+        applyIdentity(unprepared, false, database as never)
+      ).rejects.toThrowError("Seed identity was not prepared");
+      expect(mocks.betterAuth).not.toHaveBeenCalled();
+      expect(state.profiles.size).toBe(0);
+      return expect(state.preferences.size).toBe(0);
+    }
+  );
 
   it("rejects duplicate prepared user ids before creating an auth context", async () => {
     await expect(
@@ -1641,24 +1716,23 @@ describe("development seed identity preparation", () => {
     return expect(mocks.betterAuth).not.toHaveBeenCalled();
   });
 
-  it.each([
-    undefined,
-    "production",
-    "preview",
-  ] as const)("rejects the %s environment before hashing credentials", async (environment) => {
-    await expect(
-      ensureDevelopmentSeedIdentity(
-        {
-          environment,
-          secret: "seed-test-secret-at-least-thirty-two-characters",
-        },
-        [IDENTITY]
-      )
-    ).rejects.toThrowError(
-      "Development seed identity setup requires an explicit development or test environment"
-    );
-    return expect(mocks.hashPassword).not.toHaveBeenCalled();
-  });
+  it.each([undefined, "production", "preview"] as const)(
+    "rejects the %s environment before hashing credentials",
+    async (environment) => {
+      await expect(
+        ensureDevelopmentSeedIdentity(
+          {
+            environment,
+            secret: "seed-test-secret-at-least-thirty-two-characters",
+          },
+          [IDENTITY]
+        )
+      ).rejects.toThrowError(
+        "Development seed identity setup requires an explicit development or test environment"
+      );
+      return expect(mocks.hashPassword).not.toHaveBeenCalled();
+    }
+  );
 
   it("binds a prepared batch to one transaction", async () => {
     const secondIdentity: DevelopmentSeedIdentity = {

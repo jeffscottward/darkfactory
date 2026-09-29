@@ -1,6 +1,6 @@
 {
   "$schema": "./node_modules/@biomejs/biome/configuration_schema.json",
-  "extends": ["ultracite/core"],
+  "extends": ["ultracite/biome/core"],
   "vcs": {
     "enabled": true,
     "clientKind": "git",
@@ -36,11 +36,19 @@
           "fix": "unsafe"
         },
         // Warn, not error: surfaces hotspots without blocking fail-closed validators.
-        "noExcessiveCognitiveComplexity": "warn"
+        "noExcessiveCognitiveComplexity": "warn",
+        // tsconfig's noImplicitReturns requires the explicit `return;` on the fall-through path of
+        // functions that return a value elsewhere, such as effects with optional cleanup.
+        "noUselessReturn": "off"
       },
       "performance": {
         // Regexes stay beside the bounded parser or invariant they prove; none run in hot loops.
-        "useTopLevelRegex": "off"
+        "useTopLevelRegex": "off",
+        // Sequential awaits are deliberate: ordered migrations, transactions, retries and
+        // process ownership checks must not run concurrently.
+        "noAwaitInLoops": "off",
+        // Inline handlers are idiomatic React 19; no component relies on memoized prop identity.
+        "noJsxPropsBind": "off"
       },
       "style": {
         // Style-only; the formatter owns layout.
@@ -48,11 +56,23 @@
         // Style-only; readability is judged in review.
         "noNestedTernary": "off",
         // A default clause would hide TypeScript `never` exhaustiveness checks.
-        "useDefaultSwitchClause": "off"
+        "useDefaultSwitchClause": "off",
+        // Style-only; a mechanical rewrite of block-bodied arrows adds churn, not clarity.
+        "useConsistentArrowReturn": "off",
+        // Style-only; bracket reads required by noPropertyAccessFromIndexSignature stay explicit.
+        "useDestructuring": "off",
+        // Style-only; `++` on bounded counters reads clearly.
+        "noIncrementDecrement": "off",
+        // Fail-closed boundaries replace parser, driver and provider errors with sanitized
+        // messages on purpose; a `cause` would carry raw input (URLs, env values, SQL) into logs.
+        "useErrorCause": "off"
       },
       "suspicious": {
         // Security parsers and redaction must match raw control bytes.
-        "noControlCharactersInRegex": "off"
+        "noControlCharactersInRegex": "off",
+        // Biome's inference misses ref mutation across awaits, `while (true)` loops and
+        // nullable RegExp results, so it flags live guards; strict tsc owns type narrowing.
+        "noUnnecessaryConditions": "off"
       },
       "a11y": {
         // shadcn/Radix primitives set ARIA roles on composed elements deliberately.
@@ -99,7 +119,11 @@
             // Test idiom: message-less errors exercise fallback paths.
             "useErrorMessage": "off",
             // Test idiom: literal `${...}` text is asserted verbatim.
-            "noTemplateCurlyInString": "off"
+            "noTemplateCurlyInString": "off",
+            // Test idiom: terse fixture capture in arrow callbacks, e.g. `(value) => (seen = value)`.
+            "noReturnAssign": "off",
+            // Test idiom: callbacks reuse the fixture name they narrow (response, build, table).
+            "noShadow": "off"
           },
           "performance": {
             // Test idiom: restores env/global state exactly.

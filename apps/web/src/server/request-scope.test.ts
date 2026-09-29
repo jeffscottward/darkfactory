@@ -293,15 +293,18 @@ describe("database capacity mapping", () => {
         ),
       "0000000000000003-SJC",
     ],
-  ])("maps capacity exhaustion to the coded 503 in the %s handler", async (_name, handle, requestId) => {
-    mocks.openRequestScope.mockRejectedValueOnce(
-      new RequestDatabaseCapacityError()
-    );
+  ])(
+    "maps capacity exhaustion to the coded 503 in the %s handler",
+    async (_name, handle, requestId) => {
+      mocks.openRequestScope.mockRejectedValueOnce(
+        new RequestDatabaseCapacityError()
+      );
 
-    await expectCapacity(await handle(), requestId);
-    expect(mocks.createAuth).not.toHaveBeenCalled();
-    expect(mocks.finalize).not.toHaveBeenCalled();
-  });
+      await expectCapacity(await handle(), requestId);
+      expect(mocks.createAuth).not.toHaveBeenCalled();
+      expect(mocks.finalize).not.toHaveBeenCalled();
+    }
+  );
 });
 
 describe("request id trust boundary", () => {

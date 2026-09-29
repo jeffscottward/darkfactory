@@ -99,7 +99,8 @@ describe("DF-069/DF-070 arguments and canonical names", () => {
     { arguments_: ["--unknown", "order-item"] },
     { arguments_: ["order-item", "--dry-run", "--dry-run"] },
   ])("rejects ambiguous invocation %#", ({ arguments_ }) =>
-    expect(() => parseGeneratorArguments(arguments_)).toThrow());
+    expect(() => parseGeneratorArguments(arguments_)).toThrow()
+  );
 
   it.each([
     "../escape",
@@ -126,7 +127,8 @@ describe("DF-069/DF-070 arguments and canonical names", () => {
     "lpt1",
     "lpt9",
   ])("rejects unsafe/nonportable name %j", (name) =>
-    expect(() => validateFeatureName(name)).toThrow());
+    expect(() => validateFeatureName(name)).toThrow()
+  );
 
   it("rejects empty and non-string feature names", () => {
     expect(() => validateFeatureName("")).toThrow("Feature name is invalid");
@@ -333,36 +335,42 @@ describe("DF-069 issued deterministic planning", () => {
       },
       undefined,
     ],
-  ])("rejects tampered registry metadata: %s", async (_label, mutateRegistry, mutateJournal) => {
-    const { root } = await fixture();
-    const initial = await createGenerationPlan(
-      root,
-      validateFeatureName("order-item")
-    );
-    await applyGenerationPlan(initial);
-    const registryPath = join(root, ".darkfactory/features.json");
-    const journalPath = join(root, "packages/db/migrations/meta/_journal.json");
-    const registry = JSON.parse(await readFile(registryPath, "utf8"));
-    const journal = JSON.parse(await readFile(journalPath, "utf8"));
-    mutateRegistry?.(registry);
-    mutateJournal?.(journal);
-    await writeFile(
-      registryPath,
-      `${JSON.stringify(registry, null, 2)}\n`,
-      "utf8"
-    );
-    await writeFile(
-      journalPath,
-      `${JSON.stringify(journal, null, 2)}\n`,
-      "utf8"
-    );
-    const before = await listFixtureEntries(root);
+  ])(
+    "rejects tampered registry metadata: %s",
+    async (_label, mutateRegistry, mutateJournal) => {
+      const { root } = await fixture();
+      const initial = await createGenerationPlan(
+        root,
+        validateFeatureName("order-item")
+      );
+      await applyGenerationPlan(initial);
+      const registryPath = join(root, ".darkfactory/features.json");
+      const journalPath = join(
+        root,
+        "packages/db/migrations/meta/_journal.json"
+      );
+      const registry = JSON.parse(await readFile(registryPath, "utf8"));
+      const journal = JSON.parse(await readFile(journalPath, "utf8"));
+      mutateRegistry?.(registry);
+      mutateJournal?.(journal);
+      await writeFile(
+        registryPath,
+        `${JSON.stringify(registry, null, 2)}\n`,
+        "utf8"
+      );
+      await writeFile(
+        journalPath,
+        `${JSON.stringify(journal, null, 2)}\n`,
+        "utf8"
+      );
+      const before = await listFixtureEntries(root);
 
-    await expect(
-      createGenerationPlan(root, validateFeatureName("invoice-item"))
-    ).rejects.toMatchObject({ code: "PLAN_INVALID" });
-    return expect(await listFixtureEntries(root)).toEqual(before);
-  });
+      await expect(
+        createGenerationPlan(root, validateFeatureName("invoice-item"))
+      ).rejects.toMatchObject({ code: "PLAN_INVALID" });
+      return expect(await listFixtureEntries(root)).toEqual(before);
+    }
+  );
 
   return it("rejects unissued and rebound structural plans without writes", async () => {
     const first = await fixture();

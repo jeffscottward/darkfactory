@@ -69,17 +69,20 @@ describe("getRequestPortalSession", () => {
     ["better-auth.session_token=opaque", "203.0.113.42"],
     [null, null],
     ["   ", null],
-  ])("uses primitive cookie and edge IP inputs with the fixed internal dispatcher", (cookieHeader, cfConnectingIp) => {
-    const pendingSession = Promise.resolve(null);
-    mocks.getPortalSession.mockReturnValueOnce(pendingSession);
+  ])(
+    "uses primitive cookie and edge IP inputs with the fixed internal dispatcher",
+    (cookieHeader, cfConnectingIp) => {
+      const pendingSession = Promise.resolve(null);
+      mocks.getPortalSession.mockReturnValueOnce(pendingSession);
 
-    expect(getRequestPortalSession(cookieHeader, cfConnectingIp)).toBe(
-      pendingSession
-    );
-    return expect(mocks.getPortalSession).toHaveBeenCalledWith({
-      cookieHeader,
-      cfConnectingIp,
-      fetch: mocks.dispatchInternalAuthRequest,
-    });
-  });
+      expect(getRequestPortalSession(cookieHeader, cfConnectingIp)).toBe(
+        pendingSession
+      );
+      return expect(mocks.getPortalSession).toHaveBeenCalledWith({
+        cookieHeader,
+        cfConnectingIp,
+        fetch: mocks.dispatchInternalAuthRequest,
+      });
+    }
+  );
 });

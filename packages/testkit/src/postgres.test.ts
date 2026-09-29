@@ -376,15 +376,18 @@ describe.sequential("PostgreSQL test database URL and environment guards", () =>
       "postgresql://darkfactory_test_runner:%E0%A4%A@localhost/darkfactory_test_maintenance",
       /invalid password/,
     ],
-  ])("rejects %s before opening a client", async (_label, databaseUrl, message) => {
-    await expect(
-      createPostgresTestDatabase({
-        databaseUrl,
-        runId: "guard",
-      })
-    ).rejects.toThrow(message);
-    return expect(postgresDriver.clients).toHaveLength(0);
-  });
+  ])(
+    "rejects %s before opening a client",
+    async (_label, databaseUrl, message) => {
+      await expect(
+        createPostgresTestDatabase({
+          databaseUrl,
+          runId: "guard",
+        })
+      ).rejects.toThrow(message);
+      return expect(postgresDriver.clients).toHaveLength(0);
+    }
+  );
 
   it("rejects empty and oversized normalized run IDs before connecting", async () => {
     await expect(
@@ -890,28 +893,31 @@ describe.sequential("PostgreSQL test database creation and connections", () => {
       [postgresDriver.validIdentity, postgresDriver.validIdentity],
     ],
     ["an undefined row", [undefined]],
-  ])("preserves ownership for %s from the connection guard", async (_label, rows) => {
-    const database = await createPostgresTestDatabase({
-      databaseUrl: MAINTENANCE_URL,
-      runId: "invalid-guard-identity",
-    });
-    postgresDriver.enqueue({
-      query: async (statement, values) => {
-        if (statement.includes("FROM pg_database WHERE datname = $1")) {
-          return { rows };
-        }
-        return postgresDriver.defaultResult(statement, values);
-      },
-    });
+  ])(
+    "preserves ownership for %s from the connection guard",
+    async (_label, rows) => {
+      const database = await createPostgresTestDatabase({
+        databaseUrl: MAINTENANCE_URL,
+        runId: "invalid-guard-identity",
+      });
+      postgresDriver.enqueue({
+        query: async (statement, values) => {
+          if (statement.includes("FROM pg_database WHERE datname = $1")) {
+            return { rows };
+          }
+          return postgresDriver.defaultResult(statement, values);
+        },
+      });
 
-    await expect(database.openConnection()).rejects.toThrow(
-      /guard returned an invalid database identity/i
-    );
-    postgresDriver.enqueue({});
-    return await expect(
-      dropPostgresTestDatabase(database)
-    ).resolves.toBeUndefined();
-  });
+      await expect(database.openConnection()).rejects.toThrow(
+        /guard returned an invalid database identity/i
+      );
+      postgresDriver.enqueue({});
+      return await expect(
+        dropPostgresTestDatabase(database)
+      ).resolves.toBeUndefined();
+    }
+  );
   it("preserves ownership when the pre-connect database owner drifts", async () => {
     const database = await createPostgresTestDatabase({
       databaseUrl: MAINTENANCE_URL,
@@ -1111,67 +1117,70 @@ describe.sequential("PostgreSQL test database creation and connections", () => {
   return it.each([
     ["successful close", undefined],
     ["failed close", new Error("outer linearization close failed")],
-  ])("rechecks lifecycle state after inner open completion with %s", async (_label, closeError) => {
-    const database = await createPostgresTestDatabase({
-      databaseUrl: MAINTENANCE_URL,
-      runId:
-        closeError === undefined
-          ? "outer-open-linearization"
-          : "outer-open-linearization-close-failure",
-    });
-    let cleanup: Promise<void> | undefined;
-    postgresDriver.enqueue({
-      query: async (statement, values) => {
-        if (statement.includes("FROM pg_database WHERE datname = $1")) {
-          const lifecycleClient = postgresDriver.clients[2];
-          if (lifecycleClient === undefined) {
-            throw new Error("Expected a lifecycle client");
-          }
-          lifecycleClient.end.mockImplementationOnce(() => {
-            const targetClient = postgresDriver.clients[3];
-            if (targetClient === undefined) {
-              throw new Error("Expected a target client");
+  ])(
+    "rechecks lifecycle state after inner open completion with %s",
+    async (_label, closeError) => {
+      const database = await createPostgresTestDatabase({
+        databaseUrl: MAINTENANCE_URL,
+        runId:
+          closeError === undefined
+            ? "outer-open-linearization"
+            : "outer-open-linearization-close-failure",
+      });
+      let cleanup: Promise<void> | undefined;
+      postgresDriver.enqueue({
+        query: async (statement, values) => {
+          if (statement.includes("FROM pg_database WHERE datname = $1")) {
+            const lifecycleClient = postgresDriver.clients[2];
+            if (lifecycleClient === undefined) {
+              throw new Error("Expected a lifecycle client");
             }
-            if (closeError !== undefined) {
-              targetClient.end.mockRejectedValueOnce(closeError);
-            }
-            return new Promise<void>((resolve) => {
-              return queueMicrotask(() => {
-                resolve();
+            lifecycleClient.end.mockImplementationOnce(() => {
+              const targetClient = postgresDriver.clients[3];
+              if (targetClient === undefined) {
+                throw new Error("Expected a target client");
+              }
+              if (closeError !== undefined) {
+                targetClient.end.mockRejectedValueOnce(closeError);
+              }
+              return new Promise<void>((resolve) => {
                 return queueMicrotask(() => {
-                  return (cleanup = dropPostgresTestDatabase(database));
+                  resolve();
+                  return queueMicrotask(() => {
+                    return (cleanup = dropPostgresTestDatabase(database));
+                  });
                 });
               });
             });
-          });
-        }
-        return postgresDriver.defaultResult(statement, values);
-      },
-    });
+          }
+          return postgresDriver.defaultResult(statement, values);
+        },
+      });
 
-    const openingOutcome = database.openConnection().then(
-      () => undefined,
-      (error: unknown) => error
-    );
-    if (closeError === undefined) {
-      await expect(openingOutcome).resolves.toMatchObject({
-        message: expect.stringMatching(/cleanup is in progress/i),
-      });
-    } else {
-      await expect(openingOutcome).resolves.toMatchObject({
-        message: "Postgres test database operation and cleanup both failed",
-        errors: [
-          expect.objectContaining({
-            message: expect.stringMatching(/cleanup is in progress/i),
-          }),
-          closeError,
-        ],
-      });
+      const openingOutcome = database.openConnection().then(
+        () => undefined,
+        (error: unknown) => error
+      );
+      if (closeError === undefined) {
+        await expect(openingOutcome).resolves.toMatchObject({
+          message: expect.stringMatching(/cleanup is in progress/i),
+        });
+      } else {
+        await expect(openingOutcome).resolves.toMatchObject({
+          message: "Postgres test database operation and cleanup both failed",
+          errors: [
+            expect.objectContaining({
+              message: expect.stringMatching(/cleanup is in progress/i),
+            }),
+            closeError,
+          ],
+        });
+      }
+      if (cleanup === undefined) throw new Error("Expected cleanup to start");
+      await expect(cleanup).resolves.toBeUndefined();
+      return expect(postgresDriver.clients[3]?.end).toHaveBeenCalledOnce();
     }
-    if (cleanup === undefined) throw new Error("Expected cleanup to start");
-    await expect(cleanup).resolves.toBeUndefined();
-    return expect(postgresDriver.clients[3]?.end).toHaveBeenCalledOnce();
-  });
+  );
 });
 
 describe.sequential("PostgreSQL role and collision validation", () => {
@@ -1233,23 +1242,26 @@ describe.sequential("PostgreSQL role and collision validation", () => {
       "database name uniqueness",
       { code: "23505", constraint: "pg_database_datname_index" },
     ],
-  ])("maps a %s error to a normalized run-ID collision", async (_label, failure) => {
-    postgresDriver.enqueue({
-      query: async (statement, values) => {
-        if (statement.startsWith("CREATE DATABASE")) throw failure;
-        return postgresDriver.defaultResult(statement, values);
-      },
-    });
+  ])(
+    "maps a %s error to a normalized run-ID collision",
+    async (_label, failure) => {
+      postgresDriver.enqueue({
+        query: async (statement, values) => {
+          if (statement.startsWith("CREATE DATABASE")) throw failure;
+          return postgresDriver.defaultResult(statement, values);
+        },
+      });
 
-    await expect(
-      createPostgresTestDatabase({
-        databaseUrl: MAINTENANCE_URL,
-        runId: "COLLISION--id",
-      })
-    ).rejects.toThrow("Postgres test database runId collision: collision_id");
-    expect(postgresDriver.clients[0]?.end).toHaveBeenCalledOnce();
-    return expect(postgresDriver.clients).toHaveLength(1);
-  });
+      await expect(
+        createPostgresTestDatabase({
+          databaseUrl: MAINTENANCE_URL,
+          runId: "COLLISION--id",
+        })
+      ).rejects.toThrow("Postgres test database runId collision: collision_id");
+      expect(postgresDriver.clients[0]?.end).toHaveBeenCalledOnce();
+      return expect(postgresDriver.clients).toHaveLength(1);
+    }
+  );
 
   return it.each([
     ["a primitive", "create failed"],
@@ -1261,22 +1273,25 @@ describe.sequential("PostgreSQL role and collision validation", () => {
       "a unique violation for another constraint",
       { code: "23505", constraint: "another_constraint" },
     ],
-  ])("preserves %s rather than misclassifying it as a collision", async (_label, failure) => {
-    postgresDriver.enqueue({
-      query: async (statement, values) => {
-        if (statement.startsWith("CREATE DATABASE")) throw failure;
-        return postgresDriver.defaultResult(statement, values);
-      },
-    });
+  ])(
+    "preserves %s rather than misclassifying it as a collision",
+    async (_label, failure) => {
+      postgresDriver.enqueue({
+        query: async (statement, values) => {
+          if (statement.startsWith("CREATE DATABASE")) throw failure;
+          return postgresDriver.defaultResult(statement, values);
+        },
+      });
 
-    const rejection = await rejectionFrom(
-      createPostgresTestDatabase({
-        databaseUrl: MAINTENANCE_URL,
-        runId: "not-a-collision",
-      })
-    );
-    return expect(rejection).toBe(failure);
-  });
+      const rejection = await rejectionFrom(
+        createPostgresTestDatabase({
+          databaseUrl: MAINTENANCE_URL,
+          runId: "not-a-collision",
+        })
+      );
+      return expect(rejection).toBe(failure);
+    }
+  );
 });
 
 describe.sequential("PostgreSQL creation cleanup", () => {
@@ -1380,25 +1395,28 @@ describe.sequential("PostgreSQL creation cleanup", () => {
       ],
       /owner did not match the creating role/i,
     ],
-  ])("fails closed after creation reports %s", async (_label, rows, message) => {
-    postgresDriver.enqueue({
-      query: async (statement, values) => {
-        if (statement.startsWith("SELECT oid AS database_oid")) {
-          return { rows };
-        }
-        return postgresDriver.defaultResult(statement, values);
-      },
-    });
+  ])(
+    "fails closed after creation reports %s",
+    async (_label, rows, message) => {
+      postgresDriver.enqueue({
+        query: async (statement, values) => {
+          if (statement.startsWith("SELECT oid AS database_oid")) {
+            return { rows };
+          }
+          return postgresDriver.defaultResult(statement, values);
+        },
+      });
 
-    await expect(
-      createPostgresTestDatabase({
-        databaseUrl: MAINTENANCE_URL,
-        runId: `created-identity-${_label}`,
-      })
-    ).rejects.toThrow(message);
-    expect(postgresDriver.clients).toHaveLength(1);
-    return expect(postgresDriver.clients[0]?.end).toHaveBeenCalledOnce();
-  });
+      await expect(
+        createPostgresTestDatabase({
+          databaseUrl: MAINTENANCE_URL,
+          runId: `created-identity-${_label}`,
+        })
+      ).rejects.toThrow(message);
+      expect(postgresDriver.clients).toHaveLength(1);
+      return expect(postgresDriver.clients[0]?.end).toHaveBeenCalledOnce();
+    }
+  );
 
   return it("drops the created database and preserves the primary maintenance-close error", async () => {
     const maintenanceCloseError = new Error("initial maintenance close failed");
@@ -1662,33 +1680,36 @@ describe.sequential("PostgreSQL drop cleanup", () => {
   it.each([
     ["a missing row", []],
     ["a nonboolean flag", [{ has_prepared_transactions: "no" }]],
-  ])("fails closed for %s from the prepared-transaction inventory", async (_label, rows) => {
-    const database = await createPostgresTestDatabase({
-      databaseUrl: MAINTENANCE_URL,
-      runId: `invalid-prepared-inventory-${_label}`,
-    });
-    postgresDriver.enqueue({
-      query: async (statement, values) => {
-        if (statement.includes("FROM pg_prepared_xacts")) return { rows };
-        return postgresDriver.defaultResult(statement, values);
-      },
-    });
+  ])(
+    "fails closed for %s from the prepared-transaction inventory",
+    async (_label, rows) => {
+      const database = await createPostgresTestDatabase({
+        databaseUrl: MAINTENANCE_URL,
+        runId: `invalid-prepared-inventory-${_label}`,
+      });
+      postgresDriver.enqueue({
+        query: async (statement, values) => {
+          if (statement.includes("FROM pg_prepared_xacts")) return { rows };
+          return postgresDriver.defaultResult(statement, values);
+        },
+      });
 
-    await expect(dropPostgresTestDatabase(database)).rejects.toMatchObject({
-      message: "Postgres test database cleanup failed",
-      errors: [
-        expect.objectContaining({
-          message: expect.stringMatching(
-            /invalid prepared-transaction inventory/i
-          ),
-        }),
-      ],
-    });
-    postgresDriver.enqueue({});
-    return await expect(
-      dropPostgresTestDatabase(database)
-    ).resolves.toBeUndefined();
-  });
+      await expect(dropPostgresTestDatabase(database)).rejects.toMatchObject({
+        message: "Postgres test database cleanup failed",
+        errors: [
+          expect.objectContaining({
+            message: expect.stringMatching(
+              /invalid prepared-transaction inventory/i
+            ),
+          }),
+        ],
+      });
+      postgresDriver.enqueue({});
+      return await expect(
+        dropPostgresTestDatabase(database)
+      ).resolves.toBeUndefined();
+    }
+  );
 
   it("retains ownership when advisory-lock acquisition fails and permits a retry", async () => {
     const lockError = new Error("advisory lock failed");
@@ -2494,37 +2515,40 @@ describe.sequential("PostgreSQL drop cleanup", () => {
     ["a negative count", [{ connection_count: -1 }]],
     ["a fractional count", [{ connection_count: 0.5 }]],
     ["a nonnumeric count", [{ connection_count: "none" }]],
-  ])("fails closed for %s from the connection inventory", async (_label, rows) => {
-    const database = await createPostgresTestDatabase({
-      databaseUrl: MAINTENANCE_URL,
-      runId: `invalid-connection-count-${_label}`,
-    });
-    const dropError = Object.assign(new Error("database is being accessed"), {
-      code: "55006",
-    });
-    postgresDriver.enqueue({
-      query: async (statement, values) => {
-        if (statement.startsWith("DROP DATABASE")) throw dropError;
-        if (statement.includes("FROM pg_stat_activity")) return { rows };
-        return postgresDriver.defaultResult(statement, values);
-      },
-    });
+  ])(
+    "fails closed for %s from the connection inventory",
+    async (_label, rows) => {
+      const database = await createPostgresTestDatabase({
+        databaseUrl: MAINTENANCE_URL,
+        runId: `invalid-connection-count-${_label}`,
+      });
+      const dropError = Object.assign(new Error("database is being accessed"), {
+        code: "55006",
+      });
+      postgresDriver.enqueue({
+        query: async (statement, values) => {
+          if (statement.startsWith("DROP DATABASE")) throw dropError;
+          if (statement.includes("FROM pg_stat_activity")) return { rows };
+          return postgresDriver.defaultResult(statement, values);
+        },
+      });
 
-    await expect(dropPostgresTestDatabase(database)).rejects.toMatchObject({
-      message: "Postgres test database cleanup failed",
-      errors: [
-        dropError,
-        expect.objectContaining({
-          message:
-            "Postgres test database cleanup returned an invalid connection count",
-        }),
-      ],
-    });
-    postgresDriver.enqueue({});
-    return await expect(
-      dropPostgresTestDatabase(database)
-    ).resolves.toBeUndefined();
-  });
+      await expect(dropPostgresTestDatabase(database)).rejects.toMatchObject({
+        message: "Postgres test database cleanup failed",
+        errors: [
+          dropError,
+          expect.objectContaining({
+            message:
+              "Postgres test database cleanup returned an invalid connection count",
+          }),
+        ],
+      });
+      postgresDriver.enqueue({});
+      return await expect(
+        dropPostgresTestDatabase(database)
+      ).resolves.toBeUndefined();
+    }
+  );
 
   it("aggregates isolated-client and database-drop cleanup failures without losing ownership", async () => {
     const isolatedCloseError = new Error("isolated close failed");

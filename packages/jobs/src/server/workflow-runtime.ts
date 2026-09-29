@@ -418,12 +418,12 @@ const completionPlanEvidence = (
       }
       throw error;
     }
-  } else if (result.plan !== null) {
+  } else if (result.plan === null) {
+    return null;
+  } else {
     throw new WorkflowProjectionVerificationError(
       "non-plan completion contains plan evidence"
     );
-  } else {
-    return null;
   }
 };
 
@@ -1140,9 +1140,9 @@ export const createWorkflowRepositoryOutboxAdapter = (
           ...parsed.metadata,
           result: input.result,
         });
-        return projection !== null
-          ? ("persisted" as const)
-          : ("unpersisted" as const);
+        return projection === null
+          ? ("unpersisted" as const)
+          : ("persisted" as const);
       } finally {
         claims.delete(input.id);
       }

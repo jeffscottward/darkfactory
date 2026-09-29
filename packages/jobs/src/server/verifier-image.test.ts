@@ -165,16 +165,19 @@ describe.sequential("verifier image executable", () => {
   it.each([
     ["configuration", ["0".repeat(64)], "Verifier config digest changed"],
     ["argv", [CONFIG_DIGEST, "0".repeat(64)], "Verifier argv digest changed"],
-  ] as const)("rejects a changed verifier $0 digest", async (_label, digests, expectedMessage) => {
-    mockVerifierDigests(digests);
-    process.argv = ["bun", "verifier-image.ts", "check"];
-    process.env["WORKFLOW_VERIFIER_IMAGE_DIGEST"] = IMAGE_DIGEST;
-    installBun([]);
+  ] as const)(
+    "rejects a changed verifier $0 digest",
+    async (_label, digests, expectedMessage) => {
+      mockVerifierDigests(digests);
+      process.argv = ["bun", "verifier-image.ts", "check"];
+      process.env["WORKFLOW_VERIFIER_IMAGE_DIGEST"] = IMAGE_DIGEST;
+      installBun([]);
 
-    return await expect(import("./verifier-image.ts")).rejects.toThrow(
-      expectedMessage
-    );
-  });
+      return await expect(import("./verifier-image.ts")).rejects.toThrow(
+        expectedMessage
+      );
+    }
+  );
 
   it("rejects execution when Docker is unavailable", async () => {
     process.argv = ["bun", "verifier-image.ts", "check"];
@@ -247,15 +250,18 @@ describe.sequential("verifier image executable", () => {
       "Docker command failed",
     ],
     ["inherited output", "setup", { exitCode: 1 }, "Docker command failed"],
-  ] as const)("normalizes Docker failure with $0", async (_label, command, response, expectedMessage) => {
-    process.argv = ["bun", "verifier-image.ts", command];
-    process.env["WORKFLOW_VERIFIER_IMAGE_DIGEST"] = IMAGE_DIGEST;
-    process.env["DARKFACTORY_VERIFIER_BASE_IMAGE"] = PINNED_BASE_IMAGE;
-    delete process.env["DARKFACTORY_VERIFIER_IMAGE_NAME"];
-    installBun([response]);
+  ] as const)(
+    "normalizes Docker failure with $0",
+    async (_label, command, response, expectedMessage) => {
+      process.argv = ["bun", "verifier-image.ts", command];
+      process.env["WORKFLOW_VERIFIER_IMAGE_DIGEST"] = IMAGE_DIGEST;
+      process.env["DARKFACTORY_VERIFIER_BASE_IMAGE"] = PINNED_BASE_IMAGE;
+      delete process.env["DARKFACTORY_VERIFIER_IMAGE_NAME"];
+      installBun([response]);
 
-    return await expect(import("./verifier-image.ts")).rejects.toThrow(
-      expectedMessage
-    );
-  });
+      return await expect(import("./verifier-image.ts")).rejects.toThrow(
+        expectedMessage
+      );
+    }
+  );
 });

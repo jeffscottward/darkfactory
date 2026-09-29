@@ -152,17 +152,20 @@ describe("development preference seeds", () => {
     ["analyticsConsent", true],
     ["personalizationConsent", true],
     ["profileVisibility", "members"],
-  ] as const)("repairs preferences whose %s drifted", async (field, replacement) => {
-    const outcomes = preferenceRows();
-    outcomes[0] = [{ ...DEVELOPMENT_PREFERENCES[0]!, [field]: replacement }];
-    const double = createPreferenceSeedDatabase(outcomes);
+  ] as const)(
+    "repairs preferences whose %s drifted",
+    async (field, replacement) => {
+      const outcomes = preferenceRows();
+      outcomes[0] = [{ ...DEVELOPMENT_PREFERENCES[0]!, [field]: replacement }];
+      const double = createPreferenceSeedDatabase(outcomes);
 
-    await convergeDevelopmentPreferences(double.database);
+      await convergeDevelopmentPreferences(double.database);
 
-    const inserts = double.operations.filter(
-      (operation) => operation.kind === "insert"
-    );
-    expect(inserts).toHaveLength(1);
-    return expect(inserts[0]?.value).toEqual(DEVELOPMENT_PREFERENCES[0]);
-  });
+      const inserts = double.operations.filter(
+        (operation) => operation.kind === "insert"
+      );
+      expect(inserts).toHaveLength(1);
+      return expect(inserts[0]?.value).toEqual(DEVELOPMENT_PREFERENCES[0]);
+    }
+  );
 });

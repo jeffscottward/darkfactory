@@ -157,16 +157,25 @@ describe("capability manifest", () => {
       "canonical_url: http://darkfactory.localhost",
       "development.https.canonical_url",
     ],
-  ])("rejects a malformed %s without reflecting it", async (_label, valid, invalid, path) => {
-    const error = captureManifestError(
-      (await readManifest()).replace(valid, invalid)
-    );
+  ])(
+    "rejects a malformed %s without reflecting it",
+    async (_label, valid, invalid, path) => {
+      const error = captureManifestError(
+        (await readManifest()).replace(valid, invalid)
+      );
 
-    expect(error.issues).toEqual([
-      { code: "invalid_manifest", path, message: "Manifest value is invalid" },
-    ]);
-    return expect(JSON.stringify(error)).not.toContain(invalid.split(": ")[1]);
-  });
+      expect(error.issues).toEqual([
+        {
+          code: "invalid_manifest",
+          path,
+          message: "Manifest value is invalid",
+        },
+      ]);
+      return expect(JSON.stringify(error)).not.toContain(
+        invalid.split(": ")[1]
+      );
+    }
+  );
 
   it("contains no superseded providers or capabilities", async () => {
     const source = await readManifest();
@@ -284,16 +293,18 @@ describe("capability manifest", () => {
     ]);
   });
 
-  it.each([
-    "__proto__",
-    "constructor",
-  ])("rejects the %s key without prototype pollution", (key) => {
-    const error = captureManifestError(`${key}:\n  polluted: true\n`);
-    expect(error.issues.every(({ message }) => !message.includes(key))).toBe(
-      true
-    );
-    return expect(({} as Record<string, unknown>)["polluted"]).toBeUndefined();
-  });
+  it.each(["__proto__", "constructor"])(
+    "rejects the %s key without prototype pollution",
+    (key) => {
+      const error = captureManifestError(`${key}:\n  polluted: true\n`);
+      expect(error.issues.every(({ message }) => !message.includes(key))).toBe(
+        true
+      );
+      return expect(
+        ({} as Record<string, unknown>)["polluted"]
+      ).toBeUndefined();
+    }
+  );
 
   it.each([
     ["oversized whitespace", async () => " ".repeat(32_769)],
@@ -321,16 +332,19 @@ describe("capability manifest", () => {
     ],
     ["key length", async () => `${"k".repeat(300)}: true\n`],
     ["string length", async () => `extra: "${"x".repeat(5000)}"\n`],
-  ])("rejects YAML exceeding the $0 budget before conversion", async (_label, source) => {
-    const error = captureManifestError(await source());
-    expect(error.issues).toEqual([
-      {
-        code: "resource_limit",
-        path: "yaml",
-        message: "Manifest exceeds safe parsing limits",
-      },
-    ]);
-  });
+  ])(
+    "rejects YAML exceeding the $0 budget before conversion",
+    async (_label, source) => {
+      const error = captureManifestError(await source());
+      expect(error.issues).toEqual([
+        {
+          code: "resource_limit",
+          path: "yaml",
+          message: "Manifest exceeds safe parsing limits",
+        },
+      ]);
+    }
+  );
 
   it("uses stable errors without reflecting attacker-controlled keys", async () => {
     const attackerKey = "SECRET-AS-KEY";
@@ -427,7 +441,8 @@ describe("capability manifest", () => {
         path: "yaml",
         message: "Manifest exceeds safe parsing limits",
       },
-    ]));
+    ])
+  );
 
   it("rejects non-finite YAML scalars before schema validation", () =>
     expect(captureManifestError("value: .inf\n").issues).toEqual([
@@ -445,20 +460,23 @@ describe("capability manifest", () => {
       "provider-secret-value",
     ],
     ["number", "    provider: 982451653", "982451653"],
-  ])("classifies a wrong-type $0 without reflecting it", async (_label, replacement, secretValue) => {
-    const source = (await readManifest()).replace(
-      "    provider: mintlify",
-      replacement
-    );
-    const error = captureManifestError(source);
+  ])(
+    "classifies a wrong-type $0 without reflecting it",
+    async (_label, replacement, secretValue) => {
+      const source = (await readManifest()).replace(
+        "    provider: mintlify",
+        replacement
+      );
+      const error = captureManifestError(source);
 
-    expect(error.issues).toContainEqual({
-      code: "invalid_type",
-      path: "capabilities.docs.provider",
-      message: "Manifest value has an invalid type",
-    });
-    return expect(JSON.stringify(error)).not.toContain(secretValue);
-  });
+      expect(error.issues).toContainEqual({
+        code: "invalid_type",
+        path: "capabilities.docs.provider",
+        message: "Manifest value has an invalid type",
+      });
+      return expect(JSON.stringify(error)).not.toContain(secretValue);
+    }
+  );
 
   it("classifies a null literal value as an invalid type", async () => {
     const source = (await readManifest()).replace(
@@ -488,17 +506,20 @@ describe("capability manifest", () => {
       "development.seeded_accounts.production_allowed",
       "true",
     ],
-  ])("classifies an unsupported same-type $0 without reflecting it", async (_label, supported, unsupported, path, secretValue) => {
-    const source = (await readManifest()).replace(supported, unsupported);
-    const error = captureManifestError(source);
+  ])(
+    "classifies an unsupported same-type $0 without reflecting it",
+    async (_label, supported, unsupported, path, secretValue) => {
+      const source = (await readManifest()).replace(supported, unsupported);
+      const error = captureManifestError(source);
 
-    expect(error.issues).toContainEqual({
-      code: "unsupported_value",
-      path,
-      message: "Manifest value is not supported",
-    });
-    return expect(JSON.stringify(error)).not.toContain(secretValue);
-  });
+      expect(error.issues).toContainEqual({
+        code: "unsupported_value",
+        path,
+        message: "Manifest value is not supported",
+      });
+      return expect(JSON.stringify(error)).not.toContain(secretValue);
+    }
+  );
 
   it("uses the generic classification for array cardinality failures", async () => {
     const source = (await readManifest()).replace(
@@ -560,11 +581,14 @@ describe("capability manifest", () => {
   it.each([
     ["an empty document", "---\n"],
     ["a finite numeric scalar", "value: 1\n"],
-  ])("accepts safe YAML structure for $0 before schema rejection", (_case, source) => {
-    const error = captureManifestError(source);
-    expect(error).toBeInstanceOf(CapabilityManifestValidationError);
-    return expect(error.issues.length).toBeGreaterThan(0);
-  });
+  ])(
+    "accepts safe YAML structure for $0 before schema rejection",
+    (_case, source) => {
+      const error = captureManifestError(source);
+      expect(error).toBeInstanceOf(CapabilityManifestValidationError);
+      return expect(error.issues.length).toBeGreaterThan(0);
+    }
+  );
 
   it("rejects an unknown parser node without reflecting its properties", async () => {
     const privateDetail = "private-parser-node-detail";

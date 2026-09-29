@@ -388,9 +388,9 @@ export const createOperatorWorkflowPort = (
       })
     );
     const matchesSubmission = (
-      projection: VerifiedWorkflowProjection
+      candidate: VerifiedWorkflowProjection
     ): boolean => {
-      const submitted = projection.journal[0]?.event;
+      const submitted = candidate.journal[0]?.event;
       return (
         submitted?.type === "RUN_SUBMITTED" &&
         submitted.eventId === eventId &&
@@ -455,12 +455,12 @@ export const createOperatorWorkflowPort = (
       clarification: input.clarification,
     };
     const apply = async (
-      projection: VerifiedWorkflowProjection
+      current: VerifiedWorkflowProjection
     ): Promise<WorkflowOperatorDetail> => {
-      const existingIndex = projection.journal.findIndex(
+      const existingIndex = current.journal.findIndex(
         (entry) => entry.event.eventId === eventId
       );
-      const existing = projection.journal[existingIndex]?.event;
+      const existing = current.journal[existingIndex]?.event;
       if (
         existing !== undefined &&
         (existing.type !== "PLAN_REVISION_REQUESTED" ||
@@ -471,9 +471,9 @@ export const createOperatorWorkflowPort = (
 
       const event =
         existing?.type === "PLAN_REVISION_REQUESTED" ? existing : proposedEvent;
-      let decisionSnapshot: typeof projection.snapshot;
+      let decisionSnapshot: typeof current.snapshot;
       if (existingIndex === -1) {
-        decisionSnapshot = projection.snapshot;
+        decisionSnapshot = current.snapshot;
       } else {
         const initial = createInitialWorkflowSnapshotV1({
           runId: input.runId,
@@ -481,7 +481,7 @@ export const createOperatorWorkflowPort = (
         });
         decisionSnapshot = replayWorkflowV1(
           initial,
-          projection.journal.slice(0, existingIndex).map((entry) => entry.event)
+          current.journal.slice(0, existingIndex).map((entry) => entry.event)
         ).snapshot;
       }
 
@@ -514,7 +514,7 @@ export const createOperatorWorkflowPort = (
         });
         return detailFor(decided);
       }
-      if (existing !== undefined) return detailFor(projection);
+      if (existing !== undefined) return detailFor(current);
       return actionDetail(input, proposedEvent);
     };
 

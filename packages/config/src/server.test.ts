@@ -200,30 +200,30 @@ describe("parseServerEnv", () => {
     return expect(error.message).not.toContain(value);
   });
 
-  it.each([
-    "APP_URL",
-    "BETTER_AUTH_URL",
-  ] as const)("redacts a malformed credential-bearing %s", (name) => {
-    const malformedUrl = "https://private-user:private-password@[invalid";
-    const error = captureValidationError({
-      ...validCoreEnv(),
-      APP_ENV: "production",
-      APP_URL: "https://app.darkfactory.example",
-      BETTER_AUTH_URL: "https://app.darkfactory.example",
-      EMAIL_TRANSPORT: "resend",
-      RESEND_API_KEY: "r".repeat(32),
-      [name]: malformedUrl,
-    });
+  it.each(["APP_URL", "BETTER_AUTH_URL"] as const)(
+    "redacts a malformed credential-bearing %s",
+    (name) => {
+      const malformedUrl = "https://private-user:private-password@[invalid";
+      const error = captureValidationError({
+        ...validCoreEnv(),
+        APP_ENV: "production",
+        APP_URL: "https://app.darkfactory.example",
+        BETTER_AUTH_URL: "https://app.darkfactory.example",
+        EMAIL_TRANSPORT: "resend",
+        RESEND_API_KEY: "r".repeat(32),
+        [name]: malformedUrl,
+      });
 
-    expect(error.issues).toContainEqual({
-      path: name,
-      message: `${name} must be a valid URL`,
-    });
-    expect(error.message).not.toContain(malformedUrl);
-    return expect(JSON.stringify(error.issues)).not.toContain(
-      "private-password"
-    );
-  });
+      expect(error.issues).toContainEqual({
+        path: name,
+        message: `${name} must be a valid URL`,
+      });
+      expect(error.message).not.toContain(malformedUrl);
+      return expect(JSON.stringify(error.issues)).not.toContain(
+        "private-password"
+      );
+    }
+  );
   it("normalizes explicit false booleans and rejects unsupported spellings", () => {
     const env = parseServerEnv({
       ...validCoreEnv(),
@@ -505,23 +505,26 @@ describe("parseServerEnv", () => {
     "postgresql://database.example/darkfactory?sslmode=no-verify",
     "postgresql://database.example/darkfactory?sslmode=verify-ca",
     "postgresql://database.example/darkfactory?sslmode=verify-full&sslmode=disable",
-  ])("rejects production DATABASE_URL without verified TLS: %s", (databaseUrl) => {
-    const applicationUrl = "https://app.darkfactory.example";
-    const error = captureValidationError({
-      ...validCoreEnv(),
-      APP_ENV: "production",
-      APP_URL: applicationUrl,
-      BETTER_AUTH_URL: applicationUrl,
-      DATABASE_URL: databaseUrl,
-      EMAIL_TRANSPORT: "resend",
-      RESEND_API_KEY: "r".repeat(32),
-    });
+  ])(
+    "rejects production DATABASE_URL without verified TLS: %s",
+    (databaseUrl) => {
+      const applicationUrl = "https://app.darkfactory.example";
+      const error = captureValidationError({
+        ...validCoreEnv(),
+        APP_ENV: "production",
+        APP_URL: applicationUrl,
+        BETTER_AUTH_URL: applicationUrl,
+        DATABASE_URL: databaseUrl,
+        EMAIL_TRANSPORT: "resend",
+        RESEND_API_KEY: "r".repeat(32),
+      });
 
-    return expect(error.issues).toContainEqual({
-      path: "DATABASE_URL",
-      message: "DATABASE_URL must use sslmode=verify-full in production",
-    });
-  });
+      return expect(error.issues).toContainEqual({
+        path: "DATABASE_URL",
+        message: "DATABASE_URL must use sslmode=verify-full in production",
+      });
+    }
+  );
 
   it("requires the PlanetScale provider-managed PgBouncer endpoint in production", () => {
     const applicationUrl = "https://app.darkfactory.example";

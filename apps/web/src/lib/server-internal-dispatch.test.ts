@@ -268,14 +268,17 @@ describe("request-local internal dispatch", () => {
       "https://attacker.invalid/api/auth/get-session",
       "GET",
     ],
-  ])("rejects %s before auth handler delegation", async (_case, url, method) => {
-    await expect(
-      dispatchInternalAuthRequest(new Request(url, { method }))
-    ).rejects.toThrow(
-      "Internal auth dispatch requires GET /api/auth/get-session on the configured app origin"
-    );
-    return expect(mocks.handleAuthRequest).not.toHaveBeenCalled();
-  });
+  ])(
+    "rejects %s before auth handler delegation",
+    async (_case, url, method) => {
+      await expect(
+        dispatchInternalAuthRequest(new Request(url, { method }))
+      ).rejects.toThrow(
+        "Internal auth dispatch requires GET /api/auth/get-session on the configured app origin"
+      );
+      return expect(mocks.handleAuthRequest).not.toHaveBeenCalled();
+    }
+  );
 
   return it.each([
     [
@@ -294,12 +297,15 @@ describe("request-local internal dispatch", () => {
       "https://attacker.invalid/api/orpc/dashboard/summary",
       "GET",
     ],
-  ])("rejects %s before oRPC runtime delegation", async (_case, url, method) => {
-    await expect(
-      dispatchInternalOrpcRequest(new Request(url, { method }))
-    ).rejects.toThrow(
-      "Internal oRPC dispatch requires a routed API request on the configured app origin"
-    );
-    return expect(mocks.handleOrpcRuntimeRequest).not.toHaveBeenCalled();
-  });
+  ])(
+    "rejects %s before oRPC runtime delegation",
+    async (_case, url, method) => {
+      await expect(
+        dispatchInternalOrpcRequest(new Request(url, { method }))
+      ).rejects.toThrow(
+        "Internal oRPC dispatch requires a routed API request on the configured app origin"
+      );
+      return expect(mocks.handleOrpcRuntimeRequest).not.toHaveBeenCalled();
+    }
+  );
 });

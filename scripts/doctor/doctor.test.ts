@@ -268,27 +268,30 @@ describe("doctor", () => {
     ["24.21.0-beta.1", "pass"],
     ["25.0.0", "pass"],
     ["not-semver", "fail"],
-  ] as const)("maps Node boundary version %s to %s", async (nodeVersion, status) => {
-    const base = healthyDependencies();
-    const report = await runDoctor(
-      healthyDependencies({
-        process: {
-          run: (command, arguments_, options) => {
-            return command === "node"
-              ? Promise.resolve({
-                  exitCode: 0,
-                  stdout: `v${nodeVersion}\n`,
-                  stderr: "",
-                })
-              : base.process.run(command, arguments_, options);
+  ] as const)(
+    "maps Node boundary version %s to %s",
+    async (nodeVersion, status) => {
+      const base = healthyDependencies();
+      const report = await runDoctor(
+        healthyDependencies({
+          process: {
+            run: (command, arguments_, options) => {
+              return command === "node"
+                ? Promise.resolve({
+                    exitCode: 0,
+                    stdout: `v${nodeVersion}\n`,
+                    stderr: "",
+                  })
+                : base.process.run(command, arguments_, options);
+            },
           },
-        },
-      })
-    );
-    return expect(
-      report.checks.find(({ name }) => name === "Node")
-    ).toMatchObject({ status });
-  });
+        })
+      );
+      return expect(
+        report.checks.find(({ name }) => name === "Node")
+      ).toMatchObject({ status });
+    }
+  );
 
   it.each([
     ["1.3.13", "fail"],

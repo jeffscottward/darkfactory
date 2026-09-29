@@ -13,7 +13,7 @@ export type RecordingJobPortOptions = Readonly<{
 }>;
 
 export interface RecordingJobPort extends JobPort {
-  getEnvelopes(): readonly JobEnvelope<string, JsonObject>[];
+  getEnvelopes: () => readonly JobEnvelope<string, JsonObject>[];
 }
 
 const formatSequence = (sequence: number): string => {

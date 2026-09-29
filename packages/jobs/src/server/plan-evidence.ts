@@ -150,7 +150,7 @@ export const parseWorkflowPlanEvidenceV1 = (
   const digest = hashWorkflowPlanEvidenceV1(plan);
   if (
     plan.digest !== digest ||
-    (expectedDigest != null && expectedDigest !== digest)
+    (typeof expectedDigest === "string" && expectedDigest !== digest)
   ) {
     throw new WorkflowPlanEvidenceError(
       "Workflow plan evidence digest mismatch"

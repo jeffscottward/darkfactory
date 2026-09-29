@@ -119,16 +119,19 @@ describe("operator Wayfinder service", () => {
     ["INVALID_WAYFINDER_REQUEST", "VALIDATION_ERROR"],
     ["WAYFINDER_FORBIDDEN", "FORBIDDEN"],
     ["WAYFINDER_UNAVAILABLE", "SERVICE_UNAVAILABLE"],
-  ] as const)("maps %s to the fixed %s operator contract", async (wayfinderCode, code) => {
-    const service = createOperatorWayfinderService(
-      workflow({
-        start: vi.fn(async () => {
-          throw new WayfinderRequestError(wayfinderCode, "safe jobs message");
-        }),
-      })
-    );
-    return await expectServiceError(service.start(principal, input), code);
-  });
+  ] as const)(
+    "maps %s to the fixed %s operator contract",
+    async (wayfinderCode, code) => {
+      const service = createOperatorWayfinderService(
+        workflow({
+          start: vi.fn(async () => {
+            throw new WayfinderRequestError(wayfinderCode, "safe jobs message");
+          }),
+        })
+      );
+      return await expectServiceError(service.start(principal, input), code);
+    }
+  );
 
   it("maps unknown queue failures to the fixed storage contract", async () => {
     const service = createOperatorWayfinderService(

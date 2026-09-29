@@ -53,22 +53,22 @@ describe("DF-076 contact service", () => {
       },
       output: { status: "not-delivered" },
     },
-  ] as const)("returns $output.status without provider-only details", async ({
-    deliveryResult,
-    output,
-  }) => {
-    const contactDelivery = delivery(deliveryResult);
-    const contactThrottle = throttle();
-    const service = createContactService({
-      delivery: contactDelivery,
-      throttle: contactThrottle,
-      throttleKey: "a".repeat(64),
-    });
+  ] as const)(
+    "returns $output.status without provider-only details",
+    async ({ deliveryResult, output }) => {
+      const contactDelivery = delivery(deliveryResult);
+      const contactThrottle = throttle();
+      const service = createContactService({
+        delivery: contactDelivery,
+        throttle: contactThrottle,
+        throttleKey: "a".repeat(64),
+      });
 
-    await expect(service.submit(input)).resolves.toEqual(output);
-    expect(contactThrottle.consume).toHaveBeenCalledWith("a".repeat(64));
-    return expect(contactDelivery.sendContact).toHaveBeenCalledWith(input);
-  });
+      await expect(service.submit(input)).resolves.toEqual(output);
+      expect(contactThrottle.consume).toHaveBeenCalledWith("a".repeat(64));
+      return expect(contactDelivery.sendContact).toHaveBeenCalledWith(input);
+    }
+  );
 
   it("returns not-delivered for a filled honeypot without consuming throttle or starting delivery", async () => {
     const contactDelivery = delivery({
@@ -114,56 +114,60 @@ describe("DF-076 contact service", () => {
   it.each([
     { label: "throttle storage", throttleFailure: true },
     { label: "configured provider", throttleFailure: false },
-  ])("maps $label failure to a redacted typed 503", async ({
-    throttleFailure,
-  }) => {
-    const contactThrottle: ContactThrottlePort = {
-      consume: vi.fn(async () => {
-        if (throttleFailure) throw new Error("database and raw IP detail");
-        return { allowed: true, remaining: 4, retryAfterSeconds: 0 };
-      }),
-    };
-    const contactDelivery: ContactDeliveryPort = {
-      sendContact: vi.fn(
-        async () =>
-          ({
-            status: "not-delivered",
-            provider: "resend",
-            code: "CONTACT_PROVIDER_UNAVAILABLE",
-            retryable: true,
-          }) as const
-      ),
-    };
-    const service = createContactService({
-      delivery: contactDelivery,
-      throttle: contactThrottle,
-      throttleKey: "d".repeat(64),
-    });
+  ])(
+    "maps $label failure to a redacted typed 503",
+    async ({ throttleFailure }) => {
+      const contactThrottle: ContactThrottlePort = {
+        consume: vi.fn(async () => {
+          if (throttleFailure) throw new Error("database and raw IP detail");
+          return { allowed: true, remaining: 4, retryAfterSeconds: 0 };
+        }),
+      };
+      const contactDelivery: ContactDeliveryPort = {
+        sendContact: vi.fn(
+          async () =>
+            ({
+              status: "not-delivered",
+              provider: "resend",
+              code: "CONTACT_PROVIDER_UNAVAILABLE",
+              retryable: true,
+            }) as const
+        ),
+      };
+      const service = createContactService({
+        delivery: contactDelivery,
+        throttle: contactThrottle,
+        throttleKey: "d".repeat(64),
+      });
 
-    return await expect(service.submit(input)).rejects.toEqual(
-      new ContactServiceError("SERVICE_UNAVAILABLE")
-    );
-  });
+      return await expect(service.submit(input)).rejects.toEqual(
+        new ContactServiceError("SERVICE_UNAVAILABLE")
+      );
+    }
+  );
 
   it.each([
     "CONTACT_PROVIDER_NOT_CONFIGURED",
     "CONTACT_RECIPIENT_INVALID",
-  ] as const)("does not disguise disabled adapter %s as successful non-delivery", async (code) => {
-    const service = createContactService({
-      delivery: delivery({
-        status: "not-delivered",
-        provider: "disabled",
-        code,
-        retryable: false,
-      }),
-      throttle: throttle(true),
-      throttleKey: "e".repeat(64),
-    });
+  ] as const)(
+    "does not disguise disabled adapter %s as successful non-delivery",
+    async (code) => {
+      const service = createContactService({
+        delivery: delivery({
+          status: "not-delivered",
+          provider: "disabled",
+          code,
+          retryable: false,
+        }),
+        throttle: throttle(true),
+        throttleKey: "e".repeat(64),
+      });
 
-    return await expect(service.submit(input)).rejects.toEqual(
-      new ContactServiceError("SERVICE_UNAVAILABLE")
-    );
-  });
+      return await expect(service.submit(input)).rejects.toEqual(
+        new ContactServiceError("SERVICE_UNAVAILABLE")
+      );
+    }
+  );
 
   return it("redacts a provider exception before it crosses the service boundary", async () => {
     const service = createContactService({

@@ -159,7 +159,7 @@ const ThemeEffects = ({
   }, [initialPreference, store, themeAuthority]);
 
   useEffect(() => {
-    if (reconciliationVersion === 0) return undefined;
+    if (reconciliationVersion === 0) return;
     const synchronizeTheme = () => {
       const currentAuthority = authorityRef.current;
       applyTheme(store);

@@ -987,7 +987,7 @@ export const graphProcessEnvironment = (
 
 export const nodeGraphProcess: GraphProcess = Object.freeze({
   run: (command, arguments_, options = {}) =>
-    new Promise((resolve) => {
+    new Promise((settle) => {
       return execFile(
         command,
         [...arguments_],
@@ -999,7 +999,7 @@ export const nodeGraphProcess: GraphProcess = Object.freeze({
           windowsHide: true,
         },
         (error, stdout, stderr) =>
-          resolve(
+          settle(
             Object.freeze({
               exitCode:
                 typeof error?.code === "number" ? error.code : error ? 1 : 0,

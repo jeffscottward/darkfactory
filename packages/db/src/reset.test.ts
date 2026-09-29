@@ -41,24 +41,24 @@ const createResetDatabaseDouble = ({
 };
 
 describe("development database reset", () => {
-  it.each([
-    "development",
-    "test",
-  ] as const)("truncates all development-owned tables transactionally in %s", async (environment) => {
-    const double = createResetDatabaseDouble();
+  it.each(["development", "test"] as const)(
+    "truncates all development-owned tables transactionally in %s",
+    async (environment) => {
+      const double = createResetDatabaseDouble();
 
-    const result = await resetDevelopment(double.database, { environment });
+      const result = await resetDevelopment(double.database, { environment });
 
-    expect(result).toEqual({ tablesCleared: 12 });
-    expect(Object.isFrozen(result)).toBe(true);
-    expect(double.lifecycle).toEqual(["begin", "commit"]);
-    expect(double.transaction).toHaveBeenCalledOnce();
-    expect(double.execute).toHaveBeenCalledOnce();
-    const statement = double.execute.mock.calls[0]![0] as SQL;
-    const query = new PgDialect().sqlToQuery(statement).sql;
-    expect(query).toContain("TRUNCATE TABLE");
-    expect([...query.matchAll(/"([a-z_]+)"/g)].map(([, name]) => name)).toEqual(
-      [
+      expect(result).toEqual({ tablesCleared: 12 });
+      expect(Object.isFrozen(result)).toBe(true);
+      expect(double.lifecycle).toEqual(["begin", "commit"]);
+      expect(double.transaction).toHaveBeenCalledOnce();
+      expect(double.execute).toHaveBeenCalledOnce();
+      const statement = double.execute.mock.calls[0]![0] as SQL;
+      const query = new PgDialect().sqlToQuery(statement).sql;
+      expect(query).toContain("TRUNCATE TABLE");
+      expect(
+        [...query.matchAll(/"([a-z_]+)"/g)].map(([, name]) => name)
+      ).toEqual([
         "session",
         "account",
         "addresses",
@@ -71,10 +71,10 @@ describe("development database reset", () => {
         "verification",
         "rate_limit",
         "outbox_events",
-      ]
-    );
-    return expect(query).toContain("RESTART IDENTITY CASCADE");
-  });
+      ]);
+      return expect(query).toContain("RESTART IDENTITY CASCADE");
+    }
+  );
 
   it("rejects every non-development environment before opening a transaction", async () => {
     for (const environment of ["production", "staging", "", undefined, null]) {

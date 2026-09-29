@@ -59,7 +59,7 @@ const emailFromSchema = z
 const parseUrl = (value: string): URL | undefined => {
   try {
     return new URL(value);
-  } catch (_error) {
+  } catch {
     return undefined;
   }
 };

@@ -239,9 +239,9 @@ export type JobReceipt<Name extends string, Result> =
   | FailedJobReceipt<Name>;
 
 export interface JobPort {
-  enqueue<Name extends string, Payload extends object, Result>(
+  enqueue: <Name extends string, Payload extends object, Result>(
     definition: JobDefinition<Name, Payload, Result>,
     payload: JobPayload<Payload>
-  ): Promise<JobReceipt<Name, Result>>;
-  flush(): Promise<void>;
+  ) => Promise<JobReceipt<Name, Result>>;
+  flush: () => Promise<void>;
 }

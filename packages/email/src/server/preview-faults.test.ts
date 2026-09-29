@@ -48,50 +48,49 @@ afterEach(async () => {
 });
 
 describe("preview filesystem fault handling", () => {
-  it.each([
-    "writeFile",
-    "sync",
-    "close",
-  ])("rolls back when a temporary handle %s operation fails", async (operation) => {
-    const directory = await createTemporaryDirectory();
-    const open = async (...args: Parameters<typeof fileSystem.open>) => {
-      const handle = await fileSystem.open(...args);
-      if (!String(args[0]).endsWith(".html.tmp")) return handle;
-      return new Proxy(handle, {
-        get(target, property) {
-          if (property === operation) {
-            if (operation === "close") {
+  it.each(["writeFile", "sync", "close"])(
+    "rolls back when a temporary handle %s operation fails",
+    async (operation) => {
+      const directory = await createTemporaryDirectory();
+      const open = async (...args: Parameters<typeof fileSystem.open>) => {
+        const handle = await fileSystem.open(...args);
+        if (!String(args[0]).endsWith(".html.tmp")) return handle;
+        return new Proxy(handle, {
+          get(target, property) {
+            if (property === operation) {
+              if (operation === "close") {
+                return async () => {
+                  await target.close();
+                  throw injectedError("EIO");
+                };
+              }
               return async () => {
-                await target.close();
                 throw injectedError("EIO");
               };
             }
-            return async () => {
-              throw injectedError("EIO");
-            };
-          }
-          const value = Reflect.get(target, property, target);
-          return typeof value === "function" ? value.bind(target) : value;
-        },
+            const value = Reflect.get(target, property, target);
+            return typeof value === "function" ? value.bind(target) : value;
+          },
+        });
+      };
+      const { createPreviewEmailPortForTest } = await loadPreview({ open });
+      const email = createPreviewEmailPortForTest({
+        environment: "test",
+        directory,
+        artifactName: () => "fault",
       });
-    };
-    const { createPreviewEmailPortForTest } = await loadPreview({ open });
-    const email = createPreviewEmailPortForTest({
-      environment: "test",
-      directory,
-      artifactName: () => "fault",
-    });
 
-    const result = await email.sendPasswordReset(resetInput);
+      const result = await email.sendPasswordReset(resetInput);
 
-    expect(result).toEqual({
-      status: "failed",
-      provider: "preview",
-      code: "EMAIL_PREVIEW_WRITE_FAILED",
-      retryable: false,
-    });
-    return expect(await fileSystem.readdir(directory)).toEqual([]);
-  });
+      expect(result).toEqual({
+        status: "failed",
+        provider: "preview",
+        code: "EMAIL_PREVIEW_WRITE_FAILED",
+        retryable: false,
+      });
+      return expect(await fileSystem.readdir(directory)).toEqual([]);
+    }
+  );
 
   it("cleans partial handles and its reservation when a later open fails", async () => {
     const directory = await createTemporaryDirectory();

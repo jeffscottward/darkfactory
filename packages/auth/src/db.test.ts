@@ -512,25 +512,28 @@ describe("confirmed Better Auth session revocation", () => {
       "a session cookie with an empty attribute segment",
       "better-auth.session_token=; Path=/;; Max-Age=0; HttpOnly",
     ],
-  ])("confirms clearance of $0 among multiple Set-Cookie headers", async (_case, cookie) => {
-    const handler = createConfirmedSignOutHandler(
-      dependencies({
-        expireSessionCookie: vi
-          .fn()
-          .mockResolvedValue(
-            successfulCookieResponse(
-              "darkfactory.preference=retained; Path=/; Max-Age=3600",
-              cookie
-            )
-          ),
-      })
-    );
+  ])(
+    "confirms clearance of $0 among multiple Set-Cookie headers",
+    async (_case, cookie) => {
+      const handler = createConfirmedSignOutHandler(
+        dependencies({
+          expireSessionCookie: vi
+            .fn()
+            .mockResolvedValue(
+              successfulCookieResponse(
+                "darkfactory.preference=retained; Path=/; Max-Age=3600",
+                cookie
+              )
+            ),
+        })
+      );
 
-    const response = await handler(request());
+      const response = await handler(request());
 
-    expect(response.status).toBe(200);
-    return expect(await body(response)).toEqual({ success: true });
-  });
+      expect(response.status).toBe(200);
+      return expect(await body(response)).toEqual({ success: true });
+    }
+  );
 
   it.each([
     [
@@ -698,36 +701,41 @@ describe("confirmed Better Auth session revocation", () => {
     [[{ id: "different-session" }], [], "missing"],
     [[], [], "missing"],
     [[], [{ userId: "different-user" }], "mismatch"],
-  ])("confirms exact ownership as %s", async (deletedRows, existingRows, expected) => {
-    const returning = vi.fn().mockResolvedValue(deletedRows);
-    const deleteWhere = vi.fn().mockReturnValue({ returning });
-    const remove = vi.fn().mockReturnValue({ where: deleteWhere });
-    const limit = vi.fn().mockResolvedValue(existingRows);
-    const selectWhere = vi.fn().mockReturnValue({ limit });
-    const from = vi.fn().mockReturnValue({ where: selectWhere });
-    const select = vi.fn().mockReturnValue({ from });
-    const revoke = createCurrentSessionRevoker({
-      delete: remove,
-      select,
-    } as never);
+  ])(
+    "confirms exact ownership as %s",
+    async (deletedRows, existingRows, expected) => {
+      const returning = vi.fn().mockResolvedValue(deletedRows);
+      const deleteWhere = vi.fn().mockReturnValue({ returning });
+      const remove = vi.fn().mockReturnValue({ where: deleteWhere });
+      const limit = vi.fn().mockResolvedValue(existingRows);
+      const selectWhere = vi.fn().mockReturnValue({ limit });
+      const from = vi.fn().mockReturnValue({ where: selectWhere });
+      const select = vi.fn().mockReturnValue({ from });
+      const revoke = createCurrentSessionRevoker({
+        delete: remove,
+        select,
+      } as never);
 
-    await expect(
-      revoke({
-        sessionId: "session-current",
-        userId: "user-current",
-      })
-    ).resolves.toBe(expected);
-    expect(remove).toHaveBeenCalledOnce();
-    const predicate = deleteWhere.mock.calls[0]?.[0];
-    expect(predicate).toBeDefined();
-    const query = new PgDialect().sqlToQuery(predicate);
-    expect(query.sql).toContain('"session"."id"');
-    expect(query.sql).toContain('"session"."user_id"');
-    expect(query.sql).toContain(" and ");
-    expect(query.params).toEqual(["session-current", "user-current"]);
-    expect(returning).toHaveBeenCalledWith({ id: expect.anything() });
-    return expect(select).toHaveBeenCalledTimes(expected === "revoked" ? 0 : 1);
-  });
+      await expect(
+        revoke({
+          sessionId: "session-current",
+          userId: "user-current",
+        })
+      ).resolves.toBe(expected);
+      expect(remove).toHaveBeenCalledOnce();
+      const predicate = deleteWhere.mock.calls[0]?.[0];
+      expect(predicate).toBeDefined();
+      const query = new PgDialect().sqlToQuery(predicate);
+      expect(query.sql).toContain('"session"."id"');
+      expect(query.sql).toContain('"session"."user_id"');
+      expect(query.sql).toContain(" and ");
+      expect(query.params).toEqual(["session-current", "user-current"]);
+      expect(returning).toHaveBeenCalledWith({ id: expect.anything() });
+      return expect(select).toHaveBeenCalledTimes(
+        expected === "revoked" ? 0 : 1
+      );
+    }
+  );
 
   it("composes raw identity lookup, exact revocation, and Better Auth cookie expiry", async () => {
     const getSession = vi.fn().mockResolvedValue({

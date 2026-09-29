@@ -174,17 +174,20 @@ describe("recording jobs adapter", () => {
     ["custom prototype", Object.create({ inherited: true })],
     ["non-finite number", { value: Number.POSITIVE_INFINITY }],
     ["oversize value", { value: "x".repeat(MAX_JOB_PAYLOAD_BYTES + 1) }],
-  ])("normalizes invalid %s payloads without recording them", async (_, payload) => {
-    const jobs = createRecordingJobPort();
-    const receipt = await jobs.enqueue(jsonJob, asPayload(payload));
+  ])(
+    "normalizes invalid %s payloads without recording them",
+    async (_, payload) => {
+      const jobs = createRecordingJobPort();
+      const receipt = await jobs.enqueue(jsonJob, asPayload(payload));
 
-    expect(receipt).toMatchObject({
-      status: "failed",
-      execution: "recording",
-      error: { code: "JOB_PAYLOAD_INVALID", retryable: false },
-    });
-    return expect(jobs.getEnvelopes()).toEqual([]);
-  });
+      expect(receipt).toMatchObject({
+        status: "failed",
+        execution: "recording",
+        error: { code: "JOB_PAYLOAD_INVALID", retryable: false },
+      });
+      return expect(jobs.getEnvelopes()).toEqual([]);
+    }
+  );
 
   it("rejects cyclic payloads without invoking accessors", async () => {
     let getterCalls = 0;

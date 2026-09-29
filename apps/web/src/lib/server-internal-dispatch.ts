@@ -70,7 +70,7 @@ const dispatchWithAbort = (
       removeAbortListener();
       try {
         waitUntil(completion);
-      } catch (_error) {
+      } catch {
         // The operation still has a rejection handler when scheduling is unavailable.
       }
       return reject(abortReason(signal));

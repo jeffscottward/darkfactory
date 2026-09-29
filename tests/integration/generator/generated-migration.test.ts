@@ -302,13 +302,16 @@ describe("generated feature migration on real Postgres", () => {
       "draft",
       "23503",
     ],
-  ])("rejects %s", async (_case, constraint, ownerId, name, status, code) =>
-    await expect(
-      testDatabase.query(
-        `INSERT INTO "${TABLE}" (id, owner_id, name, description, status) VALUES ($1, $2, $3, '', $4)`,
-        [`rejected-${constraint}`, ownerId, name, status]
-      )
-    ).rejects.toMatchObject({ code, constraint: `${TABLE}_${constraint}` }));
+  ])(
+    "rejects %s",
+    async (_case, constraint, ownerId, name, status, code) =>
+      await expect(
+        testDatabase.query(
+          `INSERT INTO "${TABLE}" (id, owner_id, name, description, status) VALUES ($1, $2, $3, '', $4)`,
+          [`rejected-${constraint}`, ownerId, name, status]
+        )
+      ).rejects.toMatchObject({ code, constraint: `${TABLE}_${constraint}` })
+  );
 
   return it("cascades owner deletion", async () => {
     await testDatabase.query(

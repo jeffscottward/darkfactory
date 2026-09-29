@@ -169,20 +169,25 @@ describe("database client factories", () => {
       "postgresql://worker:credential@aws.connect.psdb.cloud:5432/darkfactory?sslmode=verify-full&sslrootcert=system",
       "postgresql://worker:credential@aws.connect.psdb.cloud:5432/darkfactory?sslmode=verify-full",
     ],
-  ])("uses runtime system roots for %s", async (connectionString, normalized) => {
-    const nodeResource = createNodeDatabase({ connectionString });
-    const requestResource = await createRequestDatabase({ connectionString });
+  ])(
+    "uses runtime system roots for %s",
+    async (connectionString, normalized) => {
+      const nodeResource = createNodeDatabase({ connectionString });
+      const requestResource = await createRequestDatabase({ connectionString });
 
-    expect(driver.clients[0]?.options).toEqual({
-      connectionString: normalized,
-      connectionTimeoutMillis: 10_000,
-      query_timeout: 10_000,
-    });
-    expect(driver.pools[0]?.options).toEqual({ connectionString: normalized });
+      expect(driver.clients[0]?.options).toEqual({
+        connectionString: normalized,
+        connectionTimeoutMillis: 10_000,
+        query_timeout: 10_000,
+      });
+      expect(driver.pools[0]?.options).toEqual({
+        connectionString: normalized,
+      });
 
-    await nodeResource.close();
-    return await requestResource.close();
-  });
+      await nodeResource.close();
+      return await requestResource.close();
+    }
+  );
   it.each([
     "postgresql://worker:credential@aws.connect.psdb.cloud/darkfactory?sslmode=verify-full&sslrootcert=custom.pem",
     "postgresql://worker:credential@aws.connect.psdb.cloud/darkfactory?sslmode=require&sslrootcert=system",
@@ -195,20 +200,23 @@ describe("database client factories", () => {
     "postgresql://worker:credential@aws.connect.psdb.cloud/darkfactory?sslmode=verify-full&sslmode=disable&sslrootcert=system",
     "postgresql://worker:credential@aws.connect.psdb.cloud/darkfactory?sslmode=verify-full&sslrootcert=system&host=attacker.example",
     "postgresql://worker:credential@%2Ftmp.psdb.cloud/darkfactory?sslmode=verify-full&sslrootcert=system&query_timeout_extra=0&application_name=dark factory%ZZ",
-  ])("preserves non-PlanetScale system-root configuration %s", async (connectionString) => {
-    const nodeResource = createNodeDatabase({ connectionString });
-    const requestResource = await createRequestDatabase({ connectionString });
+  ])(
+    "preserves non-PlanetScale system-root configuration %s",
+    async (connectionString) => {
+      const nodeResource = createNodeDatabase({ connectionString });
+      const requestResource = await createRequestDatabase({ connectionString });
 
-    expect(driver.clients[0]?.options).toEqual({
-      connectionString,
-      connectionTimeoutMillis: 10_000,
-      query_timeout: 10_000,
-    });
-    expect(driver.pools[0]?.options).toEqual({ connectionString });
+      expect(driver.clients[0]?.options).toEqual({
+        connectionString,
+        connectionTimeoutMillis: 10_000,
+        query_timeout: 10_000,
+      });
+      expect(driver.pools[0]?.options).toEqual({ connectionString });
 
-    await nodeResource.close();
-    return await requestResource.close();
-  });
+      await nodeResource.close();
+      return await requestResource.close();
+    }
+  );
 
   it.each([
     "postgresql://worker:credential-that-must-not-leak@localhost/darkfactory?query_timeout=0",
@@ -216,25 +224,28 @@ describe("database client factories", () => {
     "postgresql://worker:credential-that-must-not-leak@localhost/darkfactory?query_timeout=10000&query_timeout=0",
     "postgresql://worker:credential-that-must-not-leak@%2Fvar%2Frun%2Fpostgresql/darkfactory?query%5Ftimeout=0",
     "postgresql://worker:credential-that-must-not-leak@localhost/darkfactory?query_timeout=0#client-fragment",
-  ])("rejects request query timeout URL overrides before constructing a client", async (connectionString) => {
-    let rejection: unknown;
-    try {
-      await createRequestDatabase({ connectionString });
-    } catch (error) {
-      rejection = error;
-    }
+  ])(
+    "rejects request query timeout URL overrides before constructing a client",
+    async (connectionString) => {
+      let rejection: unknown;
+      try {
+        await createRequestDatabase({ connectionString });
+      } catch (error) {
+        rejection = error;
+      }
 
-    expect(rejection).toBeInstanceOf(TypeError);
-    expect((rejection as Error).message).toBe(
-      "Request database connection strings cannot set query_timeout"
-    );
-    expect((rejection as Error).message).not.toContain(
-      "credential-that-must-not-leak"
-    );
-    expect(driver.pools).toHaveLength(0);
-    expect(driver.clients).toHaveLength(0);
-    return expect(driver.drizzle).not.toHaveBeenCalled();
-  });
+      expect(rejection).toBeInstanceOf(TypeError);
+      expect((rejection as Error).message).toBe(
+        "Request database connection strings cannot set query_timeout"
+      );
+      expect((rejection as Error).message).not.toContain(
+        "credential-that-must-not-leak"
+      );
+      expect(driver.pools).toHaveLength(0);
+      expect(driver.clients).toHaveLength(0);
+      return expect(driver.drizzle).not.toHaveBeenCalled();
+    }
+  );
 
   it.each([
     "postgresql://worker:credential-that-must-not-leak@localhost/darkfactory?query_\ntimeout=0",
@@ -244,25 +255,28 @@ describe("database client factories", () => {
     "postgresql://worker:credential-that-must-not-leak@localhost/darkfactory?query_timeout\u001f",
     "postgresql://worker:credential-that-must-not-leak@localhost/darkfactory?query_timeout ",
     "postgresql://worker:credential-that-must-not-leak@localhost/darkfactory?application_name=darkfactory\u000b&pool=worker",
-  ])("rejects raw URL controls before constructing a client", async (connectionString) => {
-    let rejection: unknown;
-    try {
-      await createRequestDatabase({ connectionString });
-    } catch (error) {
-      rejection = error;
-    }
+  ])(
+    "rejects raw URL controls before constructing a client",
+    async (connectionString) => {
+      let rejection: unknown;
+      try {
+        await createRequestDatabase({ connectionString });
+      } catch (error) {
+        rejection = error;
+      }
 
-    expect(rejection).toBeInstanceOf(TypeError);
-    expect((rejection as Error).message).toBe(
-      "Request database connection strings cannot contain raw URL controls"
-    );
-    expect((rejection as Error).message).not.toContain(
-      "credential-that-must-not-leak"
-    );
-    expect(driver.pools).toHaveLength(0);
-    expect(driver.clients).toHaveLength(0);
-    return expect(driver.drizzle).not.toHaveBeenCalled();
-  });
+      expect(rejection).toBeInstanceOf(TypeError);
+      expect((rejection as Error).message).toBe(
+        "Request database connection strings cannot contain raw URL controls"
+      );
+      expect((rejection as Error).message).not.toContain(
+        "credential-that-must-not-leak"
+      );
+      expect(driver.pools).toHaveLength(0);
+      expect(driver.clients).toHaveLength(0);
+      return expect(driver.drizzle).not.toHaveBeenCalled();
+    }
+  );
 
   it("creates one client per production request and ends each socket on close", async () => {
     const first = await createRequestDatabase({

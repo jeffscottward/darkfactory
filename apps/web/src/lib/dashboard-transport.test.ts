@@ -44,34 +44,36 @@ describe("authenticated dashboard transport", () => {
     return expect(cancel).toHaveBeenCalledOnce();
   });
 
-  it.each([
-    null,
-    "",
-    "   ",
-  ])("removes a request-supplied Cookie when the trusted cookie is %j", async (cookieHeader) => {
-    let forwarded: Request | undefined;
-    const fetchDashboard = createAuthenticatedDashboardFetch(
-      cookieHeader,
-      "https://darkfactory.localhost",
-      async (request) => {
-        forwarded = request;
-        return new Response("{}");
-      }
-    );
+  it.each([null, "", "   "])(
+    "removes a request-supplied Cookie when the trusted cookie is %j",
+    async (cookieHeader) => {
+      let forwarded: Request | undefined;
+      const fetchDashboard = createAuthenticatedDashboardFetch(
+        cookieHeader,
+        "https://darkfactory.localhost",
+        async (request) => {
+          forwarded = request;
+          return new Response("{}");
+        }
+      );
 
-    await fetchDashboard(
-      new Request("https://darkfactory.localhost/api/orpc/dashboard/summary", {
-        headers: { cookie: "attacker=untrusted" },
-      })
-    );
+      await fetchDashboard(
+        new Request(
+          "https://darkfactory.localhost/api/orpc/dashboard/summary",
+          {
+            headers: { cookie: "attacker=untrusted" },
+          }
+        )
+      );
 
-    expect(forwarded?.headers.get("cookie")).toBeNull();
-    expect(forwarded?.headers.get("origin")).toBe(
-      "https://darkfactory.localhost"
-    );
-    expect(forwarded?.cache).toBe("no-store");
-    return expect(forwarded?.redirect).toBe("manual");
-  });
+      expect(forwarded?.headers.get("cookie")).toBeNull();
+      expect(forwarded?.headers.get("origin")).toBe(
+        "https://darkfactory.localhost"
+      );
+      expect(forwarded?.cache).toBe("no-store");
+      return expect(forwarded?.redirect).toBe("manual");
+    }
+  );
 
   it("aborts a stalled internal oRPC request at the configured deadline", async () => {
     const fetcher = vi.fn(

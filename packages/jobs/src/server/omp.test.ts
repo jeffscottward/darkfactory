@@ -6298,10 +6298,10 @@ describe("OMP CLI adapter", () => {
       mocks.WP2writeFileDelegate = undefined;
       mocks.WP4readFileDelegate = undefined;
       expect(boundaryMutations).toBe(1);
-      if (mismatch !== "change-hash") {
-        expect(recoveredFileReads).toBe(1);
-      } else {
+      if (mismatch === "change-hash") {
         void 0;
+      } else {
+        expect(recoveredFileReads).toBe(1);
       }
     }
   });

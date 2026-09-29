@@ -591,18 +591,21 @@ describe("admin user directory states", () => {
     ["unauthorized", "/sign-in?callbackURL=%2Fadmin%2Fusers", "Sign in"],
     ["forbidden", "/dashboard", "Back to dashboard"],
     ["not-found", "/dashboard", "Back to dashboard"],
-  ] as const)("renders the authorization-safe %s recovery action", (kind, href, action) => {
-    const html = renderToStaticMarkup(
-      <AdminUsersDirectory
-        query=""
-        state={{ type: "error", kind, message: `Safe ${kind} feedback.` }}
-      />
-    );
-    expect(html).toContain(`Safe ${kind} feedback.`);
-    expect(html).toContain(`href="${href}"`);
-    expect(html).toContain(action);
-    return expect(html).not.toContain("Try again");
-  });
+  ] as const)(
+    "renders the authorization-safe %s recovery action",
+    (kind, href, action) => {
+      const html = renderToStaticMarkup(
+        <AdminUsersDirectory
+          query=""
+          state={{ type: "error", kind, message: `Safe ${kind} feedback.` }}
+        />
+      );
+      expect(html).toContain(`Safe ${kind} feedback.`);
+      expect(html).toContain(`href="${href}"`);
+      expect(html).toContain(action);
+      return expect(html).not.toContain("Try again");
+    }
+  );
 });
 
 describe("admin users page client", () => {

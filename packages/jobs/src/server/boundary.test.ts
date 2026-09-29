@@ -57,16 +57,16 @@ describe("inline jobs package boundary", () => {
     );
   }, 15_000);
 
-  return it.each([
-    "workerd",
-    "worker",
-  ])("resolves the real inline module for simultaneous %s and browser conditions", (workerCondition) => {
-    const resolution = resolveInlineWith([workerCondition, "browser"]);
+  return it.each(["workerd", "worker"])(
+    "resolves the real inline module for simultaneous %s and browser conditions",
+    (workerCondition) => {
+      const resolution = resolveInlineWith([workerCondition, "browser"]);
 
-    expect({ status: resolution.status, stderr: resolution.stderr }).toEqual({
-      status: 0,
-      stderr: "",
-    });
-    return expect(resolution.stdout).toMatch(/\/src\/server\/inline\.ts$/);
-  });
+      expect({ status: resolution.status, stderr: resolution.stderr }).toEqual({
+        status: 0,
+        stderr: "",
+      });
+      return expect(resolution.stdout).toMatch(/\/src\/server\/inline\.ts$/);
+    }
+  );
 });

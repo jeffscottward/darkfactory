@@ -24,10 +24,10 @@ const mocks = vi.hoisted(() => ({
     "lstat" | "open" | "realpath"
   >,
   resetConstants: (): void => {
-    undefined;
+    // No-op double.
   },
   resetFileSystem: (): void => {
-    undefined;
+    // No-op double.
   },
 }));
 vi.mock("node:fs", async () => {

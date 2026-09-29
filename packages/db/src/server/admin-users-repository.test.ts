@@ -374,19 +374,17 @@ describe("admin user directory", () => {
     ]);
   });
 
-  it.each([
-    0,
-    101,
-    1.5,
-    Number.NaN,
-  ])("denies invalid limit %s before opening a transaction", async (limit) => {
-    const double = createAdminDatabase();
+  it.each([0, 101, 1.5, Number.NaN])(
+    "denies invalid limit %s before opening a transaction",
+    async (limit) => {
+      const double = createAdminDatabase();
 
-    await expect(
-      createAdminUsersRepository(double.database).search({ limit })
-    ).rejects.toBeInstanceOf(InvalidAdminUsersCursorError);
-    return expect(double.database.transaction).not.toHaveBeenCalled();
-  });
+      await expect(
+        createAdminUsersRepository(double.database).search({ limit })
+      ).rejects.toBeInstanceOf(InvalidAdminUsersCursorError);
+      return expect(double.database.transaction).not.toHaveBeenCalled();
+    }
+  );
 
   it("denies a malformed cursor before opening a transaction", async () => {
     const double = createAdminDatabase();
@@ -400,25 +398,25 @@ describe("admin user directory", () => {
     return expect(double.database.transaction).not.toHaveBeenCalled();
   });
 
-  it.each([
-    "statement timeout",
-    "directory query",
-  ] as const)("maps a %s failure to the stable persistence error", async (failurePoint) => {
-    const privateFailure = new Error("private database detail");
-    const double = createAdminDatabase(
-      failurePoint === "statement timeout"
-        ? { executeError: privateFailure }
-        : { outcomes: [privateFailure] }
-    );
+  it.each(["statement timeout", "directory query"] as const)(
+    "maps a %s failure to the stable persistence error",
+    async (failurePoint) => {
+      const privateFailure = new Error("private database detail");
+      const double = createAdminDatabase(
+        failurePoint === "statement timeout"
+          ? { executeError: privateFailure }
+          : { outcomes: [privateFailure] }
+      );
 
-    await expect(
-      createAdminUsersRepository(double.database).search({ limit: 10 })
-    ).rejects.toMatchObject({
-      name: "AdminUsersPersistenceError",
-      message: "Admin user directory is unavailable",
-    });
-    return expect(double.lifecycle).toEqual(["begin", "rollback"]);
-  });
+      await expect(
+        createAdminUsersRepository(double.database).search({ limit: 10 })
+      ).rejects.toMatchObject({
+        name: "AdminUsersPersistenceError",
+        message: "Admin user directory is unavailable",
+      });
+      return expect(double.lifecycle).toEqual(["begin", "rollback"]);
+    }
+  );
 
   it("preserves an explicit cursor denial raised by the transaction boundary", async () => {
     const denial = new InvalidAdminUsersCursorError();

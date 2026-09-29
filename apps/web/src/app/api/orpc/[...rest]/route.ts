@@ -1,4 +1,4 @@
-import { waitUntil } from "cloudflare:workers";
+import { waitUntil as workerWaitUntil } from "cloudflare:workers";
 import { createPostHogAnalyticsPort } from "@darkfactory/analytics/server/posthog";
 import { CONTACT_ERRORS } from "@darkfactory/api";
 import {
@@ -255,7 +255,7 @@ export const handleOrpcRuntimeRequest = async (
 };
 
 const handleOrpc = (request: Request): Promise<Response> => {
-  return handleOrpcRuntimeRequest(request, waitUntil);
+  return handleOrpcRuntimeRequest(request, workerWaitUntil);
 };
 
 export const GET = handleOrpc;
