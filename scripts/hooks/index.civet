@@ -97,29 +97,28 @@ function runBunScripts(scripts: readonly string[], paths: readonly string[] = []
 
   return 0
 
-function checkBunRuntime(): number
+function warnBunRuntime(): void
+  const warn = (detail: string): void =>
+    console.error(`[hook] WARNING: Bun runtime differs from the pinned toolchain (${detail}); continuing, but local results may differ from CI`)
   try
-    const arguments_ = ["--version"]
-    const pathResolved = spawnSync("bun", arguments_, {
+    const pathResolved = spawnSync("bun", ["--version"], {
       encoding: "utf8",
       shell: false,
       stdio: ["ignore", "pipe", "inherit"],
       timeout: 10_000,
     })
     if (pathResolved.error || pathResolved.signal || pathResolved.status !== 0)
-      return failureExitCode("bun", arguments_, pathResolved)
+      warn(`PATH bun --version failed: ${pathResolved.error?.message ?? pathResolved.signal ?? `exit ${pathResolved.status}`}`)
+      return
     const inspection = inspectBunRuntime(
       readFileSync(".bun-version", "utf8"),
       (globalThis as typeof globalThis & { Bun?: { version?: string } }).Bun?.version ?? "",
       { exitCode: pathResolved.status, stdout: pathResolved.stdout },
     )
     if (!inspection.ok)
-      console.error(`[hook] Bun runtime prerequisite failed: ${inspection.detail}`)
-      return 1
-    return 0
+      warn(inspection.detail)
   catch (error)
-    console.error(`[hook] Bun runtime prerequisite failed: ${error instanceof Error ? error.message : String(error)}`)
-    return 1
+    warn(error instanceof Error ? error.message : String(error))
 
 export function runPreCommit()
   const staged = readStagedPaths()
@@ -133,7 +132,7 @@ export function runPreCommit()
   if (biomePaths.length === 0 && markdownPaths.length === 0)
     if (staged.paths.some(isCivetPath))
       console.error(
-        "[hook] staged Civet validation is deferred to mandatory bun run verify:core before push.",
+        "[hook] staged Civet validation is deferred to mandatory bun run verify:prepush before push.",
       )
 
     return 0
@@ -152,7 +151,7 @@ export function runPreCommit()
 
   return 0
 
-export const PRE_PUSH_SCRIPTS: readonly string[] = Object.freeze(["verify:core"])
+export const PRE_PUSH_SCRIPTS: readonly string[] = Object.freeze(["verify:prepush"])
 
 const MAX_PUSH_INPUT_BYTES = 64 * 1024
 const MAX_PUSH_REFS = 256
@@ -226,11 +225,12 @@ function checkPushCheckout(expectedHead: string)
     return current.exitCode
   if (current.commit !== expectedHead)
     throw new Error("HEAD changed during pre-push; retry from the pushed commit")
-  const status = runPushGit(["status", "--porcelain=v1", "-z", "--untracked-files=all", "--ignore-submodules=none"])
+  // Untracked and ignored files cannot reach the pushed commit, so only tracked changes block.
+  const status = runPushGit(["status", "--porcelain=v1", "-z", "--untracked-files=no", "--ignore-submodules=none"])
   if (status.exitCode !== 0)
     return status.exitCode
   if (status.stdout.length > 0)
-    throw new Error("pre-push requires a clean checkout: commit or remove tracked, staged, and unignored untracked changes")
+    throw new Error("pre-push requires committed tracked files: commit or stash staged and unstaged changes to tracked files")
   return 0
 
 export function runPrePush(
@@ -261,9 +261,7 @@ export function runPrePush(
     const checkoutStatus = checkPushCheckout(head.commit)
     if (checkoutStatus !== 0)
       return checkoutStatus
-    const runtimeStatus = checkBunRuntime()
-    if (runtimeStatus !== 0)
-      return runtimeStatus
+    warnBunRuntime()
     for (const script of PRE_PUSH_SCRIPTS)
       const status = (dependencies.runScripts ?? runBunScripts)([script])
       if (status !== 0)

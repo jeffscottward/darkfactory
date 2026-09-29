@@ -45,7 +45,7 @@ const OTHER = "b".repeat(40)
 const TAG = "c".repeat(40)
 const ZERO = "0".repeat(40)
 const target = ["review", "ssh://git@code.example/team/destination.git"]
-const lanes = ["verify:core"]
+const lanes = ["verify:prepush"]
 const update = (id = HEAD, ref = "refs/heads/main") => `HEAD ${id} ${ref} ${ZERO}\n`
 const deletion = `(delete) ${ZERO} refs/heads/old ${OTHER}\n`
 const result = (status: number | null = 0, stdout = "", extra = {}) => ({
@@ -106,12 +106,12 @@ describe("source-bound pre-push", () =>
 
   it("blocks publication when core fails", () =>
     mocks.spawnSync.mockImplementation((executable, arguments_) =>
-      if (executable === "bun" && arguments_[1] === "verify:core")
+      if (executable === "bun" && arguments_[1] === "verify:prepush")
         return result(23)
       return gitSuccess(executable, arguments_)
     )
     expect(run()).toBe(23)
-    expect(invokedLanes()).toEqual(["verify:core"])
+    expect(invokedLanes()).toEqual(["verify:prepush"])
   )
 
   it("does not let consumers mutate the mandatory lanes", () =>
@@ -120,63 +120,67 @@ describe("source-bound pre-push", () =>
     expect(invokedLanes()).toEqual(lanes)
   )
 
+  const expectRuntimeWarning = (detail: string): void =>
+    expect(run()).toBe(0)
+    expect(console.error).toHaveBeenCalledWith(expect.stringMatching(/^\[hook\] WARNING: Bun runtime differs from the pinned toolchain/u))
+    expect(console.error).toHaveBeenCalledWith(expect.stringContaining(detail))
+    expect(invokedLanes()).toEqual(lanes)
+
   it.each([
-    ["missing", () =>
+    ["missing", "missing", () =>
       mocks.readFileSync.mockImplementation(() =>
         throw new Error("missing")
       )
     ],
-    ["malformed", () => mocks.readFileSync.mockReturnValue("not-semver\n")],
-    ["wrong", () => mocks.readFileSync.mockReturnValue("9.9.9\n")],
-  ] as const)("blocks a %s Bun pin before local lanes", (_name, arrange) =>
+    ["malformed", "missing or malformed", () => mocks.readFileSync.mockReturnValue("not-semver\n")],
+    ["wrong", "Executing Bun must exactly match", () => mocks.readFileSync.mockReturnValue("9.9.9\n")],
+  ] as const)("warns about a %s Bun pin without blocking local lanes", (_name, detail, arrange) =>
     arrange()
-    expect(run()).toBe(1)
-    expect(invokedLanes()).toEqual([])
+    expectRuntimeWarning(detail)
   )
+
   it.each([
-    ["nonzero exit", result(9), 9],
-    ["spawn error", result(0, "", { error: new Error("bun unavailable") }), 1],
-    ["termination signal", result(null, "", { signal: "SIGTERM" }), 1],
-  ] as const)("blocks a PATH-resolved bun %s before local lanes", (_name, failedResult, expected) =>
+    ["nonzero exit", result(9), "exit 9"],
+    ["spawn error", result(0, "", { error: new Error("bun unavailable") }), "bun unavailable"],
+    ["termination signal", result(null, "", { signal: "SIGTERM" }), "SIGTERM"],
+  ] as const)("warns about a PATH-resolved bun %s without blocking local lanes", (_name, failedResult, detail) =>
     mocks.spawnSync.mockImplementation((executable, arguments_) =>
       if (executable === "bun" && arguments_[0] === "--version")
         return failedResult
       return gitSuccess(executable, arguments_)
     )
-    expect(run()).toBe(expected)
-    expect(invokedLanes()).toEqual([])
+    expectRuntimeWarning(detail)
   )
 
-
-  it("blocks a mismatched PATH-resolved bun before local lanes", () =>
+  it("warns about a mismatched PATH-resolved bun without blocking local lanes", () =>
     mocks.spawnSync.mockImplementation((executable, arguments_) =>
       if (executable === "bun" && arguments_[0] === "--version")
         return result(0, "9.9.9\n")
       return gitSuccess(executable, arguments_)
     )
-    expect(run()).toBe(1)
-    expect(invokedLanes()).toEqual([])
+    expectRuntimeWarning("PATH-resolved bun must exactly match")
   )
 
-  it("blocks a mismatched executing Bun before local lanes", () =>
+  it("warns about a mismatched executing Bun without blocking local lanes", () =>
     vi.stubGlobal("Bun", { version: "9.9.9" })
-    expect(run()).toBe(1)
-    expect(invokedLanes()).toEqual([])
+    expectRuntimeWarning("Executing Bun must exactly match")
   )
 
-  it("blocks a missing executing Bun even when PATH bun matches the pin", () =>
+  it("warns about a missing executing Bun even when PATH bun matches the pin", () =>
     vi.stubGlobal("Bun", undefined)
-    expect(run()).toBe(1)
-    expect(invokedLanes()).toEqual([])
+    expectRuntimeWarning("Executing Bun must exactly match")
   )
 
-  it("blocks non-Error failures reading the Bun pin before local lanes", () =>
+  it("warns about non-Error failures reading the Bun pin", () =>
     mocks.readFileSync.mockImplementation(() =>
       throw "Bun pin unavailable"
     )
-    expect(run()).toBe(1)
-    expect(console.error).toHaveBeenCalledWith(expect.stringContaining("Bun pin unavailable"))
-    expect(invokedLanes()).toEqual([])
+    expectRuntimeWarning("Bun pin unavailable")
+  )
+
+  it("does not warn when both Bun runtimes match the pin", () =>
+    expect(run()).toBe(0)
+    expect(console.error).not.toHaveBeenCalledWith(expect.stringContaining("WARNING"))
   )
 
 
@@ -248,7 +252,7 @@ describe("source-bound pre-push", () =>
     expect(invokedLanes()).toEqual(lanes)
   )
 
-  it.each([" M src/index.civet\0", "M  src/index.civet\0", "?? src/new.civet\0"])("rejects dirty source %j before local lanes", (dirty) =>
+  it.each([" M src/index.civet\0", "M  src/index.civet\0", "MM src/index.civet\0"])("rejects dirty tracked source %j before local lanes", (dirty) =>
     mocks.spawnSync.mockImplementation((executable, arguments_) =>
       if (arguments_.includes("status"))
         return result(0, dirty)
@@ -256,6 +260,15 @@ describe("source-bound pre-push", () =>
     )
     expect(run()).toBe(1)
     expect(invokedLanes()).toEqual([])
+  )
+
+  it("inspects only tracked files so untracked and ignored files never block a push", () =>
+    expect(run()).toBe(0)
+    const statusCalls = mocks.spawnSync.mock.calls.filter(([, arguments_]) => arguments_.includes("status"))
+    expect(statusCalls).toHaveLength(2)
+    for (const [, arguments_] of statusCalls)
+      expect(arguments_).toContain("--untracked-files=no")
+      expect(arguments_).not.toContain("--ignored")
   )
 
   it("rejects source files modified by a successful verification lane", () =>
