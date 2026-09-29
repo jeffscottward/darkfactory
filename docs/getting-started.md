@@ -38,7 +38,7 @@ git commit -m "chore: initialize project" && git push
 Init rewrites the template identity for your project: the `@darkfactory` scope, the `darkfactory` slug and `darkfactory.localhost`, the production domain and email sender, the repository URLs, the `DARKFACTORY_` and `darkfactory_` prefixes, and the LICENSE holder. It removes the owner's Cloudflare `account_id`, and deploys use `CLOUDFLARE_ACCOUNT_ID` instead. It deletes instance-only history, runs `pnpm install` and regenerates the generated docs. Preview with `--dry-run`. Two options:
 
 - `--without-operator` deletes the opt-in agent-SDLC plane: every workspace package whose `package.json` `brick` is `agent-sdlc`, plus their root scripts and dependencies, the `WORKFLOW_*` env keys, `docs/operator.md`, and the tests, config entries and doc lines that cite them.
-- `--fresh-history` is for a plain `git clone`. After renaming, it commits the tree as a single root commit on your branch and removes the remotes and tags that still reach the template's commits. It needs a Git identity and refuses if other local branches carry template commits.
+- `--fresh-history` is for a plain `git clone`, shallow ones included. After renaming, it commits the tree as a single root commit on your branch (`main` when HEAD is detached), removes every remote, deletes the tags that reach the old history, and fails if any ref still reaches it. It needs a Git identity and refuses if another local branch carries the old history.
 
 Init prints the next steps. It never suggests pushing a checkout that still carries the template's history. Then protect `main` ([deploy.md](deploy.md#branch-protection)).
 <!-- init:end -->
