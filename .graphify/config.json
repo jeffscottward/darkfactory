@@ -5,7 +5,7 @@
   "source": {
     "roots": ["."],
     "files": [
-      ".env.schema",
+      ".env.example",
       "package.json",
       "turbo.json",
       "tsconfig.base.json",

@@ -6,8 +6,8 @@ WORKDIR /opt/darkfactory-verifier/dependencies
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 COPY apps/ ./apps/
 COPY packages/ ./packages/
-RUN corepack enable \
-  && corepack prepare pnpm@11.16.0 --activate \
+# Exact pnpm pin matches mise.toml and package.json#packageManager.
+RUN npm install --global pnpm@11.16.0 \
   && pnpm install --frozen-lockfile --ignore-scripts \
   && rm -rf node_modules/@darkfactory
 

@@ -114,9 +114,8 @@ const runCli = async (
   const { APP_ENV: _inheritedAppEnvironment, ...parentEnvironment } =
     process.env;
   return execFileAsync(
-    "corepack",
+    "pnpm",
     [
-      "pnpm",
       "--silent",
       "run",
       `db:${command}`,

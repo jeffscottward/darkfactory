@@ -96,8 +96,8 @@ const expandVitestRuns = async (
       .map((token) => token.replace(/^"(.*)"$/u, "$1"));
     if (tokens.length === 3 && tokens[0] === "bun" && tokens[1] === "run") {
       runs.push(...(await expandVitestRuns(tokens[2]!, cwd)));
-    } else if (tokens.slice(0, 4).join(" ") === "corepack pnpm exec vitest") {
-      runs.push({ cwd, arguments_: tokens.slice(4) });
+    } else if (tokens.slice(0, 3).join(" ") === "pnpm exec vitest") {
+      runs.push({ cwd, arguments_: tokens.slice(3) });
     } else if (tokens.slice(0, 4).join(" ") === "bunx --no-install turbo run") {
       const task = tokens[4]!;
       const passThrough = tokens.includes("--")

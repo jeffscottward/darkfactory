@@ -11,24 +11,23 @@ import {
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 
-const mocks = vi.hoisted(() => ({ spawnSync: vi.fn() }));
-
-vi.mock("node:child_process", () => ({ spawnSync: mocks.spawnSync }));
-
+import { EnvironmentValidationError } from "@darkfactory/config/server";
 import {
   listTemporaryBindingFiles,
   materializeWorkerBindings,
+  resolveWorkerBindings,
   writeWorkerBindings,
 } from "./bindings.ts";
 
 const directories: string[] = [];
+// Sorted, as resolveWorkerBindings writes them.
 const validBindings = [
   "APP_ENV=development",
-  "DATABASE_URL=postgresql://local.invalid/database",
   "BETTER_AUTH_SECRET=development-auth-secret-at-least-32",
   "CONTACT_THROTTLE_SECRET=development-contact-secret-at-least-32",
+  "DATABASE_URL=postgresql://local.invalid/database",
   "",
 ].join("\n");
 
@@ -39,10 +38,6 @@ const directory = async (): Promise<string> => {
   directories.push(path);
   return path;
 };
-
-beforeEach(() => {
-  return mocks.spawnSync.mockReset();
-});
 
 afterEach(async () => {
   return await Promise.all(
@@ -155,28 +150,55 @@ describe("development Worker bindings", () => {
     ]);
   });
 
-  it("materializes validated Varlock output at the repository boundary", async () => {
-    const root = await directory();
-    await mkdir(join(root, "apps", "web"), { recursive: true });
-    mocks.spawnSync.mockReturnValueOnce({
-      status: 0,
-      error: undefined,
-      stdout: validBindings,
-    });
-
-    await materializeWorkerBindings(root);
-
-    expect(mocks.spawnSync).toHaveBeenCalledWith(
-      "varlock",
-      ["load", "--format", "env", "--compact"],
+  it("resolves .env values, lets the process environment win, and quotes only when needed", () => {
+    const resolved = resolveWorkerBindings(
+      [
+        "# comment",
+        "DATABASE_URL=postgresql://file.invalid/database",
+        "BETTER_AUTH_SECRET=development-auth-secret-at-least-32",
+        "CONTACT_THROTTLE_SECRET=development-contact-secret-at-least-32",
+        "EMAIL_FROM=DarkFactory <noreply@domain.test>",
+        "WORKFLOW_REPOSITORIES_ROOT=/srv/repositories",
+        "GROQ_API_KEY=",
+        "",
+      ].join("\n"),
       {
-        cwd: root,
-        encoding: "utf8",
-        maxBuffer: MAX_BINDING_BYTES,
-        timeout: 30_000,
-        windowsHide: true,
+        DATABASE_URL: "postgresql://override.invalid/database",
+        UNRELATED_SHELL_VALUE: "must-not-leak",
       }
     );
+
+    expect(resolved).toBe(
+      [
+        "BETTER_AUTH_SECRET=development-auth-secret-at-least-32",
+        "CONTACT_THROTTLE_SECRET=development-contact-secret-at-least-32",
+        "DATABASE_URL=postgresql://override.invalid/database",
+        "EMAIL_FROM='DarkFactory <noreply@domain.test>'",
+        "WORKFLOW_REPOSITORIES_ROOT=/srv/repositories",
+        "",
+      ].join("\n")
+    );
+    return expect(resolved).not.toContain("UNRELATED_SHELL_VALUE");
+  });
+
+  it("rejects invalid environments and values that cannot be written literally", () => {
+    expect(() =>
+      resolveWorkerBindings("DATABASE_URL=postgresql://local.invalid/db\n", {})
+    ).toThrow(EnvironmentValidationError);
+    for (const unsafe of ["it's", "two\nlines"]) {
+      expect(() =>
+        resolveWorkerBindings(validBindings, { APP_NAME: unsafe })
+      ).toThrow("APP_NAME cannot be written to Worker bindings safely");
+    }
+  });
+
+  it("materializes validated .env values at the repository boundary", async () => {
+    const root = await directory();
+    await mkdir(join(root, "apps", "web"), { recursive: true });
+    await writeFile(join(root, ".env"), validBindings);
+
+    await materializeWorkerBindings(root, "web", {});
+
     expect(await readFile(join(root, "apps", "web", ".dev.vars"), "utf8")).toBe(
       validBindings
     );
@@ -192,13 +214,13 @@ describe("development Worker bindings", () => {
     const webTarget = join(root, "apps", "web", ".dev.vars");
     const operatorTarget = join(root, "apps", "operator", ".dev.vars");
     await writeFile(webTarget, "existing-web-bindings", { mode: 0o600 });
-    mocks.spawnSync.mockReturnValueOnce({
-      status: 0,
-      error: undefined,
-      stdout: validBindings,
-    });
 
-    await materializeWorkerBindings(root, "operator");
+    await materializeWorkerBindings(root, "operator", {
+      APP_ENV: "development",
+      DATABASE_URL: "postgresql://local.invalid/database",
+      BETTER_AUTH_SECRET: "development-auth-secret-at-least-32",
+      CONTACT_THROTTLE_SECRET: "development-contact-secret-at-least-32",
+    });
 
     expect(await readFile(webTarget, "utf8")).toBe("existing-web-bindings");
     expect(await readFile(operatorTarget, "utf8")).toBe(validBindings);
@@ -213,15 +235,10 @@ describe("development Worker bindings", () => {
     const outside = await directory();
     await mkdir(join(root, "apps"), { recursive: true });
     await symlink(outside, join(root, "apps", "operator"));
-    mocks.spawnSync.mockReturnValueOnce({
-      status: 0,
-      error: undefined,
-      stdout: validBindings,
-    });
 
-    await expect(materializeWorkerBindings(root, "operator")).rejects.toThrow(
-      "Worker bindings directory is unsafe"
-    );
+    await expect(
+      materializeWorkerBindings(root, "operator", {})
+    ).rejects.toThrow("Worker bindings directory is unsafe");
     return await expect(
       lstat(join(outside, ".dev.vars"))
     ).rejects.toMatchObject({
@@ -229,26 +246,19 @@ describe("development Worker bindings", () => {
     });
   });
 
-  return it("rejects both nonzero and spawn-error Varlock outcomes without writing output", async () => {
+  return it("rejects unreadable .env files and invalid environments without writing output", async () => {
     const root = await directory();
     await mkdir(join(root, "apps", "web"), { recursive: true });
-    mocks.spawnSync.mockReturnValueOnce({
-      status: 1,
-      error: undefined,
-      stdout: validBindings,
-    });
-    await expect(materializeWorkerBindings(root)).rejects.toThrow(
-      "Unable to resolve validated Worker bindings"
+    await mkdir(join(root, ".env"));
+    await expect(materializeWorkerBindings(root, "web", {})).rejects.toThrow(
+      "Unable to read .env"
     );
 
-    mocks.spawnSync.mockReturnValueOnce({
-      status: 0,
-      error: new Error("spawn failed"),
-      stdout: validBindings,
-    });
-    await expect(materializeWorkerBindings(root)).rejects.toThrow(
-      "Unable to resolve validated Worker bindings"
-    );
+    await rm(join(root, ".env"), { recursive: true });
+    await writeFile(join(root, ".env"), "BETTER_AUTH_SECRET=short\n");
+    await expect(
+      materializeWorkerBindings(root, "web", {})
+    ).rejects.toBeInstanceOf(EnvironmentValidationError);
     return await expect(
       lstat(join(root, "apps", "web", ".dev.vars"))
     ).rejects.toMatchObject({

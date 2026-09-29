@@ -1,15 +1,17 @@
-import { spawnSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import {
   type FileHandle,
   lstat,
   open,
   readdir,
+  readFile,
   realpath,
   rename,
   rm,
 } from "node:fs/promises";
 import { dirname, join, relative } from "node:path";
+import { parseEnv } from "node:util";
+import { parseServerEnv, serverEnvSchema } from "@darkfactory/config/server";
 
 const MAX_BINDING_BYTES = 128 * 1024;
 export type WorkerBindingsTarget = "web" | "operator";
@@ -115,26 +117,60 @@ export const writeWorkerBindings = async (
   }
 };
 
+// Unquoted values stay byte-identical; anything else is single-quoted, which is
+// literal in both wrangler's dotenv parser (apps/web) and Node's --env-file
+// parser (apps/operator `dev`).
+const UNQUOTED_VALUE = /^[\w.,:/@+=%-]*$/u;
+
+const serializeBinding = (name: string, value: string): string => {
+  if (UNQUOTED_VALUE.test(value)) return `${name}=${value}`;
+  if (/['\r\n]/u.test(value)) {
+    throw new Error(`${name} cannot be written to Worker bindings safely`);
+  }
+  return `${name}='${value}'`;
+};
+
+// Resolves the Worker bindings from `.env` plus the process environment
+// (which wins, as it does for Bun's own .env loading) and validates them with
+// the single env contract, packages/config/src/server.ts#parseServerEnv.
+export const resolveWorkerBindings = (
+  dotenvSource: string,
+  environment: Readonly<Record<string, string | undefined>>
+): string => {
+  const fileValues = parseEnv(dotenvSource);
+  const names = new Set([
+    ...Object.keys(serverEnvSchema.shape),
+    ...Object.keys(fileValues),
+  ]);
+  const values: Record<string, string> = {};
+  for (const name of [...names].sort()) {
+    const value = environment[name] ?? fileValues[name];
+    if (value !== undefined && value !== "") values[name] = value;
+  }
+  parseServerEnv(values);
+  return `${Object.entries(values)
+    .map(([name, value]) => serializeBinding(name, value))
+    .join("\n")}\n`;
+};
+
 export const materializeWorkerBindings = async (
   repositoryPath = process.cwd(),
-  target: WorkerBindingsTarget = "web"
+  target: WorkerBindingsTarget = "web",
+  environment: Readonly<Record<string, string | undefined>> = process.env
 ): Promise<void> => {
   const targetPath = await resolveWorkerBindingsTarget(repositoryPath, target);
-  const result = spawnSync(
-    "varlock",
-    ["load", "--format", "env", "--compact"],
-    {
-      cwd: repositoryPath,
-      encoding: "utf8",
-      maxBuffer: MAX_BINDING_BYTES,
-      timeout: 30_000,
-      windowsHide: true,
+  let dotenvSource = "";
+  try {
+    dotenvSource = await readFile(join(repositoryPath, ".env"), "utf8");
+  } catch (error) {
+    if (!isFileSystemError(error, "ENOENT")) {
+      throw new Error("Unable to read .env");
     }
-  );
-  if (result.status !== 0 || result.error !== undefined) {
-    throw new Error("Unable to resolve validated Worker bindings");
   }
-  await writeWorkerBindings(targetPath, result.stdout);
+  await writeWorkerBindings(
+    targetPath,
+    resolveWorkerBindings(dotenvSource, environment)
+  );
 };
 
 export const listTemporaryBindingFiles = async (

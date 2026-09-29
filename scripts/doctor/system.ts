@@ -1,9 +1,6 @@
 import { execFile } from "node:child_process";
 import { constants } from "node:fs";
 import { access, open } from "node:fs/promises";
-import { createConnection } from "node:net";
-import { homedir } from "node:os";
-import { join } from "node:path";
 
 import type {
   DoctorDependencies,
@@ -23,8 +20,6 @@ const ALLOWED_ENV = [
   "LC_ALL",
   "SSL_CERT_FILE",
   "NODE_EXTRA_CA_CERTS",
-  "PM2_HOME",
-  "COREPACK_HOME",
   "DOCKER_HOST",
   "DOCKER_CONTEXT",
 ] as const;
@@ -103,40 +98,6 @@ export const nodeDoctorFileSystem: DoctorFileSystem = Object.freeze({
   readText: readBounded,
 });
 
-const readLivePid = async (pm2Home: string): Promise<number | null> => {
-  try {
-    const content = await readBounded(join(pm2Home, "pm2.pid"), 32);
-    const pid = Number(content.trim());
-    if (!Number.isSafeInteger(pid) || pid <= 0) return null;
-    process.kill(pid, 0);
-    return pid;
-  } catch {
-    return null;
-  }
-};
-const socketIsLive = (path: string): Promise<boolean> =>
-  new Promise((resolveSocket) => {
-    const socket = createConnection(path);
-    const timer = setTimeout(() => {
-      socket.destroy();
-      return resolveSocket(false);
-    }, 500);
-    socket.once("connect", () => {
-      clearTimeout(timer);
-      socket.destroy();
-      return resolveSocket(true);
-    });
-    return socket.once("error", () => {
-      clearTimeout(timer);
-      return resolveSocket(false);
-    });
-  });
-const pm2DaemonIsLive = async (): Promise<boolean> => {
-  const pm2Home = process.env["PM2_HOME"] ?? join(homedir(), ".pm2");
-  if ((await readLivePid(pm2Home)) === null) return false;
-  return socketIsLive(join(pm2Home, "rpc.sock"));
-};
-
 export const probeTrustedHttps = async (
   url: string
 ): Promise<HttpsProbeResult> => {
@@ -170,7 +131,6 @@ export const nodeDoctorDependencies = (
     bunVersion: runtime.versions.bun ?? "",
     nodeVersion: runtime.versions.node,
     workingDirectory: runtime.cwd(),
-    pm2DaemonAvailable: pm2DaemonIsLive,
     environmentHas: (name: string) => {
       const value = process.env[name];
       return typeof value === "string" && value.length > 0;

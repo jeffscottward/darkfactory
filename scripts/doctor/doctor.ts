@@ -4,13 +4,10 @@ import {
 } from "@darkfactory/config/server/capabilities";
 import { type ParseError, parse as parseJsonc } from "jsonc-parser";
 import { inspectBunRuntime } from "../ci/bun-runtime.ts";
-import {
-  CANONICAL_URL,
-  isCanonicalRouteOutput,
-  PROCESS_NAME,
-  parsePm2ProcessList,
-  ROUTE_NAME,
-} from "../dev/lifecycle.ts";
+import { DEVELOPMENT_TARGETS, isCanonicalRouteOutput } from "../dev/targets.ts";
+
+const { routeName: ROUTE_NAME, canonicalUrl: CANONICAL_URL } =
+  DEVELOPMENT_TARGETS.web;
 
 const MAX_OUTPUT_BYTES = 1_048_576;
 const COMMAND_OPTIONS = Object.freeze({
@@ -52,7 +49,6 @@ export type HttpsProbeResult = Readonly<{
 export type DoctorDependencies = Readonly<{
   bunVersion: string;
   workingDirectory: string;
-  pm2DaemonAvailable: () => Promise<boolean>;
   environmentHas: (name: string) => boolean;
   process: DoctorProcess;
   files: DoctorFileSystem;
@@ -166,14 +162,14 @@ const check = (
 const safeRun = async (
   dependencies: DoctorDependencies,
   command: string,
-  arguments_: readonly string[],
-  options: DoctorCommandOptions = {}
+  arguments_: readonly string[]
 ): Promise<DoctorCommandResult> => {
   try {
-    const result = await dependencies.process.run(command, arguments_, {
-      ...COMMAND_OPTIONS,
-      ...options,
-    });
+    const result = await dependencies.process.run(
+      command,
+      arguments_,
+      COMMAND_OPTIONS
+    );
     if (
       Buffer.byteLength(result.stdout, "utf8") > MAX_OUTPUT_BYTES ||
       Buffer.byteLength(result.stderr, "utf8") > MAX_OUTPUT_BYTES
@@ -380,40 +376,6 @@ const inspectCloudflareConfig = async (
   }
 };
 
-const inspectPm2 = async (
-  dependencies: DoctorDependencies
-): Promise<DoctorCheck> => {
-  if (!(await dependencies.pm2DaemonAvailable())) {
-    return check(
-      "PM2 process",
-      "fail",
-      "PM2 daemon and stable process are absent"
-    );
-  }
-  const list = await safeRun(dependencies, "pm2", ["jlist"], {
-    environment: { PM2_SILENT: "true" },
-  });
-  try {
-    const process =
-      list.exitCode === 0
-        ? parsePm2ProcessList(list.stdout, dependencies.workingDirectory)
-        : { status: "unknown" };
-    return check(
-      "PM2 process",
-      process.status === "online" ? "pass" : "fail",
-      process.status === "online"
-        ? `${PROCESS_NAME} is online`
-        : `${PROCESS_NAME} is ${process.status}`
-    );
-  } catch {
-    return check(
-      "PM2 process",
-      "fail",
-      "PM2 process output is malformed or has conflicting identity"
-    );
-  }
-};
-
 const inspectPortlessRoute = async (
   dependencies: DoctorDependencies
 ): Promise<DoctorCheck> => {
@@ -470,10 +432,9 @@ const PROBE_CHECKS: Readonly<
       exactVersion("0.13.0")
     ),
     await inspectPortlessRoute(dependencies),
+    // Route and trust pass only while `bun run dev` is serving; see
+    // scripts/dev/serve.ts#runDevServer.
     await inspectTrust(dependencies),
-    // `dev:https` serves the portless route under PM2; see
-    // scripts/dev/lifecycle.ts#parsePm2ProcessList.
-    await inspectPm2(dependencies),
   ],
   graphify: async (dependencies) => [
     await toolCheck(
@@ -579,18 +540,9 @@ export const runDoctor = async (
   checks.push(
     await toolCheck(
       dependencies,
-      "Corepack",
-      "corepack",
-      ["--version"],
-      exactVersion("0.34.7")
-    )
-  );
-  checks.push(
-    await toolCheck(
-      dependencies,
       "pnpm",
-      "corepack",
-      ["pnpm", "--version"],
+      "pnpm",
+      ["--version"],
       exactVersion("11.16.0")
     )
   );
@@ -599,9 +551,8 @@ export const runDoctor = async (
     await toolCheck(
       dependencies,
       "Vinext configuration",
-      "corepack",
+      "pnpm",
       [
-        "pnpm",
         "--filter",
         "@darkfactory/web",
         "exec",
@@ -615,8 +566,7 @@ export const runDoctor = async (
     )
   );
   checks.push(
-    await toolCheck(dependencies, "Cloudflare tooling", "corepack", [
-      "pnpm",
+    await toolCheck(dependencies, "Cloudflare tooling", "pnpm", [
       "--filter",
       "@darkfactory/web",
       "exec",
@@ -632,15 +582,6 @@ export const runDoctor = async (
   for (const probe of probes) {
     checks.push(...(await PROBE_CHECKS[probe](dependencies)));
   }
-  checks.push(
-    await toolCheck(
-      dependencies,
-      "Varlock",
-      "varlock",
-      ["--version"],
-      exactVersion("1.13.0")
-    )
-  );
   checks.push(
     await toolCheck(
       dependencies,

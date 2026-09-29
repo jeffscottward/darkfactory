@@ -2287,7 +2287,7 @@ describe("Graphify configured source corpus", () => {
       );
 
       expect(config.source.files).toEqual([
-        ".env.schema",
+        ".env.example",
         "package.json",
         "turbo.json",
         "tsconfig.base.json",

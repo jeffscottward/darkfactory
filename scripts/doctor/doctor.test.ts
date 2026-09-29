@@ -1,10 +1,6 @@
 import { readFileSync } from "node:fs";
 import { loadCapabilityManifest } from "@darkfactory/config/server/capabilities";
 import { describe, expect, it } from "vitest";
-import {
-  PM2_ENVIRONMENT_VERSION,
-  PM2_ENVIRONMENT_VERSION_KEY,
-} from "../dev/lifecycle.ts";
 import { runDoctorCli } from "./cli.ts";
 import {
   type DoctorDependencies,
@@ -59,7 +55,6 @@ const healthyDependencies = (
 ): DoctorDependencies => ({
   bunVersion: PINNED_BUN_VERSION,
   workingDirectory: TEST_CWD,
-  pm2DaemonAvailable: async () => true,
   environmentHas: (name) =>
     new Set([
       "DATABASE_URL",
@@ -77,17 +72,8 @@ const healthyDependencies = (
       if (command === "bun" && arguments_.join(" ") === "--version") {
         return { exitCode: 0, stdout: `${PINNED_BUN_VERSION}\n`, stderr: "" };
       }
-      if (command === "corepack" && arguments_.join(" ") === "pnpm --version") {
+      if (command === "pnpm" && arguments_.join(" ") === "--version") {
         return { exitCode: 0, stdout: "11.16.0\n", stderr: "" };
-      }
-      if (command === "corepack" && arguments_.join(" ") === "--version") {
-        return { exitCode: 0, stdout: "0.34.7\n", stderr: "" };
-      }
-      if (command === "pm2" && arguments_.join(" ") === "--version") {
-        return { exitCode: 0, stdout: "7.0.3\n", stderr: "" };
-      }
-      if (command === "varlock") {
-        return { exitCode: 0, stdout: "varlock 1.13.0\n", stderr: "" };
       }
       if (command === "uv") {
         return { exitCode: 0, stdout: "uv 0.11.32\n", stderr: "" };
@@ -106,25 +92,6 @@ const healthyDependencies = (
         return {
           exitCode: 0,
           stdout: '[{"Service":"postgres","State":"running"}]',
-          stderr: "",
-        };
-      }
-      if (command === "pm2" && arguments_[0] === "jlist") {
-        return {
-          exitCode: 0,
-          stdout: JSON.stringify([
-            {
-              name: "darkfactory-web-dev",
-              pm_id: 7,
-              pm2_env: {
-                [PM2_ENVIRONMENT_VERSION_KEY]: PM2_ENVIRONMENT_VERSION,
-                status: "online",
-                pm_exec_path: `${TEST_CWD}/node_modules/.bin/portless`,
-                pm_cwd: TEST_CWD,
-                args: ["darkfactory", "bun", "run", "dev"],
-              },
-            },
-          ]),
           stderr: "",
         };
       }
@@ -185,7 +152,6 @@ describe("manifest probes", () => {
       "portless",
       "portless route",
       "portless trust",
-      "PM2 process",
       "Graphify",
     ]) {
       expect(names).not.toContain(skipped);
@@ -215,15 +181,13 @@ describe("doctor", () => {
       expect.arrayContaining([
         expect.objectContaining({ name: "Node", status: "pass" }),
         expect.objectContaining({ name: "Bun", status: "pass" }),
-        expect.objectContaining({ name: "Corepack", status: "pass" }),
+        expect.objectContaining({ name: "pnpm", status: "pass" }),
         expect.objectContaining({ name: "Docker", status: "pass" }),
         expect.objectContaining({ name: "Postgres", status: "pass" }),
         expect.objectContaining({ name: "Cloudflare config", status: "pass" }),
         expect.objectContaining({ name: "portless route", status: "pass" }),
         expect.objectContaining({ name: "portless trust", status: "pass" }),
-        expect.objectContaining({ name: "PM2 process", status: "pass" }),
         expect.objectContaining({ name: "Graphify", status: "pass" }),
-        expect.objectContaining({ name: "Varlock", status: "pass" }),
         expect.objectContaining({ name: "uv", status: "pass" }),
       ])
     );
@@ -250,7 +214,6 @@ describe("doctor", () => {
     expect(report.checks.map(({ name }) => name)).toEqual([
       "Capabilities manifest",
       "Node",
-      "Corepack",
       "pnpm",
       "Pinned toolchain",
       "Vinext configuration",
@@ -268,9 +231,7 @@ describe("doctor", () => {
       "portless",
       "portless route",
       "portless trust",
-      "PM2 process",
       "Graphify",
-      "Varlock",
       "uv",
       "TypeScript",
       "Turbo",
@@ -395,13 +356,10 @@ describe("doctor", () => {
             if (command === "node") {
               return { exitCode: 0, stdout: "not-a-semver\n", stderr: "" };
             }
-            if (
-              command === "corepack" &&
-              arguments_.join(" ") === "pnpm --version"
-            ) {
+            if (command === "pnpm" && arguments_.join(" ") === "--version") {
               return { exitCode: 0, stdout: "11.15.0\n", stderr: "" };
             }
-            if (command === "corepack" && arguments_.includes("vinext")) {
+            if (command === "pnpm" && arguments_.includes("vinext")) {
               return { exitCode: 0, stdout: "", stderr: "" };
             }
             if (command === "graphify") {
@@ -431,7 +389,7 @@ describe("doctor", () => {
     });
   });
 
-  it("fails pinned compatibility drift and inspects no PM2 CLI when its daemon is absent", async () => {
+  it("fails pinned compatibility drift", async () => {
     const drift = await runDoctor(
       healthyDependencies({
         files: files({
@@ -441,33 +399,12 @@ describe("doctor", () => {
         }),
       })
     );
-    expect(drift.checks).toContainEqual(
+    return expect(drift.checks).toContainEqual(
       expect.objectContaining({
         name: "Pinned toolchain",
         status: "fail",
       })
     );
-
-    const base = healthyDependencies();
-    const pm2Calls: string[][] = [];
-    const absent = await runDoctor(
-      healthyDependencies({
-        pm2DaemonAvailable: async () => false,
-        process: {
-          run: async (command, arguments_, options) => {
-            if (command === "pm2") pm2Calls.push([command, ...arguments_]);
-            return base.process.run(command, arguments_, options);
-          },
-        },
-      })
-    );
-    expect(absent.checks).toContainEqual(
-      expect.objectContaining({
-        name: "PM2 process",
-        status: "fail",
-      })
-    );
-    return expect(pm2Calls).toHaveLength(0);
   });
 
   it("fails truthfully when required prerequisites are missing", async () => {
@@ -554,12 +491,11 @@ describe("doctor", () => {
     expect(JSON.stringify(report)).not.toContain("private command failure");
     return expect(
       calls.find(({ command, arguments_ }) => {
-        return command === "pm2" && arguments_[0] === "jlist";
+        return command === "portless" && arguments_[0] === "list";
       })?.options
     ).toEqual({
       timeoutMs: 10_000,
       maxOutputBytes: 1_048_576,
-      environment: { PM2_SILENT: "true" },
     });
   });
 
@@ -847,48 +783,6 @@ describe("doctor", () => {
 }`)
     ).toBe("pass");
     return expect(await cloudflareStatus("{ name: ")).toBe("fail");
-  });
-
-  it("maps nonzero, malformed, and stale PM2 process inspection", async () => {
-    const base = healthyDependencies();
-    for (const [stdout, exitCode, detail] of [
-      ["", 1, /unknown/i],
-      ["{", 0, /malformed|conflicting/i],
-      [
-        JSON.stringify([
-          {
-            name: "darkfactory-web-dev",
-            pm_id: 7,
-            pm2_env: {
-              status: "online",
-              pm_exec_path: `${TEST_CWD}/node_modules/.bin/portless`,
-              pm_cwd: TEST_CWD,
-              args: ["darkfactory", "bun", "run", "dev"],
-            },
-          },
-        ]),
-        0,
-        /stale/i,
-      ],
-    ] as const) {
-      const report = await runDoctor(
-        healthyDependencies({
-          process: {
-            run: async (command, arguments_, options) => {
-              return command === "pm2" && arguments_[0] === "jlist"
-                ? { exitCode, stdout, stderr: "" }
-                : base.process.run(command, arguments_, options);
-            },
-          },
-        })
-      );
-      expect(
-        report.checks.find(({ name }) => name === "PM2 process")
-      ).toMatchObject({
-        status: "fail",
-        detail: expect.stringMatching(detail),
-      });
-    }
   });
 
   it("uses empty capability classifications after a manifest failure", async () => {

@@ -87,9 +87,9 @@
   },
   "scripts": {
     "typecheck": "tsc --noEmit -p tsconfig.json",
-    "test": "corepack pnpm exec vitest run --config ../../vitest.config.ts --project unit src/*.test.ts src/server/*.test.ts",
-    "test:unit": "corepack pnpm exec vitest run --config ../../vitest.config.ts --project unit .",
-    "worker:pilot": "bun src/server/pilot-worker-cli.ts",
+    "test": "pnpm exec vitest run --config ../../vitest.config.ts --project unit src/*.test.ts src/server/*.test.ts",
+    "test:unit": "pnpm exec vitest run --config ../../vitest.config.ts --project unit .",
+    "worker:pilot": "bun --env-file=../../.env src/server/pilot-worker-cli.ts",
     "verifier:image:setup": "bun src/server/verifier-image.ts setup",
     "verifier:image:check": "bun src/server/verifier-image.ts check"
   },

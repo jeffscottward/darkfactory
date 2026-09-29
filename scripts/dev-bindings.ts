@@ -1,3 +1,4 @@
+import { EnvironmentValidationError } from "@darkfactory/config/server";
 import {
   materializeWorkerBindings,
   type WorkerBindingsTarget,
@@ -22,9 +23,12 @@ if (!isValidTarget || extra.length > 0) {
         mode: "0600",
       })}\n`
     );
-  } catch {
+  } catch (error) {
+    // Validation issues name variables and rules, never values.
     process.stderr.write(
-      "Unable to materialize validated Worker bindings safely.\n"
+      error instanceof EnvironmentValidationError
+        ? `${error.message}\nFix .env (or run bun run setup) and retry.\n`
+        : "Unable to materialize validated Worker bindings safely.\n"
     );
     process.exitCode = 1;
   }

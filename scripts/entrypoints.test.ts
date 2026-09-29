@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import type { ServeDependencies } from "./dev/serve.ts";
 
 const originalArguments = [...process.argv];
 const originalExitCode = process.exitCode;
@@ -13,8 +14,9 @@ afterEach(() => {
   process.exitCode = originalExitCode;
   vi.restoreAllMocks();
   vi.doUnmock("./dev/bindings.ts");
-  vi.doUnmock("./dev/cli.ts");
-  vi.doUnmock("./dev/system.ts");
+  vi.doUnmock("./dev/serve.ts");
+  vi.doUnmock("./setup/setup.ts");
+  vi.doUnmock("./setup/system.ts");
   vi.doUnmock("./deployment/database.ts");
   vi.doUnmock("./docs/cli.ts");
   vi.doUnmock("./docs/system.ts");
@@ -27,45 +29,67 @@ afterEach(() => {
 });
 
 describe("root executable wrappers", () => {
-  it("forwards malformed development commands and preserves the CLI exit status", async () => {
-    const files = Object.freeze({ kind: "development-files" });
-    const processAdapter = Object.freeze({ kind: "development-process" });
-    const runDevelopmentCli = vi.fn(
+  it("runs the foreground dev server with real process adapters and its exit status", async () => {
+    const runDevServer = vi.fn(
       async (
         arguments_: readonly string[],
-        dependencies: CliStreams &
-          Readonly<{
-            files: unknown;
-            process: unknown;
-          }>
+        dependencies: ServeDependencies
       ) => {
-        expect(arguments_).toEqual(["not-a-command"]);
-        expect(dependencies.files).toBe(files);
-        expect(dependencies.process).toBe(processAdapter);
-        dependencies.writeOutput("development-output\n");
+        expect(arguments_).toEqual(["web"]);
+        expect(dependencies.environment).toBe(process.env);
+        const succeeded = dependencies.spawn(process.execPath, [
+          "-e",
+          "process.exit(5)",
+        ]);
+        expect(await succeeded.exited).toBe(5);
+        const missing = dependencies.spawn(
+          "darkfactory-missing-executable",
+          []
+        );
+        expect(await missing.exited).toBe(1);
+        const sleeping = dependencies.spawn(process.execPath, [
+          "-e",
+          "setTimeout(() => {}, 10_000)",
+        ]);
+        sleeping.kill("SIGTERM");
+        expect(await sleeping.exited).toBeNull();
+        const handler = vi.fn();
+        const on = vi.spyOn(process, "on").mockImplementation(() => process);
+        dependencies.onSignal("SIGINT", handler);
+        expect(on).toHaveBeenCalledWith("SIGINT", handler);
         dependencies.writeError("development-error\n");
         return 64;
       }
     );
-    vi.doMock("./dev/cli.ts", () => ({ runDevelopmentCli }));
-    vi.doMock("./dev/system.ts", () => ({
-      nodeLifecycleFileSystem: files,
-      nodeProcessAdapter: processAdapter,
-    }));
-    process.argv = ["node", "dev.ts", "not-a-command"];
-    const stdout = vi
-      .spyOn(process.stdout, "write")
-      .mockImplementation(() => true);
+    vi.doMock("./dev/serve.ts", () => ({ runDevServer }));
+    process.argv = ["node", "dev.ts", "web"];
     const stderr = vi
       .spyOn(process.stderr, "write")
       .mockImplementation(() => true);
 
     await import("./dev.ts");
 
-    expect(runDevelopmentCli).toHaveBeenCalledOnce();
-    expect(stdout).toHaveBeenCalledWith("development-output\n");
+    expect(runDevServer).toHaveBeenCalledOnce();
     expect(stderr).toHaveBeenCalledWith("development-error\n");
     return expect(process.exitCode).toBe(64);
+  });
+
+  it("forwards setup arguments and node dependencies and preserves its exit status", async () => {
+    const dependencies = Object.freeze({ kind: "setup-dependencies" });
+    const runSetup = vi.fn(async (arguments_: readonly string[]) => {
+      expect(arguments_).toEqual(["--check"]);
+      return 1;
+    });
+    vi.doMock("./setup/setup.ts", () => ({ runSetup }));
+    vi.doMock("./setup/system.ts", () => ({
+      nodeSetupDependencies: () => dependencies,
+    }));
+    process.argv = ["node", "setup.ts", "--check"];
+
+    await import("./setup.ts");
+
+    expect(runSetup).toHaveBeenCalledWith(["--check"], dependencies);
+    return expect(process.exitCode).toBe(1);
   });
 
   it("forwards documentation checks and their drift exit status", async () => {
@@ -325,6 +349,37 @@ describe("root executable wrappers", () => {
     );
     expect(stderr).not.toHaveBeenCalled();
     return expect(process.exitCode).toBeUndefined();
+  });
+
+  it("prints environment validation issues, which name rules but never values", async () => {
+    // The same module instance dev-bindings.ts imports after resetModules.
+    const { EnvironmentValidationError } = await import(
+      "@darkfactory/config/server"
+    );
+    const materializeWorkerBindings = vi.fn(async () => {
+      throw new EnvironmentValidationError([
+        {
+          path: "BETTER_AUTH_SECRET",
+          message: "BETTER_AUTH_SECRET is required",
+        },
+      ]);
+    });
+    vi.doMock("./dev/bindings.ts", () => ({
+      materializeWorkerBindings,
+      workerBindingsTargetPath: () => "apps/web/.dev.vars",
+    }));
+    process.argv = ["node", "dev-bindings.ts"];
+    process.exitCode = undefined;
+    const stderr = vi
+      .spyOn(process.stderr, "write")
+      .mockImplementation(() => true);
+
+    await import("./dev-bindings.ts");
+
+    expect(stderr).toHaveBeenCalledWith(
+      "Invalid server environment:\n- BETTER_AUTH_SECRET: BETTER_AUTH_SECRET is required\nFix .env (or run bun run setup) and retry.\n"
+    );
+    return expect(process.exitCode).toBe(1);
   });
 
   return it("normalizes binding materialization exceptions to a safe error and exit code", async () => {
