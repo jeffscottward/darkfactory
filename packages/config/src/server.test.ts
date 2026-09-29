@@ -1,77 +1,77 @@
-import { describe, expect, it, vi } from "vitest"
-import { CANONICAL_APP_URL, toClientEnv } from "./client.ts"
-import * as database from "./database.ts"
+import { describe, expect, it, vi } from "vitest";
+import { CANONICAL_APP_URL, toClientEnv } from "./client.ts";
+import * as database from "./database.ts";
 import {
   EnvironmentValidationError,
   getProviderCapabilities,
   parseServerEnv,
-} from "./server.ts"
+} from "./server.ts";
 
 const validCoreEnv = (): Record<string, string> => ({
-  DATABASE_URL: "postgresql://database.pg.psdb.cloud:6432/darkfactory_test?sslmode=verify-full",
+  DATABASE_URL:
+    "postgresql://database.pg.psdb.cloud:6432/darkfactory_test?sslmode=verify-full",
   BETTER_AUTH_SECRET: "a".repeat(32),
   CONTACT_THROTTLE_SECRET: "c".repeat(32),
-})
+});
 
 const captureValidationError = (
-  source: Record<string, string | undefined>,
+  source: Record<string, string | undefined>
 ): EnvironmentValidationError => {
   try {
-    parseServerEnv(source)
+    parseServerEnv(source);
+  } catch (error) {
+    if (error instanceof EnvironmentValidationError) return error;
+    throw error;
   }
-  catch (error) {
-    if (error instanceof EnvironmentValidationError) return error
-    throw error
-  }
 
-  throw new Error("Expected environment validation to fail")
-}
+  throw new Error("Expected environment validation to fail");
+};
 
-describe("parseServerEnv", function() {
-  it("reports every missing core database and authentication variable", function() {
-    const error = captureValidationError({})
+describe("parseServerEnv", function () {
+  it("reports every missing core database and authentication variable", function () {
+    const error = captureValidationError({});
 
-    expect(error.message).toContain("DATABASE_URL")
-    expect(error.message).toContain("BETTER_AUTH_SECRET")
-    expect(error.message).toContain("CONTACT_THROTTLE_SECRET")
+    expect(error.message).toContain("DATABASE_URL");
+    expect(error.message).toContain("BETTER_AUTH_SECRET");
+    expect(error.message).toContain("CONTACT_THROTTLE_SECRET");
     return expect(error.issues.map(({ path }) => path)).toEqual([
       "DATABASE_URL",
       "BETTER_AUTH_SECRET",
       "CONTACT_THROTTLE_SECRET",
-    ])
-  })
+    ]);
+  });
 
-  it("reports a non-object environment at the stable root path", function() {
-    const error = captureValidationError(null as never)
+  it("reports a non-object environment at the stable root path", function () {
+    const error = captureValidationError(null as never);
 
-    expect(error.issues).toHaveLength(1)
-    return expect(error.issues[0]?.path).toBe("environment")
-  })
+    expect(error.issues).toHaveLength(1);
+    return expect(error.issues[0]?.path).toBe("environment");
+  });
 
-  it("rejects invalid core values without echoing their contents", function() {
-    const invalidDatabaseUrl = "https://database.invalid/darkfactory"
-    const shortAuthSecret = "s".repeat(8)
-    const shortContactSecret = "c".repeat(8)
+  it("rejects invalid core values without echoing their contents", function () {
+    const invalidDatabaseUrl = "https://database.invalid/darkfactory";
+    const shortAuthSecret = "s".repeat(8);
+    const shortContactSecret = "c".repeat(8);
     const error = captureValidationError({
       DATABASE_URL: invalidDatabaseUrl,
       BETTER_AUTH_SECRET: shortAuthSecret,
       CONTACT_THROTTLE_SECRET: shortContactSecret,
-    })
+    });
 
-    expect(error.message).toContain("DATABASE_URL must be a PostgreSQL URL")
+    expect(error.message).toContain("DATABASE_URL must be a PostgreSQL URL");
     expect(error.message).toContain(
-      "BETTER_AUTH_SECRET must contain at least 32 characters",
-    )
+      "BETTER_AUTH_SECRET must contain at least 32 characters"
+    );
     expect(error.message).toContain(
-      "CONTACT_THROTTLE_SECRET must contain at least 32 characters",
-    )
-    expect(error.message).not.toContain(invalidDatabaseUrl)
-    expect(error.message).not.toContain(shortAuthSecret)
-    return expect(error.message).not.toContain(shortContactSecret)
-  })
+      "CONTACT_THROTTLE_SECRET must contain at least 32 characters"
+    );
+    expect(error.message).not.toContain(invalidDatabaseUrl);
+    expect(error.message).not.toContain(shortAuthSecret);
+    return expect(error.message).not.toContain(shortContactSecret);
+  });
 
-  it("applies typed core and disabled-capability defaults", function() {
-    const env = parseServerEnv(validCoreEnv())
+  it("applies typed core and disabled-capability defaults", function () {
+    const env = parseServerEnv(validCoreEnv());
 
     expect(env).toMatchObject({
       APP_ENV: "development",
@@ -94,62 +94,76 @@ describe("parseServerEnv", function() {
       UPTIME_KUMA_ENABLED: false,
       ERROR_TRACKING_ENABLED: false,
       MEMORI_ENABLED: false,
-    })
-    expect(typeof env.OTEL_ENABLED).toBe("boolean")
-    return expect(typeof env.STORAGE_ENABLED).toBe("boolean")
-  })
+    });
+    expect(typeof env.OTEL_ENABLED).toBe("boolean");
+    return expect(typeof env.STORAGE_ENABLED).toBe("boolean");
+  });
 
-  it("parses an optional bounded contact recipient and treats an empty value as disabled", function() {
-    expect(parseServerEnv({
-      ...validCoreEnv(),
-      CONTACT_EMAIL_TO: "  support@example.test  ",
-    }).CONTACT_EMAIL_TO).toBe("support@example.test")
-    return expect(parseServerEnv({
-      ...validCoreEnv(),
-      CONTACT_EMAIL_TO: "  ",
-    }).CONTACT_EMAIL_TO).toBeUndefined()
-  })
+  it("parses an optional bounded contact recipient and treats an empty value as disabled", function () {
+    expect(
+      parseServerEnv({
+        ...validCoreEnv(),
+        CONTACT_EMAIL_TO: "  support@example.test  ",
+      }).CONTACT_EMAIL_TO
+    ).toBe("support@example.test");
+    return expect(
+      parseServerEnv({
+        ...validCoreEnv(),
+        CONTACT_EMAIL_TO: "  ",
+      }).CONTACT_EMAIL_TO
+    ).toBeUndefined();
+  });
 
   it.each([
     { label: "a malformed contact recipient", value: "not-an-email" },
-    { label: "a contact recipient with injected headers", value: "support@example.test\r\nBcc: attacker@example.test" },
-    { label: "an oversized contact recipient", value: `${"a".repeat(245)}@test.test` },
-  ])("rejects $label without echoing its value", function({ value }) {
+    {
+      label: "a contact recipient with injected headers",
+      value: "support@example.test\r\nBcc: attacker@example.test",
+    },
+    {
+      label: "an oversized contact recipient",
+      value: `${"a".repeat(245)}@test.test`,
+    },
+  ])("rejects $label without echoing its value", function ({ value }) {
     const error = captureValidationError({
       ...validCoreEnv(),
       CONTACT_EMAIL_TO: value,
-    })
+    });
 
     expect(error.issues).toContainEqual({
       path: "CONTACT_EMAIL_TO",
-      message: "CONTACT_EMAIL_TO must be a valid email address of at most 254 characters",
-    })
-    return expect(error.message).not.toContain(value)
-  }
-  )
+      message:
+        "CONTACT_EMAIL_TO must be a valid email address of at most 254 characters",
+    });
+    return expect(error.message).not.toContain(value);
+  });
 
-  it("accepts a mailbox or display mailbox sender and rejects header injection", function() {
-    expect(parseServerEnv({
-      ...validCoreEnv(),
-      EMAIL_FROM: "DarkFactory Support <support@example.test>",
-    }).EMAIL_FROM).toBe("DarkFactory Support <support@example.test>")
-    expect(parseServerEnv({
-      ...validCoreEnv(),
-      EMAIL_FROM: "support@example.test",
-    }).EMAIL_FROM).toBe("support@example.test")
+  it("accepts a mailbox or display mailbox sender and rejects header injection", function () {
+    expect(
+      parseServerEnv({
+        ...validCoreEnv(),
+        EMAIL_FROM: "DarkFactory Support <support@example.test>",
+      }).EMAIL_FROM
+    ).toBe("DarkFactory Support <support@example.test>");
+    expect(
+      parseServerEnv({
+        ...validCoreEnv(),
+        EMAIL_FROM: "support@example.test",
+      }).EMAIL_FROM
+    ).toBe("support@example.test");
 
-    const injected = "DarkFactory <support@example.test>\r\nBcc: victim@example.test"
+    const injected =
+      "DarkFactory <support@example.test>\r\nBcc: victim@example.test";
     const error = captureValidationError({
       ...validCoreEnv(),
       EMAIL_FROM: injected,
-    })
+    });
     expect(error.issues).toContainEqual({
       path: "EMAIL_FROM",
       message: "EMAIL_FROM must be a header-safe mailbox or display mailbox",
-    })
-    return expect(error.message).not.toContain(injected)
-  })
-
+    });
+    return expect(error.message).not.toContain(injected);
+  });
 
   it.each([
     ["an oversized sender", "x".repeat(401)],
@@ -157,96 +171,99 @@ describe("parseServerEnv", function() {
     ["an empty display name", "<support@example.test>"],
     ["an oversized display name", `${"x".repeat(101)} <support@example.test>`],
     ["an invalid display mailbox", "DarkFactory Support <invalid>"],
-  ])("rejects $0 without reflecting it", function(_label, value) {
+  ])("rejects $0 without reflecting it", function (_label, value) {
     const error = captureValidationError({
       ...validCoreEnv(),
       EMAIL_FROM: value,
-    })
+    });
 
     expect(error.issues).toContainEqual({
       path: "EMAIL_FROM",
       message: "EMAIL_FROM must be a header-safe mailbox or display mailbox",
-    })
-    return expect(error.message).not.toContain(value)
-  }
-  )
+    });
+    return expect(error.message).not.toContain(value);
+  });
 
   it.each([
     ["a malformed URL", "not a URL"],
     ["a PostgreSQL URL without a host", "postgresql:///darkfactory"],
-  ])("rejects DATABASE_URL with $0", function(_label, value) {
+  ])("rejects DATABASE_URL with $0", function (_label, value) {
     const error = captureValidationError({
       ...validCoreEnv(),
       DATABASE_URL: value,
-    })
+    });
 
     expect(error.issues).toContainEqual({
       path: "DATABASE_URL",
       message: "DATABASE_URL must be a PostgreSQL URL",
-    })
-    return expect(error.message).not.toContain(value)
-  }
-  )
+    });
+    return expect(error.message).not.toContain(value);
+  });
 
+  it.each([
+    "APP_URL",
+    "BETTER_AUTH_URL",
+  ] as const)("redacts a malformed credential-bearing %s", function (name) {
+    const malformedUrl = "https://private-user:private-password@[invalid";
+    const error = captureValidationError({
+      ...validCoreEnv(),
+      APP_ENV: "production",
+      APP_URL: "https://app.darkfactory.example",
+      BETTER_AUTH_URL: "https://app.darkfactory.example",
+      EMAIL_TRANSPORT: "resend",
+      RESEND_API_KEY: "r".repeat(32),
+      [name]: malformedUrl,
+    });
 
-  it.each(["APP_URL", "BETTER_AUTH_URL"] as const)(
-    "redacts a malformed credential-bearing %s",
-    function(name) {
-      const malformedUrl = "https://private-user:private-password@[invalid"
-      const error = captureValidationError({
-        ...validCoreEnv(),
-        APP_ENV: "production",
-        APP_URL: "https://app.darkfactory.example",
-        BETTER_AUTH_URL: "https://app.darkfactory.example",
-        EMAIL_TRANSPORT: "resend",
-        RESEND_API_KEY: "r".repeat(32),
-        [name]: malformedUrl,
-      })
-
-      expect(error.issues).toContainEqual({
-        path: name,
-        message: `${name} must be a valid URL`,
-      })
-      expect(error.message).not.toContain(malformedUrl)
-      return expect(JSON.stringify(error.issues)).not.toContain("private-password")
-    }
-  )
-  it("normalizes explicit false booleans and rejects unsupported spellings", function() {
+    expect(error.issues).toContainEqual({
+      path: name,
+      message: `${name} must be a valid URL`,
+    });
+    expect(error.message).not.toContain(malformedUrl);
+    return expect(JSON.stringify(error.issues)).not.toContain(
+      "private-password"
+    );
+  });
+  it("normalizes explicit false booleans and rejects unsupported spellings", function () {
     const env = parseServerEnv({
       ...validCoreEnv(),
       OTEL_ENABLED: " FALSE ",
       STORAGE_ENABLED: "false",
       DOCS_ENABLED: "False",
-    })
-    expect(env.OTEL_ENABLED).toBe(false)
-    expect(env.STORAGE_ENABLED).toBe(false)
-    expect(env.DOCS_ENABLED).toBe(false)
+    });
+    expect(env.OTEL_ENABLED).toBe(false);
+    expect(env.STORAGE_ENABLED).toBe(false);
+    expect(env.DOCS_ENABLED).toBe(false);
 
-    return expect(captureValidationError({
-      ...validCoreEnv(),
-      OTEL_ENABLED: "enabled",
-    }).issues).toContainEqual({
+    return expect(
+      captureValidationError({
+        ...validCoreEnv(),
+        OTEL_ENABLED: "enabled",
+      }).issues
+    ).toContainEqual({
       path: "OTEL_ENABLED",
       message: "OTEL_ENABLED must be true or false",
-    })
-  })
+    });
+  });
 
-  it("requires HTTPS before applying clean-origin validation", function() {
-    return expect(captureValidationError({
-      ...validCoreEnv(),
-      APP_URL: "http://app.domain.test",
-      BETTER_AUTH_URL: "http://app.domain.test",
-    }).issues).toContainEqual({
+  it("requires HTTPS before applying clean-origin validation", function () {
+    return expect(
+      captureValidationError({
+        ...validCoreEnv(),
+        APP_URL: "http://app.domain.test",
+        BETTER_AUTH_URL: "http://app.domain.test",
+      }).issues
+    ).toContainEqual({
       path: "APP_URL",
       message: "APP_URL must use HTTPS",
-    })
-  })
-  it("keeps provider capabilities disabled when required variables are absent", function() {
+    });
+  });
+  it("keeps provider capabilities disabled when required variables are absent", function () {
     const env = parseServerEnv({
       ...validCoreEnv(),
       GROQ_API_KEY: "g".repeat(32),
       POSTHOG_KEY: "p".repeat(32),
-    })
+    });
 
     expect(getProviderCapabilities(env)).toEqual({
       ai: false,
@@ -255,13 +272,13 @@ describe("parseServerEnv", function() {
       telemetryExport: false,
       storage: false,
       errorTracking: false,
-    })
-    expect(env.GROQ_MODEL).toBeUndefined()
-    expect(env.POSTHOG_HOST).toBeUndefined()
-    return expect(env.RESEND_API_KEY).toBeUndefined()
-  })
+    });
+    expect(env.GROQ_MODEL).toBeUndefined();
+    expect(env.POSTHOG_HOST).toBeUndefined();
+    return expect(env.RESEND_API_KEY).toBeUndefined();
+  });
 
-  it("parses disabled production email without a Resend key and reports delivery unavailable", function() {
+  it("parses disabled production email without a Resend key and reports delivery unavailable", function () {
     const env = parseServerEnv({
       ...validCoreEnv(),
       APP_ENV: "production",
@@ -270,11 +287,11 @@ describe("parseServerEnv", function() {
       EMAIL_PROVIDER: "disabled",
       EMAIL_TRANSPORT: "disabled",
       EMAIL_FROM: "DarkFactory Staging <noreply@darkfactory.test>",
-    })
+    });
 
-    expect(env.RESEND_API_KEY).toBeUndefined()
-    return expect(getProviderCapabilities(env).emailDelivery).toBe(false)
-  })
+    expect(env.RESEND_API_KEY).toBeUndefined();
+    return expect(getProviderCapabilities(env).emailDelivery).toBe(false);
+  });
 
   it.each([
     {
@@ -292,20 +309,19 @@ describe("parseServerEnv", function() {
         EMAIL_TRANSPORT: "disabled",
       },
     },
-  ])("rejects $label", function({ overrides }) {
+  ])("rejects $label", function ({ overrides }) {
     const error = captureValidationError({
       ...validCoreEnv(),
       ...overrides,
-    })
+    });
 
     return expect(error.issues).toContainEqual({
       path: "EMAIL_TRANSPORT",
       message: "EMAIL_PROVIDER and EMAIL_TRANSPORT must be disabled together",
-    })
-  }
-  )
+    });
+  });
 
-  it("enables provider capabilities only after complete configuration", function() {
+  it("enables provider capabilities only after complete configuration", function () {
     const env = parseServerEnv({
       ...validCoreEnv(),
       GROQ_API_KEY: "g".repeat(32),
@@ -315,7 +331,7 @@ describe("parseServerEnv", function() {
       POSTHOG_KEY: "p".repeat(32),
       POSTHOG_HOST: "https://analytics.invalid",
       OTEL_EXPORTER_OTLP_ENDPOINT: "https://telemetry.invalid/v1/traces",
-    })
+    });
 
     return expect(getProviderCapabilities(env)).toEqual({
       ai: true,
@@ -324,11 +340,11 @@ describe("parseServerEnv", function() {
       telemetryExport: true,
       storage: false,
       errorTracking: false,
-    })
-  })
+    });
+  });
 
-  it("evaluates short-circuit capability operands without enabling partial providers", function() {
-    const env = parseServerEnv(validCoreEnv())
+  it("evaluates short-circuit capability operands without enabling partial providers", function () {
+    const env = parseServerEnv(validCoreEnv());
     expect(getProviderCapabilities(env)).toEqual({
       ai: false,
       emailDelivery: false,
@@ -336,7 +352,7 @@ describe("parseServerEnv", function() {
       telemetryExport: false,
       storage: false,
       errorTracking: false,
-    })
+    });
 
     const incompleteRuntimeEnv = {
       ...env,
@@ -351,7 +367,7 @@ describe("parseServerEnv", function() {
       R2_BUCKET: "bucket-reference",
       ERROR_TRACKING_ENABLED: true,
       ERROR_TRACKING_DSN: undefined,
-    }
+    };
     return expect(getProviderCapabilities(incompleteRuntimeEnv)).toEqual({
       ai: false,
       emailDelivery: false,
@@ -359,25 +375,25 @@ describe("parseServerEnv", function() {
       telemetryExport: false,
       storage: false,
       errorTracking: false,
-    })
-  })
+    });
+  });
 
-  it("rejects explicitly enabled provider capabilities with incomplete environment", function() {
+  it("rejects explicitly enabled provider capabilities with incomplete environment", function () {
     const error = captureValidationError({
       ...validCoreEnv(),
       STORAGE_ENABLED: "true",
       R2_ACCOUNT_ID: "account-reference",
-    })
+    });
 
     expect(error.issues.map(({ path }) => path)).toEqual([
       "R2_ACCESS_KEY_ID",
       "R2_SECRET_ACCESS_KEY",
       "R2_BUCKET",
-    ])
+    ]);
     return expect(error.message).toContain(
-      "R2_ACCESS_KEY_ID is required when STORAGE_ENABLED is true",
-    )
-  })
+      "R2_ACCESS_KEY_ID is required when STORAGE_ENABLED is true"
+    );
+  });
   it.each([
     {
       label: "an APP_URL with a trailing slash",
@@ -445,15 +461,14 @@ describe("parseServerEnv", function() {
       message:
         "ERROR_TRACKING_DSN is required when ERROR_TRACKING_ENABLED is true",
     },
-  ])("rejects $label", function({ overrides, path, message }) {
+  ])("rejects $label", function ({ overrides, path, message }) {
     const error = captureValidationError({
       ...validCoreEnv(),
       ...overrides,
-    })
+    });
 
-    return expect(error.issues).toContainEqual({ path, message })
-  }
-  )
+    return expect(error.issues).toContainEqual({ path, message });
+  });
 
   it.each([
     "https://darkfactory.localhost",
@@ -466,7 +481,7 @@ describe("parseServerEnv", function() {
     "https://localhost.",
     "https://app.darkfactory.localhost.",
     "https://[::ffff:127.0.0.1]",
-  ])("rejects the local production origin %s", function(applicationUrl) {
+  ])("rejects the local production origin %s", function (applicationUrl) {
     const error = captureValidationError({
       ...validCoreEnv(),
       APP_ENV: "production",
@@ -474,14 +489,13 @@ describe("parseServerEnv", function() {
       BETTER_AUTH_URL: applicationUrl,
       EMAIL_TRANSPORT: "resend",
       RESEND_API_KEY: "r".repeat(32),
-    })
+    });
 
     return expect(error.issues).toContainEqual({
       path: "APP_URL",
       message: "APP_URL cannot use a local origin in production",
-    })
-  }
-  )
+    });
+  });
 
   it.each([
     "postgresql://database.example/darkfactory",
@@ -490,8 +504,8 @@ describe("parseServerEnv", function() {
     "postgresql://database.example/darkfactory?sslmode=no-verify",
     "postgresql://database.example/darkfactory?sslmode=verify-ca",
     "postgresql://database.example/darkfactory?sslmode=verify-full&sslmode=disable",
-  ])("rejects production DATABASE_URL without verified TLS: %s", function(databaseUrl) {
-    const applicationUrl = "https://app.darkfactory.example"
+  ])("rejects production DATABASE_URL without verified TLS: %s", function (databaseUrl) {
+    const applicationUrl = "https://app.darkfactory.example";
     const error = captureValidationError({
       ...validCoreEnv(),
       APP_ENV: "production",
@@ -500,19 +514,18 @@ describe("parseServerEnv", function() {
       DATABASE_URL: databaseUrl,
       EMAIL_TRANSPORT: "resend",
       RESEND_API_KEY: "r".repeat(32),
-    })
+    });
 
     return expect(error.issues).toContainEqual({
       path: "DATABASE_URL",
       message: "DATABASE_URL must use sslmode=verify-full in production",
-    })
-  }
-  )
+    });
+  });
 
-  it("requires the PlanetScale provider-managed PgBouncer endpoint in production", function() {
-    const applicationUrl = "https://app.darkfactory.example"
+  it("requires the PlanetScale provider-managed PgBouncer endpoint in production", function () {
+    const applicationUrl = "https://app.darkfactory.example";
     const directDatabaseUrl =
-      "postgresql://private-user:private-password@database.pg.psdb.cloud:5432/darkfactory?sslmode=verify-full"
+      "postgresql://private-user:private-password@database.pg.psdb.cloud:5432/darkfactory?sslmode=verify-full";
     const error = captureValidationError({
       ...validCoreEnv(),
       APP_ENV: "production",
@@ -521,40 +534,44 @@ describe("parseServerEnv", function() {
       DATABASE_URL: directDatabaseUrl,
       EMAIL_TRANSPORT: "resend",
       RESEND_API_KEY: "r".repeat(32),
-    })
+    });
 
     expect(error.issues).toContainEqual({
       path: "DATABASE_URL",
       message: expect.stringMatching(/PgBouncer endpoint on port 6432/),
-    })
-    expect(error.message).not.toContain(directDatabaseUrl)
-    return expect(error.message).not.toContain("private-password")
-  })
+    });
+    expect(error.message).not.toContain(directDatabaseUrl);
+    return expect(error.message).not.toContain("private-password");
+  });
 
-  it("does not convert unexpected database endpoint validator failures", function() {
-    const applicationUrl = "https://app.darkfactory.example"
-    const unexpected = new Error("unexpected endpoint validator failure")
-    const validate = vi.spyOn(database, "validateRequestDatabaseEndpoint")
-      .mockImplementationOnce(() => { throw unexpected })
+  it("does not convert unexpected database endpoint validator failures", function () {
+    const applicationUrl = "https://app.darkfactory.example";
+    const unexpected = new Error("unexpected endpoint validator failure");
+    const validate = vi
+      .spyOn(database, "validateRequestDatabaseEndpoint")
+      .mockImplementationOnce(() => {
+        throw unexpected;
+      });
     try {
-      return expect(() => parseServerEnv({
-        ...validCoreEnv(),
-        APP_ENV: "production",
-        APP_URL: applicationUrl,
-        BETTER_AUTH_URL: applicationUrl,
-        EMAIL_TRANSPORT: "resend",
-        RESEND_API_KEY: "r".repeat(32),
-      })).toThrow(unexpected)
+      return expect(() =>
+        parseServerEnv({
+          ...validCoreEnv(),
+          APP_ENV: "production",
+          APP_URL: applicationUrl,
+          BETTER_AUTH_URL: applicationUrl,
+          EMAIL_TRANSPORT: "resend",
+          RESEND_API_KEY: "r".repeat(32),
+        })
+      ).toThrow(unexpected);
+    } finally {
+      validate.mockRestore();
     }
-    finally {
-      validate.mockRestore()
-    }
-  })
+  });
 
-  it("redacts a malformed credential-bearing production database URL", function() {
+  it("redacts a malformed credential-bearing production database URL", function () {
     const malformedDatabaseUrl =
-      "postgresql://private-user:private-password@[invalid"
-    const applicationUrl = "https://app.darkfactory.example"
+      "postgresql://private-user:private-password@[invalid";
+    const applicationUrl = "https://app.darkfactory.example";
     const error = captureValidationError({
       ...validCoreEnv(),
       APP_ENV: "production",
@@ -563,18 +580,20 @@ describe("parseServerEnv", function() {
       DATABASE_URL: malformedDatabaseUrl,
       EMAIL_TRANSPORT: "resend",
       RESEND_API_KEY: "r".repeat(32),
-    })
+    });
 
     expect(error.issues).toContainEqual({
       path: "DATABASE_URL",
       message: "DATABASE_URL must be a PostgreSQL URL",
-    })
-    expect(error.message).not.toContain(malformedDatabaseUrl)
-    return expect(JSON.stringify(error.issues)).not.toContain("private-password")
-  })
+    });
+    expect(error.message).not.toContain(malformedDatabaseUrl);
+    return expect(JSON.stringify(error.issues)).not.toContain(
+      "private-password"
+    );
+  });
 
-  return it("accepts complete configurations for every conditional capability", function() {
-    const applicationUrl = "https://app.darkfactory.example"
+  return it("accepts complete configurations for every conditional capability", function () {
+    const applicationUrl = "https://app.darkfactory.example";
     const env = parseServerEnv({
       ...validCoreEnv(),
       APP_ENV: "production",
@@ -593,21 +612,21 @@ describe("parseServerEnv", function() {
       R2_BUCKET: "bucket-reference",
       ERROR_TRACKING_ENABLED: "true",
       ERROR_TRACKING_DSN: "https://errors.invalid/project-reference",
-    })
+    });
 
-    expect(env.APP_URL).toBe(applicationUrl)
-    expect(env.DOCS_PUBLIC).toBe(true)
-    expect(env.FLOWER_ENABLED).toBe(true)
-    expect(getProviderCapabilities(env).storage).toBe(true)
-    return expect(getProviderCapabilities(env).errorTracking).toBe(true)
-  })
-})
+    expect(env.APP_URL).toBe(applicationUrl);
+    expect(env.DOCS_PUBLIC).toBe(true);
+    expect(env.FLOWER_ENABLED).toBe(true);
+    expect(getProviderCapabilities(env).storage).toBe(true);
+    return expect(getProviderCapabilities(env).errorTracking).toBe(true);
+  });
+});
 
-describe("toClientEnv", function() {
-  return it("returns an explicit public allowlist and redacts every server secret", function() {
-    const databaseUrl = "postgresql://localhost/darkfactory_test"
-    const authSecret = "a".repeat(32)
-    const providerSecret = "g".repeat(32)
+describe("toClientEnv", function () {
+  return it("returns an explicit public allowlist and redacts every server secret", function () {
+    const databaseUrl = "postgresql://localhost/darkfactory_test";
+    const authSecret = "a".repeat(32);
+    const providerSecret = "g".repeat(32);
     const env = parseServerEnv({
       DATABASE_URL: databaseUrl,
       BETTER_AUTH_SECRET: authSecret,
@@ -615,23 +634,23 @@ describe("toClientEnv", function() {
       GROQ_API_KEY: providerSecret,
       GROQ_MODEL: "provider-model",
       R2_SECRET_ACCESS_KEY: "r".repeat(32),
-    })
+    });
 
-    const clientEnv = toClientEnv(env)
-    const serializedClientEnv = JSON.stringify(clientEnv)
+    const clientEnv = toClientEnv(env);
+    const serializedClientEnv = JSON.stringify(clientEnv);
 
     expect(clientEnv).toEqual({
       APP_ENV: "development",
       APP_URL: CANONICAL_APP_URL,
       APP_NAME: "DarkFactory",
-    })
-    expect(Object.keys(clientEnv)).toEqual(["APP_ENV", "APP_URL", "APP_NAME"])
-    expect(serializedClientEnv).not.toContain(databaseUrl)
-    expect(serializedClientEnv).not.toContain(authSecret)
-    expect(serializedClientEnv).not.toContain(providerSecret)
-    expect(clientEnv).not.toHaveProperty("DATABASE_URL")
-    expect(clientEnv).not.toHaveProperty("BETTER_AUTH_SECRET")
-    expect(clientEnv).not.toHaveProperty("GROQ_API_KEY")
-    return expect(clientEnv).not.toHaveProperty("R2_SECRET_ACCESS_KEY")
-  })
-})
+    });
+    expect(Object.keys(clientEnv)).toEqual(["APP_ENV", "APP_URL", "APP_NAME"]);
+    expect(serializedClientEnv).not.toContain(databaseUrl);
+    expect(serializedClientEnv).not.toContain(authSecret);
+    expect(serializedClientEnv).not.toContain(providerSecret);
+    expect(clientEnv).not.toHaveProperty("DATABASE_URL");
+    expect(clientEnv).not.toHaveProperty("BETTER_AUTH_SECRET");
+    expect(clientEnv).not.toHaveProperty("GROQ_API_KEY");
+    return expect(clientEnv).not.toHaveProperty("R2_SECRET_ACCESS_KEY");
+  });
+});

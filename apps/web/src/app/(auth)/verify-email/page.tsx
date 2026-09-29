@@ -1,27 +1,28 @@
-import Link from "next/link"
-import { CircleAlert, CircleCheck } from "lucide-react"
+import Link from "next/link";
+import { CircleAlert, CircleCheck } from "lucide-react";
 
-import { AuthPanel } from "../../../components/auth/auth-panel.tsx"
-import { EmailActionForm } from "../../../components/auth/email-action-form.tsx"
-import { SessionRedirect } from "../../../components/auth/session-redirect.tsx"
+import { AuthPanel } from "../../../components/auth/auth-panel.tsx";
+import { EmailActionForm } from "../../../components/auth/email-action-form.tsx";
+import { SessionRedirect } from "../../../components/auth/session-redirect.tsx";
 import {
   firstSearchParam,
   type AuthSearchParams,
-} from "../auth-search-params.ts"
+} from "../auth-search-params.ts";
 
 export const metadata = {
   title: "Verify email",
   description: "Confirm or resend a DarkFactory email verification link.",
-}
+};
 
 export default async function VerifyEmailPage({
   searchParams,
 }: Readonly<{ searchParams: AuthSearchParams }>) {
-  const params = await searchParams
-  const verificationError = firstSearchParam(params["error"])
+  const params = await searchParams;
+  const verificationError = firstSearchParam(params["error"]);
   const wasProcessed =
-    verificationError === undefined && firstSearchParam(params["verified"]) === "1"
-  const isExpired = verificationError === "TOKEN_EXPIRED"
+    verificationError === undefined &&
+    firstSearchParam(params["verified"]) === "1";
+  const isExpired = verificationError === "TOKEN_EXPIRED";
 
   return (
     <AuthPanel
@@ -45,7 +46,11 @@ export default async function VerifyEmailPage({
         {wasProcessed ? (
           <div className="grid gap-6" role="status">
             <p className="grid grid-cols-[auto_1fr] gap-2 text-sm leading-6 text-foreground">
-              <CircleCheck aria-hidden="true" className="mt-1 text-primary" size={16} />
+              <CircleCheck
+                aria-hidden="true"
+                className="mt-1 text-primary"
+                size={16}
+              />
               The link was processed. Sign in to confirm the account status.
             </p>
             <Link
@@ -54,21 +59,24 @@ export default async function VerifyEmailPage({
             >
               Continue to sign in
             </Link>
-        </div>
+          </div>
         ) : (
           <div className="grid gap-6">
             {verificationError ? (
-              <p className="grid grid-cols-[auto_1fr] gap-2 text-sm leading-6 text-destructive" role="alert">
+              <p
+                className="grid grid-cols-[auto_1fr] gap-2 text-sm leading-6 text-destructive"
+                role="alert"
+              >
                 <CircleAlert aria-hidden="true" className="mt-1" size={16} />
                 {isExpired
                   ? "This verification link has expired. Request another below."
                   : "This verification link is invalid or has already been used. Request another below."}
-            </p>
+              </p>
             ) : null}
             <EmailActionForm operation="email-verification" />
-        </div>
+          </div>
         )}
       </SessionRedirect>
-  </AuthPanel>
-  )
+    </AuthPanel>
+  );
 }

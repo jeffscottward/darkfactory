@@ -1,4 +1,4 @@
-import { runArtifactScannerCli } from "./cli.ts"
+import { runArtifactScannerCli } from "./cli.ts";
 
 process.exitCode = await runArtifactScannerCli(
   process.argv.slice(2),
@@ -6,5 +6,5 @@ process.exitCode = await runArtifactScannerCli(
   {
     writeOutput: (value) => process.stdout.write(value),
     writeError: (value) => process.stderr.write(value),
-  },
-)
+  }
+);

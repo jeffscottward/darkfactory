@@ -1,11 +1,11 @@
-import type { OperatorClient } from "@darkfactory/operator/contract"
-import { afterEach, describe, expect, it, vi } from "vitest"
+import type { OperatorClient } from "@darkfactory/operator/contract";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
-const operatorTransport = vi.hoisted(() => ({ createOperatorClient: vi.fn() }))
+const operatorTransport = vi.hoisted(() => ({ createOperatorClient: vi.fn() }));
 
 vi.mock("@darkfactory/operator/client", () => ({
   createOperatorClient: operatorTransport.createOperatorClient,
-}))
+}));
 
 import {
   classifyOperatorFailure,
@@ -19,9 +19,9 @@ import {
   type OperatorGateway,
   type OperatorRunDetailOutput,
   type OperatorWorkspaceOutput,
-} from "./operator-client.ts"
+} from "./operator-client.ts";
 
-const workspace: OperatorWorkspaceOutput = { runs: [] }
+const workspace: OperatorWorkspaceOutput = { runs: [] };
 const detail: OperatorRunDetailOutput = {
   run: {
     id: "run-1",
@@ -41,7 +41,7 @@ const detail: OperatorRunDetailOutput = {
   evidence: [],
   messages: [],
   canRequestPlanRevision: true,
-}
+};
 const approval: OperatorApprovalBinding = {
   machineId: "darkfactory-pilot",
   machineVersion: 1,
@@ -51,25 +51,25 @@ const approval: OperatorApprovalBinding = {
   effectHash: "effect-hash",
   effectScope: "run:run-1",
   stale: false,
-}
+};
 const wayfinderStatus = {
   availability: "installed" as const,
   tracker: "local-markdown" as const,
-}
+};
 const wayfinderQueued = {
   runId: "run-wayfinder-1",
   status: "queued" as const,
   tracker: "local-markdown" as const,
-}
+};
 
-afterEach(function() {
-  operatorTransport.createOperatorClient.mockReset()
-  vi.unstubAllGlobals()
-  return vi.restoreAllMocks()
-})
+afterEach(function () {
+  operatorTransport.createOperatorClient.mockReset();
+  vi.unstubAllGlobals();
+  return vi.restoreAllMocks();
+});
 
-describe("operator oRPC transport", function() {
-  it("maps every gateway operation to the typed operator contract", async function() {
+describe("operator oRPC transport", function () {
+  it("maps every gateway operation to the typed operator contract", async function () {
     const operator = {
       submit: vi.fn(async () => detail),
       workspace: vi.fn(async () => workspace),
@@ -84,39 +84,49 @@ describe("operator oRPC transport", function() {
         start: vi.fn(async () => wayfinderQueued),
         revise: vi.fn(async () => detail),
       },
-    }
-    const gateway = createOperatorGateway({ operator } as unknown as OperatorClient)
+    };
+    const gateway = createOperatorGateway({
+      operator,
+    } as unknown as OperatorClient);
 
-    await expect(gateway.submit(
-      "Pilot run",
-      { repositoryId: "darkfactory", paths: ["packages/state"] },
-      "submit-key-1",
-    )).resolves.toBe(detail)
-    await expect(gateway.workspace()).resolves.toBe(workspace)
-    await expect(gateway.detail("run-1")).resolves.toBe(detail)
-    await expect(gateway.approve("run-1", approval)).resolves.toBe(detail)
-    await expect(gateway.reject("run-1")).resolves.toBe(detail)
-    await expect(gateway.cancel("run-1")).resolves.toBe(detail)
-    await expect(gateway.retry("run-1")).resolves.toBe(detail)
-    await expect(gateway.message("run-1", "Bounded context", "message-key-1")).resolves.toBe(detail)
-    await expect(gateway.revise(
-      "run-1",
-      "Clarify the verification steps",
-      "revision-key-1",
-    )).resolves.toBe(detail)
-    await expect(gateway.wayfinderStatus()).resolves.toBe(wayfinderStatus)
-    await expect(gateway.startWayfinder(
-      "Plan the bounded operator extraction",
-      { repositoryId: "darkfactory", paths: ["apps/operator"] },
-    )).resolves.toBe(wayfinderQueued)
+    await expect(
+      gateway.submit(
+        "Pilot run",
+        { repositoryId: "darkfactory", paths: ["packages/state"] },
+        "submit-key-1"
+      )
+    ).resolves.toBe(detail);
+    await expect(gateway.workspace()).resolves.toBe(workspace);
+    await expect(gateway.detail("run-1")).resolves.toBe(detail);
+    await expect(gateway.approve("run-1", approval)).resolves.toBe(detail);
+    await expect(gateway.reject("run-1")).resolves.toBe(detail);
+    await expect(gateway.cancel("run-1")).resolves.toBe(detail);
+    await expect(gateway.retry("run-1")).resolves.toBe(detail);
+    await expect(
+      gateway.message("run-1", "Bounded context", "message-key-1")
+    ).resolves.toBe(detail);
+    await expect(
+      gateway.revise(
+        "run-1",
+        "Clarify the verification steps",
+        "revision-key-1"
+      )
+    ).resolves.toBe(detail);
+    await expect(gateway.wayfinderStatus()).resolves.toBe(wayfinderStatus);
+    await expect(
+      gateway.startWayfinder("Plan the bounded operator extraction", {
+        repositoryId: "darkfactory",
+        paths: ["apps/operator"],
+      })
+    ).resolves.toBe(wayfinderQueued);
 
     expect(operator.submit).toHaveBeenCalledWith({
       title: "Pilot run",
       scope: { repositoryId: "darkfactory", paths: ["packages/state"] },
       idempotencyKey: "submit-key-1",
-    })
-    expect(operator.workspace).toHaveBeenCalledWith({ limit: 100 })
-    expect(operator.detail).toHaveBeenCalledWith({ id: "run-1" })
+    });
+    expect(operator.workspace).toHaveBeenCalledWith({ limit: 100 });
+    expect(operator.detail).toHaveBeenCalledWith({ id: "run-1" });
     expect(operator.approve).toHaveBeenCalledWith({
       id: "run-1",
       approval: {
@@ -128,47 +138,47 @@ describe("operator oRPC transport", function() {
         effectHash: approval.effectHash,
         effectScope: approval.effectScope,
       },
-    })
-    expect(operator.reject).toHaveBeenCalledWith({ id: "run-1" })
-    expect(operator.cancel).toHaveBeenCalledWith({ id: "run-1" })
-    expect(operator.retry).toHaveBeenCalledWith({ id: "run-1" })
+    });
+    expect(operator.reject).toHaveBeenCalledWith({ id: "run-1" });
+    expect(operator.cancel).toHaveBeenCalledWith({ id: "run-1" });
+    expect(operator.retry).toHaveBeenCalledWith({ id: "run-1" });
     expect(operator.message).toHaveBeenCalledWith({
       id: "run-1",
       body: "Bounded context",
       idempotencyKey: "message-key-1",
-    })
-    expect(operator.wayfinder.status).toHaveBeenCalledWith({})
+    });
+    expect(operator.wayfinder.status).toHaveBeenCalledWith({});
     expect(operator.wayfinder.start).toHaveBeenCalledWith({
       request: "Plan the bounded operator extraction",
       scope: { repositoryId: "darkfactory", paths: ["apps/operator"] },
-    })
+    });
     return expect(operator.wayfinder.revise).toHaveBeenCalledWith({
       runId: "run-1",
       message: "Clarify the verification steps",
       idempotencyKey: "revision-key-1",
-    })
-  })
+    });
+  });
 
-  it("reuses one idempotency key until a logical payload is deliberately changed", function() {
-    const keys = ["attempt-1", "attempt-2"]
-    const createKey = vi.fn(() => keys.shift()!)
-    const slot = createOperatorIdempotencyKeySlot(createKey)
+  it("reuses one idempotency key until a logical payload is deliberately changed", function () {
+    const keys = ["attempt-1", "attempt-2"];
+    const createKey = vi.fn(() => keys.shift()!);
+    const slot = createOperatorIdempotencyKeySlot(createKey);
 
-    expect(slot.key()).toBe("attempt-1")
-    expect(slot.key()).toBe("attempt-1")
-    expect(createKey).toHaveBeenCalledOnce()
+    expect(slot.key()).toBe("attempt-1");
+    expect(slot.key()).toBe("attempt-1");
+    expect(createKey).toHaveBeenCalledOnce();
 
-    slot.invalidate()
-    expect(slot.key()).toBe("attempt-2")
-    return expect(createKey).toHaveBeenCalledTimes(2)
-  })
+    slot.invalidate();
+    expect(slot.key()).toBe("attempt-2");
+    return expect(createKey).toHaveBeenCalledTimes(2);
+  });
 
-  it("submits the exact bounded scope, refreshes the workspace, and returns the selected run", async function() {
-    const refreshedWorkspace: OperatorWorkspaceOutput = { runs: [detail.run] }
+  it("submits the exact bounded scope, refreshes the workspace, and returns the selected run", async function () {
+    const refreshedWorkspace: OperatorWorkspaceOutput = { runs: [detail.run] };
     const gateway = {
       submit: vi.fn(async () => detail),
       workspace: vi.fn(async () => refreshedWorkspace),
-    } as unknown as OperatorGateway
+    } as unknown as OperatorGateway;
 
     const outcome = await submitOperatorRun(
       gateway,
@@ -177,8 +187,8 @@ describe("operator oRPC transport", function() {
         repositoryId: " DarkFactory ",
         scopePaths: " packages/state \r\n apps/web ",
       },
-      "submission-attempt-1",
-    )
+      "submission-attempt-1"
+    );
 
     expect(gateway.submit).toHaveBeenCalledWith(
       "  Pilot run  ",
@@ -186,91 +196,103 @@ describe("operator oRPC transport", function() {
         repositoryId: "darkfactory",
         paths: ["packages/state", "apps/web"],
       },
-      "submission-attempt-1",
-    )
-    expect(gateway.workspace).toHaveBeenCalledOnce()
+      "submission-attempt-1"
+    );
+    expect(gateway.workspace).toHaveBeenCalledOnce();
     return expect(outcome).toEqual({
       selectedRun: detail,
       workspace: refreshedWorkspace,
-    })
-  })
+    });
+  });
 
-  it("passes blank, absolute, and traversal paths to the existing API contract unchanged", async function() {
-    const rejection = { code: "BAD_REQUEST", message: "raw validation detail" }
+  it("passes blank, absolute, and traversal paths to the existing API contract unchanged", async function () {
+    const rejection = { code: "BAD_REQUEST", message: "raw validation detail" };
     const gateway = {
       submit: vi.fn(async () => {
-        throw rejection
-      }
-      ),
+        throw rejection;
+      }),
       workspace: vi.fn(),
-    } as unknown as OperatorGateway
+    } as unknown as OperatorGateway;
 
-    await expect(submitOperatorRun(
-      gateway,
-      {
-        title: "Pilot run",
-        repositoryId: "darkfactory",
-        scopePaths: "packages/state\n\n/etc\npackages/../secrets",
-      },
-      "submission-attempt-invalid",
-    )).rejects.toBe(rejection)
+    await expect(
+      submitOperatorRun(
+        gateway,
+        {
+          title: "Pilot run",
+          repositoryId: "darkfactory",
+          scopePaths: "packages/state\n\n/etc\npackages/../secrets",
+        },
+        "submission-attempt-invalid"
+      )
+    ).rejects.toBe(rejection);
     expect(gateway.submit).toHaveBeenCalledWith(
       "Pilot run",
       {
         repositoryId: "darkfactory",
         paths: ["packages/state", "", "/etc", "packages/../secrets"],
       },
-      "submission-attempt-invalid",
-    )
-    return expect(gateway.workspace).not.toHaveBeenCalled()
-  })
+      "submission-attempt-invalid"
+    );
+    return expect(gateway.workspace).not.toHaveBeenCalled();
+  });
 
-  it("keeps a successful selection when the workspace refresh fails safely", async function() {
+  it("keeps a successful selection when the workspace refresh fails safely", async function () {
     const gateway = {
       submit: vi.fn(async () => detail),
       workspace: vi.fn(async () => {
-        throw new Error("raw storage detail")
-      }
-      ),
-    } as unknown as OperatorGateway
+        throw new Error("raw storage detail");
+      }),
+    } as unknown as OperatorGateway;
 
-    return await expect(submitOperatorRun(
-      gateway,
-      {
-        title: "Pilot run",
-        repositoryId: "darkfactory",
-        scopePaths: "packages/state",
-      },
-      "submission-attempt-2",
-    )).resolves.toEqual({
+    return await expect(
+      submitOperatorRun(
+        gateway,
+        {
+          title: "Pilot run",
+          repositoryId: "darkfactory",
+          scopePaths: "packages/state",
+        },
+        "submission-attempt-2"
+      )
+    ).resolves.toEqual({
       selectedRun: detail,
       workspaceFailure: {
         kind: "unknown",
         message: "The operator request could not be completed. Try again.",
       },
-    })
-  })
+    });
+  });
 
-  it("classifies stale approval conflicts without exposing thrown details", function() {
-    expect(classifyOperatorFailure({ code: "STALE_APPROVAL", message: "secret provider detail" })).toEqual({
+  it("classifies stale approval conflicts without exposing thrown details", function () {
+    expect(
+      classifyOperatorFailure({
+        code: "STALE_APPROVAL",
+        message: "secret provider detail",
+      })
+    ).toEqual({
       kind: "stale",
       message: "The plan changed. Reload the run before you take action.",
-    })
-    expect(classifyOperatorFailure({ data: { code: "UNAUTHORIZED" } }).kind).toBe("unauthorized")
-    expect(classifyOperatorSubmissionFailure({
-      code: "BAD_REQUEST",
-      message: "raw validation detail",
-    })).toEqual({
+    });
+    expect(
+      classifyOperatorFailure({ data: { code: "UNAUTHORIZED" } }).kind
+    ).toBe("unauthorized");
+    expect(
+      classifyOperatorSubmissionFailure({
+        code: "BAD_REQUEST",
+        message: "raw validation detail",
+      })
+    ).toEqual({
       kind: "invalid",
-      message: "Check the run title, repository ID, and relative scope paths, then try again.",
-    })
+      message:
+        "Check the run title, repository ID, and relative scope paths, then try again.",
+    });
     return expect(classifyOperatorFailure(new Error("raw failure"))).toEqual({
       kind: "unknown",
       message: "The operator request could not be completed. Try again.",
-    })
-  })
+    });
+  });
 
-  it("lazily creates one browser client and delegates every operation through it", async function() {
+  it("lazily creates one browser client and delegates every operation through it", async function () {
     const operator = {
       submit: vi.fn(async () => detail),
       workspace: vi.fn(async () => workspace),
@@ -285,75 +307,121 @@ describe("operator oRPC transport", function() {
         start: vi.fn(async () => wayfinderQueued),
         revise: vi.fn(async () => detail),
       },
-    }
-    operatorTransport.createOperatorClient.mockReturnValue({ operator })
-    vi.stubGlobal("window", { location: { origin: "https://operator.example" } })
-    const gateway = createBrowserOperatorGateway()
+    };
+    operatorTransport.createOperatorClient.mockReturnValue({ operator });
+    vi.stubGlobal("window", {
+      location: { origin: "https://operator.example" },
+    });
+    const gateway = createBrowserOperatorGateway();
 
-    expect(operatorTransport.createOperatorClient).not.toHaveBeenCalled()
-    await expect(gateway.workspace()).resolves.toBe(workspace)
-    await expect(gateway.submit("Pilot", { repositoryId: "darkfactory", paths: ["apps/web"] }, "submit-key")).resolves.toBe(detail)
-    await expect(gateway.detail("run-1")).resolves.toBe(detail)
-    await expect(gateway.approve("run-1", approval)).resolves.toBe(detail)
-    await expect(gateway.reject("run-1")).resolves.toBe(detail)
-    await expect(gateway.cancel("run-1")).resolves.toBe(detail)
-    await expect(gateway.retry("run-1")).resolves.toBe(detail)
-    await expect(gateway.message("run-1", "Context", "message-key")).resolves.toBe(detail)
-    await expect(gateway.revise("run-1", "Clarify scope", "revision-key-2")).resolves.toBe(detail)
-    await expect(gateway.wayfinderStatus()).resolves.toBe(wayfinderStatus)
-    await expect(gateway.startWayfinder(
-      "Plan the local workflow",
-      { repositoryId: "darkfactory", paths: ["apps/operator"] },
-    )).resolves.toBe(wayfinderQueued)
+    expect(operatorTransport.createOperatorClient).not.toHaveBeenCalled();
+    await expect(gateway.workspace()).resolves.toBe(workspace);
+    await expect(
+      gateway.submit(
+        "Pilot",
+        { repositoryId: "darkfactory", paths: ["apps/web"] },
+        "submit-key"
+      )
+    ).resolves.toBe(detail);
+    await expect(gateway.detail("run-1")).resolves.toBe(detail);
+    await expect(gateway.approve("run-1", approval)).resolves.toBe(detail);
+    await expect(gateway.reject("run-1")).resolves.toBe(detail);
+    await expect(gateway.cancel("run-1")).resolves.toBe(detail);
+    await expect(gateway.retry("run-1")).resolves.toBe(detail);
+    await expect(
+      gateway.message("run-1", "Context", "message-key")
+    ).resolves.toBe(detail);
+    await expect(
+      gateway.revise("run-1", "Clarify scope", "revision-key-2")
+    ).resolves.toBe(detail);
+    await expect(gateway.wayfinderStatus()).resolves.toBe(wayfinderStatus);
+    await expect(
+      gateway.startWayfinder("Plan the local workflow", {
+        repositoryId: "darkfactory",
+        paths: ["apps/operator"],
+      })
+    ).resolves.toBe(wayfinderQueued);
 
-    expect(operatorTransport.createOperatorClient).toHaveBeenCalledOnce()
-    expect(operatorTransport.createOperatorClient).toHaveBeenCalledWith({ baseUrl: "https://operator.example" })
-    expect(operator.workspace).toHaveBeenCalledWith({ limit: 100 })
+    expect(operatorTransport.createOperatorClient).toHaveBeenCalledOnce();
+    expect(operatorTransport.createOperatorClient).toHaveBeenCalledWith({
+      baseUrl: "https://operator.example",
+    });
+    expect(operator.workspace).toHaveBeenCalledWith({ limit: 100 });
     expect(operator.submit).toHaveBeenCalledWith({
       title: "Pilot",
       scope: { repositoryId: "darkfactory", paths: ["apps/web"] },
       idempotencyKey: "submit-key",
-    })
-    expect(operator.detail).toHaveBeenCalledWith({ id: "run-1" })
-    expect(operator.approve).toHaveBeenCalledOnce()
-    expect(operator.reject).toHaveBeenCalledWith({ id: "run-1" })
-    expect(operator.cancel).toHaveBeenCalledWith({ id: "run-1" })
-    expect(operator.retry).toHaveBeenCalledWith({ id: "run-1" })
+    });
+    expect(operator.detail).toHaveBeenCalledWith({ id: "run-1" });
+    expect(operator.approve).toHaveBeenCalledOnce();
+    expect(operator.reject).toHaveBeenCalledWith({ id: "run-1" });
+    expect(operator.cancel).toHaveBeenCalledWith({ id: "run-1" });
+    expect(operator.retry).toHaveBeenCalledWith({ id: "run-1" });
     expect(operator.message).toHaveBeenCalledWith({
       id: "run-1",
       body: "Context",
       idempotencyKey: "message-key",
-    })
-    expect(operator.wayfinder.status).toHaveBeenCalledWith({})
+    });
+    expect(operator.wayfinder.status).toHaveBeenCalledWith({});
     expect(operator.wayfinder.start).toHaveBeenCalledWith({
       request: "Plan the local workflow",
       scope: { repositoryId: "darkfactory", paths: ["apps/operator"] },
-    })
+    });
     return expect(operator.wayfinder.revise).toHaveBeenCalledWith({
       runId: "run-1",
       message: "Clarify scope",
       idempotencyKey: "revision-key-2",
-    })
-  })
+    });
+  });
 
-  it("classifies every public transport failure without leaking provider details", function() {
+  it("classifies every public transport failure without leaking provider details", function () {
     const cases = [
-      [{ code: "UNAUTHORIZED" }, "unauthorized", "Your session ended. Sign in again to continue."],
-      [{ code: "FORBIDDEN" }, "forbidden", "You do not have access to this workflow run."],
-      [{ code: "NOT_FOUND" }, "not-found", "This workflow run is no longer available."],
-      [{ code: "CONFLICT" }, "stale", "The plan changed. Reload the run before you take action."],
-      [{ code: "STALE_APPROVAL" }, "stale", "The plan changed. Reload the run before you take action."],
-      [{ code: "STORAGE_ERROR" }, "transient", "Operator data is temporarily unavailable. Try again."],
-      [{ data: { code: "SERVICE_UNAVAILABLE" } }, "transient", "Operator data is temporarily unavailable. Try again."],
-    ] as const
+      [
+        { code: "UNAUTHORIZED" },
+        "unauthorized",
+        "Your session ended. Sign in again to continue.",
+      ],
+      [
+        { code: "FORBIDDEN" },
+        "forbidden",
+        "You do not have access to this workflow run.",
+      ],
+      [
+        { code: "NOT_FOUND" },
+        "not-found",
+        "This workflow run is no longer available.",
+      ],
+      [
+        { code: "CONFLICT" },
+        "stale",
+        "The plan changed. Reload the run before you take action.",
+      ],
+      [
+        { code: "STALE_APPROVAL" },
+        "stale",
+        "The plan changed. Reload the run before you take action.",
+      ],
+      [
+        { code: "STORAGE_ERROR" },
+        "transient",
+        "Operator data is temporarily unavailable. Try again.",
+      ],
+      [
+        { data: { code: "SERVICE_UNAVAILABLE" } },
+        "transient",
+        "Operator data is temporarily unavailable. Try again.",
+      ],
+    ] as const;
     for (const [error, kind, message] of cases) {
-      expect(classifyOperatorFailure(error)).toEqual({ kind, message })
+      expect(classifyOperatorFailure(error)).toEqual({ kind, message });
     }
 
-    expect(classifyOperatorFailure({
-      code: "FORBIDDEN",
-      data: { code: "UNAUTHORIZED" },
-    }).kind).toBe("forbidden")
+    expect(
+      classifyOperatorFailure({
+        code: "FORBIDDEN",
+        data: { code: "UNAUTHORIZED" },
+      }).kind
+    ).toBe("forbidden");
     for (const error of [
       undefined,
       null,
@@ -366,32 +434,38 @@ describe("operator oRPC transport", function() {
       expect(classifyOperatorFailure(error)).toEqual({
         kind: "unknown",
         message: "The operator request could not be completed. Try again.",
-      })
+      });
     }
 
-    expect(classifyOperatorSubmissionFailure({ code: "VALIDATION_ERROR" })).toEqual({
+    expect(
+      classifyOperatorSubmissionFailure({ code: "VALIDATION_ERROR" })
+    ).toEqual({
       kind: "invalid",
-      message: "Check the run title, repository ID, and relative scope paths, then try again.",
-    })
-    return expect(classifyOperatorSubmissionFailure({ code: "UNAUTHORIZED" })).toEqual({
+      message:
+        "Check the run title, repository ID, and relative scope paths, then try again.",
+    });
+    return expect(
+      classifyOperatorSubmissionFailure({ code: "UNAUTHORIZED" })
+    ).toEqual({
       kind: "unauthorized",
       message: "Your session ended. Sign in again to continue.",
-    })
-  })
+    });
+  });
 
-  return it("uses the platform UUID callback by default and rotates only after invalidation", function() {
-    const randomUUID = vi.fn()
+  return it("uses the platform UUID callback by default and rotates only after invalidation", function () {
+    const randomUUID = vi
+      .fn()
       .mockReturnValueOnce("direct-key")
       .mockReturnValueOnce("slot-key-1")
-      .mockReturnValueOnce("slot-key-2")
-    vi.stubGlobal("crypto", { randomUUID })
+      .mockReturnValueOnce("slot-key-2");
+    vi.stubGlobal("crypto", { randomUUID });
 
-    expect(createOperatorIdempotencyKey()).toBe("direct-key")
-    const slot = createOperatorIdempotencyKeySlot()
-    expect(slot.key()).toBe("slot-key-1")
-    expect(slot.key()).toBe("slot-key-1")
-    slot.invalidate()
-    expect(slot.key()).toBe("slot-key-2")
-    return expect(randomUUID).toHaveBeenCalledTimes(3)
-  })
-})
+    expect(createOperatorIdempotencyKey()).toBe("direct-key");
+    const slot = createOperatorIdempotencyKeySlot();
+    expect(slot.key()).toBe("slot-key-1");
+    expect(slot.key()).toBe("slot-key-1");
+    slot.invalidate();
+    expect(slot.key()).toBe("slot-key-2");
+    return expect(randomUUID).toHaveBeenCalledTimes(3);
+  });
+});

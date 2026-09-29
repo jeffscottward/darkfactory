@@ -1,59 +1,59 @@
-"use client"
+"use client";
 
-import { useEffect, useState } from "react"
+import { useEffect, useState } from "react";
 
-import { AuthPanel } from "./auth-panel.tsx"
-import { ResetPasswordForm } from "./reset-password-form.tsx"
-import { SessionRedirect } from "./session-redirect.tsx"
+import { AuthPanel } from "./auth-panel.tsx";
+import { ResetPasswordForm } from "./reset-password-form.tsx";
+import { SessionRedirect } from "./session-redirect.tsx";
 
 export type ResetHistory = Readonly<{
-  state: unknown
-  replaceState: (state: unknown, title: string, url: string) => void
-}>
+  state: unknown;
+  replaceState: (state: unknown, title: string, url: string) => void;
+}>;
 export type ResetTokenMarkup = Readonly<{
-  textContent: string | null
-  remove: () => void
-}>
+  textContent: string | null;
+  remove: () => void;
+}>;
 
 export type ResetTokenDocument = Readonly<{
-  querySelectorAll: (selectors: "script") => Iterable<ResetTokenMarkup>
-}>
+  querySelectorAll: (selectors: "script") => Iterable<ResetTokenMarkup>;
+}>;
 
 export const scrubResetTokenMarkup = (
   token: string | undefined,
-  root: ResetTokenDocument,
+  root: ResetTokenDocument
 ): void => {
-  if (token === undefined) return
+  if (token === undefined) return;
   for (const script of root.querySelectorAll("script")) {
-    if (script.textContent?.includes(token) === true) script.remove()
+    if (script.textContent?.includes(token) === true) script.remove();
   }
-}
-
+};
 
 export const captureAndScrubResetToken = (
   search: string,
-  history: ResetHistory,
+  history: ResetHistory
 ): string | undefined => {
-  const params = new URLSearchParams(search)
-  const token = params.has("error") ? undefined : params.get("token") ?? undefined
-  history.replaceState(history.state, "", "/reset-password")
-  return token
-}
+  const params = new URLSearchParams(search);
+  const token = params.has("error")
+    ? undefined
+    : (params.get("token") ?? undefined);
+  history.replaceState(history.state, "", "/reset-password");
+  return token;
+};
 
 export const ResetPasswordEntry = () => {
-  const [isReady, setIsReady] = useState(false)
-  const [token, setToken] = useState<string | undefined>(undefined)
+  const [isReady, setIsReady] = useState(false);
+  const [token, setToken] = useState<string | undefined>(undefined);
 
   useEffect(() => {
     const capturedToken = captureAndScrubResetToken(
       window.location.search,
-      window.history,
-    )
-    scrubResetTokenMarkup(capturedToken, document)
-    setToken(capturedToken)
-    return setIsReady(true)
-  }
-  , [])
+      window.history
+    );
+    scrubResetTokenMarkup(capturedToken, document);
+    setToken(capturedToken);
+    return setIsReady(true);
+  }, []);
 
   if (!isReady) {
     return (
@@ -63,11 +63,11 @@ export const ResetPasswordEntry = () => {
         role="status"
       >
         Opening the reset link…
-    </div>
-    )
+      </div>
+    );
   }
 
-  const hasToken = token !== undefined
+  const hasToken = token !== undefined;
   return (
     <AuthPanel
       description={
@@ -81,6 +81,6 @@ export const ResetPasswordEntry = () => {
       <SessionRedirect callbackURL="/dashboard">
         <ResetPasswordForm token={token} />
       </SessionRedirect>
-  </AuthPanel>
-  )
-}
+    </AuthPanel>
+  );
+};

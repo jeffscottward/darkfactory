@@ -2,46 +2,44 @@ import {
   createWorkersLogger,
   initWorkersLogger,
   type WorkerExecutionContext,
-} from "evlog/workers"
+} from "evlog/workers";
 
-import type { SemanticEvent, StructuredEventSink } from "../port.ts"
-import { redactSemanticEvent } from "../redaction.ts"
+import type { SemanticEvent, StructuredEventSink } from "../port.ts";
+import { redactSemanticEvent } from "../redaction.ts";
 
-const runtimeBrand: unique symbol = Symbol("EvlogRuntime")
-const runtimes = new WeakSet<object>()
-let activeConfiguration: string | undefined
-let activeRuntime: EvlogRuntime | undefined
+const runtimeBrand: unique symbol = Symbol("EvlogRuntime");
+const runtimes = new WeakSet<object>();
+let activeConfiguration: string | undefined;
+let activeRuntime: EvlogRuntime | undefined;
 
 export type EvlogRuntimeOptions = Readonly<{
-  serviceName: string
-  silent?: boolean
-}>
+  serviceName: string;
+  silent?: boolean;
+}>;
 
 export interface EvlogRuntime {
-  readonly [runtimeBrand]: true
+  readonly [runtimeBrand]: true;
 }
 
 export type EvlogSinkOptions = Readonly<{
-  runtime: EvlogRuntime
-  request: Request
-  executionContext?: WorkerExecutionContext
-}>
+  runtime: EvlogRuntime;
+  request: Request;
+  executionContext?: WorkerExecutionContext;
+}>;
 
-export const initializeEvlog = (
-  options: EvlogRuntimeOptions,
-): EvlogRuntime => {
-  const serviceName = options.serviceName.trim()
+export const initializeEvlog = (options: EvlogRuntimeOptions): EvlogRuntime => {
+  const serviceName = options.serviceName.trim();
   if (serviceName.length === 0) {
-    throw new Error("evlog Worker runtime configuration is invalid")
+    throw new Error("evlog Worker runtime configuration is invalid");
   }
-  const silent = options.silent ?? false
-  const configuration = JSON.stringify({ serviceName, silent })
+  const silent = options.silent ?? false;
+  const configuration = JSON.stringify({ serviceName, silent });
 
   if (activeRuntime !== undefined) {
     if (configuration !== activeConfiguration) {
-      throw new Error("evlog Worker runtime is already initialized")
+      throw new Error("evlog Worker runtime is already initialized");
     }
-    return activeRuntime
+    return activeRuntime;
   }
 
   initWorkersLogger({
@@ -50,42 +48,40 @@ export const initializeEvlog = (
     redact: true,
     silent,
     stringify: false,
-  })
+  });
   const runtime = Object.freeze({
     [runtimeBrand]: true as const,
-  })
-  runtimes.add(runtime)
-  activeConfiguration = configuration
-  activeRuntime = runtime
-  return runtime
-}
+  });
+  runtimes.add(runtime);
+  activeConfiguration = configuration;
+  activeRuntime = runtime;
+  return runtime;
+};
 
 export const createEvlogSink = (
-  options: EvlogSinkOptions,
+  options: EvlogSinkOptions
 ): StructuredEventSink => {
   if (!runtimes.has(options.runtime)) {
-    throw new Error("evlog Worker runtime is invalid")
+    throw new Error("evlog Worker runtime is invalid");
   }
 
   const emit = async (event: SemanticEvent): Promise<void> => {
-    const snapshot = redactSemanticEvent(event)
+    const snapshot = redactSemanticEvent(event);
     const logger = createWorkersLogger(options.request, {
       ...(options.executionContext === undefined
         ? {}
         : { executionCtx: options.executionContext }),
       requestId: snapshot.correlation.requestId,
-    })
+    });
 
     try {
-      if (snapshot.outcome === "failure") logger.setLevel("error")
+      if (snapshot.outcome === "failure") logger.setLevel("error");
       await logger.emit({
         event: {
           id: snapshot.eventId,
           name: snapshot.name,
           occurredAt: snapshot.occurredAt,
-          ...(snapshot.action === undefined
-            ? {}
-            : { action: snapshot.action }),
+          ...(snapshot.action === undefined ? {} : { action: snapshot.action }),
           ...(snapshot.entityId === undefined
             ? {}
             : { entityId: snapshot.entityId }),
@@ -97,9 +93,7 @@ export const createEvlogSink = (
         ...(snapshot.outcome === undefined
           ? {}
           : { outcome: snapshot.outcome }),
-        ...(snapshot.source === undefined
-          ? {}
-          : { source: snapshot.source }),
+        ...(snapshot.source === undefined ? {} : { source: snapshot.source }),
         ...(snapshot.errorCategory === undefined
           ? {}
           : { errorCategory: snapshot.errorCategory }),
@@ -109,12 +103,11 @@ export const createEvlogSink = (
         ...(snapshot.attributes === undefined
           ? {}
           : { attributes: snapshot.attributes }),
-      })
+      });
+    } catch {
+      throw new Error("Structured event emission failed");
     }
-    catch {
-      throw new Error("Structured event emission failed")
-    }
-  }
+  };
 
-  return Object.freeze({ emit })
-}
+  return Object.freeze({ emit });
+};

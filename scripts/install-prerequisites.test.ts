@@ -1,21 +1,28 @@
-import { spawnSync } from "node:child_process"
-import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
-import { tmpdir } from "node:os"
-import { basename, join } from "node:path"
-import { afterEach, describe, expect, it } from "vitest"
+import { spawnSync } from "node:child_process";
+import {
+  chmod,
+  mkdir,
+  mkdtemp,
+  readFile,
+  rm,
+  writeFile,
+} from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { basename, join } from "node:path";
+import { afterEach, describe, expect, it } from "vitest";
 
-const installer = new URL("./install-prerequisites.sh", import.meta.url)
-const temporaryDirectories: string[] = []
+const installer = new URL("./install-prerequisites.sh", import.meta.url);
+const temporaryDirectories: string[] = [];
 
 const makeExecutable = async (
   directory: string,
   name: string,
-  body: string,
+  body: string
 ): Promise<void> => {
-  const path = join(directory, name)
-  await writeFile(path, `#!/bin/sh\n${body}\n`, "utf8")
-  await chmod(path, 0o755)
-}
+  const path = join(directory, name);
+  await writeFile(path, `#!/bin/sh\n${body}\n`, "utf8");
+  await chmod(path, 0o755);
+};
 
 const pins = Object.freeze({
   bun: "1.3.14",
@@ -30,42 +37,47 @@ const pins = Object.freeze({
   python: "3.13.2",
   uv: "0.11.32",
   varlock: "1.13.0",
-})
+});
 
 type Fixture = Readonly<{
-  adapter: string
-  bin: string
-  home: string
-  log: string
-  root: string
-  state: string
-  toolHome: string
-}>
+  adapter: string;
+  bin: string;
+  home: string;
+  log: string;
+  root: string;
+  state: string;
+  toolHome: string;
+}>;
 
 const statefulVersion = (name: string, prefix = ""): string => `
 test -f "$DARKFACTORY_TEST_STATE/${name}" || exit 127
 IFS= read -r version < "$DARKFACTORY_TEST_STATE/${name}"
 printf "%s\\n" "${prefix}$version"
-`
+`;
 
 const createFixture = async ({
   fresh = false,
   overrides = {},
 }: Readonly<{
-  fresh?: boolean
-  overrides?: Readonly<Record<string, string>>
+  fresh?: boolean;
+  overrides?: Readonly<Record<string, string>>;
 }> = {}): Promise<Fixture> => {
-  const root = await mkdtemp(join(tmpdir(), "darkfactory-prerequisites-"))
-  temporaryDirectories.push(root)
-  const adapter = join(root, "adapter.sh")
-  const bin = join(root, "bin")
-  const home = join(root, "home")
-  const log = join(root, "commands.log")
-  const state = join(root, "state")
-  const toolHome = join(home, ".local", "share", "darkfactory")
-  const managedNodeBin = join(toolHome, `node-${pins.node}`, "bin")
-  const nodeBootstrapBin = join(toolHome, "node-bootstrap", "node_modules", ".bin")
-  const managedUvBin = join(toolHome, `uv-${pins.uv}`, "bin")
+  const root = await mkdtemp(join(tmpdir(), "darkfactory-prerequisites-"));
+  temporaryDirectories.push(root);
+  const adapter = join(root, "adapter.sh");
+  const bin = join(root, "bin");
+  const home = join(root, "home");
+  const log = join(root, "commands.log");
+  const state = join(root, "state");
+  const toolHome = join(home, ".local", "share", "darkfactory");
+  const managedNodeBin = join(toolHome, `node-${pins.node}`, "bin");
+  const nodeBootstrapBin = join(
+    toolHome,
+    "node-bootstrap",
+    "node_modules",
+    ".bin"
+  );
+  const managedUvBin = join(toolHome, `uv-${pins.uv}`, "bin");
 
   await Promise.all([
     mkdir(bin, { recursive: true }),
@@ -74,7 +86,7 @@ const createFixture = async ({
     mkdir(managedNodeBin, { recursive: true }),
     mkdir(nodeBootstrapBin, { recursive: true }),
     mkdir(managedUvBin, { recursive: true }),
-  ])
+  ]);
 
   if (!fresh) {
     const healthyState: Readonly<Record<string, string>> = {
@@ -94,18 +106,19 @@ const createFixture = async ({
       trust: "established",
       uv: pins.uv,
       varlock: pins.varlock,
-    }
-    await Promise.all(Object.entries(healthyState).map(([name, version]) => {
-      return writeFile(join(state, name), version, "utf8")
-    }
-    ))
-    await mkdir(join(home, ".portless"), { recursive: true })
-    await writeFile(join(home, ".portless", "ca.pem"), "fixture-ca", "utf8")
+    };
+    await Promise.all(
+      Object.entries(healthyState).map(([name, version]) => {
+        return writeFile(join(state, name), version, "utf8");
+      })
+    );
+    await mkdir(join(home, ".portless"), { recursive: true });
+    await writeFile(join(home, ".portless", "ca.pem"), "fixture-ca", "utf8");
     await writeFile(
       join(toolHome, `playwright-${pins.playwright}-chromium.installed`),
       "installed",
-      "utf8",
-    )
+      "utf8"
+    );
   }
 
   const npmBody = `
@@ -153,7 +166,7 @@ case "$*" in
     ;;
   *) exit 1 ;;
 esac
-`
+`;
 
   const defaults: Readonly<Record<string, string>> = {
     "apt-get": `
@@ -276,44 +289,50 @@ esac
     sudo: '"$@"',
     uv: statefulVersion("uv", "uv "),
     varlock: statefulVersion("varlock", "varlock "),
-  }
+  };
 
-  const commands = Object.freeze({ ...defaults, ...overrides })
+  const commands = Object.freeze({ ...defaults, ...overrides });
   const adapterSource = Object.entries(commands)
     .filter(([name]) => /^[A-Za-z_][A-Za-z0-9_]*$/u.test(name))
     .map(([name, body]) => {
-      return `${name}() {\n${body.replace(/\bexit ([0-9]+)\b/gu, "return $1")}\n}\n`
-    }
-    )
-    .join("\n")
+      return `${name}() {\n${body.replace(/\bexit ([0-9]+)\b/gu, "return $1")}\n}\n`;
+    })
+    .join("\n");
   await Promise.all([
     writeFile(adapter, adapterSource, "utf8"),
-    ...Object.entries(commands).map(
-      ([name, body]) => makeExecutable(bin, name, body),
+    ...Object.entries(commands).map(([name, body]) =>
+      makeExecutable(bin, name, body)
     ),
-  ])
+  ]);
 
   await Promise.all([
     makeExecutable(managedNodeBin, "node", statefulVersion("node", "v")),
     makeExecutable(
       managedNodeBin,
       "npm",
-      'exec "$DARKFACTORY_TEST_BIN/npm" "$@"',
+      'exec "$DARKFACTORY_TEST_BIN/npm" "$@"'
     ),
     makeExecutable(managedNodeBin, "npx", 'printf "%s\\n" "fixture npx"'),
     makeExecutable(
       managedNodeBin,
       "corepack",
-      'exec "$DARKFACTORY_TEST_BIN/corepack" "$@"',
+      'exec "$DARKFACTORY_TEST_BIN/corepack" "$@"'
     ),
-    makeExecutable(nodeBootstrapBin, "n", `
+    makeExecutable(
+      nodeBootstrapBin,
+      "n",
+      `
 test -f "$DARKFACTORY_TEST_STATE/n" || exit 1
 test "$1" = "${pins.node}" || exit 1
 printf '%s\\n' "n $*" >> "$DARKFACTORY_TEST_LOG"
 printf '%s\\n' "${pins.node}" > "$DARKFACTORY_TEST_STATE/node"
 printf '%s\\n' "10.9.2" > "$DARKFACTORY_TEST_STATE/npm"
-`),
-    makeExecutable(managedUvBin, "python", `
+`
+    ),
+    makeExecutable(
+      managedUvBin,
+      "python",
+      `
 case "$*" in
   "-m pip install --disable-pip-version-check uv==${pins.uv}")
     printf '%s\\n' "python $*" >> "$DARKFACTORY_TEST_LOG"
@@ -321,8 +340,12 @@ case "$*" in
     ;;
   *) exit 1 ;;
 esac
-`),
-    makeExecutable(managedUvBin, "uv", `
+`
+    ),
+    makeExecutable(
+      managedUvBin,
+      "uv",
+      `
 case "$*" in
   "--version")
     ${statefulVersion("uv", "uv ")}
@@ -333,49 +356,55 @@ case "$*" in
     ;;
   *) exit 1 ;;
 esac
-`),
-  ])
+`
+    ),
+  ]);
 
-  return Object.freeze({ adapter, root, bin, home, log, state, toolHome })
-}
+  return Object.freeze({ adapter, root, bin, home, log, state, toolHome });
+};
 
 const runInstaller = (
   fixture: Fixture,
   arguments_: readonly string[],
-  platform = "macos",
-) => spawnSync("sh", [
-  "-c",
-  '. "$1"; installer_path=$2; shift 2; . "$installer_path"',
-  "darkfactory-installer-test",
-  fixture.adapter,
-  installer.pathname,
-  ...arguments_,
-], {
-  cwd: new URL("..", installer),
-  encoding: "utf8",
-  env: {
-    PATH: `${join(fixture.home, ".local", "bin")}:${fixture.bin}:${process.env["PATH"] ?? ""}`,
-    HOME: fixture.home,
-    DARKFACTORY_INSTALL_PLATFORM: platform,
-    DARKFACTORY_INSTALL_LOCAL_BIN: join(fixture.home, ".local", "bin"),
-    DARKFACTORY_INSTALL_TOOL_HOME: fixture.toolHome,
-    DARKFACTORY_TEST_BIN: fixture.bin,
-    DARKFACTORY_TEST_LOG: fixture.log,
-    DARKFACTORY_TEST_STATE: fixture.state,
-  },
-})
+  platform = "macos"
+) =>
+  spawnSync(
+    "sh",
+    [
+      "-c",
+      '. "$1"; installer_path=$2; shift 2; . "$installer_path"',
+      "darkfactory-installer-test",
+      fixture.adapter,
+      installer.pathname,
+      ...arguments_,
+    ],
+    {
+      cwd: new URL("..", installer),
+      encoding: "utf8",
+      env: {
+        PATH: `${join(fixture.home, ".local", "bin")}:${fixture.bin}:${process.env["PATH"] ?? ""}`,
+        HOME: fixture.home,
+        DARKFACTORY_INSTALL_PLATFORM: platform,
+        DARKFACTORY_INSTALL_LOCAL_BIN: join(fixture.home, ".local", "bin"),
+        DARKFACTORY_INSTALL_TOOL_HOME: fixture.toolHome,
+        DARKFACTORY_TEST_BIN: fixture.bin,
+        DARKFACTORY_TEST_LOG: fixture.log,
+        DARKFACTORY_TEST_STATE: fixture.state,
+      },
+    }
+  );
 
 afterEach(async () => {
-  return await Promise.all(temporaryDirectories.splice(0).map((path) => {
-    return rm(path, { recursive: true, force: true })
-  }
-  ))
-}
-)
+  return await Promise.all(
+    temporaryDirectories.splice(0).map((path) => {
+      return rm(path, { recursive: true, force: true });
+    })
+  );
+});
 
 describe("prerequisite installer", () => {
   it("contains only exact reviewed pins and package-manager installation paths", async () => {
-    const source = await readFile(installer, "utf8")
+    const source = await readFile(installer, "utf8");
 
     for (const pin of [
       pins.node,
@@ -389,42 +418,45 @@ describe("prerequisite installer", () => {
       pins.uv,
       pins.graphify,
       pins.playwright,
-    ]) expect(source).toContain(pin)
-    expect(source).toContain("brew install node@22")
-    expect(source).toContain("brew install python@3.13")
-    expect(source).toContain("brew install --cask docker")
-    expect(source).toContain("docker.io docker-compose-v2")
-    expect(source).toContain("corepack pnpm install --frozen-lockfile")
-    expect(source).toContain("bunx --bun --no-install playwright install")
-    expect(source).not.toMatch(/\b(?:curl|wget)\b/u)
-    expect(source).not.toMatch(/https?:\/\/|@latest|\blatest\b/u)
-    expect(source).not.toMatch(/\|\s*(?:ba)?sh\b/u)
-    expect(source).not.toMatch(/(?:^|[ /])\.env(?:[ ./'"$]|$)/mu)
-    expect(source).not.toMatch(/(?:login|authenticate|deploy|db:seed|db:reset)/u)
-    return expect(source).not.toMatch(/^\s*(?:run_command\s+)?portless\s+trust\b/mu)
-  }
-  )
+    ])
+      expect(source).toContain(pin);
+    expect(source).toContain("brew install node@22");
+    expect(source).toContain("brew install python@3.13");
+    expect(source).toContain("brew install --cask docker");
+    expect(source).toContain("docker.io docker-compose-v2");
+    expect(source).toContain("corepack pnpm install --frozen-lockfile");
+    expect(source).toContain("bunx --bun --no-install playwright install");
+    expect(source).not.toMatch(/\b(?:curl|wget)\b/u);
+    expect(source).not.toMatch(/https?:\/\/|@latest|\blatest\b/u);
+    expect(source).not.toMatch(/\|\s*(?:ba)?sh\b/u);
+    expect(source).not.toMatch(/(?:^|[ /])\.env(?:[ ./'"$]|$)/mu);
+    expect(source).not.toMatch(
+      /(?:login|authenticate|deploy|db:seed|db:reset)/u
+    );
+    return expect(source).not.toMatch(
+      /^\s*(?:run_command\s+)?portless\s+trust\b/mu
+    );
+  });
 
   it("is a no-op on repeated apply runs when every exact pin is healthy", async () => {
-    const fixture = await createFixture()
-    const first = runInstaller(fixture, [])
-    const second = runInstaller(fixture, [])
-    const commandLog = await readFile(fixture.log, "utf8").catch(() => "")
+    const fixture = await createFixture();
+    const first = runInstaller(fixture, []);
+    const second = runInstaller(fixture, []);
+    const commandLog = await readFile(fixture.log, "utf8").catch(() => "");
 
-    expect(first.status).toBe(0)
-    expect(second.status).toBe(0)
-    expect(first.stdout).toContain(`[ok] Node ${pins.node}`)
-    expect(second.stdout).not.toContain("[run]")
-    return expect(commandLog).toBe("")
-  }
-  )
+    expect(first.status).toBe(0);
+    expect(second.status).toBe(0);
+    expect(first.stdout).toContain(`[ok] Node ${pins.node}`);
+    expect(second.stdout).not.toContain("[run]");
+    return expect(commandLog).toBe("");
+  });
 
   it("applies every installable prerequisite on a fresh supported macOS host", async () => {
-    const fixture = await createFixture({ fresh: true })
-    const result = runInstaller(fixture, [], "macos")
-    const commandLog = await readFile(fixture.log, "utf8")
+    const fixture = await createFixture({ fresh: true });
+    const result = runInstaller(fixture, [], "macos");
+    const commandLog = await readFile(fixture.log, "utf8");
 
-    expect(result.status).toBe(1)
+    expect(result.status).toBe(1);
     for (const command of [
       "brew install node@22",
       "brew install python@3.13",
@@ -440,96 +472,104 @@ describe("prerequisite installer", () => {
       `uv tool install --force graphifyy==${pins.graphify}`,
       "corepack pnpm install --frozen-lockfile",
       "bunx --bun --no-install playwright install chromium",
-    ]) expect(commandLog).toContain(command)
+    ])
+      expect(commandLog).toContain(command);
     expect(`${result.stdout}\n${result.stderr}`).not.toMatch(
-      /(?:Bun|Corepack|pnpm|PM2|Varlock|uv|Graphify|Docker CLI).*remains unavailable/iu,
-    )
+      /(?:Bun|Corepack|pnpm|PM2|Varlock|uv|Graphify|Docker CLI).*remains unavailable/iu
+    );
     expect(`${result.stdout}\n${result.stderr}`).toMatch(
-      /post-install blocker.*Docker daemon/iu,
-    )
+      /post-install blocker.*Docker daemon/iu
+    );
     expect(`${result.stdout}\n${result.stderr}`).toMatch(
-      /post-install blocker.*portless trust/iu,
-    )
+      /post-install blocker.*portless trust/iu
+    );
     return expect(`${result.stdout}\n${result.stderr}`).toMatch(
-      /post-install.*credentials/iu,
-    )
-  }
-  )
+      /post-install.*credentials/iu
+    );
+  });
 
-  it.each(["debian", "ubuntu"])(
-    "applies every installable prerequisite on a fresh supported %s host",
-    async (platform) => {
-      const fixture = await createFixture({ fresh: true })
-      const result = runInstaller(fixture, [], platform)
-      const commandLog = await readFile(fixture.log, "utf8")
+  it.each([
+    "debian",
+    "ubuntu",
+  ])("applies every installable prerequisite on a fresh supported %s host", async (platform) => {
+    const fixture = await createFixture({ fresh: true });
+    const result = runInstaller(fixture, [], platform);
+    const commandLog = await readFile(fixture.log, "utf8");
 
-      expect(result.status).toBe(1)
-      expect(commandLog).toContain("apt-get update")
-      expect(commandLog).toContain(
-        "apt-get install --yes ca-certificates nodejs npm python3 python3-venv python3-pip docker.io docker-compose-v2",
-      )
-      expect(commandLog).toContain(`npm install --prefix ${join(
+    expect(result.status).toBe(1);
+    expect(commandLog).toContain("apt-get update");
+    expect(commandLog).toContain(
+      "apt-get install --yes ca-certificates nodejs npm python3 python3-venv python3-pip docker.io docker-compose-v2"
+    );
+    expect(commandLog).toContain(
+      `npm install --prefix ${join(
         fixture.toolHome,
-        "node-bootstrap",
-      )} --no-save --package-lock=false n@${pins.n}`)
-      expect(commandLog).toContain(`n ${pins.node}`)
-      for (const pin of [
-        `npm install --global bun@${pins.bun}`,
-        `npm install --global corepack@${pins.corepack}`,
-        `corepack install --global pnpm@${pins.pnpm}`,
-        `npm install --global pm2@${pins.pm2}`,
-        `npm install --global varlock@${pins.varlock}`,
-        `python -m pip install --disable-pip-version-check uv==${pins.uv}`,
-        `uv tool install --force graphifyy==${pins.graphify}`,
-        "corepack pnpm install --frozen-lockfile",
-        "bunx --bun --no-install playwright install --with-deps chromium",
-      ]) expect(commandLog).toContain(pin)
-      return expect(`${result.stdout}\n${result.stderr}`).not.toMatch(
-        /(?:Node|Python|Docker CLI).*remains unavailable/iu,
-      )
-    }
-  )
+        "node-bootstrap"
+      )} --no-save --package-lock=false n@${pins.n}`
+    );
+    expect(commandLog).toContain(`n ${pins.node}`);
+    for (const pin of [
+      `npm install --global bun@${pins.bun}`,
+      `npm install --global corepack@${pins.corepack}`,
+      `corepack install --global pnpm@${pins.pnpm}`,
+      `npm install --global pm2@${pins.pm2}`,
+      `npm install --global varlock@${pins.varlock}`,
+      `python -m pip install --disable-pip-version-check uv==${pins.uv}`,
+      `uv tool install --force graphifyy==${pins.graphify}`,
+      "corepack pnpm install --frozen-lockfile",
+      "bunx --bun --no-install playwright install --with-deps chromium",
+    ])
+      expect(commandLog).toContain(pin);
+    return expect(`${result.stdout}\n${result.stderr}`).not.toMatch(
+      /(?:Node|Python|Docker CLI).*remains unavailable/iu
+    );
+  });
 
   it("dry-runs an exact replacement without executing it", async () => {
-    const fixture = await createFixture()
-    await writeFile(join(fixture.state, "pm2"), "7.0.2", "utf8")
-    const result = runInstaller(fixture, ["--dry-run"])
-    const commandLog = await readFile(fixture.log, "utf8").catch(() => "")
+    const fixture = await createFixture();
+    await writeFile(join(fixture.state, "pm2"), "7.0.2", "utf8");
+    const result = runInstaller(fixture, ["--dry-run"]);
+    const commandLog = await readFile(fixture.log, "utf8").catch(() => "");
 
-    expect(result.status).toBe(0)
-    expect(result.stdout).toContain(`[plan] npm install --global pm2@${pins.pm2}`)
-    expect(result.stdout).not.toContain("pm2@latest")
-    return expect(commandLog).toBe("")
-  }
-  )
+    expect(result.status).toBe(0);
+    expect(result.stdout).toContain(
+      `[plan] npm install --global pm2@${pins.pm2}`
+    );
+    expect(result.stdout).not.toContain("pm2@latest");
+    return expect(commandLog).toBe("");
+  });
 
   it("check mode reports missing prerequisites without mutating the machine", async () => {
-    const fixture = await createFixture({ fresh: true })
-    const result = runInstaller(fixture, ["--check"])
-    const commandLog = await readFile(fixture.log, "utf8").catch(() => "")
+    const fixture = await createFixture({ fresh: true });
+    const result = runInstaller(fixture, ["--check"]);
+    const commandLog = await readFile(fixture.log, "utf8").catch(() => "");
 
-    expect(result.status).toBe(1)
-    expect(`${result.stdout}\n${result.stderr}`).toMatch(/manual blocker.*Node/iu)
-    expect(`${result.stdout}\n${result.stderr}`).toMatch(/manual blocker.*Docker/iu)
+    expect(result.status).toBe(1);
     expect(`${result.stdout}\n${result.stderr}`).toMatch(
-      /post-install blocker.*portless trust/iu,
-    )
-    return expect(commandLog).toBe("")
-  }
-  )
+      /manual blocker.*Node/iu
+    );
+    expect(`${result.stdout}\n${result.stderr}`).toMatch(
+      /manual blocker.*Docker/iu
+    );
+    expect(`${result.stdout}\n${result.stderr}`).toMatch(
+      /post-install blocker.*portless trust/iu
+    );
+    return expect(commandLog).toBe("");
+  });
 
   it("rejects unsupported platforms before planning changes", async () => {
-    const fixture = await createFixture()
-    const result = runInstaller(fixture, ["--check"], "solaris")
+    const fixture = await createFixture();
+    const result = runInstaller(fixture, ["--check"], "solaris");
 
-    expect(result.status).toBe(2)
-    return expect(`${result.stdout}\n${result.stderr}`).toMatch(/unsupported platform/iu)
-  }
-  )
+    expect(result.status).toBe(2);
+    return expect(`${result.stdout}\n${result.stderr}`).toMatch(
+      /unsupported platform/iu
+    );
+  });
 
   return it("uses the checked-in installer path from any test fixture", () => {
-    return expect(basename(installer.pathname)).toBe("install-prerequisites.sh")
-  }
-  )
-}
-)
+    return expect(basename(installer.pathname)).toBe(
+      "install-prerequisites.sh"
+    );
+  });
+});

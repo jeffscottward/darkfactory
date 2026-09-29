@@ -1,10 +1,10 @@
-import { readFile } from "node:fs/promises"
-import { spawnSync } from "node:child_process"
-import { fileURLToPath } from "node:url"
+import { readFile } from "node:fs/promises";
+import { spawnSync } from "node:child_process";
+import { fileURLToPath } from "node:url";
 
-import { describe, expect, it } from "vitest"
+import { describe, expect, it } from "vitest";
 
-const packageDirectory = fileURLToPath(new URL("../..", import.meta.url))
+const packageDirectory = fileURLToPath(new URL("../..", import.meta.url));
 const resolveInlineWith = (conditions: readonly string[]) => {
   return spawnSync(
     process.execPath,
@@ -14,15 +14,15 @@ const resolveInlineWith = (conditions: readonly string[]) => {
       "--eval",
       'process.stdout.write(import.meta.resolve("@darkfactory/jobs/server/inline"))',
     ],
-    { cwd: packageDirectory, encoding: "utf8" },
-  )
-}
+    { cwd: packageDirectory, encoding: "utf8" }
+  );
+};
 
-describe("inline jobs package boundary", function() {
-  it("orders Worker conditions before browser poison and Node fallbacks", async function() {
+describe("inline jobs package boundary", function () {
+  it("orders Worker conditions before browser poison and Node fallbacks", async function () {
     const manifest = JSON.parse(
-      await readFile(new URL("../../package.json", import.meta.url), "utf8"),
-    )
+      await readFile(new URL("../../package.json", import.meta.url), "utf8")
+    );
 
     expect(Object.keys(manifest.exports["./server/inline"])).toEqual([
       "workerd",
@@ -30,37 +30,43 @@ describe("inline jobs package boundary", function() {
       "browser",
       "import",
       "default",
-    ])
-    return expect(manifest.sideEffects).toEqual(["./src/server/unsupported.ts"])
-  })
-  
+    ]);
+    return expect(manifest.sideEffects).toEqual([
+      "./src/server/unsupported.ts",
+    ]);
+  });
+
   it("fails closed for browser-only resolution through a dependency-free poison module", async () => {
-    const resolution = resolveInlineWith(["browser"])
-    const poisonSource = await readFile(new URL("./unsupported.ts", import.meta.url), "utf8")
+    const resolution = resolveInlineWith(["browser"]);
+    const poisonSource = await readFile(
+      new URL("./unsupported.ts", import.meta.url),
+      "utf8"
+    );
 
     expect({ status: resolution.status, stderr: resolution.stderr }).toEqual({
       status: 0,
       stderr: "",
-    })
-    expect(resolution.stdout).toMatch(/\/src\/server\/unsupported\.ts$/)
-    expect(poisonSource).not.toMatch(/^\s*import\s/m)
-    expect(poisonSource).not.toMatch(/celery|flower|redis|rabbitmq|amqp|broker/i)
+    });
+    expect(resolution.stdout).toMatch(/\/src\/server\/unsupported\.ts$/);
+    expect(poisonSource).not.toMatch(/^\s*import\s/m);
+    expect(poisonSource).not.toMatch(
+      /celery|flower|redis|rabbitmq|amqp|broker/i
+    );
     return await expect(import("./unsupported.ts")).rejects.toThrow(
-      "@darkfactory/jobs/server/inline is unavailable in browser bundles",
-    )
-  }
-  , 15_000)
-  
-  return it.each(["workerd", "worker"])(
-    "resolves the real inline module for simultaneous %s and browser conditions",
-    (workerCondition) => {
-      const resolution = resolveInlineWith([workerCondition, "browser"])
+      "@darkfactory/jobs/server/inline is unavailable in browser bundles"
+    );
+  }, 15_000);
 
-      expect({ status: resolution.status, stderr: resolution.stderr }).toEqual({
-        status: 0,
-        stderr: "",
-      })
-      return expect(resolution.stdout).toMatch(/\/src\/server\/inline\.ts$/)
-    }
-  )
-})
+  return it.each([
+    "workerd",
+    "worker",
+  ])("resolves the real inline module for simultaneous %s and browser conditions", (workerCondition) => {
+    const resolution = resolveInlineWith([workerCondition, "browser"]);
+
+    expect({ status: resolution.status, stderr: resolution.stderr }).toEqual({
+      status: 0,
+      stderr: "",
+    });
+    return expect(resolution.stdout).toMatch(/\/src\/server\/inline\.ts$/);
+  });
+});

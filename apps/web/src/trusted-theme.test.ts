@@ -1,229 +1,238 @@
-import { createElement, type ReactNode } from "react"
-import { renderToStaticMarkup } from "react-dom/server"
-import { afterEach, describe, expect, it, vi } from "vitest"
-import { createUiStore, type UiStore } from "@darkfactory/state/client"
+import { createElement, type ReactNode } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { createUiStore, type UiStore } from "@darkfactory/state/client";
 import type {
   ApiClient,
   ApiClientOptions,
   ThemePreferenceOutput,
-} from "@darkfactory/api"
-import { useTheme } from "@darkfactory/ui/client/theme"
+} from "@darkfactory/api";
+import { useTheme } from "@darkfactory/ui/client/theme";
 
 const themeHookRuntime = vi.hoisted(() => {
-  type Effect = () => void | (() => void)
+  type Effect = () => void | (() => void);
   type EffectSlot = {
-    cleanup: (() => void) | undefined
-    deps: readonly unknown[] | undefined
-  }
+    cleanup: (() => void) | undefined;
+    deps: readonly unknown[] | undefined;
+  };
   type PendingEffect = Readonly<{
-    deps: readonly unknown[] | undefined
-    effect: Effect
-    index: number
-  }>
+    deps: readonly unknown[] | undefined;
+    effect: Effect;
+    index: number;
+  }>;
   type DependencySlot<Value> = Readonly<{
-    deps: readonly unknown[] | undefined
-    value: Value
-  }>
+    deps: readonly unknown[] | undefined;
+    value: Value;
+  }>;
 
-  const stateSlots: Array<{ value: unknown }> = []
-  const refSlots: Array<{ current: unknown }> = []
-  const callbackSlots: Array<DependencySlot<unknown>> = []
-  const layoutSlots: EffectSlot[] = []
-  const passiveSlots: EffectSlot[] = []
-  const pendingLayouts: PendingEffect[] = []
-  const pendingPassives: PendingEffect[] = []
-  let stateCursor = 0
-  let refCursor = 0
-  let callbackCursor = 0
-  let layoutCursor = 0
-  let passiveCursor = 0
-  let clientSnapshot: (() => unknown) | undefined
+  const stateSlots: Array<{ value: unknown }> = [];
+  const refSlots: Array<{ current: unknown }> = [];
+  const callbackSlots: Array<DependencySlot<unknown>> = [];
+  const layoutSlots: EffectSlot[] = [];
+  const passiveSlots: EffectSlot[] = [];
+  const pendingLayouts: PendingEffect[] = [];
+  const pendingPassives: PendingEffect[] = [];
+  let stateCursor = 0;
+  let refCursor = 0;
+  let callbackCursor = 0;
+  let layoutCursor = 0;
+  let passiveCursor = 0;
+  let clientSnapshot: (() => unknown) | undefined;
 
   const dependenciesChanged = (
     previous: readonly unknown[] | undefined,
-    next: readonly unknown[] | undefined,
-  ): boolean => (
-    previous === undefined
-    || next === undefined
-    || previous.length !== next.length
-    || previous.some((value, index) => !Object.is(value, next[index]))
-  )
+    next: readonly unknown[] | undefined
+  ): boolean =>
+    previous === undefined ||
+    next === undefined ||
+    previous.length !== next.length ||
+    previous.some((value, index) => !Object.is(value, next[index]));
 
   const commit = (
     pendingEffects: PendingEffect[],
-    slots: EffectSlot[],
+    slots: EffectSlot[]
   ): void => {
     for (const pending of pendingEffects.splice(0)) {
-      slots[pending.index]?.cleanup?.()
-      const cleanup = pending.effect()
+      slots[pending.index]?.cleanup?.();
+      const cleanup = pending.effect();
       slots[pending.index] = {
         cleanup: typeof cleanup === "function" ? cleanup : undefined,
         deps: pending.deps,
-      }
+      };
     }
-  }
+  };
 
   const schedule = (
     effect: Effect,
     deps: readonly unknown[] | undefined,
     slots: EffectSlot[],
     pendingEffects: PendingEffect[],
-    index: number,
+    index: number
   ): void => {
-    const previous = slots[index]
+    const previous = slots[index];
     if (previous === undefined || dependenciesChanged(previous.deps, deps)) {
-      pendingEffects.push({ deps, effect, index })
+      pendingEffects.push({ deps, effect, index });
     }
-  }
+  };
 
   return {
     begin: (): void => {
-      stateCursor = 0
-      refCursor = 0
-      callbackCursor = 0
-      layoutCursor = 0
-      passiveCursor = 0
-      pendingLayouts.length = 0
-      pendingPassives.length = 0
+      stateCursor = 0;
+      refCursor = 0;
+      callbackCursor = 0;
+      layoutCursor = 0;
+      passiveCursor = 0;
+      pendingLayouts.length = 0;
+      pendingPassives.length = 0;
     },
     captureClientSnapshot: (snapshot: () => unknown): void => {
-      clientSnapshot = snapshot
+      clientSnapshot = snapshot;
     },
     clientSnapshot: (): unknown => {
       if (clientSnapshot === undefined) {
-        throw new Error("Expected a client external-store snapshot.")
+        throw new Error("Expected a client external-store snapshot.");
       }
-      return clientSnapshot()
+      return clientSnapshot();
     },
-    commitEffects: (): void => { commit(pendingPassives, passiveSlots)},
-    commitLayouts: (): void => { commit(pendingLayouts, layoutSlots)},
+    commitEffects: (): void => {
+      commit(pendingPassives, passiveSlots);
+    },
+    commitLayouts: (): void => {
+      commit(pendingLayouts, layoutSlots);
+    },
     ref: (index: number): { current: unknown } => {
-      const ref = refSlots[index]
-      if (ref === undefined) throw new Error(`Expected hook ref ${index}.`)
-      return ref
+      const ref = refSlots[index];
+      if (ref === undefined) throw new Error(`Expected hook ref ${index}.`);
+      return ref;
     },
     reset: (): void => {
-      for (const slot of [...layoutSlots, ...passiveSlots]) slot.cleanup?.()
-      stateSlots.length = 0
-      refSlots.length = 0
-      callbackSlots.length = 0
-      layoutSlots.length = 0
-      passiveSlots.length = 0
-      pendingLayouts.length = 0
-      pendingPassives.length = 0
-      clientSnapshot = undefined
-      stateCursor = 0
-      refCursor = 0
-      callbackCursor = 0
-      layoutCursor = 0
-      passiveCursor = 0
+      for (const slot of [...layoutSlots, ...passiveSlots]) slot.cleanup?.();
+      stateSlots.length = 0;
+      refSlots.length = 0;
+      callbackSlots.length = 0;
+      layoutSlots.length = 0;
+      passiveSlots.length = 0;
+      pendingLayouts.length = 0;
+      pendingPassives.length = 0;
+      clientSnapshot = undefined;
+      stateCursor = 0;
+      refCursor = 0;
+      callbackCursor = 0;
+      layoutCursor = 0;
+      passiveCursor = 0;
     },
-    useCallback: <Callback,>(callback: Callback, deps?: readonly unknown[]): Callback => {
-      const index = callbackCursor++
-      const previous = callbackSlots[index]
+    useCallback: <Callback>(
+      callback: Callback,
+      deps?: readonly unknown[]
+    ): Callback => {
+      const index = callbackCursor++;
+      const previous = callbackSlots[index];
       if (previous !== undefined && !dependenciesChanged(previous.deps, deps)) {
-        return previous.value as Callback
+        return previous.value as Callback;
       }
-      callbackSlots[index] = { deps, value: callback }
-      return callback
+      callbackSlots[index] = { deps, value: callback };
+      return callback;
     },
     useEffect: (effect: Effect, deps?: readonly unknown[]): void => {
-      const index = passiveCursor++
-      schedule(effect, deps, passiveSlots, pendingPassives, index)
+      const index = passiveCursor++;
+      schedule(effect, deps, passiveSlots, pendingPassives, index);
     },
     useLayoutEffect: (effect: Effect, deps?: readonly unknown[]): void => {
-      const index = layoutCursor++
-      schedule(effect, deps, layoutSlots, pendingLayouts, index)
+      const index = layoutCursor++;
+      schedule(effect, deps, layoutSlots, pendingLayouts, index);
     },
-    useRef: <Value,>(initialValue: Value): { current: Value } => {
-      const index = refCursor++
-      refSlots[index] ??= { current: initialValue }
-      return refSlots[index] as { current: Value }
+    useRef: <Value>(initialValue: Value): { current: Value } => {
+      const index = refCursor++;
+      refSlots[index] ??= { current: initialValue };
+      return refSlots[index] as { current: Value };
     },
-    useState: <Value,>(
-      initializer: Value | (() => Value),
-    ): readonly [Value, (next: Value | ((current: Value) => Value)) => void] => {
-      const index = stateCursor++
+    useState: <Value>(
+      initializer: Value | (() => Value)
+    ): readonly [
+      Value,
+      (next: Value | ((current: Value) => Value)) => void,
+    ] => {
+      const index = stateCursor++;
       stateSlots[index] ??= {
-        value: typeof initializer === "function"
-          ? (initializer as () => Value)()
-          : initializer,
-      }
-      const slot = stateSlots[index]!
+        value:
+          typeof initializer === "function"
+            ? (initializer as () => Value)()
+            : initializer,
+      };
+      const slot = stateSlots[index]!;
       return [
         slot.value as Value,
         (next) => {
-          return void (slot.value = typeof next === "function"
-            ? (next as (current: Value) => Value)(slot.value as Value)
-            : next)
-        }
-      ]
-    }
-  }
-}
-)
+          return void (slot.value =
+            typeof next === "function"
+              ? (next as (current: Value) => Value)(slot.value as Value)
+              : next);
+        },
+      ];
+    },
+  };
+});
 
 const themeComponentRuntime = vi.hoisted(() => {
-  let dialogs: Record<string, unknown>[] = []
-  let navigationLinks: Record<string, unknown>[] = []
-  let picker: Record<string, unknown> | undefined
-  let toaster: Record<string, unknown> | undefined
+  let dialogs: Record<string, unknown>[] = [];
+  let navigationLinks: Record<string, unknown>[] = [];
+  let picker: Record<string, unknown> | undefined;
+  let toaster: Record<string, unknown> | undefined;
   return {
     captureDialog: (props: Record<string, unknown>): void => {
-      dialogs.push(props)
+      dialogs.push(props);
     },
     captureNavigationLinks: (props: Record<string, unknown>): void => {
-      navigationLinks.push(props)
+      navigationLinks.push(props);
     },
     capturePicker: (props: Record<string, unknown>): void => {
-      picker = props
+      picker = props;
     },
     captureToaster: (props: Record<string, unknown>): void => {
-      toaster = props
+      toaster = props;
     },
     dialogs: (): readonly Record<string, unknown>[] => dialogs,
     navigationLinks: (): readonly Record<string, unknown>[] => navigationLinks,
     picker: (): Record<string, unknown> => {
-      if (picker === undefined) throw new Error("Expected ThemePicker to render.")
-      return picker
+      if (picker === undefined)
+        throw new Error("Expected ThemePicker to render.");
+      return picker;
     },
     reset: (): void => {
-      dialogs = []
-      navigationLinks = []
-      picker = undefined
-      toaster = undefined
+      dialogs = [];
+      navigationLinks = [];
+      picker = undefined;
+      toaster = undefined;
     },
     toaster: (): Record<string, unknown> => {
-      if (toaster === undefined) throw new Error("Expected Toaster to render.")
-      return toaster
-    }
-  }
-}
-)
+      if (toaster === undefined) throw new Error("Expected Toaster to render.");
+      return toaster;
+    },
+  };
+});
 
 const themeApiRuntime = vi.hoisted(() => {
-  type Factory = (options: ApiClientOptions) => ApiClient
-  let factory: Factory | undefined
-  let options: ApiClientOptions[] = []
+  type Factory = (options: ApiClientOptions) => ApiClient;
+  let factory: Factory | undefined;
+  let options: ApiClientOptions[] = [];
   return {
     configure: (nextFactory: Factory): void => {
-      factory = nextFactory
+      factory = nextFactory;
     },
     create: (fallback: Factory, nextOptions: ApiClientOptions): ApiClient => {
-      options.push(nextOptions)
-      return (factory ?? fallback)(nextOptions)
+      options.push(nextOptions);
+      return (factory ?? fallback)(nextOptions);
     },
     options: (): readonly ApiClientOptions[] => options,
     reset: (): void => {
-      factory = undefined
-      options = []
-    }
-  }
-}
-)
+      factory = undefined;
+      options = [];
+    },
+  };
+});
 
 vi.mock("react", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("react")>()
+  const actual = await importOriginal<typeof import("react")>();
   return {
     ...actual,
     useCallback: themeHookRuntime.useCallback,
@@ -231,324 +240,343 @@ vi.mock("react", async (importOriginal) => {
     useLayoutEffect: themeHookRuntime.useLayoutEffect,
     useRef: themeHookRuntime.useRef,
     useState: themeHookRuntime.useState,
-    useSyncExternalStore: <Snapshot,>(
+    useSyncExternalStore: <Snapshot>(
       subscribe: (onStoreChange: () => void) => () => void,
       getSnapshot: () => Snapshot,
-      getServerSnapshot?: () => Snapshot,
+      getServerSnapshot?: () => Snapshot
     ): Snapshot => {
-      themeHookRuntime.captureClientSnapshot(getSnapshot)
+      themeHookRuntime.captureClientSnapshot(getSnapshot);
       return actual.useSyncExternalStore(
         subscribe,
         getSnapshot,
-        getServerSnapshot,
-      )
-    }
-  }
-}
-)
+        getServerSnapshot
+      );
+    },
+  };
+});
 
 vi.mock("@darkfactory/api", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("@darkfactory/api")>()
+  const actual = await importOriginal<typeof import("@darkfactory/api")>();
   return {
     ...actual,
-    createApiClient: (options: ApiClientOptions) => themeApiRuntime.create(
-      actual.createApiClient,
-      options,
-    ),
-  }
-}
-)
+    createApiClient: (options: ApiClientOptions) =>
+      themeApiRuntime.create(actual.createApiClient, options),
+  };
+});
 
 vi.mock("@darkfactory/ui/client/theme", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("@darkfactory/ui/client/theme")>()
-  const react = await vi.importActual<typeof import("react")>("react")
+  const actual =
+    await importOriginal<typeof import("@darkfactory/ui/client/theme")>();
+  const react = await vi.importActual<typeof import("react")>("react");
   return {
     ...actual,
     ThemePicker: (props: Record<string, unknown>) => {
-      themeComponentRuntime.capturePicker(props)
+      themeComponentRuntime.capturePicker(props);
       return react.createElement(
         "button",
         {
-          "aria-label": typeof props["triggerLabel"] === "string"
-            ? props["triggerLabel"]
-            : "Theme settings",
+          "aria-label":
+            typeof props["triggerLabel"] === "string"
+              ? props["triggerLabel"]
+              : "Theme settings",
         },
         props["statusMessage"] as ReactNode,
-        props["error"] as ReactNode,
-      )
-    }
-  }
-}
-)
+        props["error"] as ReactNode
+      );
+    },
+  };
+});
 
 vi.mock("@darkfactory/ui/client/toaster", () => ({
   Toaster: (props: Record<string, unknown>) => {
-    themeComponentRuntime.captureToaster(props)
-    return null
-  }
-}))
+    themeComponentRuntime.captureToaster(props);
+    return null;
+  },
+}));
 
-vi.mock("next/link", () => ({ default: "a" }))
-vi.mock("next/navigation", () => ({ usePathname: () => "" }))
+vi.mock("next/link", () => ({ default: "a" }));
+vi.mock("next/navigation", () => ({ usePathname: () => "" }));
 
 vi.mock("@darkfactory/ui/client/dialog", async () => {
-  const react = await vi.importActual<typeof import("react")>("react")
+  const react = await vi.importActual<typeof import("react")>("react");
   return {
     Dialog: (props: Record<string, unknown>) => {
-      themeComponentRuntime.captureDialog(props)
-      return react.createElement("div", {}, props["children"] as ReactNode)
+      themeComponentRuntime.captureDialog(props);
+      return react.createElement("div", {}, props["children"] as ReactNode);
     },
-    DialogContent: (props: Record<string, unknown>) => react.createElement(
-      "section",
-      {},
-      react.createElement("h2", {}, props["title"] as ReactNode),
-      props["description"] as ReactNode,
+    DialogContent: (props: Record<string, unknown>) =>
+      react.createElement(
+        "section",
+        {},
+        react.createElement("h2", {}, props["title"] as ReactNode),
+        props["description"] as ReactNode,
+        props["children"] as ReactNode
+      ),
+    DialogTrigger: (props: Record<string, unknown>) =>
       props["children"] as ReactNode,
-    ),
-    DialogTrigger: (props: Record<string, unknown>) => props["children"] as ReactNode,
-  }
-}
-)
+  };
+});
 
 vi.mock("./components/navigation-links.tsx", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("./components/navigation-links.tsx")>()
-  const react = await vi.importActual<typeof import("react")>("react")
+  const actual =
+    await importOriginal<typeof import("./components/navigation-links.tsx")>();
+  const react = await vi.importActual<typeof import("react")>("react");
   return {
     ...actual,
     NavigationLinks: (props: Record<string, unknown>) => {
-      themeComponentRuntime.captureNavigationLinks(props)
-      return react.createElement(actual.NavigationLinks, props as never)
-    }
-  }
-}
-)
+      themeComponentRuntime.captureNavigationLinks(props);
+      return react.createElement(actual.NavigationLinks, props as never);
+    },
+  };
+});
 
 import {
   consumeInitialThemeBootstrap,
   reconcileThemeAuthorityTransition,
   ThemeController,
   useThemeAuthority,
-} from "./components/theme-controller.tsx"
+} from "./components/theme-controller.tsx";
 import {
   createThemePreferenceClient,
   selectThemeMenuPreference,
   ThemeMenu,
-} from "./components/theme-menu.tsx"
+} from "./components/theme-menu.tsx";
 import {
   PublicFooter,
   PublicHeader,
   PublicShell,
-} from "./components/public-shell.tsx"
+} from "./components/public-shell.tsx";
 import {
   DEFAULT_ANONYMOUS_THEME,
   THEME_STORAGE_KEY,
   serializeThemeCookie,
-} from "./lib/theme.ts"
+} from "./lib/theme.ts";
 import {
   serializeAnonymousThemePreference,
   UiStateProvider,
   useUiState,
   useUiStoreApi,
-} from "./lib/ui-store.tsx"
+} from "./lib/ui-store.tsx";
 
-const deferred = <Value,>() => {
-  let reject!: (reason?: unknown) => void
-  let resolve!: (value: Value) => void
+const deferred = <Value>() => {
+  let reject!: (reason?: unknown) => void;
+  let resolve!: (value: Value) => void;
   const promise = new Promise<Value>((settle, fail) => {
-    reject = fail
-    return void (resolve = settle)
-  }
-  )
-  return { promise, reject, resolve }
-}
+    reject = fail;
+    return void (resolve = settle);
+  });
+  return { promise, reject, resolve };
+};
 
 const ThemeProbe = () => {
-  const { preference } = useTheme()
+  const { preference } = useTheme();
   return createElement("output", {
     "data-mode": preference.themeMode,
     "data-palette": preference.palette,
-  })
-}
+  });
+};
 
 const flushMicrotasks = async (): Promise<void> => {
-  for (let index = 0; index < 8; index += 1) await Promise.resolve()
-}
+  for (let index = 0; index < 8; index += 1) await Promise.resolve();
+};
 
-const installThemeBrowser = (options: {
-  readonly bootstrap?: unknown
-  readonly cookieThrows?: boolean
-  readonly cookieFailure?: unknown
-  readonly storageThrows?: boolean
-  readonly storageFailure?: unknown
-} = {}) => {
-  const bootstrap = options.bootstrap
-  const cookieFailure = options.cookieFailure
-  const cookieThrows: boolean = options.cookieThrows ?? false
-  const storageThrows: boolean = options.storageThrows ?? false
-  const storageFailure = options.storageFailure
-  const cookieWrites: string[] = []
-  const storageWrites: Array<readonly [string, string]> = []
+const installThemeBrowser = (
+  options: {
+    readonly bootstrap?: unknown;
+    readonly cookieThrows?: boolean;
+    readonly cookieFailure?: unknown;
+    readonly storageThrows?: boolean;
+    readonly storageFailure?: unknown;
+  } = {}
+) => {
+  const bootstrap = options.bootstrap;
+  const cookieFailure = options.cookieFailure;
+  const cookieThrows: boolean = options.cookieThrows ?? false;
+  const storageThrows: boolean = options.storageThrows ?? false;
+  const storageFailure = options.storageFailure;
+  const cookieWrites: string[] = [];
+  const storageWrites: Array<readonly [string, string]> = [];
   const documentElement = {
     dataset: {} as Record<string, string>,
-  }
-  const documentStub: Record<string, unknown> = { documentElement }
+  };
+  const documentStub: Record<string, unknown> = { documentElement };
   Object.defineProperty(documentStub, "cookie", {
     configurable: true,
     get: () => cookieWrites.at(-1) ?? "",
-    set: function(value: string) {
-      if (cookieFailure !== undefined) throw cookieFailure
+    set: function (value: string) {
+      if (cookieFailure !== undefined) throw cookieFailure;
       if (cookieThrows) {
-        throw new Error("cookie unavailable")
+        throw new Error("cookie unavailable");
       }
-      return cookieWrites.push(value)
-    }
-  })
-  const setItem = vi.fn(function(key: string, value: string) {
-    if (storageFailure !== undefined) throw storageFailure
+      return cookieWrites.push(value);
+    },
+  });
+  const setItem = vi.fn(function (key: string, value: string) {
+    if (storageFailure !== undefined) throw storageFailure;
     if (storageThrows) {
-      throw new Error("storage unavailable")
+      throw new Error("storage unavailable");
     }
-    return storageWrites.push([key, value])
-  }
-  )
+    return storageWrites.push([key, value]);
+  });
   const windowStub: Record<string, unknown> = {
     location: { origin: "https://darkfactory.example" },
-  }
-  if (bootstrap !== undefined) windowStub["__DARKFACTORY_THEME__"] = bootstrap
-  vi.stubGlobal("document", documentStub)
-  vi.stubGlobal("localStorage", { setItem })
-  vi.stubGlobal("window", windowStub)
+  };
+  if (bootstrap !== undefined) windowStub["__DARKFACTORY_THEME__"] = bootstrap;
+  vi.stubGlobal("document", documentStub);
+  vi.stubGlobal("localStorage", { setItem });
+  vi.stubGlobal("window", windowStub);
   return {
     cookieWrites,
     documentElement,
     setItem,
     storageWrites,
     windowStub,
-  }
-}
+  };
+};
 
-let capturedThemeStore: ReturnType<typeof useUiStoreApi> | undefined
+let capturedThemeStore: ReturnType<typeof useUiStoreApi> | undefined;
 
 const ThemeStoreProbe = () => {
-  capturedThemeStore = useUiStoreApi()
-  return null
-}
+  capturedThemeStore = useUiStoreApi();
+  return null;
+};
 
-const UiStateSelectionProbe = () => createElement(
-  "output",
-  {},
-  useUiState((state) => `${state.themeMode}:${state.palette}`),
-)
+const UiStateSelectionProbe = () =>
+  createElement(
+    "output",
+    {},
+    useUiState((state) => `${state.themeMode}:${state.palette}`)
+  );
 
-const AuthorityProbe = () => createElement("output", {
-  "data-authority": useThemeAuthority(),
-})
+const AuthorityProbe = () =>
+  createElement("output", {
+    "data-authority": useThemeAuthority(),
+  });
 
 const renderThemeRuntime = ({
   authority,
   child = null,
   initialPreference,
 }: {
-  readonly authority?: Parameters<typeof ThemeController>[0]["themeAuthority"]
-  readonly child?: ReactNode
-  readonly initialPreference: Parameters<typeof ThemeController>[0]["initialPreference"]
+  readonly authority?: Parameters<typeof ThemeController>[0]["themeAuthority"];
+  readonly child?: ReactNode;
+  readonly initialPreference: Parameters<
+    typeof ThemeController
+  >[0]["initialPreference"];
 }): string => {
-  themeHookRuntime.begin()
+  themeHookRuntime.begin();
   const children = createElement(
     "div",
     {},
     createElement(ThemeStoreProbe),
-    child,
-  )
+    child
+  );
   return renderToStaticMarkup(
     authority === undefined
       ? createElement(ThemeController, { children, initialPreference })
       : createElement(ThemeController, {
-        children,
-        initialPreference,
-        themeAuthority: authority,
-      }),
-  )
-}
+          children,
+          initialPreference,
+          themeAuthority: authority,
+        })
+  );
+};
 
 afterEach(() => {
-  themeHookRuntime.reset()
-  themeComponentRuntime.reset()
-  themeApiRuntime.reset()
-  capturedThemeStore = undefined
-  vi.unstubAllGlobals()
-  return void vi.restoreAllMocks()
-}
-)
+  themeHookRuntime.reset();
+  themeComponentRuntime.reset();
+  themeApiRuntime.reset();
+  capturedThemeStore = undefined;
+  vi.unstubAllGlobals();
+  return void vi.restoreAllMocks();
+});
 
-describe("trusted theme controls", function() {
-  it("keeps trusted and indeterminate ownership controls discoverable", function() {
-    const trusted = renderToStaticMarkup(createElement(ThemeController, {
-      children: createElement(ThemeMenu),
-      initialPreference: { themeMode: "dark", palette: "rose" },
-      themeAuthority: "trusted",
-    }))
-    const indeterminate = renderToStaticMarkup(createElement(ThemeController, {
-      children: createElement(ThemeMenu),
-      initialPreference: { themeMode: "system", palette: "neutral" },
-      themeAuthority: "indeterminate",
-    }))
-    expect(trusted).toContain('aria-label="Theme settings"')
-    expect(indeterminate).toContain('aria-label="Theme settings unavailable"')
-    expect(trusted).not.toMatch(/<button[^>]*\sdisabled(?:=| |>)/u)
-    return expect(indeterminate).not.toMatch(/<button[^>]*\sdisabled(?:=| |>)/u)
-  })
-
-  it("composes the app store through the public semantic theme provider", function() {
-    const markup = renderToStaticMarkup(createElement(ThemeController, {
-      children: createElement(ThemeProbe),
-      initialPreference: { themeMode: "dark", palette: "cyan" },
-      themeAuthority: "anonymous",
-    }))
-
-    expect(markup).toContain('data-mode="dark"')
-    return expect(markup).toContain('data-palette="cyan"')
-  })
-
-  it("projects the same selected state through the client external-store snapshot", function() {
-    const markup = renderToStaticMarkup(createElement(UiStateProvider, {
-      children: createElement(UiStateSelectionProbe),
-      initialPreference: { themeMode: "dark", palette: "cyan" },
-    }))
-
-    expect(markup).toContain("dark:cyan")
-    return expect(themeHookRuntime.clientSnapshot()).toBe("dark:cyan")
-  })
-
-  it("fails closed when the semantic callback lacks anonymous authority", function() {
-    const results=[];for (const authority of ["trusted", "indeterminate"] as const) {
-      let store: ReturnType<typeof useUiStoreApi> | undefined
-      let selectPreference: ReturnType<typeof useTheme>["onPreferenceChange"] | undefined
-      const CaptureTheme = () => {
-        store = useUiStoreApi()
-        selectPreference = useTheme().onPreferenceChange
-        return null
-      }
-      renderToStaticMarkup(createElement(ThemeController, {
-        children: createElement(CaptureTheme),
+describe("trusted theme controls", function () {
+  it("keeps trusted and indeterminate ownership controls discoverable", function () {
+    const trusted = renderToStaticMarkup(
+      createElement(ThemeController, {
+        children: createElement(ThemeMenu),
         initialPreference: { themeMode: "dark", palette: "rose" },
-        themeAuthority: authority,
-      }))
+        themeAuthority: "trusted",
+      })
+    );
+    const indeterminate = renderToStaticMarkup(
+      createElement(ThemeController, {
+        children: createElement(ThemeMenu),
+        initialPreference: { themeMode: "system", palette: "neutral" },
+        themeAuthority: "indeterminate",
+      })
+    );
+    expect(trusted).toContain('aria-label="Theme settings"');
+    expect(indeterminate).toContain('aria-label="Theme settings unavailable"');
+    expect(trusted).not.toMatch(/<button[^>]*\sdisabled(?:=| |>)/u);
+    return expect(indeterminate).not.toMatch(
+      /<button[^>]*\sdisabled(?:=| |>)/u
+    );
+  });
 
-      selectPreference?.({ themeMode: "light", palette: "blue" })
+  it("composes the app store through the public semantic theme provider", function () {
+    const markup = renderToStaticMarkup(
+      createElement(ThemeController, {
+        children: createElement(ThemeProbe),
+        initialPreference: { themeMode: "dark", palette: "cyan" },
+        themeAuthority: "anonymous",
+      })
+    );
 
-      results.push(expect(store?.getState()).toMatchObject({
-        themeMode: "dark",
-        palette: "rose",
-      }))
-    };return results;
-  })
+    expect(markup).toContain('data-mode="dark"');
+    return expect(markup).toContain('data-palette="cyan"');
+  });
 
-  it("keeps anonymous selection local and clears stale account feedback without a client", async function() {
-    const store = createUiStore()
-    const createClient = vi.fn()
-    const errors: Array<string | null> = ["stale trusted error"]
-    const pending: boolean[] = [true]
+  it("projects the same selected state through the client external-store snapshot", function () {
+    const markup = renderToStaticMarkup(
+      createElement(UiStateProvider, {
+        children: createElement(UiStateSelectionProbe),
+        initialPreference: { themeMode: "dark", palette: "cyan" },
+      })
+    );
+
+    expect(markup).toContain("dark:cyan");
+    return expect(themeHookRuntime.clientSnapshot()).toBe("dark:cyan");
+  });
+
+  it("fails closed when the semantic callback lacks anonymous authority", function () {
+    const results = [];
+    for (const authority of ["trusted", "indeterminate"] as const) {
+      let store: ReturnType<typeof useUiStoreApi> | undefined;
+      let selectPreference:
+        | ReturnType<typeof useTheme>["onPreferenceChange"]
+        | undefined;
+      const CaptureTheme = () => {
+        store = useUiStoreApi();
+        selectPreference = useTheme().onPreferenceChange;
+        return null;
+      };
+      renderToStaticMarkup(
+        createElement(ThemeController, {
+          children: createElement(CaptureTheme),
+          initialPreference: { themeMode: "dark", palette: "rose" },
+          themeAuthority: authority,
+        })
+      );
+
+      selectPreference?.({ themeMode: "light", palette: "blue" });
+
+      results.push(
+        expect(store?.getState()).toMatchObject({
+          themeMode: "dark",
+          palette: "rose",
+        })
+      );
+    }
+    return results;
+  });
+
+  it("keeps anonymous selection local and clears stale account feedback without a client", async function () {
+    const store = createUiStore();
+    const createClient = vi.fn();
+    const errors: Array<string | null> = ["stale trusted error"];
+    const pending: boolean[] = [true];
 
     await selectThemeMenuPreference({
       authority: "anonymous",
@@ -560,54 +588,62 @@ describe("trusted theme controls", function() {
       setError: (message) => errors.push(message),
       setPending: (value) => pending.push(value),
       store,
-    })
+    });
 
-    expect(createClient).not.toHaveBeenCalled()
-    expect(errors.at(-1)).toBeNull()
-    expect(pending.at(-1)).toBe(false)
-    return expect(store.getState()).toMatchObject({ themeMode: "dark", palette: "rose" })
-  })
+    expect(createClient).not.toHaveBeenCalled();
+    expect(errors.at(-1)).toBeNull();
+    expect(pending.at(-1)).toBe(false);
+    return expect(store.getState()).toMatchObject({
+      themeMode: "dark",
+      palette: "rose",
+    });
+  });
 
-  it("binds trusted GET then PATCH to the bounded same-origin transport", async function() {
-    const store = createUiStore()
-    const requests: Request[] = []
+  it("binds trusted GET then PATCH to the bounded same-origin transport", async function () {
+    const store = createUiStore();
+    const requests: Request[] = [];
     const fetchRequest: typeof globalThis.fetch = async (input, init) => {
-      requests.push(input instanceof Request ? input : new Request(input, init))
-      return new Response(null, { status: 204 })
-    }
-    const clientFactory = (options: ApiClientOptions): ApiClient => ({
-      preferences: {
-        theme: {
-          get: async () => {
-            await options.fetch!(new Request(
-              new URL("/api/orpc", options.baseUrl).toString(),
-              { method: "GET" },
-            ))
-            return {
-              themeMode: "system",
-              palette: "neutral",
-              updatedAt: new Date("2026-07-23T10:00:00.000Z"),
-            }
+      requests.push(
+        input instanceof Request ? input : new Request(input, init)
+      );
+      return new Response(null, { status: 204 });
+    };
+    const clientFactory = (options: ApiClientOptions): ApiClient =>
+      ({
+        preferences: {
+          theme: {
+            get: async () => {
+              await options.fetch!(
+                new Request(new URL("/api/orpc", options.baseUrl).toString(), {
+                  method: "GET",
+                })
+              );
+              return {
+                themeMode: "system",
+                palette: "neutral",
+                updatedAt: new Date("2026-07-23T10:00:00.000Z"),
+              };
+            },
+            update: async () => {
+              await options.fetch!(
+                new Request(new URL("/api/orpc", options.baseUrl).toString(), {
+                  method: "PATCH",
+                })
+              );
+              return {
+                themeMode: "dark",
+                palette: "rose",
+                updatedAt: new Date("2026-07-23T10:00:00.001Z"),
+              };
+            },
           },
-          update: async () => {
-            await options.fetch!(new Request(
-              new URL("/api/orpc", options.baseUrl).toString(),
-              { method: "PATCH" },
-            ))
-            return {
-              themeMode: "dark",
-              palette: "rose",
-              updatedAt: new Date("2026-07-23T10:00:00.001Z"),
-            }
-          }
         },
-      },
-    } as unknown as ApiClient)
+      }) as unknown as ApiClient;
     const client = createThemePreferenceClient({
       baseUrl: "https://darkfactory.example/account",
       clientFactory,
       fetchRequest,
-    })
+    });
 
     await selectThemeMenuPreference({
       authority: "trusted",
@@ -619,36 +655,41 @@ describe("trusted theme controls", function() {
       setError: vi.fn(),
       setPending: vi.fn(),
       store,
-    })
+    });
 
     expect(requests.map((request) => [request.method, request.url])).toEqual([
       ["GET", "https://darkfactory.example/api/orpc"],
       ["PATCH", "https://darkfactory.example/api/orpc"],
-    ])
-    return expect(store.getState()).toMatchObject({ themeMode: "dark", palette: "rose" })
-  })
+    ]);
+    return expect(store.getState()).toMatchObject({
+      themeMode: "dark",
+      palette: "rose",
+    });
+  });
 
-  it("clears trusted failure state before a later anonymous selection", async function() {
-    const store = createUiStore()
-    const errors: Array<string | null> = []
-    const pending: boolean[] = []
-    let getCount = 0
+  it("clears trusted failure state before a later anonymous selection", async function () {
+    const store = createUiStore();
+    const errors: Array<string | null> = [];
+    const pending: boolean[] = [];
+    let getCount = 0;
     await selectThemeMenuPreference({
       authority: "trusted",
       authorityEpoch: () => 0,
       createClient: () => ({
         get: async () => {
-          getCount += 1
+          getCount += 1;
           if (getCount === 1) {
             return {
               themeMode: "system",
               palette: "neutral",
               updatedAt: new Date("2026-07-23T10:00:00.000Z"),
-            }
+            };
           }
-          throw new Error("reconciliation unavailable")
+          throw new Error("reconciliation unavailable");
         },
-        update: async function() { throw new Error("response lost") },
+        update: async function () {
+          throw new Error("response lost");
+        },
       }),
       currentAuthority: () => "trusted",
       nextPreference: { themeMode: "dark", palette: "rose" },
@@ -656,10 +697,12 @@ describe("trusted theme controls", function() {
       setError: (message) => errors.push(message),
       setPending: (value) => pending.push(value),
       store,
-    })
-    expect(errors.at(-1)).toBe("Could not confirm theme save. Reload before retrying.")
+    });
+    expect(errors.at(-1)).toBe(
+      "Could not confirm theme save. Reload before retrying."
+    );
 
-    const createClient = vi.fn()
+    const createClient = vi.fn();
     await selectThemeMenuPreference({
       authority: "anonymous",
       authorityEpoch: () => 1,
@@ -670,73 +713,82 @@ describe("trusted theme controls", function() {
       setError: (message) => errors.push(message),
       setPending: (value) => pending.push(value),
       store,
-    })
+    });
 
-    expect(createClient).not.toHaveBeenCalled()
-    expect(errors.at(-1)).toBeNull()
-    expect(pending.at(-1)).toBe(false)
-    return expect(store.getState()).toMatchObject({ themeMode: "light", palette: "blue" })
-  })
+    expect(createClient).not.toHaveBeenCalled();
+    expect(errors.at(-1)).toBeNull();
+    expect(pending.at(-1)).toBe(false);
+    return expect(store.getState()).toMatchObject({
+      themeMode: "light",
+      palette: "blue",
+    });
+  });
 
-  it("keeps pending owned by the newest overlapping trusted selection", async function() {
-    const store = createUiStore()
-    const requestSequence = { current: 0 }
-    const pending: boolean[] = []
-    const firstGet = deferred<ThemePreferenceOutput>()
-    const secondGet = deferred<ThemePreferenceOutput>()
+  it("keeps pending owned by the newest overlapping trusted selection", async function () {
+    const store = createUiStore();
+    const requestSequence = { current: 0 };
+    const pending: boolean[] = [];
+    const firstGet = deferred<ThemePreferenceOutput>();
+    const secondGet = deferred<ThemePreferenceOutput>();
     const selection = (
       get: () => Promise<ThemePreferenceOutput>,
-      preference: Readonly<{ themeMode: "dark" | "light"; palette: "rose" | "blue" }>,
-    ) => selectThemeMenuPreference({
-      authority: "trusted",
-      authorityEpoch: () => 0,
-      createClient: () => ({
-        get,
-        update: async () => ({
-          themeMode: preference.themeMode,
-          palette: preference.palette,
-          updatedAt: new Date("2026-07-23T10:00:00.001Z"),
+      preference: Readonly<{
+        themeMode: "dark" | "light";
+        palette: "rose" | "blue";
+      }>
+    ) =>
+      selectThemeMenuPreference({
+        authority: "trusted",
+        authorityEpoch: () => 0,
+        createClient: () => ({
+          get,
+          update: async () => ({
+            themeMode: preference.themeMode,
+            palette: preference.palette,
+            updatedAt: new Date("2026-07-23T10:00:00.001Z"),
+          }),
         }),
-      }),
-      currentAuthority: () => "trusted",
-      nextPreference: preference,
-      requestSequence,
-      setError: vi.fn(),
-      setPending: (value) => pending.push(value),
-      store,
-    })
+        currentAuthority: () => "trusted",
+        nextPreference: preference,
+        requestSequence,
+        setError: vi.fn(),
+        setPending: (value) => pending.push(value),
+        store,
+      });
 
-    const first = selection(
-      async () => firstGet.promise,
-      { themeMode: "dark", palette: "rose" },
-    )
-    const second = selection(
-      async () => secondGet.promise,
-      { themeMode: "light", palette: "blue" },
-    )
+    const first = selection(async () => firstGet.promise, {
+      themeMode: "dark",
+      palette: "rose",
+    });
+    const second = selection(async () => secondGet.promise, {
+      themeMode: "light",
+      palette: "blue",
+    });
     firstGet.resolve({
       themeMode: "system",
       palette: "neutral",
       updatedAt: new Date("2026-07-23T10:00:00.000Z"),
-    })
+    });
 
-    await first
-    expect(pending.at(-1)).toBe(true)
+    await first;
+    expect(pending.at(-1)).toBe(true);
 
     secondGet.resolve({
       themeMode: "system",
       palette: "neutral",
       updatedAt: new Date("2026-07-23T10:00:00.000Z"),
-    })
-    await second
-    return expect(pending.at(-1)).toBe(false)
-  })
+    });
+    await second;
+    return expect(pending.at(-1)).toBe(false);
+  });
 
-  it("neutralizes anonymous subscriptions before a soft transition applies trusted state", function() {
-    const store = createUiStore()
-    const writes: string[] = []
-    const unsubscribe = store.subscribe(() => writes.push("anonymous persistence"))
-    const authorityChanges: string[] = []
+  it("neutralizes anonymous subscriptions before a soft transition applies trusted state", function () {
+    const store = createUiStore();
+    const writes: string[] = [];
+    const unsubscribe = store.subscribe(() =>
+      writes.push("anonymous persistence")
+    );
+    const authorityChanges: string[] = [];
 
     reconcileThemeAuthorityTransition({
       authority: "trusted",
@@ -745,70 +797,84 @@ describe("trusted theme controls", function() {
       onAuthorityChange: (authority) => authorityChanges.push(authority),
       store,
       unsubscribe,
-    })
+    });
 
-    expect(authorityChanges).toEqual(["trusted"])
-    expect(writes).toEqual([])
-    return expect(store.getState()).toMatchObject({ themeMode: "dark", palette: "rose" })
-  })
+    expect(authorityChanges).toEqual(["trusted"]);
+    expect(writes).toEqual([]);
+    return expect(store.getState()).toMatchObject({
+      themeMode: "dark",
+      palette: "rose",
+    });
+  });
 
-  it("consumes pre-hydration bootstrap once and never reverts a soft refresh", function() {
-    const store = createUiStore()
-    const consumption = { consumed: false }
-    const bootstrapA = { themeMode: "dark", palette: "blue" } as const
-    const preferenceB = { themeMode: "light", palette: "rose" } as const
-    let previousAuthority: "anonymous" | "trusted" | undefined
+  it("consumes pre-hydration bootstrap once and never reverts a soft refresh", function () {
+    const store = createUiStore();
+    const consumption = { consumed: false };
+    const bootstrapA = { themeMode: "dark", palette: "blue" } as const;
+    const preferenceB = { themeMode: "light", palette: "rose" } as const;
+    let previousAuthority: "anonymous" | "trusted" | undefined;
     const apply = (
       authority: "anonymous" | "trusted",
-      initialPreference: typeof preferenceB | typeof bootstrapA,
+      initialPreference: typeof preferenceB | typeof bootstrapA
     ) => {
-      const priorAuthority = previousAuthority
+      const priorAuthority = previousAuthority;
       return void reconcileThemeAuthorityTransition({
         authority,
         bootstrapPreference: consumeInitialThemeBootstrap(
           authority,
           consumption,
-          bootstrapA,
+          bootstrapA
         ),
         initialPreference,
         onAuthorityChange: (nextAuthority) => {
-          return void (previousAuthority = nextAuthority as "anonymous" | "trusted")
+          return void (previousAuthority = nextAuthority as
+            | "anonymous"
+            | "trusted");
         },
         previousAuthority: priorAuthority,
         store,
-      })
+      });
+    };
+
+    apply("anonymous", preferenceB);
+    expect(store.getState()).toMatchObject(bootstrapA);
+    store.setState(preferenceB);
+    apply("anonymous", bootstrapA);
+    expect(store.getState()).toMatchObject(preferenceB);
+    apply("trusted", preferenceB);
+    apply("anonymous", preferenceB);
+    expect(consumption.consumed).toBe(true);
+    return expect(store.getState()).toMatchObject(preferenceB);
+  });
+
+  it("consumes non-anonymous bootstrap authority once without exposing the payload", function () {
+    const results1 = [];
+    for (const authority of ["trusted", "indeterminate"] as const) {
+      const consumption = { consumed: false };
+      expect(
+        consumeInitialThemeBootstrap(authority, consumption, {
+          themeMode: "dark",
+          palette: "rose",
+        })
+      ).toBeUndefined();
+      expect(consumption.consumed).toBe(true);
+      results1.push(
+        expect(
+          consumeInitialThemeBootstrap(authority, consumption, {
+            themeMode: "light",
+            palette: "blue",
+          })
+        ).toBeUndefined()
+      );
     }
+    return results1;
+  });
 
-    apply("anonymous", preferenceB)
-    expect(store.getState()).toMatchObject(bootstrapA)
-    store.setState(preferenceB)
-    apply("anonymous", bootstrapA)
-    expect(store.getState()).toMatchObject(preferenceB)
-    apply("trusted", preferenceB)
-    apply("anonymous", preferenceB)
-    expect(consumption.consumed).toBe(true)
-    return expect(store.getState()).toMatchObject(preferenceB)
-  })
-
-  it("consumes non-anonymous bootstrap authority once without exposing the payload", function() {
-    const results1=[];for (const authority of ["trusted", "indeterminate"] as const) {
-      const consumption = { consumed: false }
-      expect(consumeInitialThemeBootstrap(
-        authority,
-        consumption,
-        { themeMode: "dark", palette: "rose" },
-      )).toBeUndefined()
-      expect(consumption.consumed).toBe(true)
-      results1.push(expect(consumeInitialThemeBootstrap(
-        authority,
-        consumption,
-        { themeMode: "light", palette: "blue" },
-      )).toBeUndefined())
-    };return results1;
-  })
-
-  it("rejects every malformed bootstrap shape and avoids redundant store writes", function() {
-    const initialPreference = { themeMode: "system", palette: "neutral" } as const
+  it("rejects every malformed bootstrap shape and avoids redundant store writes", function () {
+    const initialPreference = {
+      themeMode: "system",
+      palette: "neutral",
+    } as const;
     for (const bootstrapPreference of [
       undefined,
       null,
@@ -819,9 +885,9 @@ describe("trusted theme controls", function() {
       { themeMode: "invalid", palette: "rose" },
       { themeMode: "dark", palette: "invalid" },
     ]) {
-      const store = createUiStore()
-      const setThemeMode = vi.spyOn(store.getState(), "setThemeMode")
-      const setPalette = vi.spyOn(store.getState(), "setPalette")
+      const store = createUiStore();
+      const setThemeMode = vi.spyOn(store.getState(), "setThemeMode");
+      const setPalette = vi.spyOn(store.getState(), "setPalette");
       reconcileThemeAuthorityTransition({
         authority: "anonymous",
         bootstrapPreference,
@@ -829,23 +895,26 @@ describe("trusted theme controls", function() {
         onAuthorityChange: vi.fn(),
         previousAuthority: "trusted",
         store,
-      })
-      expect(store.getState()).toMatchObject(initialPreference)
-      expect(setThemeMode).not.toHaveBeenCalled()
-      expect(setPalette).not.toHaveBeenCalled()
+      });
+      expect(store.getState()).toMatchObject(initialPreference);
+      expect(setThemeMode).not.toHaveBeenCalled();
+      expect(setPalette).not.toHaveBeenCalled();
     }
 
-    const store = createUiStore()
+    const store = createUiStore();
     reconcileThemeAuthorityTransition({
       authority: "trusted",
       bootstrapPreference: { themeMode: "dark", palette: "rose" },
       initialPreference: { themeMode: "light", palette: "blue" },
       onAuthorityChange: vi.fn(),
       store,
-    })
-    expect(store.getState()).toMatchObject({ themeMode: "light", palette: "blue" })
+    });
+    expect(store.getState()).toMatchObject({
+      themeMode: "light",
+      palette: "blue",
+    });
 
-    const refreshedStore = createUiStore()
+    const refreshedStore = createUiStore();
     reconcileThemeAuthorityTransition({
       authority: "anonymous",
       bootstrapPreference: { themeMode: "dark", palette: "rose" },
@@ -853,39 +922,43 @@ describe("trusted theme controls", function() {
       onAuthorityChange: vi.fn(),
       previousAuthority: "anonymous",
       store: refreshedStore,
-    })
+    });
     return expect(refreshedStore.getState()).toMatchObject({
       themeMode: "dark",
       palette: "rose",
-    })
-  })
+    });
+  });
 
-  it("defaults to anonymous authority and applies semantic theme selections locally", function() {
-    let store: ReturnType<typeof useUiStoreApi> | undefined
-    let selectPreference: ReturnType<typeof useTheme>["onPreferenceChange"] | undefined
+  it("defaults to anonymous authority and applies semantic theme selections locally", function () {
+    let store: ReturnType<typeof useUiStoreApi> | undefined;
+    let selectPreference:
+      | ReturnType<typeof useTheme>["onPreferenceChange"]
+      | undefined;
     const CaptureTheme = () => {
-      store = useUiStoreApi()
-      selectPreference = useTheme().onPreferenceChange
-      return createElement(AuthorityProbe)
-    }
-    const html = renderToStaticMarkup(createElement(ThemeController, {
-      children: createElement(CaptureTheme),
-      initialPreference: { themeMode: "system", palette: "neutral" },
-    }))
+      store = useUiStoreApi();
+      selectPreference = useTheme().onPreferenceChange;
+      return createElement(AuthorityProbe);
+    };
+    const html = renderToStaticMarkup(
+      createElement(ThemeController, {
+        children: createElement(CaptureTheme),
+        initialPreference: { themeMode: "system", palette: "neutral" },
+      })
+    );
 
-    expect(html).toContain('data-authority="anonymous"')
-    selectPreference?.({ themeMode: "dark", palette: "violet" })
+    expect(html).toContain('data-authority="anonymous"');
+    selectPreference?.({ themeMode: "dark", palette: "violet" });
     return expect(store?.getState()).toMatchObject({
       themeMode: "dark",
       palette: "violet",
-    })
-  })
+    });
+  });
 
-  it("ignores menu selection while theme authority is indeterminate", async function() {
-    const store = createUiStore()
-    const createClient = vi.fn()
-    const setError = vi.fn()
-    const setPending = vi.fn()
+  it("ignores menu selection while theme authority is indeterminate", async function () {
+    const store = createUiStore();
+    const createClient = vi.fn();
+    const setError = vi.fn();
+    const setPending = vi.fn();
 
     await selectThemeMenuPreference({
       authority: "indeterminate",
@@ -897,24 +970,30 @@ describe("trusted theme controls", function() {
       setError,
       setPending,
       store,
-    })
+    });
 
-    expect(createClient).not.toHaveBeenCalled()
-    expect(setError).not.toHaveBeenCalled()
-    expect(setPending).not.toHaveBeenCalled()
-    return expect(store.getState()).toMatchObject(DEFAULT_ANONYMOUS_THEME)
-  })
+    expect(createClient).not.toHaveBeenCalled();
+    expect(setError).not.toHaveBeenCalled();
+    expect(setPending).not.toHaveBeenCalled();
+    return expect(store.getState()).toMatchObject(DEFAULT_ANONYMOUS_THEME);
+  });
 
-  it("surfaces failed and reconciled trusted selections with deterministic feedback", async function() {
+  it("surfaces failed and reconciled trusted selections with deterministic feedback", async function () {
     const cases = [
       {
         expected: "Could not save theme settings. Try again.",
-        get: vi.fn(async function() { throw new Error("account unavailable") }),
-        update: vi.fn(async function() { throw new Error("update must not run after a failed read") }),
+        get: vi.fn(async function () {
+          throw new Error("account unavailable");
+        }),
+        update: vi.fn(async function () {
+          throw new Error("update must not run after a failed read");
+        }),
       },
       {
-        expected: "Theme settings were refreshed from your account. Review them before trying again.",
-        get: vi.fn()
+        expected:
+          "Theme settings were refreshed from your account. Review them before trying again.",
+        get: vi
+          .fn()
           .mockResolvedValueOnce({
             themeMode: "system",
             palette: "neutral",
@@ -925,14 +1004,17 @@ describe("trusted theme controls", function() {
             palette: "blue",
             updatedAt: new Date("2026-07-23T10:00:00.001Z"),
           }),
-        update: vi.fn(async function() { throw new Error("write response unavailable") }),
+        update: vi.fn(async function () {
+          throw new Error("write response unavailable");
+        }),
       },
-    ] as const
+    ] as const;
 
-    const results2=[];for (const testCase of cases) {
-      const store = createUiStore()
-      const errors: Array<string | null> = []
-      const pending: boolean[] = []
+    const results2 = [];
+    for (const testCase of cases) {
+      const store = createUiStore();
+      const errors: Array<string | null> = [];
+      const pending: boolean[] = [];
       await selectThemeMenuPreference({
         authority: "trusted",
         authorityEpoch: () => 0,
@@ -946,26 +1028,28 @@ describe("trusted theme controls", function() {
         setError: (value) => errors.push(value),
         setPending: (value) => pending.push(value),
         store,
-      })
-      expect(errors).toEqual([null, testCase.expected])
-      results2.push(expect(pending).toEqual([true, false]))
-    };return results2;
-  })
+      });
+      expect(errors).toEqual([null, testCase.expected]);
+      results2.push(expect(pending).toEqual([true, false]));
+    }
+    return results2;
+  });
 
-  it("leaves stale trusted requests pending for their replacement owner", async function() {
-    const results3=[];for (const staleBoundary of ["authority", "epoch", "sequence"] as const) {
-      const store = createUiStore()
-      const gate = deferred<ThemePreferenceOutput>()
-      const requestSequence = { current: 0 }
-      const errors: Array<string | null> = []
-      const pending: boolean[] = []
-      let currentAuthority: "anonymous" | "trusted" = "trusted"
-      let currentEpoch = 0
+  it("leaves stale trusted requests pending for their replacement owner", async function () {
+    const results3 = [];
+    for (const staleBoundary of ["authority", "epoch", "sequence"] as const) {
+      const store = createUiStore();
+      const gate = deferred<ThemePreferenceOutput>();
+      const requestSequence = { current: 0 };
+      const errors: Array<string | null> = [];
+      const pending: boolean[] = [];
+      let currentAuthority: "anonymous" | "trusted" = "trusted";
+      let currentEpoch = 0;
       const update = vi.fn(async () => ({
         themeMode: "dark" as const,
         palette: "rose" as const,
         updatedAt: new Date("2026-07-23T10:00:00.001Z"),
-      }))
+      }));
       const selection = selectThemeMenuPreference({
         authority: "trusted",
         authorityEpoch: () => currentEpoch,
@@ -979,96 +1063,104 @@ describe("trusted theme controls", function() {
         setError: (value) => errors.push(value),
         setPending: (value) => pending.push(value),
         store,
-      })
-      await flushMicrotasks()
-      switch(staleBoundary) {
+      });
+      await flushMicrotasks();
+      switch (staleBoundary) {
         case "authority": {
-          currentAuthority = "anonymous";break;
+          currentAuthority = "anonymous";
+          break;
         }
         case "epoch": {
-          currentEpoch = 1;break;
+          currentEpoch = 1;
+          break;
         }
         case "sequence": {
-          requestSequence.current += 1;break;
+          requestSequence.current += 1;
+          break;
         }
       }
       gate.resolve({
         themeMode: "system",
         palette: "neutral",
         updatedAt: new Date("2026-07-23T10:00:00.000Z"),
-      })
-      await selection
+      });
+      await selection;
 
-      expect(update).not.toHaveBeenCalled()
-      expect(errors).toEqual([null])
-      results3.push(expect(pending).toEqual([true]))
-    };return results3;
-  })
+      expect(update).not.toHaveBeenCalled();
+      expect(errors).toEqual([null]);
+      results3.push(expect(pending).toEqual([true]));
+    }
+    return results3;
+  });
 
-  it("hydrates anonymous browser state, synchronizes mutations, and cleans stale subscriptions", function() {
-    const initialPreference = { themeMode: "light", palette: "rose" } as const
-    const bootstrap = { themeMode: "dark", palette: "blue" } as const
-    const browser = installThemeBrowser({ bootstrap })
-    const render = (authority: "anonymous" | "trusted") => renderThemeRuntime({
-      authority,
-      initialPreference,
-    })
+  it("hydrates anonymous browser state, synchronizes mutations, and cleans stale subscriptions", function () {
+    const initialPreference = { themeMode: "light", palette: "rose" } as const;
+    const bootstrap = { themeMode: "dark", palette: "blue" } as const;
+    const browser = installThemeBrowser({ bootstrap });
+    const render = (authority: "anonymous" | "trusted") =>
+      renderThemeRuntime({
+        authority,
+        initialPreference,
+      });
 
-    render("anonymous")
-    themeHookRuntime.commitLayouts()
-    themeHookRuntime.commitEffects()
-    expect(browser.windowStub).not.toHaveProperty("__DARKFACTORY_THEME__")
-    expect(capturedThemeStore?.getState()).toMatchObject(bootstrap)
+    render("anonymous");
+    themeHookRuntime.commitLayouts();
+    themeHookRuntime.commitEffects();
+    expect(browser.windowStub).not.toHaveProperty("__DARKFACTORY_THEME__");
+    expect(capturedThemeStore?.getState()).toMatchObject(bootstrap);
     expect(browser.documentElement.dataset).toEqual({
       mode: "dark",
       palette: "blue",
-    })
+    });
 
-    const store = capturedThemeStore
-    if (store === undefined) throw new Error("Expected the theme store to render.")
-    const originalSubscribe = store.subscribe.bind(store)
-    const unsubscribe = vi.fn()
+    const store = capturedThemeStore;
+    if (store === undefined)
+      throw new Error("Expected the theme store to render.");
+    const originalSubscribe = store.subscribe.bind(store);
+    const unsubscribe = vi.fn();
     vi.spyOn(store, "subscribe").mockImplementation((listener) => {
-      const stop = originalSubscribe(listener)
+      const stop = originalSubscribe(listener);
       return () => {
-        unsubscribe()
-        return void stop()
-      }
-    }
-    )
+        unsubscribe();
+        return void stop();
+      };
+    });
 
-    render("anonymous")
-    themeHookRuntime.commitLayouts()
-    themeHookRuntime.commitEffects()
+    render("anonymous");
+    themeHookRuntime.commitLayouts();
+    themeHookRuntime.commitEffects();
     expect(browser.storageWrites.at(-1)).toEqual([
       THEME_STORAGE_KEY,
       serializeAnonymousThemePreference(bootstrap),
-    ])
-    expect(browser.cookieWrites.at(-1)).toBe(serializeThemeCookie(bootstrap))
-    expect(themeComponentRuntime.toaster()["theme"]).toBe("dark")
+    ]);
+    expect(browser.cookieWrites.at(-1)).toBe(serializeThemeCookie(bootstrap));
+    expect(themeComponentRuntime.toaster()["theme"]).toBe("dark");
 
-    store.setState({ themeMode: "light", palette: "amber" })
+    store.setState({ themeMode: "light", palette: "amber" });
     expect(browser.documentElement.dataset).toEqual({
       mode: "light",
       palette: "amber",
-    })
+    });
     expect(browser.storageWrites.at(-1)?.[1]).toBe(
-      serializeAnonymousThemePreference({ themeMode: "light", palette: "amber" }),
-    )
+      serializeAnonymousThemePreference({
+        themeMode: "light",
+        palette: "amber",
+      })
+    );
     expect(browser.cookieWrites.at(-1)).toBe(
-      serializeThemeCookie({ themeMode: "light", palette: "amber" }),
-    )
+      serializeThemeCookie({ themeMode: "light", palette: "amber" })
+    );
 
-    render("trusted")
-    themeHookRuntime.commitLayouts()
-    themeHookRuntime.commitEffects()
-    expect(unsubscribe).toHaveBeenCalledTimes(1)
-    themeHookRuntime.reset()
-    return expect(unsubscribe).toHaveBeenCalledTimes(2)
-  })
+    render("trusted");
+    themeHookRuntime.commitLayouts();
+    themeHookRuntime.commitEffects();
+    expect(unsubscribe).toHaveBeenCalledTimes(1);
+    themeHookRuntime.reset();
+    return expect(unsubscribe).toHaveBeenCalledTimes(2);
+  });
 
-  it("keeps browser persistence best-effort for blocked and non-anonymous authorities", function() {
-    const initialPreference = { themeMode: "dark", palette: "rose" } as const
+  it("keeps browser persistence best-effort for blocked and non-anonymous authorities", function () {
+    const initialPreference = { themeMode: "dark", palette: "rose" } as const;
     const cases = [
       {
         authority: "anonymous" as const,
@@ -1098,384 +1190,430 @@ describe("trusted theme controls", function() {
         expectedStorage: 0,
         storageThrows: false,
       },
-    ]
+    ];
 
-    const results4=[];for (const testCase of cases) {
-      themeHookRuntime.reset()
-      themeComponentRuntime.reset()
-      capturedThemeStore = undefined
-      vi.unstubAllGlobals()
+    const results4 = [];
+    for (const testCase of cases) {
+      themeHookRuntime.reset();
+      themeComponentRuntime.reset();
+      capturedThemeStore = undefined;
+      vi.unstubAllGlobals();
       const browser = installThemeBrowser({
         cookieThrows: testCase.cookieThrows,
         storageThrows: testCase.storageThrows,
-      })
-      const render = () => renderThemeRuntime({
-        authority: testCase.authority,
-        initialPreference,
-      })
-      render()
-      themeHookRuntime.commitLayouts()
-      themeHookRuntime.commitEffects()
-      render()
-      themeHookRuntime.commitLayouts()
-      themeHookRuntime.commitEffects()
+      });
+      const render = () =>
+        renderThemeRuntime({
+          authority: testCase.authority,
+          initialPreference,
+        });
+      render();
+      themeHookRuntime.commitLayouts();
+      themeHookRuntime.commitEffects();
+      render();
+      themeHookRuntime.commitLayouts();
+      themeHookRuntime.commitEffects();
 
-      expect(browser.setItem).toHaveBeenCalledTimes(testCase.expectedStorage)
-      expect(browser.cookieWrites).toHaveLength(testCase.expectedCookies)
-      results4.push(expect(browser.documentElement.dataset).toEqual({
-        mode: "dark",
-        palette: "rose",
-      }))
-    };return results4;
-  })
+      expect(browser.setItem).toHaveBeenCalledTimes(testCase.expectedStorage);
+      expect(browser.cookieWrites).toHaveLength(testCase.expectedCookies);
+      results4.push(
+        expect(browser.documentElement.dataset).toEqual({
+          mode: "dark",
+          palette: "rose",
+        })
+      );
+    }
+    return results4;
+  });
 
-  it("propagates non-object browser persistence failures", function() {
-    const initialPreference = { themeMode: "dark", palette: "rose" } as const
+  it("propagates non-object browser persistence failures", function () {
+    const initialPreference = { themeMode: "dark", palette: "rose" } as const;
     const observeFailure = (
       options: Readonly<{
-        cookieFailure?: unknown
-        storageFailure?: unknown
-      }>,
+        cookieFailure?: unknown;
+        storageFailure?: unknown;
+      }>
     ) => {
-      themeHookRuntime.reset()
-      themeComponentRuntime.reset()
-      capturedThemeStore = undefined
-      vi.unstubAllGlobals()
-      const browser = installThemeBrowser(options)
-      const render = () => renderThemeRuntime({
-        authority: "anonymous",
-        initialPreference,
-      })
-      render()
-      themeHookRuntime.commitLayouts()
-      themeHookRuntime.commitEffects()
-      render()
-      themeHookRuntime.commitLayouts()
-      let thrown: unknown
+      themeHookRuntime.reset();
+      themeComponentRuntime.reset();
+      capturedThemeStore = undefined;
+      vi.unstubAllGlobals();
+      const browser = installThemeBrowser(options);
+      const render = () =>
+        renderThemeRuntime({
+          authority: "anonymous",
+          initialPreference,
+        });
+      render();
+      themeHookRuntime.commitLayouts();
+      themeHookRuntime.commitEffects();
+      render();
+      themeHookRuntime.commitLayouts();
+      let thrown: unknown;
       try {
-        themeHookRuntime.commitEffects()
+        themeHookRuntime.commitEffects();
+      } catch (error) {
+        thrown = error;
       }
-      catch (error) {
-        thrown = error
-      }
-      return { browser, thrown }
-    }
+      return { browser, thrown };
+    };
 
     const storage = observeFailure({
       storageFailure: "primitive storage failure",
-    })
-    expect(storage.thrown).toBe("primitive storage failure")
+    });
+    expect(storage.thrown).toBe("primitive storage failure");
     expect(storage.browser.documentElement.dataset).toEqual({
       mode: "dark",
       palette: "rose",
-    })
+    });
 
     const cookie = observeFailure({
       cookieFailure: "primitive cookie failure",
-    })
-    expect(cookie.thrown).toBe("primitive cookie failure")
+    });
+    expect(cookie.thrown).toBe("primitive cookie failure");
     return expect(cookie.browser.documentElement.dataset).toEqual({
       mode: "dark",
       palette: "rose",
-    })
-  })
+    });
+  });
 
-  it("renders trusted save, failure, and retry states through the menu controller", async function() {
-    installThemeBrowser()
-    const firstGet = deferred<ThemePreferenceOutput>()
-    let getCount = 0
+  it("renders trusted save, failure, and retry states through the menu controller", async function () {
+    installThemeBrowser();
+    const firstGet = deferred<ThemePreferenceOutput>();
+    let getCount = 0;
     const get = vi.fn((): Promise<ThemePreferenceOutput> => {
-      getCount += 1
-      if (getCount === 1) return firstGet.promise
+      getCount += 1;
+      if (getCount === 1) return firstGet.promise;
       return Promise.resolve({
         themeMode: "system",
         palette: "neutral",
         updatedAt: new Date("2026-07-23T10:00:00.000Z"),
-      })
-    }
-    )
+      });
+    });
     const update = vi.fn(async () => ({
       themeMode: "dark" as const,
       palette: "rose" as const,
       updatedAt: new Date("2026-07-23T10:00:00.001Z"),
-    }))
-    themeApiRuntime.configure(() => ({
-      preferences: { theme: { get, update } },
-    } as unknown as ApiClient))
-    const initialPreference = { themeMode: "system", palette: "neutral" } as const
-    const render = () => renderThemeRuntime({
-      authority: "trusted",
-      child: createElement(ThemeMenu),
-      initialPreference,
-    })
+    }));
+    themeApiRuntime.configure(
+      () =>
+        ({
+          preferences: { theme: { get, update } },
+        }) as unknown as ApiClient
+    );
+    const initialPreference = {
+      themeMode: "system",
+      palette: "neutral",
+    } as const;
+    const render = () =>
+      renderThemeRuntime({
+        authority: "trusted",
+        child: createElement(ThemeMenu),
+        initialPreference,
+      });
 
-    render()
+    render();
     expect(themeComponentRuntime.picker()).toMatchObject({
       disabled: false,
       error: null,
       statusMessage: "These preferences are saved to your account.",
       triggerLabel: "Theme settings",
-    })
-    themeHookRuntime.commitLayouts()
-    themeHookRuntime.commitEffects()
-    render()
-    themeHookRuntime.commitLayouts()
-    themeHookRuntime.commitEffects()
+    });
+    themeHookRuntime.commitLayouts();
+    themeHookRuntime.commitEffects();
+    render();
+    themeHookRuntime.commitLayouts();
+    themeHookRuntime.commitEffects();
 
-    const select = themeComponentRuntime.picker()["onPreferenceChange"]
-    if (typeof select !== "function") throw new Error("Expected a theme selection callback.")
-    select({ themeMode: "dark", palette: "rose" })
-    render()
+    const select = themeComponentRuntime.picker()["onPreferenceChange"];
+    if (typeof select !== "function")
+      throw new Error("Expected a theme selection callback.");
+    select({ themeMode: "dark", palette: "rose" });
+    render();
     expect(themeComponentRuntime.picker()).toMatchObject({
       disabled: true,
       error: null,
       statusMessage: "Saving this preference to your account.",
       triggerLabel: "Saving theme settings",
-    })
-    expect(themeApiRuntime.options()).toHaveLength(1)
-    expect(themeApiRuntime.options()[0]?.baseUrl).toBe("https://darkfactory.example")
-    expect(themeApiRuntime.options()[0]?.fetch).toEqual(expect.any(Function))
+    });
+    expect(themeApiRuntime.options()).toHaveLength(1);
+    expect(themeApiRuntime.options()[0]?.baseUrl).toBe(
+      "https://darkfactory.example"
+    );
+    expect(themeApiRuntime.options()[0]?.fetch).toEqual(expect.any(Function));
 
-    firstGet.reject(new Error("account unavailable"))
-    await flushMicrotasks()
-    render()
+    firstGet.reject(new Error("account unavailable"));
+    await flushMicrotasks();
+    render();
     expect(themeComponentRuntime.picker()).toMatchObject({
       disabled: false,
       error: "Could not save theme settings. Try again.",
       statusMessage: "These preferences are saved to your account.",
       triggerLabel: "Theme settings",
-    })
+    });
 
-    const retry = themeComponentRuntime.picker()["onPreferenceChange"]
-    if (typeof retry !== "function") throw new Error("Expected a theme retry callback.")
-    retry({ themeMode: "dark", palette: "rose" })
-    render()
+    const retry = themeComponentRuntime.picker()["onPreferenceChange"];
+    if (typeof retry !== "function")
+      throw new Error("Expected a theme retry callback.");
+    retry({ themeMode: "dark", palette: "rose" });
+    render();
     expect(themeComponentRuntime.picker()).toMatchObject({
       disabled: true,
       error: null,
       triggerLabel: "Saving theme settings",
-    })
-    await flushMicrotasks()
-    render()
+    });
+    await flushMicrotasks();
+    render();
     expect(themeComponentRuntime.picker()).toMatchObject({
       disabled: false,
       error: null,
       triggerLabel: "Theme settings",
-    })
-    expect(update).toHaveBeenCalledTimes(1)
+    });
+    expect(update).toHaveBeenCalledTimes(1);
     return expect(capturedThemeStore?.getState()).toMatchObject({
       themeMode: "dark",
       palette: "rose",
-    })
-  })
+    });
+  });
 
-  it("invalidates an in-flight trusted menu request when authority changes or unmounts", async function() {
-    installThemeBrowser()
-    const getGate = deferred<ThemePreferenceOutput>()
+  it("invalidates an in-flight trusted menu request when authority changes or unmounts", async function () {
+    installThemeBrowser();
+    const getGate = deferred<ThemePreferenceOutput>();
     const update = vi.fn(async () => ({
       themeMode: "dark" as const,
       palette: "rose" as const,
       updatedAt: new Date("2026-07-23T10:00:00.001Z"),
-    }))
-    themeApiRuntime.configure(() => ({
-      preferences: {
-        theme: {
-          get: async () => getGate.promise,
-          update,
-        },
-      },
-    } as unknown as ApiClient))
-    const initialPreference = { themeMode: "system", palette: "neutral" } as const
-    const render = (authority: "anonymous" | "indeterminate" | "trusted") => (
+    }));
+    themeApiRuntime.configure(
+      () =>
+        ({
+          preferences: {
+            theme: {
+              get: async () => getGate.promise,
+              update,
+            },
+          },
+        }) as unknown as ApiClient
+    );
+    const initialPreference = {
+      themeMode: "system",
+      palette: "neutral",
+    } as const;
+    const render = (authority: "anonymous" | "indeterminate" | "trusted") =>
       renderThemeRuntime({
         authority,
         child: createElement(ThemeMenu),
         initialPreference,
-      })
-    )
+      });
 
-    render("trusted")
-    themeHookRuntime.commitLayouts()
-    themeHookRuntime.commitEffects()
-    const select = themeComponentRuntime.picker()["onPreferenceChange"]
-    if (typeof select !== "function") throw new Error("Expected a theme selection callback.")
-    select({ themeMode: "dark", palette: "rose" })
-    render("trusted")
-    expect(themeComponentRuntime.picker()["triggerLabel"]).toBe("Saving theme settings")
+    render("trusted");
+    themeHookRuntime.commitLayouts();
+    themeHookRuntime.commitEffects();
+    const select = themeComponentRuntime.picker()["onPreferenceChange"];
+    if (typeof select !== "function")
+      throw new Error("Expected a theme selection callback.");
+    select({ themeMode: "dark", palette: "rose" });
+    render("trusted");
+    expect(themeComponentRuntime.picker()["triggerLabel"]).toBe(
+      "Saving theme settings"
+    );
 
-    render("anonymous")
+    render("anonymous");
     expect(themeComponentRuntime.picker()).toMatchObject({
       disabled: true,
       statusMessage: null,
       triggerLabel: "Saving theme settings",
-    })
-    themeHookRuntime.commitLayouts()
-    render("anonymous")
+    });
+    themeHookRuntime.commitLayouts();
+    render("anonymous");
     expect(themeComponentRuntime.picker()).toMatchObject({
       disabled: false,
       error: null,
       statusMessage: null,
       triggerLabel: "Theme settings",
-    })
+    });
 
     getGate.resolve({
       themeMode: "system",
       palette: "neutral",
       updatedAt: new Date("2026-07-23T10:00:00.000Z"),
-    })
-    await flushMicrotasks()
-    render("anonymous")
+    });
+    await flushMicrotasks();
+    render("anonymous");
     expect(themeComponentRuntime.picker()).toMatchObject({
       disabled: false,
       error: null,
       triggerLabel: "Theme settings",
-    })
-    expect(update).not.toHaveBeenCalled()
+    });
+    expect(update).not.toHaveBeenCalled();
 
-    themeHookRuntime.reset()
-    themeComponentRuntime.reset()
-    capturedThemeStore = undefined
-    render("indeterminate")
+    themeHookRuntime.reset();
+    themeComponentRuntime.reset();
+    capturedThemeStore = undefined;
+    render("indeterminate");
     expect(themeComponentRuntime.picker()).toMatchObject({
       disabled: true,
       error: null,
-      statusMessage: "Theme preferences are temporarily unavailable. Changes are disabled.",
+      statusMessage:
+        "Theme preferences are temporarily unavailable. Changes are disabled.",
       triggerLabel: "Theme settings unavailable",
-    })
-    themeHookRuntime.commitLayouts()
-    return themeHookRuntime.reset()
-  })
+    });
+    themeHookRuntime.commitLayouts();
+    return themeHookRuntime.reset();
+  });
 
-  it("makes only the public shell inert while mobile navigation is open and restores it on cleanup", function() {
-    let publicStore: UiStore | undefined
+  it("makes only the public shell inert while mobile navigation is open and restores it on cleanup", function () {
+    let publicStore: UiStore | undefined;
     const requiredPublicStore = (store: UiStore | undefined): UiStore => {
-      if (store === undefined) throw new Error("Expected the public UI store to render.")
-      return store
-    }
+      if (store === undefined)
+        throw new Error("Expected the public UI store to render.");
+      return store;
+    };
     const renderPublic = (open: boolean): string => {
       const PreparePublicShell = () => {
-        publicStore = useUiStoreApi()
-        publicStore.getState().setMobileNavigationOpen(open)
+        publicStore = useUiStoreApi();
+        publicStore.getState().setMobileNavigationOpen(open);
         return createElement(PublicShell, {
           children: createElement("h1", {}, "Public content"),
+        });
+      };
+      themeHookRuntime.begin();
+      return renderToStaticMarkup(
+        createElement(UiStateProvider, {
+          children: createElement(PreparePublicShell),
+          initialPreference: DEFAULT_ANONYMOUS_THEME,
         })
-      }
-      themeHookRuntime.begin()
-      return renderToStaticMarkup(createElement(UiStateProvider, {
-        children: createElement(PreparePublicShell),
-        initialPreference: DEFAULT_ANONYMOUS_THEME,
-      }))
-    }
+      );
+    };
 
-    renderPublic(false)
-    const closedShell = { inert: false }
-    themeHookRuntime.ref(0).current = { parentElement: closedShell }
-    themeHookRuntime.commitLayouts()
-    themeHookRuntime.commitEffects()
-    expect(closedShell.inert).toBe(false)
+    renderPublic(false);
+    const closedShell = { inert: false };
+    themeHookRuntime.ref(0).current = { parentElement: closedShell };
+    themeHookRuntime.commitLayouts();
+    themeHookRuntime.commitEffects();
+    expect(closedShell.inert).toBe(false);
 
-    themeHookRuntime.reset()
-    themeComponentRuntime.reset()
-    publicStore = undefined
-    renderPublic(true)
-    themeHookRuntime.commitLayouts()
-    themeHookRuntime.commitEffects()
-    expect(requiredPublicStore(publicStore).getState().mobileNavigationOpen).toBe(true)
+    themeHookRuntime.reset();
+    themeComponentRuntime.reset();
+    publicStore = undefined;
+    renderPublic(true);
+    themeHookRuntime.commitLayouts();
+    themeHookRuntime.commitEffects();
+    expect(
+      requiredPublicStore(publicStore).getState().mobileNavigationOpen
+    ).toBe(true);
 
-    themeHookRuntime.reset()
-    themeComponentRuntime.reset()
-    publicStore = undefined
-    renderPublic(true)
-    themeHookRuntime.ref(0).current = { parentElement: null }
-    themeHookRuntime.commitLayouts()
-    themeHookRuntime.commitEffects()
-    expect(requiredPublicStore(publicStore).getState().mobileNavigationOpen).toBe(true)
+    themeHookRuntime.reset();
+    themeComponentRuntime.reset();
+    publicStore = undefined;
+    renderPublic(true);
+    themeHookRuntime.ref(0).current = { parentElement: null };
+    themeHookRuntime.commitLayouts();
+    themeHookRuntime.commitEffects();
+    expect(
+      requiredPublicStore(publicStore).getState().mobileNavigationOpen
+    ).toBe(true);
 
-    themeHookRuntime.reset()
-    themeComponentRuntime.reset()
-    publicStore = undefined
-    renderPublic(true)
-    const openShell = { inert: false }
-    themeHookRuntime.ref(0).current = { parentElement: openShell }
-    themeHookRuntime.commitLayouts()
-    themeHookRuntime.commitEffects()
-    expect(openShell.inert).toBe(true)
+    themeHookRuntime.reset();
+    themeComponentRuntime.reset();
+    publicStore = undefined;
+    renderPublic(true);
+    const openShell = { inert: false };
+    themeHookRuntime.ref(0).current = { parentElement: openShell };
+    themeHookRuntime.commitLayouts();
+    themeHookRuntime.commitEffects();
+    expect(openShell.inert).toBe(true);
 
-    const dialog = themeComponentRuntime.dialogs().at(-1)
-    const onOpenChange = dialog?.["onOpenChange"]
-    if (typeof onOpenChange !== "function") throw new Error("Expected public navigation dialog state.")
-    onOpenChange(false)
-    expect(requiredPublicStore(publicStore).getState().mobileNavigationOpen).toBe(false)
-    onOpenChange(true)
-    expect(requiredPublicStore(publicStore).getState().mobileNavigationOpen).toBe(true)
+    const dialog = themeComponentRuntime.dialogs().at(-1);
+    const onOpenChange = dialog?.["onOpenChange"];
+    if (typeof onOpenChange !== "function")
+      throw new Error("Expected public navigation dialog state.");
+    onOpenChange(false);
+    expect(
+      requiredPublicStore(publicStore).getState().mobileNavigationOpen
+    ).toBe(false);
+    onOpenChange(true);
+    expect(
+      requiredPublicStore(publicStore).getState().mobileNavigationOpen
+    ).toBe(true);
 
-    const mobileNavigation = themeComponentRuntime.navigationLinks().find(
-      (props) => props["orientation"] === "vertical",
-    )
-    const onNavigate = mobileNavigation?.["onNavigate"]
-    if (typeof onNavigate !== "function") throw new Error("Expected mobile navigation cleanup.")
-    onNavigate()
-    expect(requiredPublicStore(publicStore).getState().mobileNavigationOpen).toBe(false)
+    const mobileNavigation = themeComponentRuntime
+      .navigationLinks()
+      .find((props) => props["orientation"] === "vertical");
+    const onNavigate = mobileNavigation?.["onNavigate"];
+    if (typeof onNavigate !== "function")
+      throw new Error("Expected mobile navigation cleanup.");
+    onNavigate();
+    expect(
+      requiredPublicStore(publicStore).getState().mobileNavigationOpen
+    ).toBe(false);
 
-    themeHookRuntime.reset()
-    return expect(openShell.inert).toBe(false)
-  })
+    themeHookRuntime.reset();
+    return expect(openShell.inert).toBe(false);
+  });
 
-  return it("renders public header, footer, sign-in, and navigation suppression branches", function() {
+  return it("renders public header, footer, sign-in, and navigation suppression branches", function () {
     const renderRoutes = (availableRoutes?: readonly string[]): string => {
-      themeHookRuntime.begin()
-      const shell = availableRoutes === undefined
-        ? createElement(PublicShell, {
-          children: createElement("h1", {}, "Default public content"),
+      themeHookRuntime.begin();
+      const shell =
+        availableRoutes === undefined
+          ? createElement(PublicShell, {
+              children: createElement("h1", {}, "Default public content"),
+            })
+          : createElement(PublicShell, {
+              availableRoutes,
+              children: createElement("h1", {}, "Scoped public content"),
+            });
+      return renderToStaticMarkup(
+        createElement(UiStateProvider, {
+          children: shell,
+          initialPreference: DEFAULT_ANONYMOUS_THEME,
         })
-        : createElement(PublicShell, {
-          availableRoutes,
-          children: createElement("h1", {}, "Scoped public content"),
-        })
-      return renderToStaticMarkup(createElement(UiStateProvider, {
-        children: shell,
+      );
+    };
+
+    const defaultHtml = renderRoutes();
+    expect(defaultHtml).toContain("Default public content");
+    expect(defaultHtml).toContain('aria-label="Primary navigation"');
+    expect(defaultHtml).toContain('aria-label="Footer navigation"');
+
+    themeHookRuntime.reset();
+    themeComponentRuntime.reset();
+    const suppressed = renderRoutes(["/"]);
+    expect(suppressed).toContain("Scoped public content");
+    expect(suppressed).not.toContain('aria-label="Primary navigation"');
+    expect(suppressed).not.toContain('aria-label="Footer navigation"');
+    expect(suppressed).not.toContain('aria-label="Open navigation"');
+
+    themeHookRuntime.reset();
+    themeComponentRuntime.reset();
+    const withoutSignIn = renderRoutes(["/", "/contact"]);
+    expect(withoutSignIn).toContain('aria-label="Primary navigation"');
+    expect(withoutSignIn).toContain('aria-label="Footer navigation"');
+    expect(withoutSignIn).toContain('href="/contact"');
+    expect(withoutSignIn).not.toContain('href="/sign-in"');
+
+    themeHookRuntime.reset();
+    themeComponentRuntime.reset();
+    const withSignIn = renderRoutes(["/", "/sign-in"]);
+    expect(withSignIn.match(/href="\/sign-in"/gu)).toHaveLength(2);
+    expect(withSignIn).not.toContain('href="/contact"');
+
+    themeHookRuntime.reset();
+    themeComponentRuntime.reset();
+    themeHookRuntime.begin();
+    const defaults = renderToStaticMarkup(
+      createElement(UiStateProvider, {
+        children: createElement(
+          "div",
+          {},
+          createElement(PublicHeader),
+          createElement(PublicFooter)
+        ),
         initialPreference: DEFAULT_ANONYMOUS_THEME,
-      }))
-    }
-
-    const defaultHtml = renderRoutes()
-    expect(defaultHtml).toContain("Default public content")
-    expect(defaultHtml).toContain('aria-label="Primary navigation"')
-    expect(defaultHtml).toContain('aria-label="Footer navigation"')
-
-    themeHookRuntime.reset()
-    themeComponentRuntime.reset()
-    const suppressed = renderRoutes(["/"])
-    expect(suppressed).toContain("Scoped public content")
-    expect(suppressed).not.toContain('aria-label="Primary navigation"')
-    expect(suppressed).not.toContain('aria-label="Footer navigation"')
-    expect(suppressed).not.toContain('aria-label="Open navigation"')
-
-    themeHookRuntime.reset()
-    themeComponentRuntime.reset()
-    const withoutSignIn = renderRoutes(["/", "/contact"])
-    expect(withoutSignIn).toContain('aria-label="Primary navigation"')
-    expect(withoutSignIn).toContain('aria-label="Footer navigation"')
-    expect(withoutSignIn).toContain('href="/contact"')
-    expect(withoutSignIn).not.toContain('href="/sign-in"')
-
-    themeHookRuntime.reset()
-    themeComponentRuntime.reset()
-    const withSignIn = renderRoutes(["/", "/sign-in"])
-    expect(withSignIn.match(/href="\/sign-in"/gu)).toHaveLength(2)
-    expect(withSignIn).not.toContain('href="/contact"')
-
-    themeHookRuntime.reset()
-    themeComponentRuntime.reset()
-    themeHookRuntime.begin()
-    const defaults = renderToStaticMarkup(createElement(UiStateProvider, {
-      children: createElement("div", {},
-        createElement(PublicHeader),
-        createElement(PublicFooter),
-      ),
-      initialPreference: DEFAULT_ANONYMOUS_THEME,
-    }))
-    expect(defaults).toContain('aria-label="Primary navigation"')
-    return expect(defaults).toContain('aria-label="Footer navigation"')
-  })
-})
+      })
+    );
+    expect(defaults).toContain('aria-label="Primary navigation"');
+    return expect(defaults).toContain('aria-label="Footer navigation"');
+  });
+});

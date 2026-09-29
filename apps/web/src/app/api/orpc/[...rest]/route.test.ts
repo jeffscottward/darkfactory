@@ -1,11 +1,13 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
-import type { SemanticEvent } from "@darkfactory/observability"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { SemanticEvent } from "@darkfactory/observability";
 
-const mocks = vi.hoisted(function() {
-  const waitUntil = vi.fn((promise: Promise<unknown>) => void promise.catch(() => undefined))
-  const close = vi.fn(async () => undefined)
-  const analyticsCapture = vi.fn()
-  const forceFlush = vi.fn(async () => undefined)
+const mocks = vi.hoisted(function () {
+  const waitUntil = vi.fn(
+    (promise: Promise<unknown>) => void promise.catch(() => undefined)
+  );
+  const close = vi.fn(async () => undefined);
+  const analyticsCapture = vi.fn();
+  const forceFlush = vi.fn(async () => undefined);
   const span = {
     correlation: {
       requestId: "provider-controlled",
@@ -15,28 +17,31 @@ const mocks = vi.hoisted(function() {
     },
     addEvent: vi.fn(),
     recordMetric: vi.fn(),
-  }
-  const withSpan = vi.fn(async (_input, run) => run(span))
+  };
+  const withSpan = vi.fn(async (_input, run) => run(span));
   const consumeContactThrottle = vi.fn(async () => ({
     allowed: true,
     remaining: 4,
     retryAfterSeconds: 0,
-  }))
+  }));
   class RequestDatabaseCapacityError extends Error {
-    override readonly name = "RequestDatabaseCapacityError"
+    override readonly name = "RequestDatabaseCapacityError";
 
     constructor() {
-      super("Request database capacity is exhausted")
+      super("Request database capacity is exhausted");
     }
   }
 
-  let repeatDatabaseClose = false
-  const runDatabaseClose = async (closeDatabase: () => Promise<void>): Promise<void> => {
-    await closeDatabase()
-    if (repeatDatabaseClose) await closeDatabase()
-  }
+  let repeatDatabaseClose = false;
+  const runDatabaseClose = async (
+    closeDatabase: () => Promise<void>
+  ): Promise<void> => {
+    await closeDatabase();
+    if (repeatDatabaseClose) await closeDatabase();
+  };
   return {
-    setRepeatDatabaseClose: (enabled: boolean) => repeatDatabaseClose = enabled,
+    setRepeatDatabaseClose: (enabled: boolean) =>
+      (repeatDatabaseClose = enabled),
     runDatabaseClose,
     waitUntil,
     close,
@@ -57,9 +62,11 @@ const mocks = vi.hoisted(function() {
       emit: vi.fn(async (_event: SemanticEvent) => undefined),
     })),
     createSemanticEventFanout: vi.fn(
-      (_options: Readonly<{
-        resolveConsent: () => "granted" | "denied" | "unknown"
-      }>) => ({ emit: vi.fn() }),
+      (
+        _options: Readonly<{
+          resolveConsent: () => "granted" | "denied" | "unknown";
+        }>
+      ) => ({ emit: vi.fn() })
     ),
     createPostHogAnalyticsPort: vi.fn(() => ({ capture: analyticsCapture })),
     createApiContext: vi.fn((_request, dependencies) => ({
@@ -69,33 +76,38 @@ const mocks = vi.hoisted(function() {
       requireRole: vi.fn(),
     })),
     resolveApiRequestId: vi.fn(() => "request-stable"),
-    createRequestDatabase: vi.fn(async (
-      options: Readonly<{
-        connectionString: string
-        diagnosticSink?: (
-          diagnostic: Readonly<{
-            code: "REQUEST_DATABASE_CLIENT_CLOSE_ERROR"
-          }>,
-        ) => void
-      }>,
-    ) => ({
-      db: { request: true },
-      close: async () => {
-        try {
-          return await close()
-        }
-        catch (error) {
-          options.diagnosticSink?.(Object.freeze({
-            code: "REQUEST_DATABASE_CLIENT_CLOSE_ERROR",
-          }))
-          throw error
-        }
-      }
-    })),
+    createRequestDatabase: vi.fn(
+      async (
+        options: Readonly<{
+          connectionString: string;
+          diagnosticSink?: (
+            diagnostic: Readonly<{
+              code: "REQUEST_DATABASE_CLIENT_CLOSE_ERROR";
+            }>
+          ) => void;
+        }>
+      ) => ({
+        db: { request: true },
+        close: async () => {
+          try {
+            return await close();
+          } catch (error) {
+            options.diagnosticSink?.(
+              Object.freeze({
+                code: "REQUEST_DATABASE_CLIENT_CLOSE_ERROR",
+              })
+            );
+            throw error;
+          }
+        },
+      })
+    ),
     createRepositories: vi.fn(() => ({
       featureItems: {},
     })),
-    createContactThrottleRepository: vi.fn(() => ({ consume: consumeContactThrottle })),
+    createContactThrottleRepository: vi.fn(() => ({
+      consume: consumeContactThrottle,
+    })),
     composeDatabaseProfile: vi.fn(() => ({
       connection: { connectionString: "postgres://configured.invalid/db" },
     })),
@@ -111,92 +123,122 @@ const mocks = vi.hoisted(function() {
       BETTER_AUTH_URL: "https://darkfactory.localhost",
       OTEL_ENABLED: true,
       OTEL_SERVICE_NAME: "darkfactory-web",
-      OTEL_EXPORTER_OTLP_ENDPOINT: "https://collector.configured.test:4318/base",
+      OTEL_EXPORTER_OTLP_ENDPOINT:
+        "https://collector.configured.test:4318/base",
       POSTHOG_KEY: "configured-posthog-key",
       POSTHOG_HOST: "https://analytics.configured.test",
     })),
-    createAuth: vi.fn((_options: Readonly<{
-      scheduleBackgroundTask: (task: Promise<unknown>) => void
-    }>) => ({ auth: true })),
+    createAuth: vi.fn(
+      (
+        _options: Readonly<{
+          scheduleBackgroundTask: (task: Promise<unknown>) => void;
+        }>
+      ) => ({ auth: true })
+    ),
     requireSession: vi.fn(),
     requireRole: vi.fn(),
     selectEmailPort: vi.fn(() => ({ send: vi.fn() })),
     selectContactEmailPort: vi.fn(() => ({ sendContact: vi.fn() })),
     handleOrpcRequest: vi.fn(async (_request: Request) => {
-      return new Response("handled", { status: 202 })
-    }
-    ),
-  }
-}
-)
+      return new Response("handled", { status: 202 });
+    }),
+  };
+});
 
-vi.mock("cloudflare:workers", function() { return ({ waitUntil: mocks.waitUntil }) })
-vi.mock("@darkfactory/api/server", function() { return ({
-  createApiContext: mocks.createApiContext,
-  resolveApiRequestId: mocks.resolveApiRequestId,
-}) })
-vi.mock("@darkfactory/analytics/server/posthog", function() { return ({
-  createPostHogAnalyticsPort: mocks.createPostHogAnalyticsPort,
-}) })
-vi.mock("@darkfactory/auth/server", function() { return ({
-  createAuth: mocks.createAuth,
-  requireSession: mocks.requireSession,
-  requireRole: mocks.requireRole,
-}) })
-vi.mock("@darkfactory/config/database", function() { return ({
-  composeDatabaseProfile: mocks.composeDatabaseProfile,
-}) })
-vi.mock("@darkfactory/config/server", function() { return ({
-  parseServerEnv: mocks.parseServerEnv,
-  getProviderCapabilities: () => ({
-    ai: false,
-    emailDelivery: false,
-    analytics: false,
-    telemetryExport: false,
-    storage: false,
-    errorTracking: false,
-  }),
-}) })
-vi.mock("@darkfactory/db/server", function() { return ({
-  REQUEST_DATABASE_POOL_MAX_CONNECTIONS: 8,
-  RequestDatabaseCapacityError: mocks.RequestDatabaseCapacityError,
-  createRepositories: mocks.createRepositories,
-  createRequestDatabase: mocks.createRequestDatabase,
-  createContactThrottleRepository: mocks.createContactThrottleRepository,
-}) })
-vi.mock("@darkfactory/email/server", function() { return ({
-  selectEmailPort: mocks.selectEmailPort,
-  selectContactEmailPort: mocks.selectContactEmailPort,
-}) })
-vi.mock("@darkfactory/observability/server/evlog", function() { return ({
-  createEvlogSink: mocks.createEvlogSink,
-  initializeEvlog: mocks.initializeEvlog,
-}) })
-vi.mock("@darkfactory/observability/server/fanout", function() { return ({
-  createSemanticEventFanout: mocks.createSemanticEventFanout,
-}) })
-vi.mock("@darkfactory/observability/server/otel", function() { return ({
-  initializeTelemetry: mocks.initializeTelemetry,
-}) })
-vi.mock("./handler.ts", function() { return ({ handleOrpcRequest: mocks.handleOrpcRequest }) })
-vi.mock("../../../../lib/background-task-lifecycle.ts", async (importOriginal) => {
-  const actual = await importOriginal<
-    typeof import("../../../../lib/background-task-lifecycle.ts")
-  >()
+vi.mock("cloudflare:workers", function () {
+  return { waitUntil: mocks.waitUntil };
+});
+vi.mock("@darkfactory/api/server", function () {
   return {
-    ...actual,
-    createBackgroundTaskLifecycle: (
-      scheduleExternal: (task: Promise<unknown>) => void,
-      closeDatabase: () => Promise<void>,
-    ) => actual.createBackgroundTaskLifecycle(
-      scheduleExternal,
-      () => mocks.runDatabaseClose(closeDatabase),
-    ),
+    createApiContext: mocks.createApiContext,
+    resolveApiRequestId: mocks.resolveApiRequestId,
+  };
+});
+vi.mock("@darkfactory/analytics/server/posthog", function () {
+  return {
+    createPostHogAnalyticsPort: mocks.createPostHogAnalyticsPort,
+  };
+});
+vi.mock("@darkfactory/auth/server", function () {
+  return {
+    createAuth: mocks.createAuth,
+    requireSession: mocks.requireSession,
+    requireRole: mocks.requireRole,
+  };
+});
+vi.mock("@darkfactory/config/database", function () {
+  return {
+    composeDatabaseProfile: mocks.composeDatabaseProfile,
+  };
+});
+vi.mock("@darkfactory/config/server", function () {
+  return {
+    parseServerEnv: mocks.parseServerEnv,
+    getProviderCapabilities: () => ({
+      ai: false,
+      emailDelivery: false,
+      analytics: false,
+      telemetryExport: false,
+      storage: false,
+      errorTracking: false,
+    }),
+  };
+});
+vi.mock("@darkfactory/db/server", function () {
+  return {
+    REQUEST_DATABASE_POOL_MAX_CONNECTIONS: 8,
+    RequestDatabaseCapacityError: mocks.RequestDatabaseCapacityError,
+    createRepositories: mocks.createRepositories,
+    createRequestDatabase: mocks.createRequestDatabase,
+    createContactThrottleRepository: mocks.createContactThrottleRepository,
+  };
+});
+vi.mock("@darkfactory/email/server", function () {
+  return {
+    selectEmailPort: mocks.selectEmailPort,
+    selectContactEmailPort: mocks.selectContactEmailPort,
+  };
+});
+vi.mock("@darkfactory/observability/server/evlog", function () {
+  return {
+    createEvlogSink: mocks.createEvlogSink,
+    initializeEvlog: mocks.initializeEvlog,
+  };
+});
+vi.mock("@darkfactory/observability/server/fanout", function () {
+  return {
+    createSemanticEventFanout: mocks.createSemanticEventFanout,
+  };
+});
+vi.mock("@darkfactory/observability/server/otel", function () {
+  return {
+    initializeTelemetry: mocks.initializeTelemetry,
+  };
+});
+vi.mock("./handler.ts", function () {
+  return { handleOrpcRequest: mocks.handleOrpcRequest };
+});
+vi.mock(
+  "../../../../lib/background-task-lifecycle.ts",
+  async (importOriginal) => {
+    const actual =
+      await importOriginal<
+        typeof import("../../../../lib/background-task-lifecycle.ts")
+      >();
+    return {
+      ...actual,
+      createBackgroundTaskLifecycle: (
+        scheduleExternal: (task: Promise<unknown>) => void,
+        closeDatabase: () => Promise<void>
+      ) =>
+        actual.createBackgroundTaskLifecycle(scheduleExternal, () =>
+          mocks.runDatabaseClose(closeDatabase)
+        ),
+    };
   }
-}
-)
+);
 
-import { CONTACT_REQUEST_MAX_BYTES } from "./contact-runtime.ts"
+import { CONTACT_REQUEST_MAX_BYTES } from "./contact-runtime.ts";
 import {
   DELETE,
   GET,
@@ -205,249 +247,250 @@ import {
   ORPC_REQUEST_MAX_BYTES,
   PATCH,
   POST,
-} from "./route.ts"
+} from "./route.ts";
 
-describe("oRPC Worker route provider composition", function() {
-  beforeEach(function() {
-    vi.stubEnv("APP_ENV", "test")
-    vi.stubEnv("E2E_FIXTURES", "0")
-    vi.stubEnv("NODE_ENV", "test")
-    mocks.setRepeatDatabaseClose(false)
-    mocks.waitUntil.mockClear()
-    mocks.close.mockClear()
-    mocks.forceFlush.mockClear()
-    mocks.withSpan.mockClear()
-    mocks.createEvlogSink.mockClear()
-    mocks.analyticsCapture.mockClear()
-    mocks.createSemanticEventFanout.mockClear()
-    mocks.createApiContext.mockClear()
-    mocks.createRequestDatabase.mockClear()
-    mocks.composeDatabaseProfile.mockClear()
-    mocks.createAuth.mockClear()
-    mocks.createContactThrottleRepository.mockClear()
-    mocks.consumeContactThrottle.mockReset()
+describe("oRPC Worker route provider composition", function () {
+  beforeEach(function () {
+    vi.stubEnv("APP_ENV", "test");
+    vi.stubEnv("E2E_FIXTURES", "0");
+    vi.stubEnv("NODE_ENV", "test");
+    mocks.setRepeatDatabaseClose(false);
+    mocks.waitUntil.mockClear();
+    mocks.close.mockClear();
+    mocks.forceFlush.mockClear();
+    mocks.withSpan.mockClear();
+    mocks.createEvlogSink.mockClear();
+    mocks.analyticsCapture.mockClear();
+    mocks.createSemanticEventFanout.mockClear();
+    mocks.createApiContext.mockClear();
+    mocks.createRequestDatabase.mockClear();
+    mocks.composeDatabaseProfile.mockClear();
+    mocks.createAuth.mockClear();
+    mocks.createContactThrottleRepository.mockClear();
+    mocks.consumeContactThrottle.mockReset();
     mocks.consumeContactThrottle.mockResolvedValue({
       allowed: true,
       remaining: 4,
       retryAfterSeconds: 0,
-    })
-    mocks.selectContactEmailPort.mockClear()
-    mocks.selectEmailPort.mockClear()
-    return mocks.handleOrpcRequest.mockClear()
-  })
+    });
+    mocks.selectContactEmailPort.mockClear();
+    mocks.selectEmailPort.mockClear();
+    return mocks.handleOrpcRequest.mockClear();
+  });
 
-  afterEach(function() {
-    return vi.unstubAllEnvs()
-  })
-  
-  it("uses fresh request clients when E2E fixtures are not validated", async function() {
-    vi.stubEnv("APP_ENV", "production")
-    vi.stubEnv("E2E_FIXTURES", "1")
-    vi.stubEnv("NODE_ENV", "production")
+  afterEach(function () {
+    return vi.unstubAllEnvs();
+  });
 
-    const response = await GET(new Request(
-      "https://darkfactory.localhost/api/orpc/dashboard/summary",
-    ))
+  it("uses fresh request clients when E2E fixtures are not validated", async function () {
+    vi.stubEnv("APP_ENV", "production");
+    vi.stubEnv("E2E_FIXTURES", "1");
+    vi.stubEnv("NODE_ENV", "production");
 
-    expect(response.status).toBe(202)
-    return expect(mocks.createRequestDatabase).toHaveBeenCalledOnce()
-  })
+    const response = await GET(
+      new Request("https://darkfactory.localhost/api/orpc/dashboard/summary")
+    );
 
-  it("uses lazy runtimes, one correlation chain, per-request sinks, consent, waitUntil, and closure", async function() {
+    expect(response.status).toBe(202);
+    return expect(mocks.createRequestDatabase).toHaveBeenCalledOnce();
+  });
+
+  it("uses lazy runtimes, one correlation chain, per-request sinks, consent, waitUntil, and closure", async function () {
     const firstRequest = new Request(
       "https://darkfactory.localhost/api/orpc/featureItems/create?endpoint=https://attacker.invalid",
-      { method: "POST", headers: {
-        origin: "https://darkfactory.localhost",
-        "sec-fetch-site": "same-origin",
-        "x-analytics-consent": "granted",
-      } },
-    )
+      {
+        method: "POST",
+        headers: {
+          origin: "https://darkfactory.localhost",
+          "sec-fetch-site": "same-origin",
+          "x-analytics-consent": "granted",
+        },
+      }
+    );
     const secondRequest = new Request(
       "https://darkfactory.localhost/api/orpc/featureItems/update",
-      { method: "POST", headers: { origin: "https://darkfactory.localhost" } },
-    )
+      { method: "POST", headers: { origin: "https://darkfactory.localhost" } }
+    );
 
-    const firstResponse = await POST(firstRequest)
-    const secondResponse = await POST(secondRequest)
+    const firstResponse = await POST(firstRequest);
+    const secondResponse = await POST(secondRequest);
 
-    expect(firstResponse.status).toBe(202)
-    expect(secondResponse.status).toBe(202)
-    expect(mocks.initializeTelemetry).toHaveBeenCalledOnce()
+    expect(firstResponse.status).toBe(202);
+    expect(secondResponse.status).toBe(202);
+    expect(mocks.initializeTelemetry).toHaveBeenCalledOnce();
     expect(mocks.initializeTelemetry).toHaveBeenCalledWith({
       enabled: true,
       serviceName: "darkfactory-web",
       otlpEndpoint: "https://collector.configured.test:4318/base",
       otlpAllowedHosts: ["collector.configured.test"],
-    })
-    expect(mocks.initializeEvlog).toHaveBeenCalledOnce()
-    expect(mocks.createPostHogAnalyticsPort).toHaveBeenCalledOnce()
-    expect(mocks.createEvlogSink).toHaveBeenCalledTimes(2)
+    });
+    expect(mocks.initializeEvlog).toHaveBeenCalledOnce();
+    expect(mocks.createPostHogAnalyticsPort).toHaveBeenCalledOnce();
+    expect(mocks.createEvlogSink).toHaveBeenCalledTimes(2);
     expect(mocks.createEvlogSink.mock.calls[0]![0]).toMatchObject({
       request: firstRequest,
       executionContext: { waitUntil: mocks.waitUntil },
-    })
-    expect(mocks.withSpan).toHaveBeenCalledTimes(2)
+    });
+    expect(mocks.withSpan).toHaveBeenCalledTimes(2);
     expect(mocks.withSpan.mock.calls[0]?.[0]).toEqual({
       name: "orpc.request",
       correlation: { requestId: "request-stable", route: "/api/orpc" },
       attributes: { "rpc.system": "orpc" },
-    })
-    expect(mocks.createApiContext).toHaveBeenCalledTimes(2)
+    });
+    expect(mocks.createApiContext).toHaveBeenCalledTimes(2);
     expect(mocks.createApiContext.mock.calls[0]?.[1]).toMatchObject({
       requestId: "request-stable",
       span: mocks.span,
       waitUntil: mocks.waitUntil,
-    })
+    });
     expect(mocks.createApiContext.mock.calls[0]?.[1]).not.toHaveProperty(
-      "workflowOperator",
-    )
-    expect(mocks.handleOrpcRequest).toHaveBeenCalledTimes(2)
-    expect(mocks.close).toHaveBeenCalledTimes(2)
-    expect(mocks.forceFlush).toHaveBeenCalledTimes(2)
-    expect(mocks.waitUntil).toHaveBeenCalledTimes(4)
+      "workflowOperator"
+    );
+    expect(mocks.handleOrpcRequest).toHaveBeenCalledTimes(2);
+    expect(mocks.close).toHaveBeenCalledTimes(2);
+    expect(mocks.forceFlush).toHaveBeenCalledTimes(2);
+    expect(mocks.waitUntil).toHaveBeenCalledTimes(4);
 
-    const firstFanoutOptions = mocks.createSemanticEventFanout.mock.calls[0]![0]
-    const secondFanoutOptions = mocks.createSemanticEventFanout.mock.calls[1]![0]
-    expect(firstFanoutOptions.resolveConsent()).toBe("granted")
-    expect(secondFanoutOptions.resolveConsent()).toBe("unknown")
+    const firstFanoutOptions =
+      mocks.createSemanticEventFanout.mock.calls[0]![0];
+    const secondFanoutOptions =
+      mocks.createSemanticEventFanout.mock.calls[1]![0];
+    expect(firstFanoutOptions.resolveConsent()).toBe("granted");
+    expect(secondFanoutOptions.resolveConsent()).toBe("unknown");
 
-
-    const contextDependencies = mocks.createApiContext.mock.calls[0]?.[1]
-    const authHeaders = new Headers({ authorization: "Bearer opaque" })
-    await contextDependencies?.requireSession(authHeaders)
-    await contextDependencies?.requireRole(authHeaders, "admin")
+    const contextDependencies = mocks.createApiContext.mock.calls[0]?.[1];
+    const authHeaders = new Headers({ authorization: "Bearer opaque" });
+    await contextDependencies?.requireSession(authHeaders);
+    await contextDependencies?.requireRole(authHeaders, "admin");
     expect(mocks.requireSession).toHaveBeenCalledWith(
       { auth: true },
-      authHeaders,
-    )
+      authHeaders
+    );
     return expect(mocks.requireRole).toHaveBeenCalledWith(
       { auth: true },
       authHeaders,
-      "admin",
-    )
-  })
+      "admin"
+    );
+  });
 
-  it("runs the shared request lifecycle with the supplied background scheduler", async function() {
+  it("runs the shared request lifecycle with the supplied background scheduler", async function () {
     const scheduleBackgroundTask = vi.fn((task: Promise<unknown>) => {
-      return void task.catch(() => undefined)
-    }
-    )
+      return void task.catch(() => undefined);
+    });
     const request = new Request(
       "https://darkfactory.localhost/api/orpc/dashboard/summary",
-      { method: "GET" },
-    )
+      { method: "GET" }
+    );
 
     await expect(
-      handleOrpcRuntimeRequest(request, scheduleBackgroundTask),
-    ).resolves.toMatchObject({ status: 202 })
+      handleOrpcRuntimeRequest(request, scheduleBackgroundTask)
+    ).resolves.toMatchObject({ status: 202 });
 
-    expect(mocks.waitUntil).not.toHaveBeenCalled()
+    expect(mocks.waitUntil).not.toHaveBeenCalled();
     expect(mocks.createEvlogSink).toHaveBeenCalledWith(
       expect.objectContaining({
         request,
         executionContext: { waitUntil: scheduleBackgroundTask },
-      }),
-    )
+      })
+    );
     expect(mocks.createApiContext.mock.calls[0]?.[1]).toMatchObject({
       waitUntil: scheduleBackgroundTask,
-    })
-    return expect(scheduleBackgroundTask).toHaveBeenCalledTimes(2)
-  })
+    });
+    return expect(scheduleBackgroundTask).toHaveBeenCalledTimes(2);
+  });
 
-  it("falls back to request-bound finalization when the scheduler rejects ownership", async function() {
-    let resolveClose!: () => void
-    const closeGate = new Promise<void>((resolve) => resolveClose = resolve)
-    mocks.close.mockImplementationOnce(() => closeGate.then(() => undefined))
+  it("falls back to request-bound finalization when the scheduler rejects ownership", async function () {
+    let resolveClose!: () => void;
+    const closeGate = new Promise<void>((resolve) => (resolveClose = resolve));
+    mocks.close.mockImplementationOnce(() => closeGate.then(() => undefined));
     const scheduleBackgroundTask = vi.fn((task: Promise<unknown>) => {
-      return void task.catch(() => undefined)
-    }
-    )
+      return void task.catch(() => undefined);
+    });
     scheduleBackgroundTask.mockImplementationOnce(() => {
-      throw new Error("scheduler unavailable")
-    }
-    )
+      throw new Error("scheduler unavailable");
+    });
 
-    let responseStatus: number | undefined
+    let responseStatus: number | undefined;
     const response = handleOrpcRuntimeRequest(
       new Request("https://darkfactory.localhost/api/orpc/dashboard/summary"),
-      scheduleBackgroundTask,
+      scheduleBackgroundTask
     ).then((value) => {
-      responseStatus = value.status
-      return value
-    }
-    )
-    await vi.waitFor(() => expect(mocks.close).toHaveBeenCalledOnce())
-    expect(responseStatus).toBeUndefined()
+      responseStatus = value.status;
+      return value;
+    });
+    await vi.waitFor(() => expect(mocks.close).toHaveBeenCalledOnce());
+    expect(responseStatus).toBeUndefined();
 
-    resolveClose()
-    await expect(response).resolves.toMatchObject({ status: 202 })
-    return expect(scheduleBackgroundTask).toHaveBeenCalledTimes(2)
-  })
-  
-  it("returns the response before draining auth tasks but retains database ownership", async function() {
-    let resolveTask!: () => void
-    const task = new Promise<void>((resolve) => resolveTask = resolve)
+    resolveClose();
+    await expect(response).resolves.toMatchObject({ status: 202 });
+    return expect(scheduleBackgroundTask).toHaveBeenCalledTimes(2);
+  });
+
+  it("returns the response before draining auth tasks but retains database ownership", async function () {
+    let resolveTask!: () => void;
+    const task = new Promise<void>((resolve) => (resolveTask = resolve));
     mocks.handleOrpcRequest.mockImplementationOnce(async () => {
-      const authOptions = mocks.createAuth.mock.calls.at(-1)?.[0]
-      if (!authOptions) throw new Error("Expected auth options")
-      authOptions.scheduleBackgroundTask(task)
-      return new Response("handled", { status: 202 })
-    }
-    )
+      const authOptions = mocks.createAuth.mock.calls.at(-1)?.[0];
+      if (!authOptions) throw new Error("Expected auth options");
+      authOptions.scheduleBackgroundTask(task);
+      return new Response("handled", { status: 202 });
+    });
     const request = new Request(
       "https://darkfactory.localhost/api/orpc/featureItems/create",
-      { method: "POST", headers: { origin: "https://darkfactory.localhost" } },
-    )
+      { method: "POST", headers: { origin: "https://darkfactory.localhost" } }
+    );
 
-    let responseStatus: number | undefined
+    let responseStatus: number | undefined;
     const response = POST(request).then((value) => {
-      responseStatus = value.status
-      return value
-    }
-    )
-    await vi.waitFor(() => expect(mocks.handleOrpcRequest).toHaveBeenCalledOnce())
-    await vi.waitFor(() => expect(responseStatus).toBe(202))
-    expect(mocks.close).not.toHaveBeenCalled()
+      responseStatus = value.status;
+      return value;
+    });
+    await vi.waitFor(() =>
+      expect(mocks.handleOrpcRequest).toHaveBeenCalledOnce()
+    );
+    await vi.waitFor(() => expect(responseStatus).toBe(202));
+    expect(mocks.close).not.toHaveBeenCalled();
 
-    resolveTask()
-    await response
-    return await vi.waitFor(() => expect(mocks.close).toHaveBeenCalledOnce())
-  })
+    resolveTask();
+    await response;
+    return await vi.waitFor(() => expect(mocks.close).toHaveBeenCalledOnce());
+  });
 
-  it("preserves handler rejection while draining its auth background task", async function() {
-    let resolveTask!: () => void
-    const task = new Promise<void>((resolve) => resolveTask = resolve)
-    const applicationError = new Error("application failure")
+  it("preserves handler rejection while draining its auth background task", async function () {
+    let resolveTask!: () => void;
+    const task = new Promise<void>((resolve) => (resolveTask = resolve));
+    const applicationError = new Error("application failure");
     mocks.handleOrpcRequest.mockImplementationOnce(async () => {
-      const authOptions = mocks.createAuth.mock.calls.at(-1)?.[0]
-      if (!authOptions) throw new Error("Expected auth options")
-      authOptions.scheduleBackgroundTask(task)
-      throw applicationError
-    }
-    )
+      const authOptions = mocks.createAuth.mock.calls.at(-1)?.[0];
+      if (!authOptions) throw new Error("Expected auth options");
+      authOptions.scheduleBackgroundTask(task);
+      throw applicationError;
+    });
     const request = new Request(
       "https://darkfactory.localhost/api/orpc/featureItems/create",
-      { method: "POST", headers: { origin: "https://darkfactory.localhost" } },
-    )
+      { method: "POST", headers: { origin: "https://darkfactory.localhost" } }
+    );
 
     const rejection = POST(request).then(
       () => undefined,
-      (error: unknown) => error,
-    )
-    await vi.waitFor(() => expect(mocks.handleOrpcRequest).toHaveBeenCalledOnce())
-    await expect(rejection).resolves.toBe(applicationError)
-    expect(mocks.close).not.toHaveBeenCalled()
+      (error: unknown) => error
+    );
+    await vi.waitFor(() =>
+      expect(mocks.handleOrpcRequest).toHaveBeenCalledOnce()
+    );
+    await expect(rejection).resolves.toBe(applicationError);
+    expect(mocks.close).not.toHaveBeenCalled();
 
-    resolveTask()
-    return await vi.waitFor(() => expect(mocks.close).toHaveBeenCalledOnce())
-  })
+    resolveTask();
+    return await vi.waitFor(() => expect(mocks.close).toHaveBeenCalledOnce());
+  });
 
-  it("preserves response precedence and tracks one safe close diagnostic through the reused evlog sink", async function() {
+  it("preserves response precedence and tracks one safe close diagnostic through the reused evlog sink", async function () {
     mocks.close.mockRejectedValueOnce(
       new Error(
-        "private close failure for postgresql://credential@configured.invalid/db; cookie=session-private",
-      ),
-    )
+        "private close failure for postgresql://credential@configured.invalid/db; cookie=session-private"
+      )
+    );
     const request = new Request(
       "https://darkfactory.localhost/api/orpc/featureItems/create",
       {
@@ -456,66 +499,66 @@ describe("oRPC Worker route provider composition", function() {
           origin: "https://darkfactory.localhost",
           cookie: "session-private",
         },
-      },
-    )
+      }
+    );
 
-    await expect(POST(request)).resolves.toMatchObject({ status: 202 })
+    await expect(POST(request)).resolves.toMatchObject({ status: 202 });
     await Promise.allSettled(
-      mocks.waitUntil.mock.calls.map(([scheduled]) => scheduled),
-    )
+      mocks.waitUntil.mock.calls.map(([scheduled]) => scheduled)
+    );
 
-    expect(mocks.handleOrpcRequest).toHaveBeenCalledOnce()
-    expect(mocks.close).toHaveBeenCalledOnce()
+    expect(mocks.handleOrpcRequest).toHaveBeenCalledOnce();
+    expect(mocks.close).toHaveBeenCalledOnce();
     expect(mocks.createRequestDatabase).toHaveBeenCalledWith({
       connectionString: "postgres://configured.invalid/db",
       diagnosticSink: expect.any(Function),
-    })
-    const requestSink = mocks.createEvlogSink.mock.results[0]!.value
+    });
+    const requestSink = mocks.createEvlogSink.mock.results[0]!.value;
     expect(mocks.createSemanticEventFanout).toHaveBeenCalledWith(
-      expect.objectContaining({ sink: requestSink }),
-    )
-    expect(requestSink.emit).toHaveBeenCalledOnce()
-    const event = requestSink.emit.mock.calls[0]![0]
+      expect.objectContaining({ sink: requestSink })
+    );
+    expect(requestSink.emit).toHaveBeenCalledOnce();
+    const event = requestSink.emit.mock.calls[0]![0];
     expect(event).toMatchObject({
       name: "request-database.client-close-failed",
       correlation: { requestId: "request-stable" },
       outcome: "failure",
       source: "worker",
       errorCategory: "REQUEST_DATABASE_CLIENT_CLOSE_ERROR",
-    })
-    expect(JSON.stringify(event)).not.toContain("private")
-    expect(JSON.stringify(event)).not.toContain("credential")
-    expect(JSON.stringify(event)).not.toContain("cookie")
-    return expect(mocks.analyticsCapture).not.toHaveBeenCalled()
-  })
-  
-  it("preserves the application error when database close also rejects", async function() {
-    const applicationError = new Error("application failure")
-    mocks.handleOrpcRequest.mockRejectedValueOnce(applicationError)
-    mocks.close.mockRejectedValueOnce(new Error("private close failure"))
+    });
+    expect(JSON.stringify(event)).not.toContain("private");
+    expect(JSON.stringify(event)).not.toContain("credential");
+    expect(JSON.stringify(event)).not.toContain("cookie");
+    return expect(mocks.analyticsCapture).not.toHaveBeenCalled();
+  });
+
+  it("preserves the application error when database close also rejects", async function () {
+    const applicationError = new Error("application failure");
+    mocks.handleOrpcRequest.mockRejectedValueOnce(applicationError);
+    mocks.close.mockRejectedValueOnce(new Error("private close failure"));
     const request = new Request(
       "https://darkfactory.localhost/api/orpc/featureItems/create",
-      { method: "POST", headers: { origin: "https://darkfactory.localhost" } },
-    )
+      { method: "POST", headers: { origin: "https://darkfactory.localhost" } }
+    );
 
-    await expect(POST(request)).rejects.toBe(applicationError)
-    expect(mocks.handleOrpcRequest).toHaveBeenCalledOnce()
-    return expect(mocks.close).toHaveBeenCalledOnce()
-  })
+    await expect(POST(request)).rejects.toBe(applicationError);
+    expect(mocks.handleOrpcRequest).toHaveBeenCalledOnce();
+    return expect(mocks.close).toHaveBeenCalledOnce();
+  });
 
-  it("preserves a successful response when database close rejects with a primitive", async function() {
-    mocks.close.mockRejectedValueOnce("primitive database close failure")
+  it("preserves a successful response when database close rejects with a primitive", async function () {
+    mocks.close.mockRejectedValueOnce("primitive database close failure");
     const request = new Request(
       "https://darkfactory.localhost/api/orpc/featureItems/create",
-      { method: "POST", headers: { origin: "https://darkfactory.localhost" } },
-    )
+      { method: "POST", headers: { origin: "https://darkfactory.localhost" } }
+    );
 
-    await expect(POST(request)).resolves.toMatchObject({ status: 202 })
-    expect(mocks.handleOrpcRequest).toHaveBeenCalledOnce()
-    return expect(mocks.close).toHaveBeenCalledOnce()
-  })
+    await expect(POST(request)).resolves.toMatchObject({ status: 202 });
+    expect(mocks.handleOrpcRequest).toHaveBeenCalledOnce();
+    return expect(mocks.close).toHaveBeenCalledOnce();
+  });
 
-  it("rejects unsafe cross-origin requests before opening the database", async function() {
+  it("rejects unsafe cross-origin requests before opening the database", async function () {
     for (const headers of [
       {},
       { origin: "https://attacker.invalid" },
@@ -524,49 +567,50 @@ describe("oRPC Worker route provider composition", function() {
         "sec-fetch-site": "cross-site",
       },
     ]) {
-      const response = await POST(new Request(
-        "https://darkfactory.localhost/api/orpc/preferences/update",
-        { method: "POST", headers },
-      ))
-      expect(response.status).toBe(403)
+      const response = await POST(
+        new Request(
+          "https://darkfactory.localhost/api/orpc/preferences/update",
+          { method: "POST", headers }
+        )
+      );
+      expect(response.status).toBe(403);
     }
-    expect(mocks.createRequestDatabase).not.toHaveBeenCalled()
-    return expect(mocks.handleOrpcRequest).not.toHaveBeenCalled()
-  })
+    expect(mocks.createRequestDatabase).not.toHaveBeenCalled();
+    return expect(mocks.handleOrpcRequest).not.toHaveBeenCalled();
+  });
 
-
-  it("does not allocate a request database when production endpoint composition fails", async function() {
+  it("does not allocate a request database when production endpoint composition fails", async function () {
     const endpointError = new Error(
-      "Production PlanetScale DATABASE_URL must use the provider-managed PgBouncer endpoint on port 6432",
-    )
+      "Production PlanetScale DATABASE_URL must use the provider-managed PgBouncer endpoint on port 6432"
+    );
     mocks.composeDatabaseProfile.mockImplementationOnce(() => {
-      throw endpointError
-    }
-    )
+      throw endpointError;
+    });
 
-    await expect(GET(new Request(
-      "https://darkfactory.localhost/api/orpc/dashboard/summary",
-    ))).rejects.toBe(endpointError)
-    expect(mocks.createRequestDatabase).not.toHaveBeenCalled()
-    return expect(mocks.handleOrpcRequest).not.toHaveBeenCalled()
-  })
+    await expect(
+      GET(
+        new Request("https://darkfactory.localhost/api/orpc/dashboard/summary")
+      )
+    ).rejects.toBe(endpointError);
+    expect(mocks.createRequestDatabase).not.toHaveBeenCalled();
+    return expect(mocks.handleOrpcRequest).not.toHaveBeenCalled();
+  });
 
-  it("rejects unsupported methods before opening the database", async function() {
+  it("rejects unsupported methods before opening the database", async function () {
     const response = await handleOrpcRuntimeRequest(
-      new Request(
-        "https://darkfactory.localhost/api/orpc/dashboard/summary",
-        { method: "PUT" },
-      ),
-      mocks.waitUntil,
-    )
+      new Request("https://darkfactory.localhost/api/orpc/dashboard/summary", {
+        method: "PUT",
+      }),
+      mocks.waitUntil
+    );
 
-    expect(response.status).toBe(405)
-    expect(response.headers.get("allow")).toBe("GET, POST, PATCH, DELETE")
-    expect(mocks.createRequestDatabase).not.toHaveBeenCalled()
-    return expect(mocks.handleOrpcRequest).not.toHaveBeenCalled()
-  })
+    expect(response.status).toBe(405);
+    expect(response.headers.get("allow")).toBe("GET, POST, PATCH, DELETE");
+    expect(mocks.createRequestDatabase).not.toHaveBeenCalled();
+    return expect(mocks.handleOrpcRequest).not.toHaveBeenCalled();
+  });
 
-  it("rejects declared, lying, and lengthless oversized bodies before database allocation", async function() {
+  it("rejects declared, lying, and lengthless oversized bodies before database allocation", async function () {
     const declared = new Request(
       "https://darkfactory.localhost/api/orpc/featureItems/create",
       {
@@ -576,15 +620,16 @@ describe("oRPC Worker route provider composition", function() {
           origin: "https://darkfactory.localhost",
         },
         body: "small",
-      },
-    )
-    const oversizedStream = () => new ReadableStream<Uint8Array>({
-      start(controller) {
-        controller.enqueue(new Uint8Array(ORPC_REQUEST_MAX_BYTES))
-        controller.enqueue(new Uint8Array([1]))
-        return controller.close()
       }
-    })
+    );
+    const oversizedStream = () =>
+      new ReadableStream<Uint8Array>({
+        start(controller) {
+          controller.enqueue(new Uint8Array(ORPC_REQUEST_MAX_BYTES));
+          controller.enqueue(new Uint8Array([1]));
+          return controller.close();
+        },
+      });
     const lying = new Request(
       "https://darkfactory.localhost/api/orpc/featureItems/create",
       {
@@ -595,8 +640,8 @@ describe("oRPC Worker route provider composition", function() {
         },
         body: oversizedStream(),
         duplex: "half",
-      } as RequestInit,
-    )
+      } as RequestInit
+    );
     const lengthless = new Request(
       "https://darkfactory.localhost/api/orpc/featureItems/create",
       {
@@ -604,23 +649,23 @@ describe("oRPC Worker route provider composition", function() {
         headers: { origin: "https://darkfactory.localhost" },
         body: oversizedStream(),
         duplex: "half",
-      } as RequestInit,
-    )
-    lengthless.headers.delete("content-length")
+      } as RequestInit
+    );
+    lengthless.headers.delete("content-length");
 
     const responses = await Promise.all([
       POST(declared),
       POST(lying),
       POST(lengthless),
-    ])
+    ]);
 
-    expect(responses.map(({ status }) => status)).toEqual([413, 413, 413])
-    expect(mocks.createRequestDatabase).not.toHaveBeenCalled()
-    return expect(mocks.handleOrpcRequest).not.toHaveBeenCalled()
-  })
+    expect(responses.map(({ status }) => status)).toEqual([413, 413, 413]);
+    expect(mocks.createRequestDatabase).not.toHaveBeenCalled();
+    return expect(mocks.handleOrpcRequest).not.toHaveBeenCalled();
+  });
 
-  it("reconstructs an exact-boundary body with its request metadata", async function() {
-    const body = new Uint8Array(ORPC_REQUEST_MAX_BYTES)
+  it("reconstructs an exact-boundary body with its request metadata", async function () {
+    const body = new Uint8Array(ORPC_REQUEST_MAX_BYTES);
     const request = new Request(
       "https://darkfactory.localhost/api/orpc/featureItems/update?source=operator",
       {
@@ -631,412 +676,470 @@ describe("oRPC Worker route provider composition", function() {
           "x-request-marker": "preserved",
         },
         body,
-      },
-    )
-    request.headers.delete("content-length")
+      }
+    );
+    request.headers.delete("content-length");
 
-    const response = await PATCH(request)
+    const response = await PATCH(request);
 
-    expect(response.status).toBe(202)
-    const forwarded = mocks.handleOrpcRequest.mock.calls[0]![0] as Request
-    expect(forwarded).not.toBe(request)
-    expect(forwarded.url).toBe(request.url)
-    expect(forwarded.method).toBe("PATCH")
-    expect(forwarded.headers.get("x-request-marker")).toBe("preserved")
+    expect(response.status).toBe(202);
+    const forwarded = mocks.handleOrpcRequest.mock.calls[0]![0] as Request;
+    expect(forwarded).not.toBe(request);
+    expect(forwarded.url).toBe(request.url);
+    expect(forwarded.method).toBe("PATCH");
+    expect(forwarded.headers.get("x-request-marker")).toBe("preserved");
     expect(forwarded.headers.get("content-length")).toBe(
-      String(ORPC_REQUEST_MAX_BYTES),
-    )
+      String(ORPC_REQUEST_MAX_BYTES)
+    );
     return expect((await forwarded.arrayBuffer()).byteLength).toBe(
-      ORPC_REQUEST_MAX_BYTES,
-    )
-  })
+      ORPC_REQUEST_MAX_BYTES
+    );
+  });
 
-  it("returns a retryable 503 without queueing beyond isolate DB capacity", async function() {
-    let releaseHandlers!: () => void
-    const handlerGate = new Promise<void>((resolve) => releaseHandlers = resolve)
+  it("returns a retryable 503 without queueing beyond isolate DB capacity", async function () {
+    let releaseHandlers!: () => void;
+    const handlerGate = new Promise<void>(
+      (resolve) => (releaseHandlers = resolve)
+    );
     mocks.handleOrpcRequest.mockImplementation(async () => {
-      await handlerGate
-      return new Response("handled", { status: 202 })
-    }
-    )
+      await handlerGate;
+      return new Response("handled", { status: 202 });
+    });
     const admitted = Array.from(
       { length: ORPC_DATABASE_CONCURRENCY_LIMIT },
-      (_, index) => GET(new Request(
-        `https://darkfactory.localhost/api/orpc/dashboard/summary?slot=${index}`,
-      )),
-    )
+      (_, index) =>
+        GET(
+          new Request(
+            `https://darkfactory.localhost/api/orpc/dashboard/summary?slot=${index}`
+          )
+        )
+    );
     await vi.waitFor(() => {
       return expect(mocks.handleOrpcRequest).toHaveBeenCalledTimes(
-        ORPC_DATABASE_CONCURRENCY_LIMIT,
+        ORPC_DATABASE_CONCURRENCY_LIMIT
+      );
+    });
+
+    const excess = await GET(
+      new Request(
+        "https://darkfactory.localhost/api/orpc/dashboard/summary?slot=excess"
       )
-    }
-    )
+    );
 
-    const excess = await GET(new Request(
-      "https://darkfactory.localhost/api/orpc/dashboard/summary?slot=excess",
-    ))
-
-    expect(excess.status).toBe(503)
-    expect(excess.headers.get("retry-after")).toBe("1")
+    expect(excess.status).toBe(503);
+    expect(excess.headers.get("retry-after")).toBe("1");
     expect(mocks.createRequestDatabase).toHaveBeenCalledTimes(
-      ORPC_DATABASE_CONCURRENCY_LIMIT,
-    )
-    releaseHandlers()
-    await Promise.all(admitted)
-    await expect(GET(new Request(
-      "https://darkfactory.localhost/api/orpc/dashboard/summary?slot=reused",
-    ))).resolves.toMatchObject({ status: 202 })
+      ORPC_DATABASE_CONCURRENCY_LIMIT
+    );
+    releaseHandlers();
+    await Promise.all(admitted);
+    await expect(
+      GET(
+        new Request(
+          "https://darkfactory.localhost/api/orpc/dashboard/summary?slot=reused"
+        )
+      )
+    ).resolves.toMatchObject({ status: 202 });
     return expect(mocks.createRequestDatabase).toHaveBeenCalledTimes(
-      ORPC_DATABASE_CONCURRENCY_LIMIT + 1,
-    )
-  })
+      ORPC_DATABASE_CONCURRENCY_LIMIT + 1
+    );
+  });
 
-  it("does not read a body stream when no request admission slot is available", async function() {
-    let releaseHandlers!: () => void
-    const handlerGate = new Promise<void>((resolve) => releaseHandlers = resolve)
+  it("does not read a body stream when no request admission slot is available", async function () {
+    let releaseHandlers!: () => void;
+    const handlerGate = new Promise<void>(
+      (resolve) => (releaseHandlers = resolve)
+    );
     mocks.handleOrpcRequest.mockImplementation(async () => {
-      await handlerGate
-      return new Response("handled", { status: 202 })
-    }
-    )
+      await handlerGate;
+      return new Response("handled", { status: 202 });
+    });
     const admitted = Array.from(
       { length: ORPC_DATABASE_CONCURRENCY_LIMIT },
-      (_, index) => GET(new Request(
-        `https://darkfactory.localhost/api/orpc/dashboard/summary?body-slot=${index}`,
-      )),
-    )
+      (_, index) =>
+        GET(
+          new Request(
+            `https://darkfactory.localhost/api/orpc/dashboard/summary?body-slot=${index}`
+          )
+        )
+    );
     await vi.waitFor(() => {
       return expect(mocks.handleOrpcRequest).toHaveBeenCalledTimes(
-        ORPC_DATABASE_CONCURRENCY_LIMIT,
-      )
-    }
-    )
+        ORPC_DATABASE_CONCURRENCY_LIMIT
+      );
+    });
     const getReader = vi.fn(() => {
-      throw new Error("body must not be read")
-    }
-    )
+      throw new Error("body must not be read");
+    });
     const excessRequest = {
       body: { getReader },
       headers: new Headers({ origin: "https://darkfactory.localhost" }),
       method: "POST",
       url: "https://darkfactory.localhost/api/orpc/featureItems/create",
-    } as unknown as Request
+    } as unknown as Request;
 
-    const response = await POST(excessRequest)
+    const response = await POST(excessRequest);
 
-    expect(response.status).toBe(503)
-    expect(getReader).not.toHaveBeenCalled()
-    releaseHandlers()
-    return await Promise.all(admitted)
-  })
+    expect(response.status).toBe(503);
+    expect(getReader).not.toHaveBeenCalled();
+    releaseHandlers();
+    return await Promise.all(admitted);
+  });
 
-  it("holds admission through task drain and deferred database close", async function() {
-    let resolveBackgroundTask!: () => void
+  it("holds admission through task drain and deferred database close", async function () {
+    let resolveBackgroundTask!: () => void;
     const backgroundTask = new Promise<void>(
-      (resolve) => resolveBackgroundTask = resolve,
-    )
-    let resolveClose!: () => void
-    const closeGate = new Promise<void>((resolve) => resolveClose = resolve)
-    mocks.close.mockImplementationOnce(() => closeGate.then(() => undefined))
+      (resolve) => (resolveBackgroundTask = resolve)
+    );
+    let resolveClose!: () => void;
+    const closeGate = new Promise<void>((resolve) => (resolveClose = resolve));
+    mocks.close.mockImplementationOnce(() => closeGate.then(() => undefined));
     mocks.handleOrpcRequest.mockImplementationOnce(async () => {
-      const authOptions = mocks.createAuth.mock.calls.at(-1)?.[0]
-      if (!authOptions) throw new Error("Expected auth options")
-      authOptions.scheduleBackgroundTask(backgroundTask)
-      return new Response("handled", { status: 202 })
-    }
-    )
-    const deferredResponse = GET(new Request(
-      "https://darkfactory.localhost/api/orpc/dashboard/summary?deferred=1",
-    ))
-    await vi.waitFor(() => expect(mocks.handleOrpcRequest).toHaveBeenCalledOnce())
-    await expect(deferredResponse).resolves.toMatchObject({ status: 202 })
-    expect(mocks.close).not.toHaveBeenCalled()
+      const authOptions = mocks.createAuth.mock.calls.at(-1)?.[0];
+      if (!authOptions) throw new Error("Expected auth options");
+      authOptions.scheduleBackgroundTask(backgroundTask);
+      return new Response("handled", { status: 202 });
+    });
+    const deferredResponse = GET(
+      new Request(
+        "https://darkfactory.localhost/api/orpc/dashboard/summary?deferred=1"
+      )
+    );
+    await vi.waitFor(() =>
+      expect(mocks.handleOrpcRequest).toHaveBeenCalledOnce()
+    );
+    await expect(deferredResponse).resolves.toMatchObject({ status: 202 });
+    expect(mocks.close).not.toHaveBeenCalled();
 
-    let releaseHandlers!: () => void
-    const handlerGate = new Promise<void>((resolve) => releaseHandlers = resolve)
+    let releaseHandlers!: () => void;
+    const handlerGate = new Promise<void>(
+      (resolve) => (releaseHandlers = resolve)
+    );
     mocks.handleOrpcRequest.mockImplementation(async () => {
-      await handlerGate
-      return new Response("handled", { status: 202 })
-    }
-    )
+      await handlerGate;
+      return new Response("handled", { status: 202 });
+    });
     const occupied = Array.from(
       { length: ORPC_DATABASE_CONCURRENCY_LIMIT - 1 },
-      (_, index) => GET(new Request(
-        `https://darkfactory.localhost/api/orpc/dashboard/summary?occupied=${index}`,
-      )),
-    )
+      (_, index) =>
+        GET(
+          new Request(
+            `https://darkfactory.localhost/api/orpc/dashboard/summary?occupied=${index}`
+          )
+        )
+    );
     await vi.waitFor(() => {
       return expect(mocks.handleOrpcRequest).toHaveBeenCalledTimes(
-        ORPC_DATABASE_CONCURRENCY_LIMIT,
+        ORPC_DATABASE_CONCURRENCY_LIMIT
+      );
+    });
+    await expect(
+      GET(
+        new Request(
+          "https://darkfactory.localhost/api/orpc/dashboard/summary?blocked=pending"
+        )
       )
-    }
-    )
-    await expect(GET(new Request(
-      "https://darkfactory.localhost/api/orpc/dashboard/summary?blocked=pending",
-    ))).resolves.toMatchObject({ status: 503 })
+    ).resolves.toMatchObject({ status: 503 });
 
-    resolveBackgroundTask()
-    await vi.waitFor(() => expect(mocks.close).toHaveBeenCalledOnce())
-    await expect(GET(new Request(
-      "https://darkfactory.localhost/api/orpc/dashboard/summary?blocked=closing",
-    ))).resolves.toMatchObject({ status: 503 })
-    resolveClose()
+    resolveBackgroundTask();
+    await vi.waitFor(() => expect(mocks.close).toHaveBeenCalledOnce());
+    await expect(
+      GET(
+        new Request(
+          "https://darkfactory.localhost/api/orpc/dashboard/summary?blocked=closing"
+        )
+      )
+    ).resolves.toMatchObject({ status: 503 });
+    resolveClose();
     await Promise.allSettled(
-      mocks.waitUntil.mock.calls.map(([scheduled]) => scheduled),
-    )
+      mocks.waitUntil.mock.calls.map(([scheduled]) => scheduled)
+    );
 
-    const replacement = GET(new Request(
-      "https://darkfactory.localhost/api/orpc/dashboard/summary?replacement=1",
-    ))
+    const replacement = GET(
+      new Request(
+        "https://darkfactory.localhost/api/orpc/dashboard/summary?replacement=1"
+      )
+    );
     await vi.waitFor(() => {
       return expect(mocks.handleOrpcRequest).toHaveBeenCalledTimes(
-        ORPC_DATABASE_CONCURRENCY_LIMIT + 1,
+        ORPC_DATABASE_CONCURRENCY_LIMIT + 1
+      );
+    });
+    await expect(
+      GET(
+        new Request(
+          "https://darkfactory.localhost/api/orpc/dashboard/summary?blocked=double-release"
+        )
       )
-    }
-    )
-    await expect(GET(new Request(
-      "https://darkfactory.localhost/api/orpc/dashboard/summary?blocked=double-release",
-    ))).resolves.toMatchObject({ status: 503 })
+    ).resolves.toMatchObject({ status: 503 });
 
-    releaseHandlers()
-    await Promise.all([...occupied, replacement])
+    releaseHandlers();
+    await Promise.all([...occupied, replacement]);
     return expect(mocks.close).toHaveBeenCalledTimes(
-      ORPC_DATABASE_CONCURRENCY_LIMIT + 1,
-    )
-  })
+      ORPC_DATABASE_CONCURRENCY_LIMIT + 1
+    );
+  });
 
-  it("keeps isolate admission idempotent when lifecycle closure repeats", async function() {
-    mocks.setRepeatDatabaseClose(true)
-    await expect(GET(new Request(
-      "https://darkfactory.localhost/api/orpc/dashboard/summary?repeated-close=1",
-    ))).resolves.toMatchObject({ status: 202 })
-    expect(mocks.close).toHaveBeenCalledTimes(2)
+  it("keeps isolate admission idempotent when lifecycle closure repeats", async function () {
+    mocks.setRepeatDatabaseClose(true);
+    await expect(
+      GET(
+        new Request(
+          "https://darkfactory.localhost/api/orpc/dashboard/summary?repeated-close=1"
+        )
+      )
+    ).resolves.toMatchObject({ status: 202 });
+    expect(mocks.close).toHaveBeenCalledTimes(2);
 
-    let releaseHandlers!: () => void
-    const handlerGate = new Promise<void>((resolve) => releaseHandlers = resolve)
+    let releaseHandlers!: () => void;
+    const handlerGate = new Promise<void>(
+      (resolve) => (releaseHandlers = resolve)
+    );
     mocks.handleOrpcRequest.mockImplementation(async () => {
-      await handlerGate
-      return new Response("handled", { status: 202 })
-    }
-    )
+      await handlerGate;
+      return new Response("handled", { status: 202 });
+    });
     const occupied = Array.from(
       { length: ORPC_DATABASE_CONCURRENCY_LIMIT },
-      (_, index) => GET(new Request(
-        `https://darkfactory.localhost/api/orpc/dashboard/summary?repeated-close-slot=${index}`,
-      )),
-    )
+      (_, index) =>
+        GET(
+          new Request(
+            `https://darkfactory.localhost/api/orpc/dashboard/summary?repeated-close-slot=${index}`
+          )
+        )
+    );
     await vi.waitFor(() => {
       return expect(mocks.handleOrpcRequest).toHaveBeenCalledTimes(
-        ORPC_DATABASE_CONCURRENCY_LIMIT + 1,
+        ORPC_DATABASE_CONCURRENCY_LIMIT + 1
+      );
+    });
+
+    await expect(
+      GET(
+        new Request(
+          "https://darkfactory.localhost/api/orpc/dashboard/summary?repeated-close=excess"
+        )
       )
-    }
-    )
+    ).resolves.toMatchObject({ status: 503 });
 
-    await expect(GET(new Request(
-      "https://darkfactory.localhost/api/orpc/dashboard/summary?repeated-close=excess",
-    ))).resolves.toMatchObject({ status: 503 })
+    releaseHandlers();
+    return await Promise.all(occupied);
+  });
 
-    releaseHandlers()
-    return await Promise.all(occupied)
-  })
-
-  it("maps shared-pool capacity rejection to 503 and releases isolate admission", async function() {
+  it("maps shared-pool capacity rejection to 503 and releases isolate admission", async function () {
     for (let index = 0; index < ORPC_DATABASE_CONCURRENCY_LIMIT; index += 1) {
       mocks.createRequestDatabase.mockRejectedValueOnce(
-        new mocks.RequestDatabaseCapacityError(),
-      )
+        new mocks.RequestDatabaseCapacityError()
+      );
     }
 
     for (let index = 0; index < ORPC_DATABASE_CONCURRENCY_LIMIT; index += 1) {
-      const exhausted = await GET(new Request(
-        `https://darkfactory.localhost/api/orpc/dashboard/summary?pool=full-${index}`,
-      ))
-      expect(exhausted.status).toBe(503)
-      expect(exhausted.headers.get("retry-after")).toBe("1")
+      const exhausted = await GET(
+        new Request(
+          `https://darkfactory.localhost/api/orpc/dashboard/summary?pool=full-${index}`
+        )
+      );
+      expect(exhausted.status).toBe(503);
+      expect(exhausted.headers.get("retry-after")).toBe("1");
     }
 
-    await expect(GET(new Request(
-      "https://darkfactory.localhost/api/orpc/dashboard/summary?pool=recovered",
-    ))).resolves.toMatchObject({ status: 202 })
+    await expect(
+      GET(
+        new Request(
+          "https://darkfactory.localhost/api/orpc/dashboard/summary?pool=recovered"
+        )
+      )
+    ).resolves.toMatchObject({ status: 202 });
     return expect(mocks.createRequestDatabase).toHaveBeenCalledTimes(
-      ORPC_DATABASE_CONCURRENCY_LIMIT + 1,
-    )
-  })
+      ORPC_DATABASE_CONCURRENCY_LIMIT + 1
+    );
+  });
 
-  it("releases isolate admission when request database acquisition rejects", async function() {
-    const connectionFailure = new Error("connection failed")
-    mocks.createRequestDatabase.mockRejectedValueOnce(connectionFailure)
+  it("releases isolate admission when request database acquisition rejects", async function () {
+    const connectionFailure = new Error("connection failed");
+    mocks.createRequestDatabase.mockRejectedValueOnce(connectionFailure);
 
-    await expect(GET(new Request(
-      "https://darkfactory.localhost/api/orpc/dashboard/summary?connect=failed",
-    ))).rejects.toBe(connectionFailure)
-    await expect(GET(new Request(
-      "https://darkfactory.localhost/api/orpc/dashboard/summary?connect=recovered",
-    ))).resolves.toMatchObject({ status: 202 })
-    return expect(mocks.createRequestDatabase).toHaveBeenCalledTimes(2)
-  })
+    await expect(
+      GET(
+        new Request(
+          "https://darkfactory.localhost/api/orpc/dashboard/summary?connect=failed"
+        )
+      )
+    ).rejects.toBe(connectionFailure);
+    await expect(
+      GET(
+        new Request(
+          "https://darkfactory.localhost/api/orpc/dashboard/summary?connect=recovered"
+        )
+      )
+    ).resolves.toMatchObject({ status: 202 });
+    return expect(mocks.createRequestDatabase).toHaveBeenCalledTimes(2);
+  });
 
+  it("releases an isolate DB slot when request handling rejects", async function () {
+    const applicationError = new Error("application failure");
+    mocks.handleOrpcRequest.mockRejectedValueOnce(applicationError);
 
-  it("releases an isolate DB slot when request handling rejects", async function() {
-    const applicationError = new Error("application failure")
-    mocks.handleOrpcRequest.mockRejectedValueOnce(applicationError)
+    await expect(
+      GET(
+        new Request(
+          "https://darkfactory.localhost/api/orpc/dashboard/summary?attempt=failed"
+        )
+      )
+    ).rejects.toBe(applicationError);
+    await expect(
+      GET(
+        new Request(
+          "https://darkfactory.localhost/api/orpc/dashboard/summary?attempt=retry"
+        )
+      )
+    ).resolves.toMatchObject({ status: 202 });
+    return expect(mocks.createRequestDatabase).toHaveBeenCalledTimes(2);
+  });
 
-    await expect(GET(new Request(
-      "https://darkfactory.localhost/api/orpc/dashboard/summary?attempt=failed",
-    ))).rejects.toBe(applicationError)
-    await expect(GET(new Request(
-      "https://darkfactory.localhost/api/orpc/dashboard/summary?attempt=retry",
-    ))).resolves.toMatchObject({ status: 202 })
-    return expect(mocks.createRequestDatabase).toHaveBeenCalledTimes(2)
-  })
-
-  it("counts malformed contact requests in a separate pre-parse bucket", async function() {
+  it("counts malformed contact requests in a separate pre-parse bucket", async function () {
     mocks.handleOrpcRequest.mockResolvedValue(
-      new Response("invalid", { status: 400 }),
-    )
-    const responses: Response[] = []
+      new Response("invalid", { status: 400 })
+    );
+    const responses: Response[] = [];
     for (let attempt = 0; attempt < 6; attempt += 1) {
       if (attempt === 5) {
         mocks.consumeContactThrottle.mockResolvedValueOnce({
           allowed: false,
           remaining: 0,
           retryAfterSeconds: 600,
-        })
+        });
       }
-      responses.push(await POST(new Request(
-        "https://darkfactory.localhost/api/orpc/contact/submit",
-        {
-          method: "POST",
-          headers: {
-            "content-type": "application/json",
-            origin: "https://darkfactory.localhost",
-          },
-          body: "{",
-        },
-      )))
+      responses.push(
+        await POST(
+          new Request("https://darkfactory.localhost/api/orpc/contact/submit", {
+            method: "POST",
+            headers: {
+              "content-type": "application/json",
+              origin: "https://darkfactory.localhost",
+            },
+            body: "{",
+          })
+        )
+      );
     }
 
     expect(responses.map(({ status }) => status)).toEqual([
       400, 400, 400, 400, 400, 429,
-    ])
+    ]);
     expect(await responses[5]?.json()).toMatchObject({
       json: {
         defined: true,
         code: "TOO_MANY_REQUESTS",
         status: 429,
       },
-    })
-    expect(mocks.consumeContactThrottle).toHaveBeenCalledTimes(6)
+    });
+    expect(mocks.consumeContactThrottle).toHaveBeenCalledTimes(6);
     expect(mocks.createContactThrottleRepository).toHaveBeenCalledWith(
       { request: true },
-      { maxRequests: 30 },
-    )
-    return expect(mocks.handleOrpcRequest).toHaveBeenCalledTimes(5)
-  })
+      { maxRequests: 30 }
+    );
+    return expect(mocks.handleOrpcRequest).toHaveBeenCalledTimes(5);
+  });
 
-  it("returns 413 for an oversized declared or chunked contact payload after edge throttling", async function() {
-    const declared = await POST(new Request(
-      "https://darkfactory.localhost/api/orpc/contact/submit",
-      {
+  it("returns 413 for an oversized declared or chunked contact payload after edge throttling", async function () {
+    const declared = await POST(
+      new Request("https://darkfactory.localhost/api/orpc/contact/submit", {
         method: "POST",
         headers: {
           "content-length": String(CONTACT_REQUEST_MAX_BYTES + 1),
           origin: "https://darkfactory.localhost",
         },
         body: "small",
-      },
-    ))
+      })
+    );
     const stream = new ReadableStream<Uint8Array>({
       start(controller) {
-        controller.enqueue(new Uint8Array(CONTACT_REQUEST_MAX_BYTES))
-        controller.enqueue(new Uint8Array([1]))
-        return controller.close()
-      }
-    })
-    const chunked = await POST(new Request(
-      "https://darkfactory.localhost/api/orpc/contact/submit",
-      {
+        controller.enqueue(new Uint8Array(CONTACT_REQUEST_MAX_BYTES));
+        controller.enqueue(new Uint8Array([1]));
+        return controller.close();
+      },
+    });
+    const chunked = await POST(
+      new Request("https://darkfactory.localhost/api/orpc/contact/submit", {
         method: "POST",
         headers: { origin: "https://darkfactory.localhost" },
         body: stream,
         duplex: "half",
-      } as RequestInit,
-    ))
+      } as RequestInit)
+    );
 
-    expect(declared.status).toBe(413)
-    expect(chunked.status).toBe(413)
+    expect(declared.status).toBe(413);
+    expect(chunked.status).toBe(413);
     expect(await declared.json()).toMatchObject({
       json: {
         defined: true,
         code: "PAYLOAD_TOO_LARGE",
         status: 413,
       },
-    })
-    expect(mocks.consumeContactThrottle).toHaveBeenCalledTimes(2)
-    expect(mocks.handleOrpcRequest).not.toHaveBeenCalled()
-    return expect(mocks.close).toHaveBeenCalledTimes(2)
-  })
+    });
+    expect(mocks.consumeContactThrottle).toHaveBeenCalledTimes(2);
+    expect(mocks.handleOrpcRequest).not.toHaveBeenCalled();
+    return expect(mocks.close).toHaveBeenCalledTimes(2);
+  });
 
-  it("gives an edge denial precedence over an oversized contact payload", async function() {
+  it("gives an edge denial precedence over an oversized contact payload", async function () {
     mocks.consumeContactThrottle.mockResolvedValueOnce({
       allowed: false,
       remaining: 0,
       retryAfterSeconds: 45,
-    })
+    });
 
-    const response = await POST(new Request(
-      "https://darkfactory.localhost/api/orpc/contact/submit",
-      {
+    const response = await POST(
+      new Request("https://darkfactory.localhost/api/orpc/contact/submit", {
         method: "POST",
         headers: {
           "content-length": String(CONTACT_REQUEST_MAX_BYTES + 1),
           origin: "https://darkfactory.localhost",
         },
         body: "small",
-      },
-    ))
+      })
+    );
 
-    expect(response.status).toBe(429)
-    expect(response.headers.get("retry-after")).toBe("45")
+    expect(response.status).toBe(429);
+    expect(response.headers.get("retry-after")).toBe("45");
     expect(await response.json()).toMatchObject({
       json: {
         defined: true,
         code: "TOO_MANY_REQUESTS",
         status: 429,
       },
-    })
-    expect(mocks.consumeContactThrottle).toHaveBeenCalledOnce()
-    return expect(mocks.handleOrpcRequest).not.toHaveBeenCalled()
-  })
+    });
+    expect(mocks.consumeContactThrottle).toHaveBeenCalledOnce();
+    return expect(mocks.handleOrpcRequest).not.toHaveBeenCalled();
+  });
 
-  it("isolates auth and contact previews inside the same proven E2E run", async function() {
+  it("isolates auth and contact previews inside the same proven E2E run", async function () {
     mocks.handleOrpcRequest.mockResolvedValue(
-      new Response("handled", { status: 202 }),
-    )
-    const runId = "route_run"
-    const authDirectory =
-      `/repo/test-results/e2e-runs/${runId}/previews/auth`
-    vi.stubEnv("APP_ENV", "test")
-    vi.stubEnv("E2E_FIXTURES", "1")
-    vi.stubEnv("E2E_RUN_ID", runId)
-    vi.stubEnv("E2E_EMAIL_PREVIEW_HMAC_KEY", "a".repeat(43))
+      new Response("handled", { status: 202 })
+    );
+    const runId = "route_run";
+    const authDirectory = `/repo/test-results/e2e-runs/${runId}/previews/auth`;
+    vi.stubEnv("APP_ENV", "test");
+    vi.stubEnv("E2E_FIXTURES", "1");
+    vi.stubEnv("E2E_RUN_ID", runId);
+    vi.stubEnv("E2E_EMAIL_PREVIEW_HMAC_KEY", "a".repeat(43));
     vi.stubEnv(
       "E2E_EMAIL_PREVIEW_ENDPOINT",
-      "http://127.0.0.1:43123/v1/capture",
-    )
-    vi.stubEnv("E2E_EMAIL_PREVIEW_DIRECTORY", authDirectory)
+      "http://127.0.0.1:43123/v1/capture"
+    );
+    vi.stubEnv("E2E_EMAIL_PREVIEW_DIRECTORY", authDirectory);
 
-    const response = await POST(new Request(
-      "https://darkfactory.localhost/api/orpc/contact/submit",
-      {
+    const response = await POST(
+      new Request("https://darkfactory.localhost/api/orpc/contact/submit", {
         method: "POST",
         headers: { origin: "https://darkfactory.localhost" },
         body: "{}",
-      },
-    ))
+      })
+    );
 
-    expect(response.status).toBe(202)
-    expect(mocks.createRequestDatabase).toHaveBeenCalledOnce()
+    expect(response.status).toBe(202);
+    expect(mocks.createRequestDatabase).toHaveBeenCalledOnce();
     expect(mocks.selectEmailPort).toHaveBeenCalledWith(
       expect.objectContaining({
         previewDirectory: authDirectory,
@@ -1045,47 +1148,45 @@ describe("oRPC Worker route provider composition", function() {
           runId,
           hmacKey: "a".repeat(43),
         },
-      }),
-    )
+      })
+    );
     return expect(mocks.selectContactEmailPort).toHaveBeenCalledWith(
       expect.objectContaining({
-        previewDirectory:
-          `/repo/test-results/e2e-runs/${runId}/previews/contact`,
+        previewDirectory: `/repo/test-results/e2e-runs/${runId}/previews/contact`,
         previewCaptureEndpoint: "http://127.0.0.1:43123/v1/capture",
         previewBinding: {
           runId,
           hmacKey: "a".repeat(43),
         },
-      }),
-    )
-  })
+      })
+    );
+  });
 
-  it("returns a typed 503 and closes the database when edge throttle storage fails", async function() {
+  it("returns a typed 503 and closes the database when edge throttle storage fails", async function () {
     mocks.consumeContactThrottle.mockRejectedValueOnce(
-      new Error("private database detail"),
-    )
-    const response = await POST(new Request(
-      "https://darkfactory.localhost/api/orpc/contact/submit",
-      {
+      new Error("private database detail")
+    );
+    const response = await POST(
+      new Request("https://darkfactory.localhost/api/orpc/contact/submit", {
         method: "POST",
         headers: { origin: "https://darkfactory.localhost" },
         body: "{}",
-      },
-    ))
+      })
+    );
 
-    expect(response.status).toBe(503)
+    expect(response.status).toBe(503);
     expect(await response.json()).toMatchObject({
       json: {
         defined: true,
         code: "SERVICE_UNAVAILABLE",
         status: 503,
       },
-    })
-    expect(mocks.handleOrpcRequest).not.toHaveBeenCalled()
-    return expect(mocks.close).toHaveBeenCalledOnce()
-  })
+    });
+    expect(mocks.handleOrpcRequest).not.toHaveBeenCalled();
+    return expect(mocks.close).toHaveBeenCalledOnce();
+  });
 
-  it("serves every exported HTTP method through the same bounded composition", async function() {
+  it("serves every exported HTTP method through the same bounded composition", async function () {
     const cases = [
       [
         GET,
@@ -1098,7 +1199,7 @@ describe("oRPC Worker route provider composition", function() {
           {
             method: "PATCH",
             headers: { origin: "https://darkfactory.localhost" },
-          },
+          }
         ),
       ],
       [
@@ -1108,39 +1209,41 @@ describe("oRPC Worker route provider composition", function() {
           {
             method: "DELETE",
             headers: { origin: "https://darkfactory.localhost" },
-          },
+          }
         ),
       ],
-    ] as const
+    ] as const;
 
     for (const [handler, request] of cases) {
-      await expect(handler(request)).resolves.toMatchObject({ status: 202 })
+      await expect(handler(request)).resolves.toMatchObject({ status: 202 });
     }
-    expect(mocks.handleOrpcRequest).toHaveBeenCalledTimes(3)
-    return expect(mocks.close).toHaveBeenCalledTimes(3)
-  })
+    expect(mocks.handleOrpcRequest).toHaveBeenCalledTimes(3);
+    return expect(mocks.close).toHaveBeenCalledTimes(3);
+  });
 
-  return it("omits optional telemetry and analytics configuration when absent", async function() {
-    const configured = mocks.parseServerEnv()
+  return it("omits optional telemetry and analytics configuration when absent", async function () {
+    const configured = mocks.parseServerEnv();
     mocks.parseServerEnv.mockReturnValueOnce({
       ...configured,
       OTEL_EXPORTER_OTLP_ENDPOINT: undefined,
       POSTHOG_KEY: undefined,
       POSTHOG_HOST: undefined,
-    } as never)
-    mocks.initializeTelemetry.mockClear()
-    mocks.createPostHogAnalyticsPort.mockClear()
-    vi.resetModules()
-    const freshRoute = await import("./route.ts")
+    } as never);
+    mocks.initializeTelemetry.mockClear();
+    mocks.createPostHogAnalyticsPort.mockClear();
+    vi.resetModules();
+    const freshRoute = await import("./route.ts");
 
-    await expect(freshRoute.GET(new Request(
-      "https://darkfactory.localhost/api/orpc/dashboard/summary",
-    ))).resolves.toMatchObject({ status: 202 })
+    await expect(
+      freshRoute.GET(
+        new Request("https://darkfactory.localhost/api/orpc/dashboard/summary")
+      )
+    ).resolves.toMatchObject({ status: 202 });
 
     expect(mocks.initializeTelemetry).toHaveBeenCalledWith({
       enabled: true,
       serviceName: "darkfactory-web",
-    })
-    return expect(mocks.createPostHogAnalyticsPort).toHaveBeenCalledWith({})
-  })
-})
+    });
+    return expect(mocks.createPostHogAnalyticsPort).toHaveBeenCalledWith({});
+  });
+});

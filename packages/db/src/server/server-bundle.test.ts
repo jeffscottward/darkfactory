@@ -1,18 +1,18 @@
-import { mkdtemp, rm, writeFile } from "node:fs/promises"
-import { join } from "node:path"
-import { fileURLToPath } from "node:url"
-import { describe, expect, it } from "vitest"
-import { build } from "vite"
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { join } from "node:path";
+import { fileURLToPath } from "node:url";
+import { describe, expect, it } from "vitest";
+import { build } from "vite";
 
-const packageRoot = fileURLToPath(new URL("../..", import.meta.url))
+const packageRoot = fileURLToPath(new URL("../..", import.meta.url));
 
-describe("database server browser bundle", function() {
-  it("preserves browser poison for a side-effect-only server import", async function() {
-    const tempDir = await mkdtemp(join(packageRoot, ".server-browser-bundle-"))
-    const entry = join(tempDir, "entry.mjs")
+describe("database server browser bundle", function () {
+  it("preserves browser poison for a side-effect-only server import", async function () {
+    const tempDir = await mkdtemp(join(packageRoot, ".server-browser-bundle-"));
+    const entry = join(tempDir, "entry.mjs");
 
     try {
-      await writeFile(entry, 'import "@darkfactory/db/server"\n')
+      await writeFile(entry, 'import "@darkfactory/db/server"\n');
       const buildResult = await build({
         configFile: false,
         logLevel: "silent",
@@ -34,38 +34,36 @@ describe("database server browser bundle", function() {
             input: entry,
           },
         },
-      })
-      const builds = Array.isArray(buildResult) ? buildResult : [buildResult]
+      });
+      const builds = Array.isArray(buildResult) ? buildResult : [buildResult];
       const bundle = builds
         .flatMap((result) => {
-          if (!("output" in result)) throw new Error("Vite build did not finish")
-          return result.output
-        }
-        )
+          if (!("output" in result))
+            throw new Error("Vite build did not finish");
+          return result.output;
+        })
         .filter((output) => output.type === "chunk")
         .map((chunk) => chunk.code)
-        .join("\n")
-      const moduleUrl =
-        `data:text/javascript;base64,${Buffer.from(bundle).toString("base64")}`
+        .join("\n");
+      const moduleUrl = `data:text/javascript;base64,${Buffer.from(bundle).toString("base64")}`;
 
       return await expect(import(moduleUrl)).rejects.toThrow(
-        "@darkfactory/db/server is unavailable in browser bundles",
-      )
+        "@darkfactory/db/server is unavailable in browser bundles"
+      );
+    } finally {
+      await rm(tempDir, { recursive: true, force: true });
     }
-    finally {
-      await rm(tempDir, { recursive: true, force: true })
-    }
-  })
+  });
 
   return it("keeps Node-only migration code out of a Worker-conditioned client bundle", async () => {
-    const tempDir = await mkdtemp(join(packageRoot, ".server-worker-bundle-"))
-    const entry = join(tempDir, "entry.mjs")
+    const tempDir = await mkdtemp(join(packageRoot, ".server-worker-bundle-"));
+    const entry = join(tempDir, "entry.mjs");
 
     try {
       await writeFile(
         entry,
-        'import * as database from "@darkfactory/db/server"\nglobalThis.__darkfactoryDatabase = database\n',
-      )
+        'import * as database from "@darkfactory/db/server"\nglobalThis.__darkfactoryDatabase = database\n'
+      );
       const buildResult = await build({
         configFile: false,
         logLevel: "silent",
@@ -87,25 +85,23 @@ describe("database server browser bundle", function() {
             input: entry,
           },
         },
-      })
-      const builds = Array.isArray(buildResult) ? buildResult : [buildResult]
+      });
+      const builds = Array.isArray(buildResult) ? buildResult : [buildResult];
       const bundle = builds
         .flatMap((result) => {
-          if (!("output" in result)) throw new Error("Vite build did not finish")
-          return result.output
-        }
-        )
+          if (!("output" in result))
+            throw new Error("Vite build did not finish");
+          return result.output;
+        })
         .filter((output) => output.type === "chunk")
         .map((chunk) => chunk.code)
-        .join("\n")
+        .join("\n");
 
       return expect(bundle).not.toMatch(
-        /fileURLToPath|node-postgres\/migrator|packages\/db\/migrations/,
-      )
+        /fileURLToPath|node-postgres\/migrator|packages\/db\/migrations/
+      );
+    } finally {
+      await rm(tempDir, { recursive: true, force: true });
     }
-    finally {
-      await rm(tempDir, { recursive: true, force: true })
-    }
-  }
-  , 15_000)
-})
+  }, 15_000);
+});

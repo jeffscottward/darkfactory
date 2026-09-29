@@ -1,4 +1,4 @@
-import { handleOperatorOrpcRequest } from "./handler.ts"
+import { handleOperatorOrpcRequest } from "./handler.ts";
 
-export const GET = handleOperatorOrpcRequest
-export const POST = handleOperatorOrpcRequest
+export const GET = handleOperatorOrpcRequest;
+export const POST = handleOperatorOrpcRequest;

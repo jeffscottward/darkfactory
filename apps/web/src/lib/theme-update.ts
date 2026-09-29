@@ -1,14 +1,14 @@
 import type {
   ThemePreferenceOutput,
   UpdateThemePreferenceInput,
-} from "@darkfactory/api"
-import { isPalette, isThemeMode } from "@darkfactory/state"
-import type { UiStore } from "@darkfactory/state/client"
+} from "@darkfactory/api";
+import { isPalette, isThemeMode } from "@darkfactory/state";
+import type { UiStore } from "@darkfactory/state/client";
 
-import type { AnonymousThemePreference, ThemeAuthority } from "./theme.ts"
+import type { AnonymousThemePreference, ThemeAuthority } from "./theme.ts";
 
 export interface ThemeUpdateSequence {
-  current: number
+  current: number;
 }
 
 export type ThemeUpdateResult =
@@ -16,28 +16,24 @@ export type ThemeUpdateResult =
   | "failed"
   | "reconciled"
   | "superseded"
-  | "unconfirmed"
+  | "unconfirmed";
 
 const validatedThemePreference = (
-  value: unknown,
+  value: unknown
 ): ThemePreferenceOutput | null => {
-  if (typeof value !== "object" || value === null) return null
-  const themeMode = Reflect.get(value, "themeMode")
-  const palette = Reflect.get(value, "palette")
-  const updatedAt = Reflect.get(value, "updatedAt")
+  if (typeof value !== "object" || value === null) return null;
+  const themeMode = Reflect.get(value, "themeMode");
+  const palette = Reflect.get(value, "palette");
+  const updatedAt = Reflect.get(value, "updatedAt");
   if (
-    !isThemeMode(themeMode)
-    || !isPalette(palette)
-    || (
-      updatedAt !== null
-      && (
-        !(updatedAt instanceof Date)
-        || !Number.isFinite(updatedAt.getTime())
-      )
-    )
-  ) return null
-  return { themeMode, palette, updatedAt }
-}
+    !isThemeMode(themeMode) ||
+    !isPalette(palette) ||
+    (updatedAt !== null &&
+      (!(updatedAt instanceof Date) || !Number.isFinite(updatedAt.getTime())))
+  )
+    return null;
+  return { themeMode, palette, updatedAt };
+};
 
 const isCurrentTrustedRequest = ({
   authority,
@@ -46,32 +42,34 @@ const isCurrentTrustedRequest = ({
   requestSequence,
   sequence,
 }: {
-  readonly authority: () => ThemeAuthority
-  readonly authorityEpoch: () => number
-  readonly requestAuthorityEpoch: number
-  readonly requestSequence: number
-  readonly sequence: ThemeUpdateSequence
+  readonly authority: () => ThemeAuthority;
+  readonly authorityEpoch: () => number;
+  readonly requestAuthorityEpoch: number;
+  readonly requestSequence: number;
+  readonly sequence: ThemeUpdateSequence;
 }): boolean => {
-  return authority() === "trusted"
-  && authorityEpoch() === requestAuthorityEpoch
-  && sequence.current === requestSequence
-}
+  return (
+    authority() === "trusted" &&
+    authorityEpoch() === requestAuthorityEpoch &&
+    sequence.current === requestSequence
+  );
+};
 
 const applyThemePreference = (
   store: UiStore,
-  preference: ThemePreferenceOutput,
+  preference: ThemePreferenceOutput
 ): void => {
-  const state = store.getState()
+  const state = store.getState();
   if (
-    state.themeMode !== preference.themeMode
-    || state.palette !== preference.palette
+    state.themeMode !== preference.themeMode ||
+    state.palette !== preference.palette
   ) {
     store.setState({
       themeMode: preference.themeMode,
       palette: preference.palette,
-    })
+    });
   }
-}
+};
 
 export const updateTrustedThemePreference = async ({
   authority,
@@ -82,64 +80,64 @@ export const updateTrustedThemePreference = async ({
   store,
   update,
 }: {
-  readonly authority: () => ThemeAuthority
-  readonly authorityEpoch: () => number
-  readonly get: () => Promise<ThemePreferenceOutput>
-  readonly preference: Readonly<AnonymousThemePreference>
-  readonly sequence: ThemeUpdateSequence
-  readonly store: UiStore
+  readonly authority: () => ThemeAuthority;
+  readonly authorityEpoch: () => number;
+  readonly get: () => Promise<ThemePreferenceOutput>;
+  readonly preference: Readonly<AnonymousThemePreference>;
+  readonly sequence: ThemeUpdateSequence;
+  readonly store: UiStore;
   readonly update: (
-    preference: UpdateThemePreferenceInput,
-  ) => Promise<ThemePreferenceOutput>
+    preference: UpdateThemePreferenceInput
+  ) => Promise<ThemePreferenceOutput>;
 }): Promise<ThemeUpdateResult> => {
-  const requestAuthorityEpoch = authorityEpoch()
-  const requestSequence = sequence.current + 1
-  sequence.current = requestSequence
-  const currentRequest = (): boolean => isCurrentTrustedRequest({
-    authority,
-    authorityEpoch,
-    requestAuthorityEpoch,
-    requestSequence,
-    sequence,
-  })
-  if (!currentRequest()) return "superseded"
+  const requestAuthorityEpoch = authorityEpoch();
+  const requestSequence = sequence.current + 1;
+  sequence.current = requestSequence;
+  const currentRequest = (): boolean =>
+    isCurrentTrustedRequest({
+      authority,
+      authorityEpoch,
+      requestAuthorityEpoch,
+      requestSequence,
+      sequence,
+    });
+  if (!currentRequest()) return "superseded";
 
-  let current: ThemePreferenceOutput | null
+  let current: ThemePreferenceOutput | null;
   try {
-    current = validatedThemePreference(await get())
+    current = validatedThemePreference(await get());
+  } catch {
+    return currentRequest() ? "failed" : "superseded";
   }
-  catch {
-    return currentRequest() ? "failed" : "superseded"
-  }
-  if (!currentRequest()) return "superseded"
-  if (current === null) return "failed"
+  if (!currentRequest()) return "superseded";
+  if (current === null) return "failed";
 
-  let saved: ThemePreferenceOutput | null = null
+  let saved: ThemePreferenceOutput | null = null;
   try {
-    saved = validatedThemePreference(await update({
-      themeMode: preference.themeMode,
-      palette: preference.palette,
-      expectedUpdatedAt: current.updatedAt,
-    }))
+    saved = validatedThemePreference(
+      await update({
+        themeMode: preference.themeMode,
+        palette: preference.palette,
+        expectedUpdatedAt: current.updatedAt,
+      })
+    );
+  } catch (error) {
+    if (typeof error !== "object" || error === null) throw error;
   }
-  catch (error) {
-    if (typeof error !== "object" || error === null) throw error
-  }
-  if (!currentRequest()) return "superseded"
+  if (!currentRequest()) return "superseded";
   if (saved !== null) {
-    applyThemePreference(store, saved)
-    return "applied"
+    applyThemePreference(store, saved);
+    return "applied";
   }
 
-  let reconciled: ThemePreferenceOutput | null
+  let reconciled: ThemePreferenceOutput | null;
   try {
-    reconciled = validatedThemePreference(await get())
+    reconciled = validatedThemePreference(await get());
+  } catch {
+    return currentRequest() ? "unconfirmed" : "superseded";
   }
-  catch {
-    return currentRequest() ? "unconfirmed" : "superseded"
-  }
-  if (!currentRequest()) return "superseded"
-  if (reconciled === null) return "unconfirmed"
-  applyThemePreference(store, reconciled)
-  return "reconciled"
-}
+  if (!currentRequest()) return "superseded";
+  if (reconciled === null) return "unconfirmed";
+  applyThemePreference(store, reconciled);
+  return "reconciled";
+};

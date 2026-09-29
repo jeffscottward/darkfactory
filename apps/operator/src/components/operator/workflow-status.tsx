@@ -1,19 +1,22 @@
-import { StatusBadge, type StatusBadgeProps } from "@darkfactory/ui"
+import { StatusBadge, type StatusBadgeProps } from "@darkfactory/ui";
 
-import type { WorkflowState } from "./operator-client.ts"
+import type { WorkflowState } from "./operator-client.ts";
 
-const WORKFLOW_STATE_LABELS: Readonly<Record<WorkflowState, string>> = Object.freeze({
-  draft: "Start planning",
-  planning: "Planning",
-  awaitingApproval: "Review plan",
-  implementing: "Work in progress",
-  verifying: "Work in progress",
-  blocked: "Needs attention",
-  completed: "Completed",
-  cancelled: "Cancelled",
-})
+const WORKFLOW_STATE_LABELS: Readonly<Record<WorkflowState, string>> =
+  Object.freeze({
+    draft: "Start planning",
+    planning: "Planning",
+    awaitingApproval: "Review plan",
+    implementing: "Work in progress",
+    verifying: "Work in progress",
+    blocked: "Needs attention",
+    completed: "Completed",
+    cancelled: "Cancelled",
+  });
 
-const WORKFLOW_STATE_TONES: Readonly<Record<WorkflowState, StatusBadgeProps["status"]>> = Object.freeze({
+const WORKFLOW_STATE_TONES: Readonly<
+  Record<WorkflowState, StatusBadgeProps["status"]>
+> = Object.freeze({
   draft: "neutral",
   planning: "info",
   awaitingApproval: "warning",
@@ -22,14 +25,21 @@ const WORKFLOW_STATE_TONES: Readonly<Record<WorkflowState, StatusBadgeProps["sta
   blocked: "destructive",
   completed: "success",
   cancelled: "neutral",
-})
+});
 
-export const workflowStateLabel = (state: WorkflowState): string => WORKFLOW_STATE_LABELS[state]
+export const workflowStateLabel = (state: WorkflowState): string =>
+  WORKFLOW_STATE_LABELS[state];
 
-export const workflowStateTone = (state: WorkflowState): StatusBadgeProps["status"] => WORKFLOW_STATE_TONES[state]
+export const workflowStateTone = (
+  state: WorkflowState
+): StatusBadgeProps["status"] => WORKFLOW_STATE_TONES[state];
 
-export const WorkflowStatus = ({ state }: { readonly state: WorkflowState }) => (
+export const WorkflowStatus = ({
+  state,
+}: {
+  readonly state: WorkflowState;
+}) => (
   <StatusBadge status={workflowStateTone(state)}>
     {workflowStateLabel(state)}
-</StatusBadge>
-)
+  </StatusBadge>
+);

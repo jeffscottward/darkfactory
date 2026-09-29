@@ -1,32 +1,33 @@
-import { renderTransactionalEmailHtml } from "./render-email-html.ts"
+import { renderTransactionalEmailHtml } from "./render-email-html.ts";
 
-import type { EmailVerificationEmailInput } from "../index.ts"
+import type { EmailVerificationEmailInput } from "../index.ts";
 
-const DEFAULT_TRUSTED_APP_ORIGIN = "https://darkfactory.localhost"
-const VERIFICATION_PATH = "/api/auth/verify-email"
-const VERIFICATION_TOKEN_PATTERN = /^[A-Za-z0-9_-]+(?:\.[A-Za-z0-9_-]+){2}$/
+const DEFAULT_TRUSTED_APP_ORIGIN = "https://darkfactory.localhost";
+const VERIFICATION_PATH = "/api/auth/verify-email";
+const VERIFICATION_TOKEN_PATTERN = /^[A-Za-z0-9_-]+(?:\.[A-Za-z0-9_-]+){2}$/;
 
 export type RenderedEmailVerificationEmail = Readonly<{
-  subject: string
-  html: string
-  text: string
-}>
+  subject: string;
+  html: string;
+  text: string;
+}>;
 
 export type RenderEmailVerificationEmailOptions = Readonly<{
-  trustedAppOrigin?: string | undefined
-}>
+  trustedAppOrigin?: string | undefined;
+}>;
 
 const trustedVerificationUrlError = (): TypeError => {
-  return new TypeError("verificationUrl must be a trusted email verification URL")
-}
+  return new TypeError(
+    "verificationUrl must be a trusted email verification URL"
+  );
+};
 
 const parseTrustedOrigin = (origin: string): URL => {
-  let trustedUrl: URL
+  let trustedUrl: URL;
   try {
-    trustedUrl = new URL(origin)
-  }
-  catch {
-    throw trustedVerificationUrlError()
+    trustedUrl = new URL(origin);
+  } catch {
+    throw trustedVerificationUrlError();
   }
 
   if (
@@ -37,28 +38,27 @@ const parseTrustedOrigin = (origin: string): URL => {
     trustedUrl.search !== "" ||
     trustedUrl.hash !== ""
   ) {
-    throw trustedVerificationUrlError()
+    throw trustedVerificationUrlError();
   }
 
-  return trustedUrl
-}
+  return trustedUrl;
+};
 
 const assertTrustedVerificationUrl = (
   verificationUrlValue: string,
-  trustedAppOrigin: string,
+  trustedAppOrigin: string
 ): void => {
-  const trustedUrl = parseTrustedOrigin(trustedAppOrigin)
-  let verificationUrl: URL
+  const trustedUrl = parseTrustedOrigin(trustedAppOrigin);
+  let verificationUrl: URL;
   try {
-    verificationUrl = new URL(verificationUrlValue)
-  }
-  catch {
-    throw trustedVerificationUrlError()
+    verificationUrl = new URL(verificationUrlValue);
+  } catch {
+    throw trustedVerificationUrlError();
   }
 
-  const queryKeys = [...verificationUrl.searchParams.keys()]
-  const tokens = verificationUrl.searchParams.getAll("token")
-  const callbackValues = verificationUrl.searchParams.getAll("callbackURL")
+  const queryKeys = [...verificationUrl.searchParams.keys()];
+  const tokens = verificationUrl.searchParams.getAll("token");
+  const callbackValues = verificationUrl.searchParams.getAll("callbackURL");
   if (
     verificationUrl.origin !== trustedUrl.origin ||
     verificationUrl.username !== "" ||
@@ -72,15 +72,14 @@ const assertTrustedVerificationUrl = (
     !VERIFICATION_TOKEN_PATTERN.test(tokens[0] ?? "") ||
     callbackValues.length !== 1
   ) {
-    throw trustedVerificationUrlError()
+    throw trustedVerificationUrlError();
   }
 
-  let callbackUrl: URL
+  let callbackUrl: URL;
   try {
-    callbackUrl = new URL(callbackValues[0]!, trustedUrl)
-  }
-  catch {
-    throw trustedVerificationUrlError()
+    callbackUrl = new URL(callbackValues[0]!, trustedUrl);
+  } catch {
+    throw trustedVerificationUrlError();
   }
 
   if (
@@ -91,34 +90,36 @@ const assertTrustedVerificationUrl = (
     callbackUrl.search !== "?verified=1" ||
     callbackUrl.hash !== ""
   ) {
-    throw trustedVerificationUrlError()
+    throw trustedVerificationUrlError();
   }
-}
+};
 
 const assertValidVerificationInput = (
   input: EmailVerificationEmailInput,
-  options: RenderEmailVerificationEmailOptions,
+  options: RenderEmailVerificationEmailOptions
 ): void => {
   if (
     !Number.isInteger(input.expiresInMinutes) ||
     input.expiresInMinutes <= 0
   ) {
-    throw new RangeError("expiresInMinutes must be a positive integer")
+    throw new RangeError("expiresInMinutes must be a positive integer");
   }
 
   assertTrustedVerificationUrl(
     input.verificationUrl,
-    options.trustedAppOrigin ?? DEFAULT_TRUSTED_APP_ORIGIN,
-  )
-}
+    options.trustedAppOrigin ?? DEFAULT_TRUSTED_APP_ORIGIN
+  );
+};
 
 export const renderEmailVerificationEmail = async (
   input: EmailVerificationEmailInput,
-  options: RenderEmailVerificationEmailOptions = {},
+  options: RenderEmailVerificationEmailOptions = {}
 ): Promise<RenderedEmailVerificationEmail> => {
-  assertValidVerificationInput(input, options)
-  const greeting = input.recipientName ? `Hello ${input.recipientName},` : "Hello,"
-  const expiryUnit = input.expiresInMinutes === 1 ? "minute" : "minutes"
+  assertValidVerificationInput(input, options);
+  const greeting = input.recipientName
+    ? `Hello ${input.recipientName},`
+    : "Hello,";
+  const expiryUnit = input.expiresInMinutes === 1 ? "minute" : "minutes";
   const html = renderTransactionalEmailHtml({
     actionAriaLabel: "Verify your DarkFactory email",
     actionLabel: "Verify email",
@@ -127,11 +128,12 @@ export const renderEmailVerificationEmail = async (
     body: "Confirm this email address to finish setting up your DarkFactory account.",
     containerColor: "#fbf9f4",
     expiry: `This link expires in ${input.expiresInMinutes} ${expiryUnit} and can be used only once.`,
-    footer: "If you did not create or request access to this account, you can ignore this email.",
+    footer:
+      "If you did not create or request access to this account, you can ignore this email.",
     greeting,
     heading: "Verify your email",
     title: "Verify your DarkFactory email",
-  })
+  });
   const text = [
     "Verify your email",
     greeting,
@@ -139,11 +141,11 @@ export const renderEmailVerificationEmail = async (
     `Verify email: ${input.verificationUrl}`,
     `This link expires in ${input.expiresInMinutes} ${expiryUnit} and can be used only once.`,
     "If you did not create or request access to this account, you can ignore this email.",
-  ].join("\n\n")
+  ].join("\n\n");
 
   return Object.freeze({
     subject: "Verify your DarkFactory email",
     html,
     text,
-  })
-}
+  });
+};

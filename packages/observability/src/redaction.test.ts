@@ -7,57 +7,50 @@ var range: (start: number, end: number) => number[] = (start, end) => {
   }
   return arr;
 };
-import { describe, expect, it } from "vitest"
+import { describe, expect, it } from "vitest";
 
-import type { SemanticEvent } from "./port.ts"
+import type { SemanticEvent } from "./port.ts";
 import {
   REDACTED,
   TRUNCATED,
   freezeSnapshot,
   redact,
   redactSemanticEvent,
-} from "./redaction.ts"
+} from "./redaction.ts";
 
 const makeSemanticEvent = (
-  overrides: Readonly<Record<string, unknown>> = {},
+  overrides: Readonly<Record<string, unknown>> = {}
 ): SemanticEvent => {
-  return ({
+  return {
     eventId: "event-1",
     name: "account.updated",
     occurredAt: "2026-01-02T03:04:05.000Z",
     correlation: { requestId: "request-1" },
     ...overrides,
-  }) as unknown as SemanticEvent
-}
+  } as unknown as SemanticEvent;
+};
 
-const expectNoSecrets = (
-  value: unknown,
-  secrets: readonly string[],
-): void => {
-  const serialized = JSON.stringify(value)
+const expectNoSecrets = (value: unknown, secrets: readonly string[]): void => {
+  const serialized = JSON.stringify(value);
   for (const secret of secrets) {
-    expect(serialized).not.toContain(secret)
+    expect(serialized).not.toContain(secret);
   }
-}
+};
 
-const expectInvalidSemanticEvent = (
-  input: unknown,
-  secret: string,
-): void => {
-  let thrown: unknown
+const expectInvalidSemanticEvent = (input: unknown, secret: string): void => {
+  let thrown: unknown;
   try {
-    redactSemanticEvent(input as SemanticEvent)
+    redactSemanticEvent(input as SemanticEvent);
+  } catch (error) {
+    thrown = error;
   }
-  catch (error) {
-    thrown = error
-  }
-  expect(thrown).toBeInstanceOf(TypeError)
-  expect((thrown as TypeError).message).toBe("Invalid semantic event")
-  expect(String(thrown)).not.toContain(secret)
-}
+  expect(thrown).toBeInstanceOf(TypeError);
+  expect((thrown as TypeError).message).toBe("Invalid semantic event");
+  expect(String(thrown)).not.toContain(secret);
+};
 
-describe("redact", function() {
-  it("recursively removes every prohibited observability field without mutating the input", function() {
+describe("redact", function () {
+  it("recursively removes every prohibited observability field without mutating the input", function () {
     const input = {
       safe: "kept",
       password: "password-value",
@@ -77,9 +70,9 @@ describe("redact", function() {
         completion: "raw-provider-completion",
       },
       list: [{ setCookie: "raw-set-cookie" }, { safe: true }],
-    }
+    };
 
-    const output = redact(input)
+    const output = redact(input);
 
     expect(output).toEqual({
       safe: "kept",
@@ -100,44 +93,44 @@ describe("redact", function() {
         completion: REDACTED,
       },
       list: [{ setCookie: REDACTED }, { safe: true }],
-    })
-    expect("password" in input.nested).toBe(false)
-    expect(input.nested.providerPayload.response).toBe("raw-provider-response")
+    });
+    expect("password" in input.nested).toBe(false);
+    expect(input.nested.providerPayload.response).toBe("raw-provider-response");
     return expect(JSON.stringify(output)).not.toMatch(
       /password-value|access-token-value|raw-cookie|member@domain|Private Way|1990|provider-response|client-secret|api-key|provider-prompt|provider-completion/
-    )
-  })
+    );
+  });
 
-  it("scrubs secret patterns even when an attacker hides them under an innocent key", function() {
+  it("scrubs secret patterns even when an attacker hides them under an innocent key", function () {
     const output = redact({
       note: "Authorization: Bearer abc.def.ghi token=hidden password: hunter2 contact member@domain.test",
       jwt: "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIn0.signature",
-    })
+    });
 
-    const serialized = JSON.stringify(output)
-    expect(serialized).not.toContain("abc.def.ghi")
-    expect(serialized).not.toContain("hidden")
-    expect(serialized).not.toContain("hunter2")
-    expect(serialized).not.toContain("member@domain.test")
-    return expect(serialized).not.toContain("eyJhbGci")
-  })
+    const serialized = JSON.stringify(output);
+    expect(serialized).not.toContain("abc.def.ghi");
+    expect(serialized).not.toContain("hidden");
+    expect(serialized).not.toContain("hunter2");
+    expect(serialized).not.toContain("member@domain.test");
+    return expect(serialized).not.toContain("eyJhbGci");
+  });
 
-  it("redacts only valid bounded bare Basic credentials", function() {
-    const standardCredential = "dXNlcjpwYXNz"
-    const urlCredential = "-zpwYXNz"
-    const emptyUsernameCredential = "OnBhc3M="
-    const plusCredential = "+zpwYXNz"
-    const slashCredential = "/zpwYXNz"
-    const underscoreCredential = "_zpwYXNz"
-    const paddedCredential = "YTo="
-    const short = "YQ"
-    const invalidRemainder = "AAAAA"
-    const noncanonical = "YTp"
-    const mixedAlphabet = "+zpw_XNz"
-    const colonless = "Y29uY2VwdHM="
-    const malformed = "YTpi="
-    const longCredential = `dXNlcjp4${"YWFh".repeat(255)}`
-    const raisedBoundCredential = `dXNlcjp4${"YWFh".repeat(600)}`
+  it("redacts only valid bounded bare Basic credentials", function () {
+    const standardCredential = "dXNlcjpwYXNz";
+    const urlCredential = "-zpwYXNz";
+    const emptyUsernameCredential = "OnBhc3M=";
+    const plusCredential = "+zpwYXNz";
+    const slashCredential = "/zpwYXNz";
+    const underscoreCredential = "_zpwYXNz";
+    const paddedCredential = "YTo=";
+    const short = "YQ";
+    const invalidRemainder = "AAAAA";
+    const noncanonical = "YTp";
+    const mixedAlphabet = "+zpw_XNz";
+    const colonless = "Y29uY2VwdHM=";
+    const malformed = "YTpi=";
+    const longCredential = `dXNlcjp4${"YWFh".repeat(255)}`;
+    const raisedBoundCredential = `dXNlcjp4${"YWFh".repeat(600)}`;
     const output = redact({
       standard: `before Basic ${standardCredential} after`,
       url: `before Basic ${urlCredential} after`,
@@ -159,11 +152,11 @@ describe("redact", function() {
         note: `before Basic ${emptyUsernameCredential} after`,
       },
       prose: "Basic concepts remain readable.",
-    })
+    });
     const raisedBoundOutput = redact(
       `before Basic ${raisedBoundCredential}! after`,
-      { maxStringLength: 4_096 },
-    )
+      { maxStringLength: 4_096 }
+    );
 
     expectNoSecrets(output, [
       standardCredential,
@@ -174,8 +167,8 @@ describe("redact", function() {
       underscoreCredential,
       paddedCredential,
       longCredential,
-    ])
-    expectNoSecrets(raisedBoundOutput, [raisedBoundCredential])
+    ]);
+    expectNoSecrets(raisedBoundOutput, [raisedBoundCredential]);
     expect(output).toEqual({
       standard: `before Basic ${REDACTED} after`,
       url: `before Basic ${REDACTED} after`,
@@ -197,12 +190,11 @@ describe("redact", function() {
         note: `before Basic ${REDACTED} after`,
       },
       prose: "Basic concepts remain readable.",
-    })
-    return expect(raisedBoundOutput).toBe(`before Basic ${REDACTED}! after`)
-  })
+    });
+    return expect(raisedBoundOutput).toBe(`before Basic ${REDACTED}! after`);
+  });
 
-
-  it("redacts embedded compound credentials while preserving adjacent prose", function() {
+  it("redacts embedded compound credentials while preserving adjacent prose", function () {
     const secrets = [
       "raw-access-snake",
       "raw-access-camel",
@@ -259,10 +251,10 @@ describe("redact", function() {
       "raw-query-access-token",
       "raw-api-space-key",
       "raw-private-space-key",
-    ]
+    ];
     const safeProse =
-      "Access token guidance, client-secret naming, Basic concepts, and plants that bear fruit remain readable."
-    const safeAssignment = "before display_name=kept-value after"
+      "Access token guidance, client-secret naming, Basic concepts, and plants that bear fruit remain readable.";
+    const safeAssignment = "before display_name=kept-value after";
     const output = redact({
       accessSnake: "before access_token=raw-access-snake after",
       accessCamel: "before accessToken: raw-access-camel after",
@@ -276,8 +268,7 @@ describe("redact", function() {
         'before {"authorization":"Bearer raw-bearer-credential","next":"kept-bearer"} after',
       sessionUnderscore:
         "before better-auth.session_token=raw-session-underscore after",
-      sessionKebab:
-        "before better-auth.session-token=raw-session-kebab after",
+      sessionKebab: "before better-auth.session-token=raw-session-kebab after",
       secureSession:
         "before __Secure-better-auth.session_token=raw-secure-session after",
       hmacKey: "raw-hmac-direct",
@@ -290,8 +281,7 @@ describe("redact", function() {
       newPassword: "raw-new-direct",
       passwordConfirmation: "raw-confirmation-direct",
       dbPassword: "raw-db-direct",
-      embeddedCurrent:
-        "before currentPassword=raw-current-embedded after",
+      embeddedCurrent: "before currentPassword=raw-current-embedded after",
       embeddedNew: "before new_password=raw-new-embedded after",
       embeddedConfirmation:
         "before confirmPassword=raw-confirmation-embedded after",
@@ -302,8 +292,7 @@ describe("redact", function() {
         "before postgresql://raw-postgresql-user:raw-postgresql-password@db.example/app after",
       pemBlock:
         "before -----BEGIN PRIVATE KEY-----\nraw-private-key-material\n-----END PRIVATE KEY----- after",
-      pemPrefix:
-        "before -----BEGIN PRIVATE KEY-----raw-private-key-prefix",
+      pemPrefix: "before -----BEGIN PRIVATE KEY-----raw-private-key-prefix",
       accessKey: "raw-access-key-direct-camel",
       access_key: "raw-access-key-direct-snake",
       "access-key": "raw-access-key-direct-kebab",
@@ -323,10 +312,8 @@ describe("redact", function() {
       publicVerifyUrl:
         "before https://auth.example/verify-email?token=raw-public-verify-token&next=/portal after",
       rsaPrivateKey: "raw-rsa-private-direct",
-      embeddedPrivateSnake:
-        "before private_key=raw-private-key-snake after",
-      embeddedPrivateCamel:
-        "before privateKey: raw-private-key-camel after",
+      embeddedPrivateSnake: "before private_key=raw-private-key-snake after",
+      embeddedPrivateCamel: "before privateKey: raw-private-key-camel after",
       embeddedPrivateKebab:
         'before "private-key":"raw-private-key-kebab" after',
       compoundAuth: "before betterAuthSecret=raw-better-auth-secret after",
@@ -341,9 +328,9 @@ describe("redact", function() {
       spacedAssignmentTwo: "before private key=raw-private-space-key after",
       ordinaryAssignment: safeAssignment,
       prose: safeProse,
-    })
+    });
 
-    expectNoSecrets(output, secrets)
+    expectNoSecrets(output, secrets);
     return expect(output).toEqual({
       accessSnake: `before access_token=${REDACTED} after`,
       accessCamel: `before accessToken: ${REDACTED} after`,
@@ -351,15 +338,11 @@ describe("redact", function() {
       clientSnake: `before client_secret=${REDACTED} after`,
       clientCamel: `before clientSecret: ${REDACTED} after`,
       clientKebab: `before "client-secret":"${REDACTED}" after`,
-      basicJson:
-        `before {"authorization":"${REDACTED}","next":"kept-basic"} after`,
-      bearerJson:
-        `before {"authorization":"${REDACTED}","next":"kept-bearer"} after`,
-      sessionUnderscore:
-        `before better-auth.session_token=${REDACTED} after`,
+      basicJson: `before {"authorization":"${REDACTED}","next":"kept-basic"} after`,
+      bearerJson: `before {"authorization":"${REDACTED}","next":"kept-bearer"} after`,
+      sessionUnderscore: `before better-auth.session_token=${REDACTED} after`,
       sessionKebab: `before better-auth.session-token=${REDACTED} after`,
-      secureSession:
-        `before __Secure-better-auth.session_token=${REDACTED} after`,
+      secureSession: `before __Secure-better-auth.session_token=${REDACTED} after`,
       hmacKey: REDACTED,
       hmac_key: REDACTED,
       "hmac-key": REDACTED,
@@ -372,13 +355,10 @@ describe("redact", function() {
       dbPassword: REDACTED,
       embeddedCurrent: `before currentPassword=${REDACTED} after`,
       embeddedNew: `before new_password=${REDACTED} after`,
-      embeddedConfirmation:
-        `before confirmPassword=${REDACTED} after`,
+      embeddedConfirmation: `before confirmPassword=${REDACTED} after`,
       embeddedDb: `before "dbPassword":"${REDACTED}" after`,
-      postgresUri:
-        `before postgres://${REDACTED}@db.example/app after`,
-      postgresqlUri:
-        `before postgresql://${REDACTED}@db.example/app after`,
+      postgresUri: `before postgres://${REDACTED}@db.example/app after`,
+      postgresqlUri: `before postgresql://${REDACTED}@db.example/app after`,
       pemBlock: `before ${REDACTED} after`,
       pemPrefix: `before ${REDACTED}`,
       accessKey: REDACTED,
@@ -387,52 +367,39 @@ describe("redact", function() {
       embeddedAccessSnake: `before access_key=${REDACTED} after`,
       embeddedAccessCamel: `before accessKey: ${REDACTED} after`,
       embeddedAccessKebab: `before "access-key":"${REDACTED}" after`,
-      resetRoute:
-        `before /api/auth/reset-password/${REDACTED}?next=/portal after`,
-      verifyRoute:
-        `before /api/auth/verify-email?token=${REDACTED}&next=/portal after`,
-      apiVerifyPath:
-        `before /api/auth/verify-email/${REDACTED}?next=/portal after`,
-      encodedVerifyQuery:
-        `before /api/auth/verify-email?token%3D${REDACTED}&next=/portal after`,
-      publicResetUrl:
-        `before https://auth.example/reset-password/${REDACTED}?next=/portal after`,
-      publicVerifyUrl:
-        `before https://auth.example/verify-email?token=${REDACTED}&next=/portal after`,
+      resetRoute: `before /api/auth/reset-password/${REDACTED}?next=/portal after`,
+      verifyRoute: `before /api/auth/verify-email?token=${REDACTED}&next=/portal after`,
+      apiVerifyPath: `before /api/auth/verify-email/${REDACTED}?next=/portal after`,
+      encodedVerifyQuery: `before /api/auth/verify-email?token%3D${REDACTED}&next=/portal after`,
+      publicResetUrl: `before https://auth.example/reset-password/${REDACTED}?next=/portal after`,
+      publicVerifyUrl: `before https://auth.example/verify-email?token=${REDACTED}&next=/portal after`,
       "[REDACTED_KEY]": REDACTED,
       embeddedPrivateSnake: `before private_key=${REDACTED} after`,
       embeddedPrivateCamel: `before privateKey: ${REDACTED} after`,
-      embeddedPrivateKebab:
-        `before "private-key":"${REDACTED}" after`,
+      embeddedPrivateKebab: `before "private-key":"${REDACTED}" after`,
       compoundAuth: `before betterAuthSecret=${REDACTED} after`,
       compoundWebhook: `before webhookSecret=${REDACTED} after`,
       compoundHmac: `before previewHmacKey=${REDACTED} after`,
       compoundRsa: `before rsaPrivateKey=${REDACTED} after`,
-      nestedAssignment:
-        `before wrapper=client_secret=${REDACTED} after`,
-      credentialQuery:
-        `before https://host.example/?access_token=${REDACTED}&next=kept after`,
+      nestedAssignment: `before wrapper=client_secret=${REDACTED} after`,
+      credentialQuery: `before https://host.example/?access_token=${REDACTED}&next=kept after`,
       spacedAssignmentOne: `before api key=${REDACTED} after`,
       spacedAssignmentTwo: `before private key=${REDACTED} after`,
       ordinaryAssignment: safeAssignment,
       prose: safeProse,
-    })
-  })
+    });
+  });
 
-  it("preserves assignment quotes and removes URI userinfo credentials", function() {
-    const safeUri = "before custom+ssh://host.example/path after"
+  it("preserves assignment quotes and removes URI userinfo credentials", function () {
+    const safeUri = "before custom+ssh://host.example/path after";
     const output = redact({
-      singleQuoted:
-        "before webhookSecret='raw-single-quoted-secret' after",
-      doubleQuoted:
-        'before webhookSecret="raw-double-quoted-secret" after',
+      singleQuoted: "before webhookSecret='raw-single-quoted-secret' after",
+      doubleQuoted: 'before webhookSecret="raw-double-quoted-secret" after',
       unquoted: "before webhookSecret=raw-unquoted-secret after",
-      uri:
-        "before custom+ssh://raw-uri-user:raw-uri-password@host.example/path after",
-      spacedQuoted:
-        "before api key='raw-spaced-quoted-secret' after",
+      uri: "before custom+ssh://raw-uri-user:raw-uri-password@host.example/path after",
+      spacedQuoted: "before api key='raw-spaced-quoted-secret' after",
       safeUri,
-    })
+    });
 
     expect(output).toEqual({
       singleQuoted: `before webhookSecret='${REDACTED}' after`,
@@ -441,7 +408,7 @@ describe("redact", function() {
       uri: `before custom+ssh://${REDACTED}@host.example/path after`,
       spacedQuoted: `before api key='${REDACTED}' after`,
       safeUri,
-    })
+    });
     return expectNoSecrets(output, [
       "raw-single-quoted-secret",
       "raw-double-quoted-secret",
@@ -449,198 +416,204 @@ describe("redact", function() {
       "raw-uri-user",
       "raw-uri-password",
       "raw-spaced-quoted-secret",
-    ])
-  })
+    ]);
+  });
 
-  it("terminates cycles, throwing getters, excessive depth, entries, and strings with deterministic markers", function() {
-    const cyclic: Record<string, unknown> = { safe: "ok" }
-    cyclic["self"] = cyclic
+  it("terminates cycles, throwing getters, excessive depth, entries, and strings with deterministic markers", function () {
+    const cyclic: Record<string, unknown> = { safe: "ok" };
+    cyclic["self"] = cyclic;
     Object.defineProperty(cyclic, "throwing", {
       enumerable: true,
-      get: function() { throw new Error("raw-provider-body") },
-    })
-    cyclic["deep"] = { one: { two: { three: "too-deep" } } }
-    cyclic["large"] = [1, 2, 3, 4]
-    cyclic["long"] = "0123456789-secret-tail"
+      get: function () {
+        throw new Error("raw-provider-body");
+      },
+    });
+    cyclic["deep"] = { one: { two: { three: "too-deep" } } };
+    cyclic["large"] = [1, 2, 3, 4];
+    cyclic["long"] = "0123456789-secret-tail";
 
     const output = redact(cyclic, {
       maxDepth: 2,
       maxEntries: 3,
       maxStringLength: 10,
-    }) as Record<string, unknown>
+    }) as Record<string, unknown>;
 
-    expect(output["self"]).toBe("[Circular]")
-    expect(output["throwing"]).toBe("[Unserializable]")
-    expect(output["deep"]).toEqual({ one: TRUNCATED })
-    expect(output["large"]).toEqual([1, 2, 3, TRUNCATED])
-    expect(output["long"]).toBe(TRUNCATED)
-    expect(JSON.stringify(output)).not.toContain("raw-provider-body")
-    return expect(JSON.stringify(output)).not.toContain("secret-tail")
-  })
+    expect(output["self"]).toBe("[Circular]");
+    expect(output["throwing"]).toBe("[Unserializable]");
+    expect(output["deep"]).toEqual({ one: TRUNCATED });
+    expect(output["large"]).toEqual([1, 2, 3, TRUNCATED]);
+    expect(output["long"]).toBe(TRUNCATED);
+    expect(JSON.stringify(output)).not.toContain("raw-provider-body");
+    return expect(JSON.stringify(output)).not.toContain("secret-tail");
+  });
 
-  it("contains revoked proxies, hostile array lengths, oversized objects, and sensitive key names", function() {
-    const revoked = Proxy.revocable([], {})
-    revoked.revoke()
+  it("contains revoked proxies, hostile array lengths, oversized objects, and sensitive key names", function () {
+    const revoked = Proxy.revocable([], {});
+    revoked.revoke();
     const hostileArray = new Proxy([1, 2, 3], {
-      get: function(target, key, receiver) {
+      get: function (target, key, receiver) {
         if (key === "length") {
-          throw new Error("raw-array-secret")
+          throw new Error("raw-array-secret");
         }
-        return Reflect.get(target, key, receiver)
-      }
-    })
-    let accessorReads = 0
-    const accessorArray = [1]
+        return Reflect.get(target, key, receiver);
+      },
+    });
+    let accessorReads = 0;
+    const accessorArray = [1];
     Object.defineProperty(accessorArray, "0", {
       enumerable: true,
-      get: function() {
-        accessorReads += 1
-        throw new Error("raw-array-accessor-secret")
-      }
-    })
-    const oversizedKey = "x".repeat(100_000)
+      get: function () {
+        accessorReads += 1;
+        throw new Error("raw-array-accessor-secret");
+      },
+    });
+    const oversizedKey = "x".repeat(100_000);
     const keyed: Record<string, unknown> = {
       "member@domain.test": "safe-email-key-value",
       "apiKey-super-secret-value": "safe-secret-key-value",
       [oversizedKey]: "raw-oversized-key-value",
-    }
-    for (const index in range(0,100)) {
-      keyed[`key_${index.toString().padStart(3, "0")}`] = index
+    };
+    for (const index in range(0, 100)) {
+      keyed[`key_${index.toString().padStart(3, "0")}`] = index;
     }
 
-    expect(redact(revoked.proxy)).toBe("[Unserializable]")
-    expect(redact(hostileArray)).toBe("[Unserializable]")
-    expect(redact(accessorArray)).toEqual(["[Unserializable]"])
-    expect(accessorReads).toBe(0)
+    expect(redact(revoked.proxy)).toBe("[Unserializable]");
+    expect(redact(hostileArray)).toBe("[Unserializable]");
+    expect(redact(accessorArray)).toEqual(["[Unserializable]"]);
+    expect(accessorReads).toBe(0);
 
     const output = redact(keyed, {
       maxKeyLength: 16,
       maxObjectKeys: 3,
-    })
-    const serialized = JSON.stringify(output)
-    expect(serialized).not.toContain("member@domain.test")
-    expect(serialized).not.toContain("super-secret-value")
-    expect(serialized).not.toContain(oversizedKey)
-    expect(serialized).not.toContain("raw-oversized-key-value")
-    expect(serialized).not.toContain("key_099")
-    return expect(serialized).toContain(TRUNCATED)
-  })
+    });
+    const serialized = JSON.stringify(output);
+    expect(serialized).not.toContain("member@domain.test");
+    expect(serialized).not.toContain("super-secret-value");
+    expect(serialized).not.toContain(oversizedKey);
+    expect(serialized).not.toContain("raw-oversized-key-value");
+    expect(serialized).not.toContain("key_099");
+    return expect(serialized).toContain(TRUNCATED);
+  });
 
-  it("freezes only bounded data-property snapshots and rejects unsafe object graphs", function() {
-    const safe = { nested: { value: "kept" }, list: [1, 2] }
-    expect(freezeSnapshot(safe)).toBe(safe)
-    expect(Object.isFrozen(safe)).toBe(true)
-    expect(Object.isFrozen(safe.nested)).toBe(true)
-    expect(Object.isFrozen(safe.list)).toBe(true)
+  it("freezes only bounded data-property snapshots and rejects unsafe object graphs", function () {
+    const safe = { nested: { value: "kept" }, list: [1, 2] };
+    expect(freezeSnapshot(safe)).toBe(safe);
+    expect(Object.isFrozen(safe)).toBe(true);
+    expect(Object.isFrozen(safe.nested)).toBe(true);
+    expect(Object.isFrozen(safe.list)).toBe(true);
 
-    const getter = {}
+    const getter = {};
     Object.defineProperty(getter, "value", {
       enumerable: true,
-      get: function() { throw new Error("raw-getter-secret") },
-    })
-    const customPrototype = Object.create({ inherited: "raw-prototype-secret" })
-    customPrototype.safe = "value"
-    const revoked = Proxy.revocable({}, {})
-    revoked.revoke()
+      get: function () {
+        throw new Error("raw-getter-secret");
+      },
+    });
+    const customPrototype = Object.create({
+      inherited: "raw-prototype-secret",
+    });
+    customPrototype.safe = "value";
+    const revoked = Proxy.revocable({}, {});
+    revoked.revoke();
 
     for (const unsafe of [getter, customPrototype, revoked.proxy]) {
-      expect(function() { return freezeSnapshot(unsafe) }).toThrow("Unsafe snapshot value")
+      expect(function () {
+        return freezeSnapshot(unsafe);
+      }).toThrow("Unsafe snapshot value");
     }
 
-    const symbolKey = Symbol("raw-freeze-symbol-secret")
+    const symbolKey = Symbol("raw-freeze-symbol-secret");
     const symbolRecord = {
       safe: "value",
       [symbolKey]: "raw-freeze-value-secret",
-    }
-    let symbolError: unknown
+    };
+    let symbolError: unknown;
     try {
-      freezeSnapshot(symbolRecord)
+      freezeSnapshot(symbolRecord);
+    } catch (error) {
+      symbolError = error;
     }
-    catch (error) {
-      symbolError = error
-    }
-    expect(symbolError).toBeInstanceOf(TypeError)
-    expect(String(symbolError)).toBe("TypeError: Unsafe snapshot value")
-    expect(String(symbolError)).not.toMatch(/raw-freeze|symbol-secret/)
+    expect(symbolError).toBeInstanceOf(TypeError);
+    expect(String(symbolError)).toBe("TypeError: Unsafe snapshot value");
+    expect(String(symbolError)).not.toMatch(/raw-freeze|symbol-secret/);
 
-    let excessive: Record<string, unknown> = {}
-    const root = excessive
-    for (const index in range(0,32)) {
-      const child: Record<string, unknown> = {}
-      excessive["child"] = child
-      excessive = child
+    let excessive: Record<string, unknown> = {};
+    const root = excessive;
+    for (const index in range(0, 32)) {
+      const child: Record<string, unknown> = {};
+      excessive["child"] = child;
+      excessive = child;
     }
-    return expect(function() { return freezeSnapshot(root) }).toThrow("Unsafe snapshot value")
-  })
+    return expect(function () {
+      return freezeSnapshot(root);
+    }).toThrow("Unsafe snapshot value");
+  });
 
-  it("fails closed on revoked identity checks, oversized snapshots, and descriptor traps", function() {
+  it("fails closed on revoked identity checks, oversized snapshots, and descriptor traps", function () {
     const revoked = Proxy.revocable(
       { value: "raw-revoked-array-check-secret" },
-      {},
-    )
-    revoked.revoke()
-    const revokedOutput = redact(revoked.proxy)
-    expect(revokedOutput).toBe("[Unserializable]")
-    expectNoSecrets(revokedOutput, ["raw-revoked-array-check-secret"])
+      {}
+    );
+    revoked.revoke();
+    const revokedOutput = redact(revoked.proxy);
+    expect(revokedOutput).toBe("[Unserializable]");
+    expectNoSecrets(revokedOutput, ["raw-revoked-array-check-secret"]);
 
-    let descriptorReads = 0
-    const safeTarget = { child: { value: "kept" } }
+    let descriptorReads = 0;
+    const safeTarget = { child: { value: "kept" } };
     const safeProxy = new Proxy(safeTarget, {
-      getOwnPropertyDescriptor: function(target, key) {
-        descriptorReads += 1
-        return Reflect.getOwnPropertyDescriptor(target, key)
-      }
-    })
-    expect(freezeSnapshot(safeProxy)).toBe(safeProxy)
-    expect(descriptorReads).toBeGreaterThan(0)
-    expect(Object.isFrozen(safeTarget)).toBe(true)
-    expect(Object.isFrozen(safeTarget.child)).toBe(true)
+      getOwnPropertyDescriptor: function (target, key) {
+        descriptorReads += 1;
+        return Reflect.getOwnPropertyDescriptor(target, key);
+      },
+    });
+    expect(freezeSnapshot(safeProxy)).toBe(safeProxy);
+    expect(descriptorReads).toBeGreaterThan(0);
+    expect(Object.isFrozen(safeTarget)).toBe(true);
+    expect(Object.isFrozen(safeTarget.child)).toBe(true);
 
-    const excessiveKeys: Record<string, unknown> = {}
-    for (let i = 0; i < 129; ++i) {const index = i;
+    const excessiveKeys: Record<string, unknown> = {};
+    for (let i = 0; i < 129; ++i) {
+      const index = i;
       excessiveKeys[`key_${index}`] =
-        index === 128 ? "raw-freeze-key-limit-secret" : index
+        index === 128 ? "raw-freeze-key-limit-secret" : index;
     }
-    let keyLimitError: unknown
+    let keyLimitError: unknown;
     try {
-      freezeSnapshot(excessiveKeys)
+      freezeSnapshot(excessiveKeys);
+    } catch (error) {
+      keyLimitError = error;
     }
-    catch (error) {
-      keyLimitError = error
-    }
-    expect(keyLimitError).toBeInstanceOf(TypeError)
-    expect(String(keyLimitError)).toBe("TypeError: Unsafe snapshot value")
-    expect(String(keyLimitError)).not.toContain(
-      "raw-freeze-key-limit-secret"
-    )
+    expect(keyLimitError).toBeInstanceOf(TypeError);
+    expect(String(keyLimitError)).toBe("TypeError: Unsafe snapshot value");
+    expect(String(keyLimitError)).not.toContain("raw-freeze-key-limit-secret");
 
     const descriptorFailure = new Proxy(
       { child: { value: "raw-freeze-descriptor-secret" } },
       {
-        getOwnPropertyDescriptor: function(target, key) {
+        getOwnPropertyDescriptor: function (target, key) {
           if (key === "child") {
-            throw new Error("descriptor unavailable")
+            throw new Error("descriptor unavailable");
           }
-          return Reflect.getOwnPropertyDescriptor(target, key)
-        }
-      },
-    )
-    let freezeError: unknown
+          return Reflect.getOwnPropertyDescriptor(target, key);
+        },
+      }
+    );
+    let freezeError: unknown;
     try {
-      freezeSnapshot(descriptorFailure)
+      freezeSnapshot(descriptorFailure);
+    } catch (error) {
+      freezeError = error;
     }
-    catch (error) {
-      freezeError = error
-    }
-    expect(freezeError).toBeInstanceOf(TypeError)
-    expect(String(freezeError)).toBe("TypeError: Unsafe snapshot value")
+    expect(freezeError).toBeInstanceOf(TypeError);
+    expect(String(freezeError)).toBe("TypeError: Unsafe snapshot value");
     return expect(String(freezeError)).not.toContain(
       "raw-freeze-descriptor-secret"
-    )
-  })
+    );
+  });
 
-  it("handles primitives and unsupported values without leaking descriptions", function() {
-    const secretSymbol = Symbol("raw-secret-description")
+  it("handles primitives and unsupported values without leaking descriptions", function () {
+    const secretSymbol = Symbol("raw-secret-description");
     const output = redact({
       nil: null,
       missing: undefined,
@@ -649,8 +622,10 @@ describe("redact", function() {
       positiveInfinity: Number.POSITIVE_INFINITY,
       negativeInfinity: Number.NEGATIVE_INFINITY,
       symbol: secretSymbol,
-      fn: function() { return "raw-function-body" },
-    })
+      fn: function () {
+        return "raw-function-body";
+      },
+    });
 
     expect(output).toEqual({
       nil: null,
@@ -661,11 +636,11 @@ describe("redact", function() {
       negativeInfinity: "[NonFiniteNumber]",
       symbol: "[Symbol]",
       fn: "[Function]",
-    })
-    return expect(JSON.stringify(output)).not.toContain("raw-secret")
-  })
+    });
+    return expect(JSON.stringify(output)).not.toContain("raw-secret");
+  });
 
-  it("honors exact depth, entry, key, node, and string boundaries before truncating overflow", function() {
+  it("honors exact depth, entry, key, node, and string boundaries before truncating overflow", function () {
     const output = redact(
       {
         exactDepth: { value: "kept" },
@@ -679,8 +654,8 @@ describe("redact", function() {
         maxDepth: 2,
         maxEntries: 2,
         maxStringLength: 10,
-      },
-    )
+      }
+    );
 
     expect(output).toEqual({
       exactDepth: { value: "kept" },
@@ -689,307 +664,285 @@ describe("redact", function() {
       overflowEntries: ["one", "two", TRUNCATED],
       exactString: "0123456789",
       overflowString: TRUNCATED,
-    })
+    });
     return expectNoSecrets(output, [
       "raw-depth-secret",
       "raw-entry-secret",
       "raw-string-secret",
-    ])
-  })
+    ]);
+  });
 
-  it("fails closed when a string bound splits a credential pattern", function() {
-    const uriSecret = "cross-boundary-password"
-    const uriPrefix = "postgresql://user:"
-    const uri = `${uriPrefix}${uriSecret}@host.example/database`
-    const jwtClaims = "eyJcrossBoundaryClaims"
-    const jwt = `eyJheader.${jwtClaims}.signature`
+  it("fails closed when a string bound splits a credential pattern", function () {
+    const uriSecret = "cross-boundary-password";
+    const uriPrefix = "postgresql://user:";
+    const uri = `${uriPrefix}${uriSecret}@host.example/database`;
+    const jwtClaims = "eyJcrossBoundaryClaims";
+    const jwt = `eyJheader.${jwtClaims}.signature`;
 
     const uriOutput = redact(uri, {
       maxStringLength: uriPrefix.length + uriSecret.length,
-    })
+    });
     const jwtOutput = redact(jwt, {
       maxStringLength: jwt.lastIndexOf("."),
-    })
+    });
 
-    expect(uriOutput).toBe(TRUNCATED)
-    expect(jwtOutput).toBe(TRUNCATED)
-    expectNoSecrets([uriOutput, jwtOutput], [uriSecret, jwtClaims])
+    expect(uriOutput).toBe(TRUNCATED);
+    expect(jwtOutput).toBe(TRUNCATED);
+    expectNoSecrets([uriOutput, jwtOutput], [uriSecret, jwtClaims]);
 
     const exactObjectEntries = redact(
       { first: 1, second: 2 },
-      { maxObjectKeys: 2 },
-    )
+      { maxObjectKeys: 2 }
+    );
     const overflowObjectEntries = redact(
       {
         first: 1,
         second: 2,
         third: "raw-object-entry-secret",
       },
-      { maxObjectKeys: 2 },
-    )
-    expect(exactObjectEntries).toEqual({ first: 1, second: 2 })
+      { maxObjectKeys: 2 }
+    );
+    expect(exactObjectEntries).toEqual({ first: 1, second: 2 });
     expect(overflowObjectEntries).toEqual({
       first: 1,
       second: 2,
       [TRUNCATED]: TRUNCATED,
-    })
-    expectNoSecrets(overflowObjectEntries, ["raw-object-entry-secret"])
+    });
+    expectNoSecrets(overflowObjectEntries, ["raw-object-entry-secret"]);
 
-    const exactKey = "k".repeat(8)
-    const overflowKey = `${exactKey}x`
+    const exactKey = "k".repeat(8);
+    const overflowKey = `${exactKey}x`;
     const keyOutput = redact(
       {
         [exactKey]: "kept",
         [overflowKey]: "raw-key-secret",
       },
-      { maxKeyLength: 8 },
-    )
+      { maxKeyLength: 8 }
+    );
     expect(keyOutput).toEqual({
       [exactKey]: "kept",
       "[REDACTED_KEY]": REDACTED,
-    })
-    expectNoSecrets(keyOutput, [overflowKey, "raw-key-secret"])
+    });
+    expectNoSecrets(keyOutput, [overflowKey, "raw-key-secret"]);
 
     const sanitizedKeyOutput = redact({
       "": "kept",
       "customer-secret-hint": "raw-sensitive-key-secret",
-    })
+    });
     expect(sanitizedKeyOutput).toEqual({
       "[EmptyKey]": "kept",
       "[REDACTED_KEY]": REDACTED,
-    })
+    });
     expectNoSecrets(sanitizedKeyOutput, [
       "customer-secret-hint",
       "raw-sensitive-key-secret",
-    ])
+    ]);
 
-    expect(redact([1, 2], { maxTotalNodes: 3 })).toEqual([1, 2])
-    const nodeOverflow = redact(
-      [1, "raw-node-secret"],
-      { maxTotalNodes: 2 },
-    )
-    expect(nodeOverflow).toEqual([1, TRUNCATED])
-    expectNoSecrets(nodeOverflow, ["raw-node-secret"])
+    expect(redact([1, 2], { maxTotalNodes: 3 })).toEqual([1, 2]);
+    const nodeOverflow = redact([1, "raw-node-secret"], { maxTotalNodes: 2 });
+    expect(nodeOverflow).toEqual([1, TRUNCATED]);
+    expectNoSecrets(nodeOverflow, ["raw-node-secret"]);
 
-    expect(redact("", { maxStringLength: 0 })).toBe("")
-    const zeroString = redact(
-      "raw-zero-string-secret",
-      { maxStringLength: 0 },
-    )
-    const zeroEntries = redact(
-      ["raw-zero-entry-secret"],
-      { maxEntries: 0 },
-    )
+    expect(redact("", { maxStringLength: 0 })).toBe("");
+    const zeroString = redact("raw-zero-string-secret", { maxStringLength: 0 });
+    const zeroEntries = redact(["raw-zero-entry-secret"], { maxEntries: 0 });
     const zeroDepth = redact(
       { payload: "raw-zero-depth-secret" },
-      { maxDepth: 0 },
-    )
-    expect(zeroString).toBe(TRUNCATED)
-    expect(zeroEntries).toEqual([TRUNCATED])
-    expect(zeroDepth).toBe(TRUNCATED)
-    expectNoSecrets(zeroString, ["raw-zero-string-secret"])
-    expectNoSecrets(zeroEntries, ["raw-zero-entry-secret"])
-    return expectNoSecrets(zeroDepth, ["raw-zero-depth-secret"])
-  })
+      { maxDepth: 0 }
+    );
+    expect(zeroString).toBe(TRUNCATED);
+    expect(zeroEntries).toEqual([TRUNCATED]);
+    expect(zeroDepth).toBe(TRUNCATED);
+    expectNoSecrets(zeroString, ["raw-zero-string-secret"]);
+    expectNoSecrets(zeroEntries, ["raw-zero-entry-secret"]);
+    return expectNoSecrets(zeroDepth, ["raw-zero-depth-secret"]);
+  });
 
-  it("uses stable safe markers for sparse arrays, symbols, and non-plain prototypes", function() {
-    const sparse: unknown[] = new Array(3)
+  it("uses stable safe markers for sparse arrays, symbols, and non-plain prototypes", function () {
+    const sparse: unknown[] = new Array(3);
     sparse[1] = {
       safe: "kept",
       password: "raw-sparse-secret",
-    }
-    const hidden = Symbol("raw-symbol-description")
+    };
+    const hidden = Symbol("raw-symbol-description");
     Object.defineProperty(sparse, hidden, {
       enumerable: true,
       value: "raw-symbol-value",
-    })
+    });
 
-    const symbolRecord = { safe: "kept" }
+    const symbolRecord = { safe: "kept" };
     Object.defineProperty(symbolRecord, hidden, {
       enumerable: true,
       value: "raw-symbol-record-value",
-    })
+    });
 
-    const nullPrototype = Object.create(null) as Record<string, unknown>
-    nullPrototype["safe"] = "kept"
-    nullPrototype["password"] = "raw-null-prototype-secret"
+    const nullPrototype = Object.create(null) as Record<string, unknown>;
+    nullPrototype["safe"] = "kept";
+    nullPrototype["password"] = "raw-null-prototype-secret";
 
     const customPrototype = Object.create({
       inherited: "raw-inherited-prototype-secret",
-    }) as Record<string, unknown>
-    customPrototype["own"] = "raw-own-prototype-secret"
+    }) as Record<string, unknown>;
+    customPrototype["own"] = "raw-own-prototype-secret";
 
-    const alteredArray = [1]
-    Object.setPrototypeOf(alteredArray, null)
+    const alteredArray = [1];
+    Object.setPrototypeOf(alteredArray, null);
 
-    const sparseOutput = redact(sparse)
-    const symbolOutput = redact(symbolRecord)
-    const nullPrototypeOutput = redact(nullPrototype)
-    const customPrototypeOutput = redact(customPrototype)
-    const alteredArrayOutput = redact(alteredArray)
+    const sparseOutput = redact(sparse);
+    const symbolOutput = redact(symbolRecord);
+    const nullPrototypeOutput = redact(nullPrototype);
+    const customPrototypeOutput = redact(customPrototype);
+    const alteredArrayOutput = redact(alteredArray);
 
     expect(sparseOutput).toEqual([
       "[Undefined]",
       { safe: "kept", password: REDACTED },
       "[Undefined]",
-    ])
-    expect(symbolOutput).toEqual({ safe: "kept" })
+    ]);
+    expect(symbolOutput).toEqual({ safe: "kept" });
     expect(nullPrototypeOutput).toEqual({
       safe: "kept",
       password: REDACTED,
-    })
-    expect(customPrototypeOutput).toBe("[Unserializable]")
-    expect(alteredArrayOutput).toBe("[Unserializable]")
+    });
+    expect(customPrototypeOutput).toBe("[Unserializable]");
+    expect(alteredArrayOutput).toBe("[Unserializable]");
     expectNoSecrets(sparseOutput, [
       "raw-sparse-secret",
       "raw-symbol-description",
       "raw-symbol-value",
-    ])
+    ]);
     expectNoSecrets(symbolOutput, [
       "raw-symbol-description",
       "raw-symbol-record-value",
-    ])
-    expectNoSecrets(nullPrototypeOutput, ["raw-null-prototype-secret"])
+    ]);
+    expectNoSecrets(nullPrototypeOutput, ["raw-null-prototype-secret"]);
     return expectNoSecrets(customPrototypeOutput, [
       "raw-inherited-prototype-secret",
       "raw-own-prototype-secret",
-    ])
-  })
+    ]);
+  });
 
-  it("contains proxy traps with deterministic markers and never invokes array accessors", function() {
+  it("contains proxy traps with deterministic markers and never invokes array accessors", function () {
     const prototypeFailure = new Proxy(
       { value: "raw-prototype-proxy-value" },
       {
-        getPrototypeOf: function() {
-          throw new Error("raw-prototype-proxy-secret")
-        }
-      },
-    )
+        getPrototypeOf: function () {
+          throw new Error("raw-prototype-proxy-secret");
+        },
+      }
+    );
     const enumerationFailure = new Proxy(
       { value: "raw-enumeration-proxy-value" },
       {
-        ownKeys: function() {
-          throw new Error("raw-enumeration-proxy-secret")
+        ownKeys: function () {
+          throw new Error("raw-enumeration-proxy-secret");
+        },
+      }
+    );
+    const descriptorFailure = new Proxy(["raw-descriptor-proxy-secret"], {
+      getOwnPropertyDescriptor: function (target, key) {
+        if (key === "0") {
+          throw new Error("descriptor unavailable");
         }
+        return Reflect.getOwnPropertyDescriptor(target, key);
       },
-    )
-    const descriptorFailure = new Proxy(
-      ["raw-descriptor-proxy-secret"],
-      {
-        getOwnPropertyDescriptor: function(target, key) {
-          if (key === "0") {
-            throw new Error("descriptor unavailable")
-          }
-          return Reflect.getOwnPropertyDescriptor(target, key)
-        }
-      },
-    )
-    let accessorReads = 0
-    const accessor = [1]
+    });
+    let accessorReads = 0;
+    const accessor = [1];
     Object.defineProperty(accessor, "0", {
       enumerable: true,
-      get: function() {
-        accessorReads += 1
-        return "raw-accessor-value"
-      }
-    })
+      get: function () {
+        accessorReads += 1;
+        return "raw-accessor-value";
+      },
+    });
 
-    const prototypeOutput = redact(prototypeFailure)
-    const enumerationOutput = redact(enumerationFailure)
-    const descriptorOutput = redact(descriptorFailure)
-    const accessorOutput = redact(accessor)
+    const prototypeOutput = redact(prototypeFailure);
+    const enumerationOutput = redact(enumerationFailure);
+    const descriptorOutput = redact(descriptorFailure);
+    const accessorOutput = redact(accessor);
 
-    expect(prototypeOutput).toBe("[Unserializable]")
-    expect(enumerationOutput).toBe("[Unserializable]")
-    expect(descriptorOutput).toEqual(["[Unserializable]"])
-    expect(accessorOutput).toEqual(["[Unserializable]"])
-    expect(accessorReads).toBe(0)
+    expect(prototypeOutput).toBe("[Unserializable]");
+    expect(enumerationOutput).toBe("[Unserializable]");
+    expect(descriptorOutput).toEqual(["[Unserializable]"]);
+    expect(accessorOutput).toEqual(["[Unserializable]"]);
+    expect(accessorReads).toBe(0);
     expectNoSecrets(prototypeOutput, [
       "raw-prototype-proxy-value",
       "raw-prototype-proxy-secret",
-    ])
+    ]);
     expectNoSecrets(enumerationOutput, [
       "raw-enumeration-proxy-value",
       "raw-enumeration-proxy-secret",
-    ])
-    expectNoSecrets(descriptorOutput, ["raw-descriptor-proxy-secret"])
-    return expectNoSecrets(accessorOutput, ["raw-accessor-value"])
-  })
+    ]);
+    expectNoSecrets(descriptorOutput, ["raw-descriptor-proxy-secret"]);
+    return expectNoSecrets(accessorOutput, ["raw-accessor-value"]);
+  });
 
-  it("marks only active circular paths while safely revisiting shared objects", function() {
+  it("marks only active circular paths while safely revisiting shared objects", function () {
     const shared = {
       value: "kept",
       password: "raw-shared-secret",
-    }
+    };
     const root: Record<string, unknown> = {
       first: shared,
       second: shared,
-    }
-    const branch: Record<string, unknown> = {}
-    root["branch"] = branch
-    branch["back"] = root
-    const circularArray: unknown[] = []
-    circularArray.push(
-      circularArray,
-      { token: "raw-circular-array-secret" },
-    )
-    root["array"] = circularArray
+    };
+    const branch: Record<string, unknown> = {};
+    root["branch"] = branch;
+    branch["back"] = root;
+    const circularArray: unknown[] = [];
+    circularArray.push(circularArray, { token: "raw-circular-array-secret" });
+    root["array"] = circularArray;
 
-    const output = redact(root)
+    const output = redact(root);
 
     expect(output).toEqual({
       first: { value: "kept", password: REDACTED },
       second: { value: "kept", password: REDACTED },
       branch: { back: "[Circular]" },
-      array: [
-        "[Circular]",
-        { "[REDACTED_KEY]": REDACTED },
-      ],
-    })
+      array: ["[Circular]", { "[REDACTED_KEY]": REDACTED }],
+    });
     return expectNoSecrets(output, [
       "raw-shared-secret",
       "raw-circular-array-secret",
-    ])
-  })
+    ]);
+  });
 
-  return it("freezes circular plain snapshots and rejects symbol or proxy freeze failures", function() {
-    const root: Record<string, unknown> = {}
-    const child: Record<string, unknown> = { parent: root }
-    root["child"] = child
+  return it("freezes circular plain snapshots and rejects symbol or proxy freeze failures", function () {
+    const root: Record<string, unknown> = {};
+    const child: Record<string, unknown> = { parent: root };
+    root["child"] = child;
 
-    expect(freezeSnapshot(root)).toBe(root)
-    expect(Object.isFrozen(root)).toBe(true)
-    expect(Object.isFrozen(child)).toBe(true)
+    expect(freezeSnapshot(root)).toBe(root);
+    expect(Object.isFrozen(root)).toBe(true);
+    expect(Object.isFrozen(child)).toBe(true);
 
-    const symbolSnapshot = {}
-    Object.defineProperty(
-      symbolSnapshot,
-      Symbol("raw-freeze-symbol-secret"),
-      {
-        enumerable: true,
-        value: "raw-freeze-symbol-value",
-      },
-    )
+    const symbolSnapshot = {};
+    Object.defineProperty(symbolSnapshot, Symbol("raw-freeze-symbol-secret"), {
+      enumerable: true,
+      value: "raw-freeze-symbol-value",
+    });
     const freezeFailure = new Proxy(
       {},
       {
-        preventExtensions: function() {
-          throw new Error("raw-freeze-proxy-secret")
-        }
-      },
-    )
-    expect(function() { return freezeSnapshot(symbolSnapshot) }).toThrowError(
-      new TypeError("Unsafe snapshot value"),
-    )
-    return expect(function() { return freezeSnapshot(freezeFailure) }).toThrowError(
-      new TypeError("Unsafe snapshot value"),
-    )
-  })
-})
+        preventExtensions: function () {
+          throw new Error("raw-freeze-proxy-secret");
+        },
+      }
+    );
+    expect(function () {
+      return freezeSnapshot(symbolSnapshot);
+    }).toThrowError(new TypeError("Unsafe snapshot value"));
+    return expect(function () {
+      return freezeSnapshot(freezeFailure);
+    }).toThrowError(new TypeError("Unsafe snapshot value"));
+  });
+});
 
-describe("redactSemanticEvent", function() {
-  it("emits a frozen canonical correlation and redacts every retained text field", function() {
-    const correlation = Object.create(null) as Record<string, unknown>
+describe("redactSemanticEvent", function () {
+  it("emits a frozen canonical correlation and redacts every retained text field", function () {
+    const correlation = Object.create(null) as Record<string, unknown>;
     Object.assign(correlation, {
       requestId: "request member@domain.test",
       traceId: "t".repeat(32),
@@ -998,15 +951,15 @@ describe("redactSemanticEvent", function() {
       route: "/members/member@domain.test",
       procedure: "p".repeat(256),
       ignored: "raw-correlation-extra-secret",
-    })
+    });
     Object.defineProperty(
       correlation,
       Symbol("raw-correlation-symbol-description"),
       {
         enumerable: true,
         value: "raw-correlation-symbol-value",
-      },
-    )
+      }
+    );
 
     const output = redactSemanticEvent(
       makeSemanticEvent({
@@ -1023,8 +976,8 @@ describe("redactSemanticEvent", function() {
           note: "Bearer raw-attribute-secret",
         },
         ignored: "raw-event-extra-secret",
-      }),
-    )
+      })
+    );
 
     expect(output).toEqual({
       eventId: "event-1",
@@ -1049,7 +1002,7 @@ describe("redactSemanticEvent", function() {
         password: REDACTED,
         note: `Bearer ${REDACTED}`,
       },
-    })
+    });
     expect(Object.keys(output.correlation)).toEqual([
       "requestId",
       "traceId",
@@ -1057,12 +1010,12 @@ describe("redactSemanticEvent", function() {
       "actorId",
       "route",
       "procedure",
-    ])
-    expect(Object.getPrototypeOf(output.correlation)).toBe(Object.prototype)
-    expect(Object.isFrozen(output)).toBe(true)
-    expect(Object.isFrozen(output.correlation)).toBe(true)
-    expect(Object.isFrozen(output.attributes)).toBe(true)
-    expect(redactSemanticEvent(output)).toBe(output)
+    ]);
+    expect(Object.getPrototypeOf(output.correlation)).toBe(Object.prototype);
+    expect(Object.isFrozen(output)).toBe(true);
+    expect(Object.isFrozen(output.correlation)).toBe(true);
+    expect(Object.isFrozen(output.attributes)).toBe(true);
+    expect(redactSemanticEvent(output)).toBe(output);
     return expectNoSecrets(output, [
       "member@domain.test",
       "raw-span-secret",
@@ -1075,10 +1028,10 @@ describe("redactSemanticEvent", function() {
       "raw-attribute-password",
       "raw-attribute-secret",
       "raw-event-extra-secret",
-    ])
-  })
+    ]);
+  });
 
-  it("preserves exact correlation field limits and truncates only overflow", function() {
+  it("preserves exact correlation field limits and truncates only overflow", function () {
     const exactCorrelation = {
       requestId: "r".repeat(256),
       traceId: "t".repeat(32),
@@ -1086,11 +1039,11 @@ describe("redactSemanticEvent", function() {
       actorId: "a".repeat(256),
       route: "/".repeat(512),
       procedure: "p".repeat(256),
-    }
+    };
     const exactOutput = redactSemanticEvent(
-      makeSemanticEvent({ correlation: exactCorrelation }),
-    )
-    expect(exactOutput.correlation).toEqual(exactCorrelation)
+      makeSemanticEvent({ correlation: exactCorrelation })
+    );
+    expect(exactOutput.correlation).toEqual(exactCorrelation);
 
     const overflowCorrelation = {
       requestId: `${"r".repeat(256)}raw-request-secret`,
@@ -1099,10 +1052,10 @@ describe("redactSemanticEvent", function() {
       actorId: `${"a".repeat(256)}raw-actor-secret`,
       route: `${"/".repeat(512)}raw-route-secret`,
       procedure: `${"p".repeat(256)}raw-procedure-secret`,
-    }
+    };
     const overflowOutput = redactSemanticEvent(
-      makeSemanticEvent({ correlation: overflowCorrelation }),
-    )
+      makeSemanticEvent({ correlation: overflowCorrelation })
+    );
     expect(overflowOutput.correlation).toEqual({
       requestId: TRUNCATED,
       traceId: TRUNCATED,
@@ -1110,7 +1063,7 @@ describe("redactSemanticEvent", function() {
       actorId: TRUNCATED,
       route: TRUNCATED,
       procedure: TRUNCATED,
-    })
+    });
     return expectNoSecrets(overflowOutput, [
       "raw-request-secret",
       "raw-trace-secret",
@@ -1118,45 +1071,45 @@ describe("redactSemanticEvent", function() {
       "raw-actor-secret",
       "raw-route-secret",
       "raw-procedure-secret",
-    ])
-  })
+    ]);
+  });
 
-  it("rejects missing, primitive, array, prototype, and revoked correlation containers", function() {
+  it("rejects missing, primitive, array, prototype, and revoked correlation containers", function () {
     const missingCorrelation = {
       ...makeSemanticEvent(),
       ignored: "raw-missing-correlation-secret",
-    } as unknown as Record<string, unknown>
-    delete missingCorrelation["correlation"]
+    } as unknown as Record<string, unknown>;
+    delete missingCorrelation["correlation"];
     expectInvalidSemanticEvent(
       missingCorrelation,
-      "raw-missing-correlation-secret",
-    )
+      "raw-missing-correlation-secret"
+    );
 
-    const arrayCorrelation = ["raw-array-correlation-secret"]
-    Object.assign(arrayCorrelation, { requestId: "request-1" })
+    const arrayCorrelation = ["raw-array-correlation-secret"];
+    Object.assign(arrayCorrelation, { requestId: "request-1" });
 
     const customCorrelation = Object.create({
       inherited: "raw-custom-correlation-secret",
-    }) as Record<string, unknown>
-    customCorrelation["requestId"] = "request-1"
+    }) as Record<string, unknown>;
+    customCorrelation["requestId"] = "request-1";
 
     const revoked = Proxy.revocable(
       {
         requestId: "request-1",
         ignored: "raw-revoked-correlation-secret",
       },
-      {},
-    )
-    revoked.revoke()
+      {}
+    );
+    revoked.revoke();
 
     const prototypeFailure = new Proxy(
       { requestId: "request-1" },
       {
-        getPrototypeOf: function() {
-          throw new Error("raw-correlation-prototype-trap-secret")
-        }
-      },
-    )
+        getPrototypeOf: function () {
+          throw new Error("raw-correlation-prototype-trap-secret");
+        },
+      }
+    );
 
     const invalid: ReadonlyArray<readonly [unknown, string]> = [
       [undefined, "raw-undefined-correlation-secret"],
@@ -1166,18 +1119,22 @@ describe("redactSemanticEvent", function() {
       [customCorrelation, "raw-custom-correlation-secret"],
       [revoked.proxy, "raw-revoked-correlation-secret"],
       [prototypeFailure, "raw-correlation-prototype-trap-secret"],
-    ]
+    ];
 
-    const results=[];for (const [correlation, secret] of invalid) {
-      results.push(expectInvalidSemanticEvent(
-        makeSemanticEvent({ correlation, ignored: secret }),
-        secret,
-      ))
-    };return results;
-  })
+    const results = [];
+    for (const [correlation, secret] of invalid) {
+      results.push(
+        expectInvalidSemanticEvent(
+          makeSemanticEvent({ correlation, ignored: secret }),
+          secret
+        )
+      );
+    }
+    return results;
+  });
 
-  it("rejects missing or invalid request IDs and omits invalid optional correlation fields", function() {
-    const symbolRequestId = Symbol("raw-request-symbol-secret")
+  it("rejects missing or invalid request IDs and omits invalid optional correlation fields", function () {
+    const symbolRequestId = Symbol("raw-request-symbol-secret");
     const invalid: ReadonlyArray<readonly [Record<string, unknown>, string]> = [
       [{ ignored: "raw-missing-request-secret" }, "raw-missing-request-secret"],
       [
@@ -1192,19 +1149,13 @@ describe("redactSemanticEvent", function() {
         { requestId: 0, ignored: "raw-number-request-secret" },
         "raw-number-request-secret",
       ],
-      [
-        { requestId: symbolRequestId },
-        "raw-request-symbol-secret",
-      ],
-    ]
+      [{ requestId: symbolRequestId }, "raw-request-symbol-secret"],
+    ];
     for (const [correlation, secret] of invalid) {
-      expectInvalidSemanticEvent(
-        makeSemanticEvent({ correlation }),
-        secret,
-      )
+      expectInvalidSemanticEvent(makeSemanticEvent({ correlation }), secret);
     }
 
-    const optionalSymbol = Symbol("raw-optional-correlation-secret")
+    const optionalSymbol = Symbol("raw-optional-correlation-secret");
     const output = redactSemanticEvent(
       makeSemanticEvent({
         correlation: {
@@ -1216,187 +1167,180 @@ describe("redactSemanticEvent", function() {
           procedure: optionalSymbol,
           ignored: "raw-optional-extra-secret",
         },
-      }),
-    )
-    expect(output.correlation).toEqual({ requestId: "request-1" })
+      })
+    );
+    expect(output.correlation).toEqual({ requestId: "request-1" });
     return expectNoSecrets(output, [
       "raw-optional-correlation-secret",
       "raw-optional-extra-secret",
-    ])
-  })
+    ]);
+  });
 
-  it("rejects correlation and event data accessors or descriptor proxy failures without invoking accessors", function() {
-    let correlationReads = 0
-    const accessorCorrelation: Record<string, unknown> = {}
+  it("rejects correlation and event data accessors or descriptor proxy failures without invoking accessors", function () {
+    let correlationReads = 0;
+    const accessorCorrelation: Record<string, unknown> = {};
     Object.defineProperty(accessorCorrelation, "requestId", {
       enumerable: true,
-      get: function() {
-        correlationReads += 1
-        return "raw-correlation-accessor-secret"
-      }
-    })
+      get: function () {
+        correlationReads += 1;
+        return "raw-correlation-accessor-secret";
+      },
+    });
     expectInvalidSemanticEvent(
       makeSemanticEvent({ correlation: accessorCorrelation }),
-      "raw-correlation-accessor-secret",
-    )
-    expect(correlationReads).toBe(0)
+      "raw-correlation-accessor-secret"
+    );
+    expect(correlationReads).toBe(0);
 
     const descriptorCorrelation = new Proxy(
       { requestId: "request-1" },
       {
-        getOwnPropertyDescriptor: function(target, key) {
+        getOwnPropertyDescriptor: function (target, key) {
           if (key === "requestId") {
-            throw new Error("raw-correlation-descriptor-secret")
+            throw new Error("raw-correlation-descriptor-secret");
           }
-          return Reflect.getOwnPropertyDescriptor(target, key)
-        }
-      },
-    )
+          return Reflect.getOwnPropertyDescriptor(target, key);
+        },
+      }
+    );
     expectInvalidSemanticEvent(
       makeSemanticEvent({ correlation: descriptorCorrelation }),
-      "raw-correlation-descriptor-secret",
-    )
+      "raw-correlation-descriptor-secret"
+    );
 
-    let eventReads = 0
+    let eventReads = 0;
     const accessorEvent = {
       ...makeSemanticEvent(),
       ignored: "raw-event-accessor-secret",
-    } as unknown as Record<string, unknown>
+    } as unknown as Record<string, unknown>;
     Object.defineProperty(accessorEvent, "name", {
       enumerable: true,
-      get: function() {
-        eventReads += 1
-        return "raw-event-accessor-secret"
-      }
-    })
-    expectInvalidSemanticEvent(
-      accessorEvent,
-      "raw-event-accessor-secret",
-    )
-    expect(eventReads).toBe(0)
+      get: function () {
+        eventReads += 1;
+        return "raw-event-accessor-secret";
+      },
+    });
+    expectInvalidSemanticEvent(accessorEvent, "raw-event-accessor-secret");
+    expect(eventReads).toBe(0);
 
     const attributeDescriptorFailure = new Proxy(
       makeSemanticEvent({
         ignored: "raw-attribute-descriptor-secret",
       }),
       {
-        getOwnPropertyDescriptor: function(target, key) {
+        getOwnPropertyDescriptor: function (target, key) {
           if (key === "attributes") {
-            throw new Error("raw-attribute-descriptor-secret")
+            throw new Error("raw-attribute-descriptor-secret");
           }
-          return Reflect.getOwnPropertyDescriptor(target, key)
-        }
-      },
-    )
+          return Reflect.getOwnPropertyDescriptor(target, key);
+        },
+      }
+    );
     return expectInvalidSemanticEvent(
       attributeDescriptorFailure,
-      "raw-attribute-descriptor-secret",
-    )
-  })
+      "raw-attribute-descriptor-secret"
+    );
+  });
 
-  it("sanitizes own data-property attributes and omits missing attributes", function() {
-    const sparse: unknown[] = new Array(2)
-    sparse[1] = "member@domain.test"
+  it("sanitizes own data-property attributes and omits missing attributes", function () {
+    const sparse: unknown[] = new Array(2);
+    sparse[1] = "member@domain.test";
     const attributes: Record<string, unknown> = {
       password: "raw-attribute-password",
       sparse,
-    }
-    attributes["self"] = attributes
+    };
+    attributes["self"] = attributes;
     Object.defineProperty(
       attributes,
       Symbol("raw-attribute-symbol-description"),
       {
         enumerable: true,
         value: "raw-attribute-symbol-value",
-      },
-    )
+      }
+    );
 
-    const output = redactSemanticEvent(makeSemanticEvent({ attributes }))
-    const withoutAttributes = redactSemanticEvent(makeSemanticEvent())
+    const output = redactSemanticEvent(makeSemanticEvent({ attributes }));
+    const withoutAttributes = redactSemanticEvent(makeSemanticEvent());
 
     expect(output.attributes).toEqual({
       password: REDACTED,
       sparse: ["[Undefined]", REDACTED],
       self: "[Circular]",
-    })
-    expect(withoutAttributes.attributes).toBeUndefined()
+    });
+    expect(withoutAttributes.attributes).toBeUndefined();
     return expectNoSecrets(output, [
       "member@domain.test",
       "raw-attribute-password",
       "raw-attribute-symbol-description",
       "raw-attribute-symbol-value",
-    ])
-  })
+    ]);
+  });
 
-  it("rejects own attributes accessors without invoking throwing or pending getters", function() {
-    let throwingReads = 0
+  it("rejects own attributes accessors without invoking throwing or pending getters", function () {
+    let throwingReads = 0;
     const throwing = {
       ...makeSemanticEvent(),
       ignored: "raw-throwing-attributes-secret",
-    } as unknown as Record<string, unknown>
+    } as unknown as Record<string, unknown>;
     Object.defineProperty(throwing, "attributes", {
       enumerable: true,
-      get: function() {
-        throwingReads += 1
-        throw new Error("raw-throwing-attributes-secret")
-      }
-    })
-    expectInvalidSemanticEvent(
-      throwing,
-      "raw-throwing-attributes-secret",
-    )
-    expect(throwingReads).toBe(0)
+      get: function () {
+        throwingReads += 1;
+        throw new Error("raw-throwing-attributes-secret");
+      },
+    });
+    expectInvalidSemanticEvent(throwing, "raw-throwing-attributes-secret");
+    expect(throwingReads).toBe(0);
 
-    let pendingReads = 0
+    let pendingReads = 0;
     const pending = {
       ...makeSemanticEvent(),
       ignored: "raw-pending-attributes-secret",
-    } as unknown as Record<string, unknown>
+    } as unknown as Record<string, unknown>;
     Object.defineProperty(pending, "attributes", {
       enumerable: true,
-      get: function() {
-        pendingReads += 1
-        return new Promise<never>(function() { return undefined })
-      }
-    })
-    expectInvalidSemanticEvent(
-      pending,
-      "raw-pending-attributes-secret",
-    )
-    expect(pendingReads).toBe(0)
+      get: function () {
+        pendingReads += 1;
+        return new Promise<never>(function () {
+          return undefined;
+        });
+      },
+    });
+    expectInvalidSemanticEvent(pending, "raw-pending-attributes-secret");
+    expect(pendingReads).toBe(0);
 
     const setterOnly = {
       ...makeSemanticEvent(),
       ignored: "raw-setter-only-attributes-secret",
-    } as unknown as Record<string, unknown>
+    } as unknown as Record<string, unknown>;
     Object.defineProperty(setterOnly, "attributes", {
       enumerable: true,
-      set: function(_value: unknown) { return undefined }
-    })
+      set: function (_value: unknown) {
+        return undefined;
+      },
+    });
     return expectInvalidSemanticEvent(
       setterOnly,
-      "raw-setter-only-attributes-secret",
-    )
-  })
+      "raw-setter-only-attributes-secret"
+    );
+  });
 
-  it("omits unsafe attribute containers and invalid optional event fields", function() {
+  it("omits unsafe attribute containers and invalid optional event fields", function () {
     const revokedAttributes = Proxy.revocable(
       { password: "raw-revoked-attribute-secret" },
-      {},
-    )
-    revokedAttributes.revoke()
+      {}
+    );
+    revokedAttributes.revoke();
     const unsafeAttributesOutput = redactSemanticEvent(
       makeSemanticEvent({
         attributes: revokedAttributes.proxy,
         ignored: "raw-revoked-attribute-secret",
-      }),
-    )
-    expect(unsafeAttributesOutput.attributes).toBeUndefined()
-    expectNoSecrets(unsafeAttributesOutput, [
-      "raw-revoked-attribute-secret",
-    ])
+      })
+    );
+    expect(unsafeAttributesOutput.attributes).toBeUndefined();
+    expectNoSecrets(unsafeAttributesOutput, ["raw-revoked-attribute-secret"]);
 
-    const optionalSymbol = Symbol("raw-event-optional-symbol-secret")
+    const optionalSymbol = Symbol("raw-event-optional-symbol-secret");
     const invalidOptionalOutput = redactSemanticEvent(
       makeSemanticEvent({
         action: "",
@@ -1407,82 +1351,89 @@ describe("redactSemanticEvent", function() {
         source: "raw-source-secret",
         durationMs: -1,
         attributes: ["raw-array-attribute-secret"],
-      }),
-    )
+      })
+    );
     expect(invalidOptionalOutput).toEqual({
       eventId: "event-1",
       name: "account.updated",
       occurredAt: "2026-01-02T03:04:05.000Z",
       correlation: { requestId: "request-1" },
-    })
+    });
     return expectNoSecrets(invalidOptionalOutput, [
       "raw-event-optional-symbol-secret",
       "raw-outcome-secret",
       "raw-source-secret",
       "raw-array-attribute-secret",
-    ])
-  })
+    ]);
+  });
 
-  it("retains each canonical source and both outcomes", function() {
-    const results1=[];for (const source of ["api", "system", "web", "worker"] as const) {
+  it("retains each canonical source and both outcomes", function () {
+    const results1 = [];
+    for (const source of ["api", "system", "web", "worker"] as const) {
       const output = redactSemanticEvent(
         makeSemanticEvent({
           source,
           outcome: source === "api" ? "success" : "failure",
-        }),
-      )
-      expect(output.source).toBe(source)
-      results1.push(expect(output.outcome).toBe(source === "api" ? "success" : "failure"))
-    };return results1;
-  })
+        })
+      );
+      expect(output.source).toBe(source);
+      results1.push(
+        expect(output.outcome).toBe(source === "api" ? "success" : "failure")
+      );
+    }
+    return results1;
+  });
 
-  it("rejects non-numeric, fractional, and negative reflective array lengths", function() {
-    const hostileLengths = ["1", 1.5, -1] as const
+  it("rejects non-numeric, fractional, and negative reflective array lengths", function () {
+    const hostileLengths = ["1", 1.5, -1] as const;
 
-    const results2=[];for (const length of hostileLengths) {
+    const results2 = [];
+    for (const length of hostileLengths) {
       const array = new Proxy([0], {
-        get: function(target, key, receiver) {
-          return key === "length" ? length : Reflect.get(target, key, receiver)
-        }
-      })
+        get: function (target, key, receiver) {
+          return key === "length" ? length : Reflect.get(target, key, receiver);
+        },
+      });
 
-      results2.push(expect(redact(array)).toBe("[Unserializable]"))
-    };return results2;
-  })
+      results2.push(expect(redact(array)).toBe("[Unserializable]"));
+    }
+    return results2;
+  });
 
-  return it("skips inherited enumeration and contains a disappearing own descriptor", function() {
-    const inheritedKey = "__observability_coverage_inherited__"
+  return it("skips inherited enumeration and contains a disappearing own descriptor", function () {
+    const inheritedKey = "__observability_coverage_inherited__";
     Object.defineProperty(Object.prototype, inheritedKey, {
       configurable: true,
       enumerable: true,
       value: "raw-inherited-secret",
-    })
-    let inheritedOutput: unknown
+    });
+    let inheritedOutput: unknown;
     try {
-      inheritedOutput = redact({ safe: "kept" })
+      inheritedOutput = redact({ safe: "kept" });
+    } finally {
+      Reflect.deleteProperty(Object.prototype, inheritedKey);
     }
-    finally {
-      Reflect.deleteProperty(Object.prototype, inheritedKey)
-    }
-    expect(inheritedOutput).toEqual({ safe: "kept" })
+    expect(inheritedOutput).toEqual({ safe: "kept" });
 
-    let descriptorReads = 0
+    let descriptorReads = 0;
     const disappearing = new Proxy(
       { value: "raw-disappearing-secret" },
       {
-        getOwnPropertyDescriptor: function(target, key) {
+        getOwnPropertyDescriptor: function (target, key) {
           if (key === "value") {
-            descriptorReads += 1
-            if (descriptorReads === 3) { return undefined }
+            descriptorReads += 1;
+            if (descriptorReads === 3) {
+              return undefined;
+            }
           }
-          return Reflect.getOwnPropertyDescriptor(target, key)
-        }
-      },
-    )
+          return Reflect.getOwnPropertyDescriptor(target, key);
+        },
+      }
+    );
 
     expect(redact(disappearing)).toEqual({
       value: "[Unserializable]",
-    })
-    return expect(descriptorReads).toBe(3)
-  })
-})
+    });
+    return expect(descriptorReads).toBe(3);
+  });
+});

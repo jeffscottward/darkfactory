@@ -1,25 +1,25 @@
-import { beforeEach, describe, expect, it, vi } from "vitest"
-import type { SQL } from "drizzle-orm"
-import { PgDialect } from "drizzle-orm/pg-core"
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import type { SQL } from "drizzle-orm";
+import { PgDialect } from "drizzle-orm/pg-core";
 
-import { accounts, users } from "../schema/index.ts"
-import type { Database } from "../server/client.ts"
+import { accounts, users } from "../schema/index.ts";
+import type { Database } from "../server/client.ts";
 
 const convergence = vi.hoisted(() => ({
   profiles: vi.fn(),
   preferences: vi.fn(),
   content: vi.fn(),
-}))
+}));
 
 vi.mock("./profiles.ts", () => ({
   convergeDevelopmentProfiles: convergence.profiles,
-}))
+}));
 vi.mock("./preferences.ts", () => ({
   convergeDevelopmentPreferences: convergence.preferences,
-}))
+}));
 vi.mock("./content.ts", () => ({
   convergeDevelopmentContent: convergence.content,
-}))
+}));
 
 import {
   DevelopmentSeedError,
@@ -27,105 +27,102 @@ import {
   seedDevelopment,
   type EnsureSeedIdentity,
   type PrepareSeedIdentities,
-} from "./index.ts"
+} from "./index.ts";
 import {
   DEVELOPMENT_PERSONAS,
   seedIdentityInput,
   type DevelopmentPersona,
-} from "./users.ts"
+} from "./users.ts";
 
-const QUERY_DIALECT = new PgDialect()
-const VALID_PASSWORD_HASH = `${"a".repeat(32)}:${"b".repeat(128)}`
+const QUERY_DIALECT = new PgDialect();
+const VALID_PASSWORD_HASH = `${"a".repeat(32)}:${"b".repeat(128)}`;
 
-type QueryRows = ReadonlyArray<Record<string, unknown>>
-type QueryOutcome = QueryRows | Error
+type QueryRows = ReadonlyArray<Record<string, unknown>>;
+type QueryOutcome = QueryRows | Error;
 type QueryOperation = {
-  table?: "users" | "accounts" | "unknown"
-  where?: unknown
-}
+  table?: "users" | "accounts" | "unknown";
+  where?: unknown;
+};
 type QueryBuilder = {
-  from: (table: unknown) => QueryBuilder
-  where: (condition: unknown) => QueryBuilder
+  from: (table: unknown) => QueryBuilder;
+  where: (condition: unknown) => QueryBuilder;
   then: (
     onFulfilled: (rows: QueryRows) => unknown,
-    onRejected?: (error: unknown) => unknown,
-  ) => Promise<unknown>
-}
+    onRejected?: (error: unknown) => unknown
+  ) => Promise<unknown>;
+};
 
 const createSeedDatabase = (configuredOutcomes: QueryOutcome[]) => {
-  const outcomes = [...configuredOutcomes]
-  const selects: QueryOperation[] = []
-  const statements: unknown[] = []
-  const lifecycle: string[] = []
+  const outcomes = [...configuredOutcomes];
+  const selects: QueryOperation[] = [];
+  const statements: unknown[] = [];
+  const lifecycle: string[] = [];
 
   const transactionExecutor = {
     select: vi.fn(() => {
-      const operation: QueryOperation = {}
-      selects.push(operation)
-      let builder = {} as QueryBuilder
+      const operation: QueryOperation = {};
+      selects.push(operation);
+      let builder = {} as QueryBuilder;
       builder.from = vi.fn((table: unknown) => {
-        operation.table = table === users
-          ? "users"
-          : table === accounts
-            ? "accounts"
-            : "unknown"
-        return builder
-      }
-      )
+        operation.table =
+          table === users
+            ? "users"
+            : table === accounts
+              ? "accounts"
+              : "unknown";
+        return builder;
+      });
       builder.where = vi.fn((condition: unknown) => {
-        operation.where = condition
-        return builder
-      }
-      )
+        operation.where = condition;
+        return builder;
+      });
       builder.then = (onFulfilled, onRejected) => {
-        const outcome = outcomes.shift() ?? []
-        const promise = outcome instanceof Error
-          ? Promise.reject(outcome)
-          : Promise.resolve(outcome)
-        return promise.then(onFulfilled, onRejected)
-      }
-      return builder
-    }
-    ),
+        const outcome = outcomes.shift() ?? [];
+        const promise =
+          outcome instanceof Error
+            ? Promise.reject(outcome)
+            : Promise.resolve(outcome);
+        return promise.then(onFulfilled, onRejected);
+      };
+      return builder;
+    }),
     execute: vi.fn(async (statement: unknown) => {
-      statements.push(statement)
-      return []
-    }
-    ),
-  } as unknown as Database
+      statements.push(statement);
+      return [];
+    }),
+  } as unknown as Database;
 
   const database = {
     transaction: vi.fn(
       async (operation: (transaction: Database) => Promise<unknown>) => {
-        lifecycle.push("begin")
+        lifecycle.push("begin");
         try {
-          const result = await operation(transactionExecutor)
-          lifecycle.push("commit")
-          return result
-        }
-        catch (error) {
-          lifecycle.push("rollback")
-          throw error
+          const result = await operation(transactionExecutor);
+          lifecycle.push("commit");
+          return result;
+        } catch (error) {
+          lifecycle.push("rollback");
+          throw error;
         }
       }
     ),
-  } as unknown as Database
+  } as unknown as Database;
 
-  return { database, lifecycle, selects, statements, transactionExecutor }
-}
+  return { database, lifecycle, selects, statements, transactionExecutor };
+};
 
 const userRow = (
   persona: DevelopmentPersona,
-  overrides: Record<string, unknown> = {},
+  overrides: Record<string, unknown> = {}
 ) => ({
   id: persona.userId,
   email: persona.email,
   ...overrides,
-})
+});
 
 const credentialRow = (
   persona: DevelopmentPersona,
-  overrides: Record<string, unknown> = {},
+  overrides: Record<string, unknown> = {}
 ) => ({
   id: persona.accountId,
   userId: persona.userId,
@@ -133,111 +130,122 @@ const credentialRow = (
   accountId: persona.userId,
   password: VALID_PASSWORD_HASH,
   ...overrides,
-})
+});
 
 const validInspection = (
   persona: DevelopmentPersona,
-  normalizedEmailVariant = false,
+  normalizedEmailVariant = false
 ): QueryRows[] => [
-  [userRow(persona, normalizedEmailVariant
-    ? { email: `  ${persona.email.toUpperCase()}  ` }
-    : {})],
+  [
+    userRow(
+      persona,
+      normalizedEmailVariant
+        ? { email: `  ${persona.email.toUpperCase()}  ` }
+        : {}
+    ),
+  ],
   [credentialRow(persona)],
-]
+];
 
 const allExistingOutcomes = (): QueryRows[] => {
   const inspection = DEVELOPMENT_PERSONAS.flatMap((persona, index) => {
-    return validInspection(persona, index === 0)
-  }
-  )
-  return [...inspection, ...inspection]
-}
+    return validInspection(persona, index === 0);
+  });
+  return [...inspection, ...inspection];
+};
 
 const allCreatedOutcomes = (): QueryRows[] => [
   ...DEVELOPMENT_PERSONAS.flatMap(() => [[], []] as QueryRows[]),
   ...DEVELOPMENT_PERSONAS.flatMap((persona) => validInspection(persona)),
-]
+];
 
 const queryParameters = (statement: unknown): unknown[] => {
-  return QUERY_DIALECT.sqlToQuery(statement as SQL).params
-}
+  return QUERY_DIALECT.sqlToQuery(statement as SQL).params;
+};
 
 const preparedIdentity = () => {
-  const ensureIdentity = vi.fn<EnsureSeedIdentity>(async () => undefined)
-  const prepareIdentity = vi.fn<PrepareSeedIdentities>(async () => ensureIdentity)
-  return { ensureIdentity, prepareIdentity }
-}
+  const ensureIdentity = vi.fn<EnsureSeedIdentity>(async () => undefined);
+  const prepareIdentity = vi.fn<PrepareSeedIdentities>(
+    async () => ensureIdentity
+  );
+  return { ensureIdentity, prepareIdentity };
+};
 
-beforeEach(function() {
-  convergence.profiles.mockReset()
-  convergence.preferences.mockReset()
-  convergence.content.mockReset()
-  convergence.profiles.mockResolvedValue(undefined)
-  convergence.preferences.mockResolvedValue(undefined)
-  return convergence.content.mockResolvedValue(undefined)
-})
+beforeEach(function () {
+  convergence.profiles.mockReset();
+  convergence.preferences.mockReset();
+  convergence.content.mockReset();
+  convergence.profiles.mockResolvedValue(undefined);
+  convergence.preferences.mockResolvedValue(undefined);
+  return convergence.content.mockResolvedValue(undefined);
+});
 
-describe("development seed orchestration", function() {
-  it("rejects production before preparing or opening a transaction", async function() {
-    const prepareIdentity = vi.fn()
-    const database = { transaction: vi.fn() } as unknown as Database
+describe("development seed orchestration", function () {
+  it("rejects production before preparing or opening a transaction", async function () {
+    const prepareIdentity = vi.fn();
+    const database = { transaction: vi.fn() } as unknown as Database;
 
-    await expect(seedDevelopment(database, {
-      environment: "production",
-      prepareIdentity,
-    })).rejects.toMatchObject({
+    await expect(
+      seedDevelopment(database, {
+        environment: "production",
+        prepareIdentity,
+      })
+    ).rejects.toMatchObject({
       name: "DevelopmentSeedError",
-      message: "Development seed requires an explicit development or test environment",
-    })
-    expect(prepareIdentity).not.toHaveBeenCalled()
-    return expect(database.transaction).not.toHaveBeenCalled()
-  })
+      message:
+        "Development seed requires an explicit development or test environment",
+    });
+    expect(prepareIdentity).not.toHaveBeenCalled();
+    return expect(database.transaction).not.toHaveBeenCalled();
+  });
 
-  it("converges existing identities and application rows without creating identities", async function() {
-    const double = createSeedDatabase(allExistingOutcomes())
-    const identity = preparedIdentity()
-    const applicationOrder: string[] = []
-    convergence.profiles.mockImplementation(async function() {
-      return applicationOrder.push("profiles")
-    }
-    )
-    convergence.preferences.mockImplementation(async function() {
-      return applicationOrder.push("preferences")
-    }
-    )
-    convergence.content.mockImplementation(async function() {
-      return applicationOrder.push("content")
-    }
-    )
+  it("converges existing identities and application rows without creating identities", async function () {
+    const double = createSeedDatabase(allExistingOutcomes());
+    const identity = preparedIdentity();
+    const applicationOrder: string[] = [];
+    convergence.profiles.mockImplementation(async function () {
+      return applicationOrder.push("profiles");
+    });
+    convergence.preferences.mockImplementation(async function () {
+      return applicationOrder.push("preferences");
+    });
+    convergence.content.mockImplementation(async function () {
+      return applicationOrder.push("content");
+    });
 
     const result = await seedDevelopment(double.database, {
       environment: "test",
       prepareIdentity: identity.prepareIdentity,
-    })
+    });
 
-    const expectedInputs = DEVELOPMENT_PERSONAS.map(seedIdentityInput)
-    expect(identity.prepareIdentity).toHaveBeenCalledWith(expectedInputs)
-    expect(identity.ensureIdentity.mock.calls.map(([, exists]) => exists)).toEqual([
-      true,
-      true,
-      true,
-    ])
+    const expectedInputs = DEVELOPMENT_PERSONAS.map(seedIdentityInput);
+    expect(identity.prepareIdentity).toHaveBeenCalledWith(expectedInputs);
+    expect(
+      identity.ensureIdentity.mock.calls.map(([, exists]) => exists)
+    ).toEqual([true, true, true]);
     expect(identity.ensureIdentity.mock.calls.map(([input]) => input)).toEqual(
-      expectedInputs,
-    )
-    expect(identity.ensureIdentity.mock.calls.every(([, , transaction]) => {
-      return transaction === double.transactionExecutor
-    }
-    )).toBe(true)
-    expect(applicationOrder).toEqual(["profiles", "preferences", "content"])
-    expect(convergence.profiles).toHaveBeenCalledWith(double.transactionExecutor)
-    expect(convergence.preferences).toHaveBeenCalledWith(double.transactionExecutor)
-    expect(convergence.content).toHaveBeenCalledWith(double.transactionExecutor)
+      expectedInputs
+    );
+    expect(
+      identity.ensureIdentity.mock.calls.every(([, , transaction]) => {
+        return transaction === double.transactionExecutor;
+      })
+    ).toBe(true);
+    expect(applicationOrder).toEqual(["profiles", "preferences", "content"]);
+    expect(convergence.profiles).toHaveBeenCalledWith(
+      double.transactionExecutor
+    );
+    expect(convergence.preferences).toHaveBeenCalledWith(
+      double.transactionExecutor
+    );
+    expect(convergence.content).toHaveBeenCalledWith(
+      double.transactionExecutor
+    );
     expect(double.statements.map(queryParameters)).toEqual(
       [...DEVELOPMENT_PERSONAS]
         .sort((left, right) => left.userId.localeCompare(right.userId))
-        .map(({ userId }) => [userId]),
-    )
+        .map(({ userId }) => [userId])
+    );
     expect(result).toEqual({
       identitiesCreated: 0,
       usersConverged: 3,
@@ -245,44 +253,46 @@ describe("development seed orchestration", function() {
       preferencesConverged: 3,
       addressesConverged: 3,
       featureItemsConverged: 3,
-    })
-    expect(Object.isFrozen(result)).toBe(true)
-    return expect(double.lifecycle).toEqual(["begin", "commit"])
-  })
+    });
+    expect(Object.isFrozen(result)).toBe(true);
+    return expect(double.lifecycle).toEqual(["begin", "commit"]);
+  });
 
-  it("reports each absent identity created after the assurer persists it", async function() {
-    const double = createSeedDatabase(allCreatedOutcomes())
-    const identity = preparedIdentity()
+  it("reports each absent identity created after the assurer persists it", async function () {
+    const double = createSeedDatabase(allCreatedOutcomes());
+    const identity = preparedIdentity();
 
     const result = await seedDevelopment(double.database, {
       environment: "development",
       prepareIdentity: identity.prepareIdentity,
-    })
+    });
 
-    expect(identity.ensureIdentity.mock.calls.map(([, exists]) => exists)).toEqual([
-      false,
-      false,
-      false,
-    ])
-    expect(result.identitiesCreated).toBe(3)
-    return expect(double.lifecycle).toEqual(["begin", "commit"])
-  })
+    expect(
+      identity.ensureIdentity.mock.calls.map(([, exists]) => exists)
+    ).toEqual([false, false, false]);
+    expect(result.identitiesCreated).toBe(3);
+    return expect(double.lifecycle).toEqual(["begin", "commit"]);
+  });
 
-  it("rejects an orphaned deterministic account before invoking the assurer", async function() {
-    const persona = DEVELOPMENT_PERSONAS[0]!
-    const double = createSeedDatabase([[], [credentialRow(persona)]])
-    const identity = preparedIdentity()
+  it("rejects an orphaned deterministic account before invoking the assurer", async function () {
+    const persona = DEVELOPMENT_PERSONAS[0]!;
+    const double = createSeedDatabase([[], [credentialRow(persona)]]);
+    const identity = preparedIdentity();
 
-    await expect(seedDevelopment(double.database, {
-      environment: "test",
-      prepareIdentity: identity.prepareIdentity,
-    })).rejects.toMatchObject({
+    await expect(
+      seedDevelopment(double.database, {
+        environment: "test",
+        prepareIdentity: identity.prepareIdentity,
+      })
+    ).rejects.toMatchObject({
       name: "SeedIdentityCollisionError",
-      message: expect.stringContaining("deterministic account ID is already in use"),
-    })
-    expect(identity.ensureIdentity).not.toHaveBeenCalled()
-    return expect(double.lifecycle).toEqual(["begin", "rollback"])
-  })
+      message: expect.stringContaining(
+        "deterministic account ID is already in use"
+      ),
+    });
+    expect(identity.ensureIdentity).not.toHaveBeenCalled();
+    return expect(double.lifecycle).toEqual(["begin", "rollback"]);
+  });
 
   it.each([
     [
@@ -297,103 +307,110 @@ describe("development seed orchestration", function() {
       "a different normalized email",
       [userRow(DEVELOPMENT_PERSONAS[0]!, { email: "other@domain.test" })],
     ],
-  ] as const)("rejects when %s match a persona lookup", async function(_label, matchedUsers) {
-    const persona = DEVELOPMENT_PERSONAS[0]!
+  ] as const)("rejects when %s match a persona lookup", async function (_label, matchedUsers) {
+    const persona = DEVELOPMENT_PERSONAS[0]!;
     const double = createSeedDatabase([
       [...matchedUsers],
       [credentialRow(persona)],
-    ])
-    const identity = preparedIdentity()
+    ]);
+    const identity = preparedIdentity();
 
-    return await expect(seedDevelopment(double.database, {
-      environment: "test",
-      prepareIdentity: identity.prepareIdentity,
-    })).rejects.toMatchObject({
+    return await expect(
+      seedDevelopment(double.database, {
+        environment: "test",
+        prepareIdentity: identity.prepareIdentity,
+      })
+    ).rejects.toMatchObject({
       name: "SeedIdentityCollisionError",
       message: expect.stringContaining(
-        "deterministic user ID and normalized email do not identify the same user",
+        "deterministic user ID and normalized email do not identify the same user"
       ),
-    })
-  }
-  )
+    });
+  });
 
   it.each([
     ["account ID", { id: "different-account" }],
     ["user ID", { userId: "different-user" }],
     ["provider", { providerId: "oauth" }],
     ["provider account ID", { accountId: "different-user" }],
-  ] as const)("rejects a credential with a mismatched %s", async function(_label, override) {
-    const persona = DEVELOPMENT_PERSONAS[0]!
+  ] as const)("rejects a credential with a mismatched %s", async function (_label, override) {
+    const persona = DEVELOPMENT_PERSONAS[0]!;
     const double = createSeedDatabase([
       [userRow(persona)],
       [credentialRow(persona, override)],
-    ])
-    const identity = preparedIdentity()
+    ]);
+    const identity = preparedIdentity();
 
-    return await expect(seedDevelopment(double.database, {
-      environment: "test",
-      prepareIdentity: identity.prepareIdentity,
-    })).rejects.toMatchObject({
+    return await expect(
+      seedDevelopment(double.database, {
+        environment: "test",
+        prepareIdentity: identity.prepareIdentity,
+      })
+    ).rejects.toMatchObject({
       name: "SeedIdentityCollisionError",
-      message: expect.stringContaining("required credential account is missing or mismatched"),
-    })
-  }
-  )
+      message: expect.stringContaining(
+        "required credential account is missing or mismatched"
+      ),
+    });
+  });
 
   it.each([
     ["a non-string value", null],
     ["an unstructured string", "not-a-password-hash"],
     ["uppercase hexadecimal", `${"A".repeat(32)}:${"B".repeat(128)}`],
-  ] as const)("rejects %s as a persisted credential hash", async function(_label, password) {
-    const persona = DEVELOPMENT_PERSONAS[0]!
+  ] as const)("rejects %s as a persisted credential hash", async function (_label, password) {
+    const persona = DEVELOPMENT_PERSONAS[0]!;
     const double = createSeedDatabase([
       [userRow(persona)],
       [credentialRow(persona, { password })],
-    ])
-    const identity = preparedIdentity()
+    ]);
+    const identity = preparedIdentity();
 
-    return await expect(seedDevelopment(double.database, {
-      environment: "test",
-      prepareIdentity: identity.prepareIdentity,
-    })).rejects.toMatchObject({
+    return await expect(
+      seedDevelopment(double.database, {
+        environment: "test",
+        prepareIdentity: identity.prepareIdentity,
+      })
+    ).rejects.toMatchObject({
       name: "SeedIdentityCollisionError",
       message: expect.stringContaining("credential password hash is malformed"),
-    })
-  }
-  )
+    });
+  });
 
-  it("fails and rolls back when the assurer does not persist an absent identity", async function() {
+  it("fails and rolls back when the assurer does not persist an absent identity", async function () {
     const initialAbsence = DEVELOPMENT_PERSONAS.flatMap(
-      () => [[], []] as QueryRows[],
-    )
-    const double = createSeedDatabase([...initialAbsence, [], []])
-    const identity = preparedIdentity()
+      () => [[], []] as QueryRows[]
+    );
+    const double = createSeedDatabase([...initialAbsence, [], []]);
+    const identity = preparedIdentity();
 
-    await expect(seedDevelopment(double.database, {
-      environment: "test",
-      prepareIdentity: identity.prepareIdentity,
-    })).rejects.toMatchObject({
+    await expect(
+      seedDevelopment(double.database, {
+        environment: "test",
+        prepareIdentity: identity.prepareIdentity,
+      })
+    ).rejects.toMatchObject({
       name: "DevelopmentSeedError",
       message: "Identity assurer did not persist Admin User",
-    })
-    expect(identity.ensureIdentity).toHaveBeenCalledTimes(1)
-    expect(convergence.profiles).not.toHaveBeenCalled()
-    expect(convergence.preferences).not.toHaveBeenCalled()
-    expect(convergence.content).not.toHaveBeenCalled()
-    return expect(double.lifecycle).toEqual(["begin", "rollback"])
-  })
+    });
+    expect(identity.ensureIdentity).toHaveBeenCalledTimes(1);
+    expect(convergence.profiles).not.toHaveBeenCalled();
+    expect(convergence.preferences).not.toHaveBeenCalled();
+    expect(convergence.content).not.toHaveBeenCalled();
+    return expect(double.lifecycle).toEqual(["begin", "rollback"]);
+  });
 
-  return it("exposes distinct public error types for policy denial and collisions", function() {
+  return it("exposes distinct public error types for policy denial and collisions", function () {
     expect(new DevelopmentSeedError("denied")).toMatchObject({
       name: "DevelopmentSeedError",
       message: "denied",
-    })
+    });
     expect(new SeedIdentityCollisionError("collision")).toMatchObject({
       name: "SeedIdentityCollisionError",
       message: "collision",
-    })
+    });
     return expect(new SeedIdentityCollisionError("collision")).toBeInstanceOf(
-      DevelopmentSeedError,
-    )
-  })
-})
+      DevelopmentSeedError
+    );
+  });
+});

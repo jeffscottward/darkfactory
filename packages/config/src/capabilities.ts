@@ -1,6 +1,6 @@
-import { z } from "zod"
+import { z } from "zod";
 
-const enabledFlagSchema = z.object({ enabled: z.boolean() }).strict()
+const enabledFlagSchema = z.object({ enabled: z.boolean() }).strict();
 
 const capabilitiesSchema = z
   .object({
@@ -63,10 +63,9 @@ const capabilitiesSchema = z
         code: "custom",
         path: ["docs", "public"],
         message: "Public docs require docs to be enabled",
-      })
+      });
     }
-  }
-  )
+  });
 
 export const capabilityManifestSchema = z
   .object({
@@ -139,7 +138,10 @@ export const capabilityManifestSchema = z
       })
       .strict(),
     analytics: z
-      .object({ provider: z.literal("posthog"), adapter_required: z.literal(true) })
+      .object({
+        provider: z.literal("posthog"),
+        adapter_required: z.literal(true),
+      })
       .strict(),
     telemetry: z.object({ provider: z.literal("opentelemetry") }).strict(),
     logging: z.object({ provider: z.literal("evlog") }).strict(),
@@ -191,24 +193,36 @@ export const capabilityManifestSchema = z
           .object({
             enabled: z.literal(true),
             production_allowed: z.literal(false),
-            users: z.tuple([z.literal("admin"), z.literal("alice"), z.literal("bob")]),
+            users: z.tuple([
+              z.literal("admin"),
+              z.literal("alice"),
+              z.literal("bob"),
+            ]),
           })
           .strict(),
       })
       .strict(),
     state: z
-      .object({ workflows: z.literal("xstate"), client_local: z.literal("zustand") })
+      .object({
+        workflows: z.literal("xstate"),
+        client_local: z.literal("zustand"),
+      })
       .strict(),
     effects: z
-      .object({ provider: z.literal("effect"), adoption: z.literal("boundary-driven") })
+      .object({
+        provider: z.literal("effect"),
+        adoption: z.literal("boundary-driven"),
+      })
       .strict(),
     developer_tools: z
       .object({
-        tanstack_devtools: z.object({ enabled: z.literal("development") }).strict(),
+        tanstack_devtools: z
+          .object({ enabled: z.literal("development") })
+          .strict(),
       })
       .strict(),
     capabilities: capabilitiesSchema,
   })
-  .strict()
+  .strict();
 
-export type CapabilityManifest = z.infer<typeof capabilityManifestSchema>
+export type CapabilityManifest = z.infer<typeof capabilityManifestSchema>;

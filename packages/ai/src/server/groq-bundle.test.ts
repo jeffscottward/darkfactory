@@ -1,16 +1,18 @@
-import { mkdtemp, rm, writeFile } from "node:fs/promises"
-import { fileURLToPath } from "node:url"
-import { tmpdir } from "node:os"
-import { join } from "node:path"
-import { describe, expect, it } from "vitest"
-import { build } from "vite"
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { fileURLToPath } from "node:url";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { describe, expect, it } from "vitest";
+import { build } from "vite";
 
-const serverEntry = fileURLToPath(new URL("./groq.ts", import.meta.url))
-const packageRoot = fileURLToPath(new URL("../..", import.meta.url))
+const serverEntry = fileURLToPath(new URL("./groq.ts", import.meta.url));
+const packageRoot = fileURLToPath(new URL("../..", import.meta.url));
 
-describe("Groq Worker bundle", function() {
-  it("bundles the SDK without leaving a bare provider import", async function() {
-    const outDir = await mkdtemp(join(tmpdir(), "darkfactory-ai-worker-bundle-"))
+describe("Groq Worker bundle", function () {
+  it("bundles the SDK without leaving a bare provider import", async function () {
+    const outDir = await mkdtemp(
+      join(tmpdir(), "darkfactory-ai-worker-bundle-")
+    );
 
     try {
       const buildResult = await build({
@@ -34,36 +36,35 @@ describe("Groq Worker bundle", function() {
             input: serverEntry,
           },
         },
-      })
-      const builds = Array.isArray(buildResult) ? buildResult : [buildResult]
+      });
+      const builds = Array.isArray(buildResult) ? buildResult : [buildResult];
       const bundle = builds
         .flatMap((build) => {
-          if (!("output" in build)) throw new Error("Vite build did not finish")
-          return build.output
-        }
-        )
+          if (!("output" in build))
+            throw new Error("Vite build did not finish");
+          return build.output;
+        })
         .filter((output) => output.type === "chunk")
         .map((chunk) => chunk.code)
-        .join("\n")
+        .join("\n");
 
-      expect(bundle).toContain("https://api.groq.com")
-      expect(bundle).not.toMatch(/\bimport\s*\(\s*["']groq-sdk["']\s*\)/)
+      expect(bundle).toContain("https://api.groq.com");
+      expect(bundle).not.toMatch(/\bimport\s*\(\s*["']groq-sdk["']\s*\)/);
       expect(bundle).not.toMatch(
-        /\b(?:import|export)\b[^;\n]*\bfrom\s*["']groq-sdk["']/,
-      )
-      return expect(bundle).not.toMatch(/\bimport\s*["']groq-sdk["']/)
+        /\b(?:import|export)\b[^;\n]*\bfrom\s*["']groq-sdk["']/
+      );
+      return expect(bundle).not.toMatch(/\bimport\s*["']groq-sdk["']/);
+    } finally {
+      await rm(outDir, { recursive: true, force: true });
     }
-    finally {
-      await rm(outDir, { recursive: true, force: true })
-    }
-  })
+  });
 
-  return it("preserves the browser poison for a side-effect-only server import", async function() {
-    const tempDir = await mkdtemp(join(packageRoot, ".groq-browser-bundle-"))
-    const entry = join(tempDir, "entry.mjs")
+  return it("preserves the browser poison for a side-effect-only server import", async function () {
+    const tempDir = await mkdtemp(join(packageRoot, ".groq-browser-bundle-"));
+    const entry = join(tempDir, "entry.mjs");
 
     try {
-      await writeFile(entry, 'import "@darkfactory/ai/server/groq"\n')
+      await writeFile(entry, 'import "@darkfactory/ai/server/groq"\n');
       const buildResult = await build({
         configFile: false,
         logLevel: "silent",
@@ -85,26 +86,24 @@ describe("Groq Worker bundle", function() {
             input: entry,
           },
         },
-      })
-      const builds = Array.isArray(buildResult) ? buildResult : [buildResult]
+      });
+      const builds = Array.isArray(buildResult) ? buildResult : [buildResult];
       const bundle = builds
         .flatMap((build) => {
-          if (!("output" in build)) throw new Error("Vite build did not finish")
-          return build.output
-        }
-        )
+          if (!("output" in build))
+            throw new Error("Vite build did not finish");
+          return build.output;
+        })
         .filter((output) => output.type === "chunk")
         .map((chunk) => chunk.code)
-        .join("\n")
-      const moduleUrl =
-        `data:text/javascript;base64,${Buffer.from(bundle).toString("base64")}`
+        .join("\n");
+      const moduleUrl = `data:text/javascript;base64,${Buffer.from(bundle).toString("base64")}`;
 
       return await expect(import(moduleUrl)).rejects.toThrow(
-        "@darkfactory/ai/server/groq is unavailable in browser bundles",
-      )
+        "@darkfactory/ai/server/groq is unavailable in browser bundles"
+      );
+    } finally {
+      await rm(tempDir, { recursive: true, force: true });
     }
-    finally {
-      await rm(tempDir, { recursive: true, force: true })
-    }
-  })
-})
+  });
+});

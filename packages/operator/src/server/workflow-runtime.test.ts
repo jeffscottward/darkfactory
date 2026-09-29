@@ -1,8 +1,6 @@
-import { describe, expect, it, vi } from "vitest"
+import { describe, expect, it, vi } from "vitest";
 
-import {
-  GENESIS_WORKFLOW_JOURNAL_HASH,
-} from "@darkfactory/db/schema"
+import { GENESIS_WORKFLOW_JOURNAL_HASH } from "@darkfactory/db/schema";
 import {
   decodeWorkflowRunsCursor,
   encodeWorkflowRunsCursor,
@@ -18,12 +16,12 @@ import {
   type CreateWorkflowRunInput,
   type WorkflowProjection,
   type WorkflowRepository,
-} from "@darkfactory/db/server/workflow"
-import { createWorkflowPlanEvidenceV1 } from "@darkfactory/jobs/server/plan-evidence"
+} from "@darkfactory/db/server/workflow";
+import { createWorkflowPlanEvidenceV1 } from "@darkfactory/jobs/server/plan-evidence";
 import {
   WorkflowProjectionVerificationError,
   createWorkflowApplication,
-} from "@darkfactory/jobs/server/workflow-runtime"
+} from "@darkfactory/jobs/server/workflow-runtime";
 import {
   MAX_WORKFLOW_SCOPE_BYTES,
   MAX_WORKFLOW_STAGE_ATTEMPTS_V1,
@@ -31,23 +29,23 @@ import {
   canonicalJsonV1,
   createInitialWorkflowSnapshotV1,
   sha256Hex,
-} from "@darkfactory/state/workflow"
+} from "@darkfactory/state/workflow";
 
 import {
   OperatorWorkflowPortError,
   operatorServiceErrorMessage,
   type OperatorWorkflowPort,
-} from "./operator-service.ts"
+} from "./operator-service.ts";
 import {
   createOperatorWorkflowPort,
   projectWorkflowPlanRevisions,
-} from "./workflow-runtime.ts"
+} from "./workflow-runtime.ts";
 
-const NOW = new Date("2026-07-29T12:00:00.000Z")
+const NOW = new Date("2026-07-29T12:00:00.000Z");
 const SCOPE = Object.freeze({
   repositoryId: "darkfactory",
   paths: Object.freeze(["packages/state"]),
-})
+});
 const PLAN = createWorkflowPlanEvidenceV1({
   stdout: "1. Implement the bounded workflow contract",
   stderr: "",
@@ -55,45 +53,48 @@ const PLAN = createWorkflowPlanEvidenceV1({
   stderrBytes: 0,
   truncated: false,
   redacted: false,
-})
+});
 
 const REPOSITORY_GRANTS = new Map<string, readonly string[]>([
   ["owner-1", Object.freeze(["darkfactory"])],
   ["owner-2", Object.freeze(["owner-two-repository"])],
-])
+]);
 
 const submissionHashFor = (ownerId: string, idempotencyKey: string): string => {
-  return sha256Hex(canonicalJsonV1({ ownerId, idempotencyKey }))
-}
+  return sha256Hex(canonicalJsonV1({ ownerId, idempotencyKey }));
+};
 const runIdFor = (ownerId: string, idempotencyKey: string): string => {
-  return `run-${submissionHashFor(ownerId, idempotencyKey)}`
-}
+  return `run-${submissionHashFor(ownerId, idempotencyKey)}`;
+};
 const revisionEventIdFor = (
   ownerId: string,
   runId: string,
-  idempotencyKey: string,
-): string => `plan-revision-${sha256Hex(canonicalJsonV1({
-  ownerId,
-  runId,
-  idempotencyKey,
-}))}`
+  idempotencyKey: string
+): string =>
+  `plan-revision-${sha256Hex(
+    canonicalJsonV1({
+      ownerId,
+      runId,
+      idempotencyKey,
+    })
+  )}`;
 
 const duplicateKeyError = (): Error & { code: "23505" } => {
   const error = new Error(
-    "duplicate key violates workflow_runs_pkey; password=private-sql-secret",
-  ) as Error & { code: "23505" }
-  error.code = "23505"
-  return error
-}
+    "duplicate key violates workflow_runs_pkey; password=private-sql-secret"
+  ) as Error & { code: "23505" };
+  error.code = "23505";
+  return error;
+};
 
 const projectionFor = (
   input: CreateWorkflowRunInput | Parameters<WorkflowRepository["append"]>[0],
-  previous: WorkflowProjection | null = null,
+  previous: WorkflowProjection | null = null
 ): WorkflowProjection => {
-  const runId = "runId" in input ? input.runId : input.id!
-  const hash = input.snapshot.journalHeadHash
-  const sequence = previous === null ? 1 : previous.run.headSequence + 1
-  const occurredAt = new Date(input.event.occurredAt)
+  const runId = "runId" in input ? input.runId : input.id!;
+  const hash = input.snapshot.journalHeadHash;
+  const sequence = previous === null ? 1 : previous.run.headSequence + 1;
+  const occurredAt = new Date(input.event.occurredAt);
   return Object.freeze({
     run: Object.freeze({
       id: runId,
@@ -133,174 +134,184 @@ const projectionFor = (
         requestHash: null,
       }),
     ]),
-  })
-}
+  });
+};
 
 type FakeRepository = Readonly<{
-  repository: WorkflowRepository
-  createRun: ReturnType<typeof vi.fn>
-  append: ReturnType<typeof vi.fn>
-  addMessageAndAppend: ReturnType<typeof vi.fn>
-  decideApprovalAndAppend: ReturnType<typeof vi.fn>
-  listRunsByOwner: ReturnType<typeof vi.fn>
-  listProjectionsByOwner: ReturnType<typeof vi.fn>
-  findEvidenceByOwner: ReturnType<typeof vi.fn>
-  relocateRun: (sourceRunId: string, targetRunId: string) => void
-  failAfterNextCreate: () => void
-  failAfterNextDecision: () => void
-}>
+  repository: WorkflowRepository;
+  createRun: ReturnType<typeof vi.fn>;
+  append: ReturnType<typeof vi.fn>;
+  addMessageAndAppend: ReturnType<typeof vi.fn>;
+  decideApprovalAndAppend: ReturnType<typeof vi.fn>;
+  listRunsByOwner: ReturnType<typeof vi.fn>;
+  listProjectionsByOwner: ReturnType<typeof vi.fn>;
+  findEvidenceByOwner: ReturnType<typeof vi.fn>;
+  relocateRun: (sourceRunId: string, targetRunId: string) => void;
+  failAfterNextCreate: () => void;
+  failAfterNextDecision: () => void;
+}>;
 
 const fakeRepository = (): FakeRepository => {
-  const runs = new Map<string, WorkflowProjection>()
-  const messages = new Map<string, Readonly<{
-    id: string
-    runId: string
-    idempotencyKey: string
-    requestHash: string
-    authorId: string | null
-    content: string
-    createdAt: Date
-  }>>()
-  let failAfterCreate = false
-  let failAfterDecision = false
+  const runs = new Map<string, WorkflowProjection>();
+  const messages = new Map<
+    string,
+    Readonly<{
+      id: string;
+      runId: string;
+      idempotencyKey: string;
+      requestHash: string;
+      authorId: string | null;
+      content: string;
+      createdAt: Date;
+    }>
+  >();
+  let failAfterCreate = false;
+  let failAfterDecision = false;
   const createRun = vi.fn(async (input: CreateWorkflowRunInput) => {
-    const runId = input.id!
-    if (runs.has(runId)) throw duplicateKeyError()
-    const projection = projectionFor(input)
-    runs.set(runId, projection)
+    const runId = input.id!;
+    if (runs.has(runId)) throw duplicateKeyError();
+    const projection = projectionFor(input);
+    runs.set(runId, projection);
     if (failAfterCreate) {
-      failAfterCreate = false
-      throw duplicateKeyError()
+      failAfterCreate = false;
+      throw duplicateKeyError();
     }
-    return projection
-  }
-  )
-  const append = vi.fn(async (input: Parameters<WorkflowRepository["append"]>[0]) => {
-    const current = runs.get(input.runId)
-    if (current === undefined) throw new Error("missing run")
-    if (current.journal.some((entry) => entry.eventId === input.event.eventId)) {
-      return Object.freeze({ duplicate: true, projection: current })
-    }
-    const projection = projectionFor(input, current)
-    runs.set(input.runId, projection)
-    return Object.freeze({ duplicate: false, projection })
-  }
-  )
-  const decideApprovalAndAppend = vi.fn(async (
-    input: Parameters<WorkflowRepository["decideApprovalAndAppend"]>[0],
-  ) => {
-    const result = await append(input.append)
-    if (failAfterDecision) {
-      failAfterDecision = false
-      throw new Error("approval response was lost after commit")
-    }
-    return result
-  }
-  )
-  const addMessageAndAppend = vi.fn(async (
-    input: Parameters<WorkflowRepository["addMessageAndAppend"]>[0],
-  ) => {
-    const current = runs.get(input.runId)
-    if (current === undefined || current.run.ownerId !== input.ownerId) {
-      throw new WorkflowRunNotFoundError()
-    }
-    const key = `${input.runId}:${input.idempotencyKey}`
-    const existing = messages.get(key)
-    if (existing !== undefined) {
+    return projection;
+  });
+  const append = vi.fn(
+    async (input: Parameters<WorkflowRepository["append"]>[0]) => {
+      const current = runs.get(input.runId);
+      if (current === undefined) throw new Error("missing run");
       if (
-        existing.id !== input.id ||
-        existing.authorId !== input.authorId ||
-        existing.content !== input.content
+        current.journal.some((entry) => entry.eventId === input.event.eventId)
       ) {
-        throw new WorkflowConcurrencyError()
+        return Object.freeze({ duplicate: true, projection: current });
+      }
+      const projection = projectionFor(input, current);
+      runs.set(input.runId, projection);
+      return Object.freeze({ duplicate: false, projection });
+    }
+  );
+  const decideApprovalAndAppend = vi.fn(
+    async (
+      input: Parameters<WorkflowRepository["decideApprovalAndAppend"]>[0]
+    ) => {
+      const result = await append(input.append);
+      if (failAfterDecision) {
+        failAfterDecision = false;
+        throw new Error("approval response was lost after commit");
+      }
+      return result;
+    }
+  );
+  const addMessageAndAppend = vi.fn(
+    async (input: Parameters<WorkflowRepository["addMessageAndAppend"]>[0]) => {
+      const current = runs.get(input.runId);
+      if (current === undefined || current.run.ownerId !== input.ownerId) {
+        throw new WorkflowRunNotFoundError();
+      }
+      const key = `${input.runId}:${input.idempotencyKey}`;
+      const existing = messages.get(key);
+      if (existing !== undefined) {
+        if (
+          existing.id !== input.id ||
+          existing.authorId !== input.authorId ||
+          existing.content !== input.content
+        ) {
+          throw new WorkflowConcurrencyError();
+        }
+        return Object.freeze({
+          duplicate: true,
+          message: existing,
+          projection: current,
+        });
+      }
+      if (input.append === null) throw new WorkflowConcurrencyError();
+      const appended = await append(input.append);
+      const message = Object.freeze({
+        id: input.id,
+        runId: input.runId,
+        idempotencyKey: input.idempotencyKey,
+        requestHash: "a".repeat(64),
+        authorId: input.authorId,
+        content: input.content,
+        createdAt: NOW,
+      });
+      messages.set(key, message);
+      return Object.freeze({
+        duplicate: false,
+        message,
+        projection: appended.projection,
+      });
+    }
+  );
+  const listRunsByOwner = vi.fn(
+    async (
+      ownerId: string,
+      options: Parameters<WorkflowRepository["listRunsByOwner"]>[1] = {}
+    ) => {
+      const rows = [...runs.values()]
+        .filter(({ run }) => {
+          return (
+            run.ownerId === ownerId &&
+            (options.state === undefined || run.state === options.state)
+          );
+        })
+        .sort((left, right) => {
+          return (
+            right.run.updatedAt.getTime() - left.run.updatedAt.getTime() ||
+            right.run.id.localeCompare(left.run.id)
+          );
+        })
+        .map(({ run }) => run);
+      const cursor =
+        options.cursor === undefined
+          ? undefined
+          : decodeWorkflowRunsCursor(options.cursor);
+      if (cursor !== undefined && cursor.state !== options.state) {
+        throw new WorkflowPersistenceInputError(
+          "workflow run cursor state is invalid"
+        );
+      }
+      const start =
+        cursor === undefined
+          ? 0
+          : rows.findIndex((run) => run.id === cursor.id) + 1;
+      if (cursor !== undefined && start === 0) {
+        throw new WorkflowPersistenceInputError(
+          "workflow run cursor is invalid"
+        );
+      }
+      return rows.slice(start, start + (options.limit ?? 50));
+    }
+  );
+  const listProjectionsByOwner = vi.fn(
+    async (ownerId: string, runIds: readonly string[]) =>
+      runIds.flatMap((runId) => {
+        const projection = runs.get(runId);
+        return projection?.run.ownerId === ownerId ? [projection] : [];
+      })
+  );
+  const findEvidenceByOwner = vi.fn(
+    async (id: string, runId: string, ownerId: string) => {
+      const projection = runs.get(runId);
+      if (
+        projection?.run.ownerId !== ownerId ||
+        !id.startsWith("plan-evidence")
+      ) {
+        return null;
       }
       return Object.freeze({
-        duplicate: true,
-        message: existing,
-        projection: current,
-      })
+        id,
+        runId,
+        kind: "plan.succeeded",
+        requestHash: PLAN.digest,
+        summary: "OMP implementation plan",
+        data: { plan: PLAN },
+        createdAt: NOW,
+      });
     }
-    if (input.append === null) throw new WorkflowConcurrencyError()
-    const appended = await append(input.append)
-    const message = Object.freeze({
-      id: input.id,
-      runId: input.runId,
-      idempotencyKey: input.idempotencyKey,
-      requestHash: "a".repeat(64),
-      authorId: input.authorId,
-      content: input.content,
-      createdAt: NOW,
-    })
-    messages.set(key, message)
-    return Object.freeze({
-      duplicate: false,
-      message,
-      projection: appended.projection,
-    })
-  }
-  )
-  const listRunsByOwner = vi.fn(async (
-    ownerId: string,
-    options: Parameters<WorkflowRepository["listRunsByOwner"]>[1] = {},
-  ) => {
-    const rows = [...runs.values()]
-      .filter(({ run }) => {
-        return run.ownerId === ownerId &&
-        (options.state === undefined || run.state === options.state)
-      }
-      )
-      .sort((left, right) => {
-        return right.run.updatedAt.getTime() - left.run.updatedAt.getTime() ||
-        right.run.id.localeCompare(left.run.id)
-      }
-      )
-      .map(({ run }) => run)
-    const cursor = options.cursor === undefined
-      ? undefined
-      : decodeWorkflowRunsCursor(options.cursor)
-    if (cursor !== undefined && cursor.state !== options.state) {
-      throw new WorkflowPersistenceInputError("workflow run cursor state is invalid")
-    }
-    const start = cursor === undefined
-      ? 0
-      : rows.findIndex((run) => run.id === cursor.id) + 1
-    if (cursor !== undefined && start === 0) {
-      throw new WorkflowPersistenceInputError("workflow run cursor is invalid")
-    }
-    return rows.slice(start, start + (options.limit ?? 50))
-  }
-  )
-  const listProjectionsByOwner = vi.fn(async (
-    ownerId: string,
-    runIds: readonly string[],
-  ) => runIds.flatMap((runId) => {
-    const projection = runs.get(runId)
-    return projection?.run.ownerId === ownerId ? [projection] : []
-  }
-  ))
-  const findEvidenceByOwner = vi.fn(async (
-    id: string,
-    runId: string,
-    ownerId: string,
-  ) => {
-    const projection = runs.get(runId)
-    if (
-      projection?.run.ownerId !== ownerId ||
-      !id.startsWith("plan-evidence")
-    ) {
-      return null
-    }
-    return Object.freeze({
-      id,
-      runId,
-      kind: "plan.succeeded",
-      requestHash: PLAN.digest,
-      summary: "OMP implementation plan",
-      data: { plan: PLAN },
-      createdAt: NOW,
-    })
-  }
-  )
+  );
   const repository = {
     createRun,
     append,
@@ -308,29 +319,31 @@ const fakeRepository = (): FakeRepository => {
     listRunsByOwner,
     listProjectionsByOwner,
     findProjectionByOwner: async (runId: string, ownerId: string) => {
-      const projection = runs.get(runId)
-      return projection?.run.ownerId === ownerId ? projection : null
+      const projection = runs.get(runId);
+      return projection?.run.ownerId === ownerId ? projection : null;
     },
     findEvidenceByOwner,
-    listEvidenceByOwner: async () => Object.freeze({
-      items: Object.freeze([]),
-      nextCursor: null,
-    }),
+    listEvidenceByOwner: async () =>
+      Object.freeze({
+        items: Object.freeze([]),
+        nextCursor: null,
+      }),
     listMessagesByOwner: async (runId: string, ownerId: string) => {
-      const ownedMessages = []
+      const ownedMessages = [];
       for (const candidate of messages.values()) {
         if (
           candidate.runId === runId &&
           runs.get(runId)?.run.ownerId === ownerId
-        ) ownedMessages.push(candidate)
+        )
+          ownedMessages.push(candidate);
       }
       return Object.freeze({
         items: Object.freeze(ownedMessages),
         nextCursor: null,
-      })
+      });
     },
-    addMessageAndAppend
-  } as unknown as WorkflowRepository
+    addMessageAndAppend,
+  } as unknown as WorkflowRepository;
 
   return Object.freeze({
     repository,
@@ -341,53 +354,61 @@ const fakeRepository = (): FakeRepository => {
     listRunsByOwner,
     findEvidenceByOwner,
     listProjectionsByOwner,
-    failAfterNextCreate: () => failAfterCreate = true,
-    failAfterNextDecision: () => failAfterDecision = true,
+    failAfterNextCreate: () => (failAfterCreate = true),
+    failAfterNextDecision: () => (failAfterDecision = true),
     relocateRun: (sourceRunId, targetRunId) => {
-      const projection = runs.get(sourceRunId)!
-      runs.delete(sourceRunId)
-      return runs.set(targetRunId, Object.freeze({
-        ...projection,
-        run: Object.freeze({ ...projection.run, id: targetRunId }),
-        snapshot: Object.freeze({ ...projection.snapshot, runId: targetRunId }),
-        journal: Object.freeze(projection.journal.map((entry) => {
-          return Object.freeze({ ...entry, runId: targetRunId })
-        }
-        )),
-      }))
-    }
-  })
-}
+      const projection = runs.get(sourceRunId)!;
+      runs.delete(sourceRunId);
+      return runs.set(
+        targetRunId,
+        Object.freeze({
+          ...projection,
+          run: Object.freeze({ ...projection.run, id: targetRunId }),
+          snapshot: Object.freeze({
+            ...projection.snapshot,
+            runId: targetRunId,
+          }),
+          journal: Object.freeze(
+            projection.journal.map((entry) => {
+              return Object.freeze({ ...entry, runId: targetRunId });
+            })
+          ),
+        })
+      );
+    },
+  });
+};
 
 const submitInput = (
   ownerId = "owner-1",
   idempotencyKey = "submit-attempt-1",
-  title = "Pilot run",
+  title = "Pilot run"
 ) => ({
   ownerId,
   actorUserId: ownerId,
   idempotencyKey,
   title,
   scope: SCOPE,
-})
+});
 
 const portFor = (
   fake: FakeRepository,
-  repositoryGrants: ReadonlyMap<string, readonly string[]> = REPOSITORY_GRANTS,
-) => createOperatorWorkflowPort({
-  repository: fake.repository,
-  authorizeRepository: (ownerId, repositoryId) => {
-    const grants = repositoryGrants.get(ownerId)
-    return grants !== undefined && grants.includes(repositoryId)
-  },
-  now: () => NOW,
-})
+  repositoryGrants: ReadonlyMap<string, readonly string[]> = REPOSITORY_GRANTS
+) =>
+  createOperatorWorkflowPort({
+    repository: fake.repository,
+    authorizeRepository: (ownerId, repositoryId) => {
+      const grants = repositoryGrants.get(ownerId);
+      return grants !== undefined && grants.includes(repositoryId);
+    },
+    now: () => NOW,
+  });
 
 const initialProjectionFor = (
   runId: string,
-  ownerId = "owner-1",
+  ownerId = "owner-1"
 ): WorkflowProjection => {
-  const snapshot = createInitialWorkflowSnapshotV1({ runId, ownerId })
+  const snapshot = createInitialWorkflowSnapshotV1({ runId, ownerId });
   return Object.freeze({
     run: Object.freeze({
       id: runId,
@@ -418,44 +439,52 @@ const initialProjectionFor = (
       updatedAt: NOW,
     }),
     journal: Object.freeze([]),
-  })
-}
+  });
+};
 
 describe("operator workflow submit idempotency", () => {
   it("returns the original deterministic run after a lost response without creating another run", async () => {
-    const fake = fakeRepository()
-    const port = portFor(fake)
-    const input = submitInput()
+    const fake = fakeRepository();
+    const port = portFor(fake);
+    const input = submitInput();
 
-    const first = await port.submit(input)
-    const retry = await port.submit(input)
+    const first = await port.submit(input);
+    const retry = await port.submit(input);
 
-    expect(first.run.id).toBe(runIdFor(input.ownerId, input.idempotencyKey))
-    expect(retry).toEqual(first)
-    expect(first.originalRequest).toBe(input.title)
-    expect(first.planRevisions).toEqual([])
-    expect(fake.createRun).toHaveBeenCalledOnce()
-    expect(fake.createRun).toHaveBeenCalledWith(expect.objectContaining({
-      id: first.run.id,
-      event: expect.objectContaining({
-        eventId: `submit-${submissionHashFor(input.ownerId, input.idempotencyKey)}`,
-      }),
-    }))
-    return expect(fake.createRun).toHaveBeenCalledWith(expect.objectContaining({
-      ownerId: input.ownerId,
-      event: expect.objectContaining({ scope: SCOPE }),
-      snapshot: expect.objectContaining({
-        context: expect.objectContaining({ ownerId: input.ownerId, scope: SCOPE }),
-      }),
-    }))
-  }
-  )
+    expect(first.run.id).toBe(runIdFor(input.ownerId, input.idempotencyKey));
+    expect(retry).toEqual(first);
+    expect(first.originalRequest).toBe(input.title);
+    expect(first.planRevisions).toEqual([]);
+    expect(fake.createRun).toHaveBeenCalledOnce();
+    expect(fake.createRun).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: first.run.id,
+        event: expect.objectContaining({
+          eventId: `submit-${submissionHashFor(input.ownerId, input.idempotencyKey)}`,
+        }),
+      })
+    );
+    return expect(fake.createRun).toHaveBeenCalledWith(
+      expect.objectContaining({
+        ownerId: input.ownerId,
+        event: expect.objectContaining({ scope: SCOPE }),
+        snapshot: expect.objectContaining({
+          context: expect.objectContaining({
+            ownerId: input.ownerId,
+            scope: SCOPE,
+          }),
+        }),
+      })
+    );
+  });
 
   it("projects the exact Wayfinder request from the verified initial journal event", async () => {
-    const fake = fakeRepository()
-    const application = createWorkflowApplication(fake.repository, { now: () => NOW })
+    const fake = fakeRepository();
+    const application = createWorkflowApplication(fake.repository, {
+      now: () => NOW,
+    });
     const humanRequest =
-      "Plan the full operator cutover with durable transcript details, not the short run title."
+      "Plan the full operator cutover with durable transcript details, not the short run title.";
     await application.createRun({
       ownerId: "owner-1",
       runId: "run-wayfinder-request",
@@ -473,168 +502,190 @@ describe("operator workflow submit idempotency", () => {
         executionMode: "wayfinder",
         humanRequest,
       },
-    })
+    });
 
     const projected = await portFor(fake).detail(
       "owner-1",
-      "run-wayfinder-request",
-    )
-    return expect(projected?.originalRequest).toBe(humanRequest)
-  }
-  )
+      "run-wayfinder-request"
+    );
+    return expect(projected?.originalRequest).toBe(humanRequest);
+  });
 
   it("recovers the owner-scoped run after a concurrent duplicate create loses its response", async () => {
-    const fake = fakeRepository()
-    fake.failAfterNextCreate()
-    const port = portFor(fake)
-    const input = submitInput()
+    const fake = fakeRepository();
+    fake.failAfterNextCreate();
+    const port = portFor(fake);
+    const input = submitInput();
 
     await expect(port.submit(input)).resolves.toMatchObject({
       ownerId: input.ownerId,
       run: { id: runIdFor(input.ownerId, input.idempotencyKey) },
-    })
-    return expect(fake.createRun).toHaveBeenCalledOnce()
-  }
-  )
+    });
+    return expect(fake.createRun).toHaveBeenCalledOnce();
+  });
 
   it("rejects reuse of an idempotency key with a different canonical task", async () => {
-    const fake = fakeRepository()
-    const port = portFor(fake)
-    const input = submitInput()
-    await port.submit(input)
+    const fake = fakeRepository();
+    const port = portFor(fake);
+    const input = submitInput();
+    await port.submit(input);
 
     const conflict = new OperatorWorkflowPortError(
       "CONFLICT",
-      operatorServiceErrorMessage("CONFLICT"),
-    )
-    await expect(port.submit({ ...input, title: "Different task" }))
-      .rejects.toEqual(conflict)
-    await expect(port.submit({
-      ...input,
-      scope: { ...SCOPE, paths: ["packages/api"] },
-    })).rejects.toEqual(conflict)
-    return expect(fake.createRun).toHaveBeenCalledOnce()
-  }
-  )
+      operatorServiceErrorMessage("CONFLICT")
+    );
+    await expect(
+      port.submit({ ...input, title: "Different task" })
+    ).rejects.toEqual(conflict);
+    await expect(
+      port.submit({
+        ...input,
+        scope: { ...SCOPE, paths: ["packages/api"] },
+      })
+    ).rejects.toEqual(conflict);
+    return expect(fake.createRun).toHaveBeenCalledOnce();
+  });
 
   it("does not reveal a run occupying the deterministic ID for another owner", async () => {
-    const fake = fakeRepository()
-    const port = portFor(fake, new Map([
-      ["owner-1", Object.freeze(["darkfactory"])],
-      ["owner-2", Object.freeze(["darkfactory"])],
-    ]))
-    const ownerOne = submitInput("owner-1", "submit-attempt-1")
-    const ownerTwo = submitInput("owner-2", "submit-attempt-2")
-    await port.submit(ownerOne)
+    const fake = fakeRepository();
+    const port = portFor(
+      fake,
+      new Map([
+        ["owner-1", Object.freeze(["darkfactory"])],
+        ["owner-2", Object.freeze(["darkfactory"])],
+      ])
+    );
+    const ownerOne = submitInput("owner-1", "submit-attempt-1");
+    const ownerTwo = submitInput("owner-2", "submit-attempt-2");
+    await port.submit(ownerOne);
     fake.relocateRun(
       runIdFor(ownerOne.ownerId, ownerOne.idempotencyKey),
-      runIdFor(ownerTwo.ownerId, ownerTwo.idempotencyKey),
-    )
+      runIdFor(ownerTwo.ownerId, ownerTwo.idempotencyKey)
+    );
 
-    const failure = await port.submit(ownerTwo).catch((error: unknown) => error)
+    const failure = await port
+      .submit(ownerTwo)
+      .catch((error: unknown) => error);
 
-    expect(failure).toEqual(new OperatorWorkflowPortError(
-      "VALIDATION_ERROR",
-      operatorServiceErrorMessage("VALIDATION_ERROR"),
-    ))
-    expect(String(failure)).not.toContain("workflow_runs_pkey")
-    return expect(String(failure)).not.toContain("private-sql-secret")
-  }
-  )
+    expect(failure).toEqual(
+      new OperatorWorkflowPortError(
+        "VALIDATION_ERROR",
+        operatorServiceErrorMessage("VALIDATION_ERROR")
+      )
+    );
+    expect(String(failure)).not.toContain("workflow_runs_pkey");
+    return expect(String(failure)).not.toContain("private-sql-secret");
+  });
 
   it("fails closed before create when an owner targets another repository grant", async () => {
-    const fake = fakeRepository()
-    const port = portFor(fake)
+    const fake = fakeRepository();
+    const port = portFor(fake);
 
-    await expect(port.submit(submitInput("owner-2", "cross-owner-repository")))
-      .rejects.toEqual(new OperatorWorkflowPortError(
+    await expect(
+      port.submit(submitInput("owner-2", "cross-owner-repository"))
+    ).rejects.toEqual(
+      new OperatorWorkflowPortError(
         "FORBIDDEN",
-        operatorServiceErrorMessage("FORBIDDEN"),
-      ))
-    expect(fake.createRun).not.toHaveBeenCalled()
+        operatorServiceErrorMessage("FORBIDDEN")
+      )
+    );
+    expect(fake.createRun).not.toHaveBeenCalled();
 
-    return await expect(port.submit({
-      ...submitInput("owner-2", "authorized-owner-repository"),
-      scope: { repositoryId: "owner-two-repository", paths: ["packages/state"] },
-    })).resolves.toMatchObject({ ownerId: "owner-2" })
-  }
-  )
+    return await expect(
+      port.submit({
+        ...submitInput("owner-2", "authorized-owner-repository"),
+        scope: {
+          repositoryId: "owner-two-repository",
+          paths: ["packages/state"],
+        },
+      })
+    ).resolves.toMatchObject({ ownerId: "owner-2" });
+  });
   it("maps repository capacity rejection to bounded retryable unavailability", async () => {
-    const fake = fakeRepository()
-    fake.createRun.mockRejectedValueOnce(new WorkflowRunCapacityError())
-    const port = portFor(fake)
+    const fake = fakeRepository();
+    fake.createRun.mockRejectedValueOnce(new WorkflowRunCapacityError());
+    const port = portFor(fake);
 
-    const failure = await port.submit(
-      submitInput("owner-1", "capacity-rejected"),
-    ).catch((error: unknown) => error)
+    const failure = await port
+      .submit(submitInput("owner-1", "capacity-rejected"))
+      .catch((error: unknown) => error);
 
-    expect(failure).toEqual(new OperatorWorkflowPortError(
-      "SERVICE_UNAVAILABLE",
-      operatorServiceErrorMessage("SERVICE_UNAVAILABLE"),
-    ))
-    return expect(String(failure)).not.toMatch(/capacity|count|limit|\d+/i)
-  }
-  )
+    expect(failure).toEqual(
+      new OperatorWorkflowPortError(
+        "SERVICE_UNAVAILABLE",
+        operatorServiceErrorMessage("SERVICE_UNAVAILABLE")
+      )
+    );
+    return expect(String(failure)).not.toMatch(/capacity|count|limit|\d+/i);
+  });
 
   it("maps submission-window rejection without leaking counts or retry internals", async () => {
-    const fake = fakeRepository()
-    fake.createRun.mockRejectedValueOnce(new WorkflowRunSubmissionRateError(120))
-    const port = portFor(fake)
+    const fake = fakeRepository();
+    fake.createRun.mockRejectedValueOnce(
+      new WorkflowRunSubmissionRateError(120)
+    );
+    const port = portFor(fake);
 
-    const failure = await port.submit(
-      submitInput("owner-1", "submission-window-rejected"),
-    ).catch((error: unknown) => error)
+    const failure = await port
+      .submit(submitInput("owner-1", "submission-window-rejected"))
+      .catch((error: unknown) => error);
 
-    expect(failure).toEqual(new OperatorWorkflowPortError(
-      "SERVICE_UNAVAILABLE",
-      operatorServiceErrorMessage("SERVICE_UNAVAILABLE"),
-    ))
-    return expect(String(failure)).not.toMatch(/submission|count|limit|120/i)
-  }
-  )
+    expect(failure).toEqual(
+      new OperatorWorkflowPortError(
+        "SERVICE_UNAVAILABLE",
+        operatorServiceErrorMessage("SERVICE_UNAVAILABLE")
+      )
+    );
+    return expect(String(failure)).not.toMatch(/submission|count|limit|120/i);
+  });
 
   it("replays the same idempotency key without consuming capacity", async () => {
-    const fake = fakeRepository()
-    const port = portFor(fake)
-    const input = submitInput("owner-1", "replay-at-capacity")
-    const first = await port.submit(input)
-    fake.createRun.mockRejectedValueOnce(new WorkflowRunSubmissionRateError(120))
+    const fake = fakeRepository();
+    const port = portFor(fake);
+    const input = submitInput("owner-1", "replay-at-capacity");
+    const first = await port.submit(input);
+    fake.createRun.mockRejectedValueOnce(
+      new WorkflowRunSubmissionRateError(120)
+    );
 
-    await expect(port.submit(input)).resolves.toEqual(first)
-    return expect(fake.createRun).toHaveBeenCalledOnce()
-  }
-  )
+    await expect(port.submit(input)).resolves.toEqual(first);
+    return expect(fake.createRun).toHaveBeenCalledOnce();
+  });
   return it("rejects a concurrent same-key create whose committed payload differs", async () => {
-    const fake = fakeRepository()
-    const port = portFor(fake)
-    const input = submitInput("owner-1", "concurrent-payload", "Winning task")
-    const winner = await port.submit(input)
+    const fake = fakeRepository();
+    const port = portFor(fake);
+    const input = submitInput("owner-1", "concurrent-payload", "Winning task");
+    const winner = await port.submit(input);
     const winnerProjection = await fake.repository.findProjectionByOwner(
       winner.run.id,
-      input.ownerId,
-    )
-    const lookup = vi.spyOn(fake.repository, "findProjectionByOwner")
+      input.ownerId
+    );
+    const lookup = vi
+      .spyOn(fake.repository, "findProjectionByOwner")
       .mockResolvedValueOnce(null)
-      .mockResolvedValueOnce(winnerProjection)
-    fake.createRun.mockRejectedValueOnce(new WorkflowConcurrencyError())
+      .mockResolvedValueOnce(winnerProjection);
+    fake.createRun.mockRejectedValueOnce(new WorkflowConcurrencyError());
 
-    await expect(port.submit({ ...input, title: "Losing task" }))
-      .rejects.toEqual(new OperatorWorkflowPortError(
+    await expect(
+      port.submit({ ...input, title: "Losing task" })
+    ).rejects.toEqual(
+      new OperatorWorkflowPortError(
         "CONFLICT",
-        operatorServiceErrorMessage("CONFLICT"),
-      ))
-    return expect(lookup).toHaveBeenCalledTimes(2)
-  }
-  )
-}
-)
+        operatorServiceErrorMessage("CONFLICT")
+      )
+    );
+    return expect(lookup).toHaveBeenCalledTimes(2);
+  });
+});
 
 describe("operator workflow approval idempotency", () => {
   it("returns the committed projection when the same binding is retried under a new request ID", async () => {
-    const fake = fakeRepository()
-    const port = portFor(fake)
-    const submitted = await port.submit(submitInput())
-    const application = createWorkflowApplication(fake.repository, { now: () => NOW })
+    const fake = fakeRepository();
+    const port = portFor(fake);
+    const submitted = await port.submit(submitInput());
+    const application = createWorkflowApplication(fake.repository, {
+      now: () => NOW,
+    });
     await application.transition({
       ownerId: "owner-1",
       runId: submitted.run.id,
@@ -648,59 +699,68 @@ describe("operator workflow approval idempotency", () => {
         planHash: PLAN.digest,
         implementationScope: SCOPE,
       },
-    })
-    const awaiting = await port.detail("owner-1", submitted.run.id)
-    const { stale: _stale, ...approval } = awaiting!.approval!
+    });
+    const awaiting = await port.detail("owner-1", submitted.run.id);
+    const { stale: _stale, ...approval } = awaiting!.approval!;
 
-    fake.failAfterNextDecision()
-    await expect(port.approve({
-      ownerId: "owner-1",
-      actorUserId: "operator-1",
-      runId: submitted.run.id,
-      requestId: "request-before-lost-response",
-      approval,
-    })).rejects.toEqual(new OperatorWorkflowPortError(
-      "STORAGE_ERROR",
-      operatorServiceErrorMessage("STORAGE_ERROR"),
-    ))
+    fake.failAfterNextDecision();
+    await expect(
+      port.approve({
+        ownerId: "owner-1",
+        actorUserId: "operator-1",
+        runId: submitted.run.id,
+        requestId: "request-before-lost-response",
+        approval,
+      })
+    ).rejects.toEqual(
+      new OperatorWorkflowPortError(
+        "STORAGE_ERROR",
+        operatorServiceErrorMessage("STORAGE_ERROR")
+      )
+    );
     const retry = await port.approve({
       ownerId: "owner-1",
       actorUserId: "operator-1",
       runId: submitted.run.id,
       requestId: "request-after-lost-response",
       approval,
-    })
+    });
 
-    expect(retry.run.state).toBe("implementing")
-    expect(fake.decideApprovalAndAppend).toHaveBeenCalledOnce()
-    const expectedEventId = `approval-${sha256Hex(canonicalJsonV1({
-      runId: submitted.run.id,
-      binding: approval,
-      decision: "granted",
-    }))}`
-    return expect(fake.decideApprovalAndAppend).toHaveBeenCalledWith(expect.objectContaining({
-      append: expect.objectContaining({
-        event: expect.objectContaining({ eventId: expectedEventId }),
-      }),
-    }))
-  }
-  )
+    expect(retry.run.state).toBe("implementing");
+    expect(fake.decideApprovalAndAppend).toHaveBeenCalledOnce();
+    const expectedEventId = `approval-${sha256Hex(
+      canonicalJsonV1({
+        runId: submitted.run.id,
+        binding: approval,
+        decision: "granted",
+      })
+    )}`;
+    return expect(fake.decideApprovalAndAppend).toHaveBeenCalledWith(
+      expect.objectContaining({
+        append: expect.objectContaining({
+          event: expect.objectContaining({ eventId: expectedEventId }),
+        }),
+      })
+    );
+  });
 
-  it("binds and approves an exact-boundary multibyte submit scope", async function() {
+  it("binds and approves an exact-boundary multibyte submit scope", async function () {
     const scope = {
       repositoryId: "darkfactory",
       paths: [
         ...Array.from({ length: 15 }, () => "é".repeat(128)),
-        "é".repeat(84)
-      ]
-    }
-    const fake = fakeRepository()
-    const port = portFor(fake)
+        "é".repeat(84),
+      ],
+    };
+    const fake = fakeRepository();
+    const port = portFor(fake);
     const submitted = await port.submit({
       ...submitInput("owner-1", "submit-long-effect-scope"),
-      scope
-    })
-    const application = createWorkflowApplication(fake.repository, { now: () => NOW })
+      scope,
+    });
+    const application = createWorkflowApplication(fake.repository, {
+      now: () => NOW,
+    });
     await application.transition({
       ownerId: "owner-1",
       runId: submitted.run.id,
@@ -712,31 +772,36 @@ describe("operator workflow approval idempotency", () => {
         occurredAt: NOW.toISOString(),
         planEvidenceId: "plan-evidence-long-effect-scope",
         planHash: PLAN.digest,
-        implementationScope: scope
-      }
-    })
-    const awaiting = await port.detail("owner-1", submitted.run.id)
-    const { stale: _stale, ...approval } = awaiting!.approval!
+        implementationScope: scope,
+      },
+    });
+    const awaiting = await port.detail("owner-1", submitted.run.id);
+    const { stale: _stale, ...approval } = awaiting!.approval!;
 
-    expect(new TextEncoder().encode(approval.effectScope).byteLength)
-      .toBe(MAX_WORKFLOW_SCOPE_BYTES)
-    expect(approval.effectScope).toBe(canonicalJsonV1(scope))
-    return await expect(port.approve({
-      ownerId: "owner-1",
-      actorUserId: "operator-1",
-      runId: submitted.run.id,
-      requestId: "approve-long-effect-scope",
-      approval
-    })).resolves.toMatchObject({
-      run: { state: "implementing" }
-    })
-  })
+    expect(new TextEncoder().encode(approval.effectScope).byteLength).toBe(
+      MAX_WORKFLOW_SCOPE_BYTES
+    );
+    expect(approval.effectScope).toBe(canonicalJsonV1(scope));
+    return await expect(
+      port.approve({
+        ownerId: "owner-1",
+        actorUserId: "operator-1",
+        runId: submitted.run.id,
+        requestId: "approve-long-effect-scope",
+        approval,
+      })
+    ).resolves.toMatchObject({
+      run: { state: "implementing" },
+    });
+  });
 
   it("rejects a conflicting replay after an approval decision is committed", async () => {
-    const fake = fakeRepository()
-    const port = portFor(fake)
-    const submitted = await port.submit(submitInput())
-    const application = createWorkflowApplication(fake.repository, { now: () => NOW })
+    const fake = fakeRepository();
+    const port = portFor(fake);
+    const submitted = await port.submit(submitInput());
+    const application = createWorkflowApplication(fake.repository, {
+      now: () => NOW,
+    });
     await application.transition({
       ownerId: "owner-1",
       runId: submitted.run.id,
@@ -750,93 +815,98 @@ describe("operator workflow approval idempotency", () => {
         planHash: PLAN.digest,
         implementationScope: SCOPE,
       },
-    })
-    const awaiting = await port.detail("owner-1", submitted.run.id)
-    const { stale: _stale, ...approval } = awaiting!.approval!
+    });
+    const awaiting = await port.detail("owner-1", submitted.run.id);
+    const { stale: _stale, ...approval } = awaiting!.approval!;
     await port.approve({
       ownerId: "owner-1",
       actorUserId: "operator-1",
       runId: submitted.run.id,
       requestId: "first-request",
       approval,
-    })
+    });
 
-    await expect(port.approve({
-      ownerId: "owner-1",
-      actorUserId: "operator-1",
-      runId: submitted.run.id,
-      requestId: "conflicting-request",
-      approval: { ...approval, effectHash: "f".repeat(64) },
-    })).rejects.toEqual(new OperatorWorkflowPortError(
-      "STALE_APPROVAL",
-      operatorServiceErrorMessage("STALE_APPROVAL"),
-    ))
-    return expect(fake.decideApprovalAndAppend).toHaveBeenCalledOnce()
-  }
-  )
-
-  it.each(["approve", "reject"] as const)(
-    "maps the %s missing-run mutation race to the canonical public error",
-    async (action) => {
-      const fake = fakeRepository()
-      const port = portFor(fake)
-      const run = await awaitingRun(fake, port)
-      const stored = await fake.repository.findProjectionByOwner(
-        run.submitted.run.id,
-        "owner-1",
+    await expect(
+      port.approve({
+        ownerId: "owner-1",
+        actorUserId: "operator-1",
+        runId: submitted.run.id,
+        requestId: "conflicting-request",
+        approval: { ...approval, effectHash: "f".repeat(64) },
+      })
+    ).rejects.toEqual(
+      new OperatorWorkflowPortError(
+        "STALE_APPROVAL",
+        operatorServiceErrorMessage("STALE_APPROVAL")
       )
-      if (stored === null) throw new Error("Expected the awaiting run projection")
-      const lookup = vi.spyOn(fake.repository, "findProjectionByOwner")
-        .mockResolvedValueOnce(stored)
-        .mockResolvedValueOnce(null)
-      const { stale: _stale, ...approval } = run.approval
+    );
+    return expect(fake.decideApprovalAndAppend).toHaveBeenCalledOnce();
+  });
 
-      const operation =
-        (action === "approve"?
-          port.approve({
+  it.each([
+    "approve",
+    "reject",
+  ] as const)("maps the %s missing-run mutation race to the canonical public error", async (action) => {
+    const fake = fakeRepository();
+    const port = portFor(fake);
+    const run = await awaitingRun(fake, port);
+    const stored = await fake.repository.findProjectionByOwner(
+      run.submitted.run.id,
+      "owner-1"
+    );
+    if (stored === null)
+      throw new Error("Expected the awaiting run projection");
+    const lookup = vi
+      .spyOn(fake.repository, "findProjectionByOwner")
+      .mockResolvedValueOnce(stored)
+      .mockResolvedValueOnce(null);
+    const { stale: _stale, ...approval } = run.approval;
+
+    const operation =
+      action === "approve"
+        ? port.approve({
             ownerId: "owner-1",
             actorUserId: "operator-1",
             runId: run.submitted.run.id,
             requestId: "missing-during-approve",
-            approval
+            approval,
           })
-        :
-          port.reject({
+        : port.reject({
             ownerId: "owner-1",
             actorUserId: "operator-1",
             runId: run.submitted.run.id,
             requestId: "missing-during-reject",
-            reason: "Not ready"
-          }))
+            reason: "Not ready",
+          });
 
-      await expectWorkflowPortError(operation, "NOT_FOUND")
-      expect(lookup).toHaveBeenCalledTimes(2)
-      return expect(fake.decideApprovalAndAppend).not.toHaveBeenCalled()
-    }
-  )
+    await expectWorkflowPortError(operation, "NOT_FOUND");
+    expect(lookup).toHaveBeenCalledTimes(2);
+    return expect(fake.decideApprovalAndAppend).not.toHaveBeenCalled();
+  });
   return it("maps an absent approval run through the port-level projection guard", async () => {
-    const fake = fakeRepository()
-    const port = portFor(fake)
+    const fake = fakeRepository();
+    const port = portFor(fake);
 
-    await expectWorkflowPortError(port.reject({
-      ownerId: "owner-1",
-      actorUserId: "operator-1",
-      runId: "missing-approval-run",
-      requestId: "reject-missing-approval-run",
-      reason: "No matching run"
-    }), "NOT_FOUND")
-    return expect(fake.decideApprovalAndAppend).not.toHaveBeenCalled()
-  }
-  )
-}
-)
+    await expectWorkflowPortError(
+      port.reject({
+        ownerId: "owner-1",
+        actorUserId: "operator-1",
+        runId: "missing-approval-run",
+        requestId: "reject-missing-approval-run",
+        reason: "No matching run",
+      }),
+      "NOT_FOUND"
+    );
+    return expect(fake.decideApprovalAndAppend).not.toHaveBeenCalled();
+  });
+});
 
-describe("operator Wayfinder plan revision", function() {
-  it("queues a new plan effect, clears review evidence, and rejects the old approval", async function() {
-    const fake = fakeRepository()
-    const port = portFor(fake)
-    const run = await awaitingRun(fake, port)
-    const { stale: _stale, ...oldApproval } = run.approval
+describe("operator Wayfinder plan revision", function () {
+  it("queues a new plan effect, clears review evidence, and rejects the old approval", async function () {
+    const fake = fakeRepository();
+    const port = portFor(fake);
+    const run = await awaitingRun(fake, port);
+    const { stale: _stale, ...oldApproval } = run.approval;
 
     const revised = await port.revise({
       ownerId: "owner-1",
@@ -844,20 +914,22 @@ describe("operator Wayfinder plan revision", function() {
       runId: run.submitted.run.id,
       idempotencyKey: "revision-attempt-1",
       requestId: "request-plan-revision",
-      clarification: "Keep the plan within packages/operator."
-    })
+      clarification: "Keep the plan within packages/operator.",
+    });
 
     expect(revised).toMatchObject({
       run: { state: "planning" },
       approval: null,
-      implementationPlan: null
-    })
-    expect(revised.originalRequest).toBe(run.submitted.originalRequest)
-    expect(revised.planRevisions).toEqual([{
-      message: "Keep the plan within packages/operator.",
-      createdAt: NOW
-    }])
-    const append = fake.append.mock.calls.at(-1)![0]
+      implementationPlan: null,
+    });
+    expect(revised.originalRequest).toBe(run.submitted.originalRequest);
+    expect(revised.planRevisions).toEqual([
+      {
+        message: "Keep the plan within packages/operator.",
+        createdAt: NOW,
+      },
+    ]);
+    const append = fake.append.mock.calls.at(-1)![0];
     expect(append).toMatchObject({
       ownerId: "owner-1",
       event: {
@@ -865,9 +937,9 @@ describe("operator Wayfinder plan revision", function() {
         eventId: revisionEventIdFor(
           "owner-1",
           run.submitted.run.id,
-          "revision-attempt-1",
+          "revision-attempt-1"
         ),
-        clarification: "Keep the plan within packages/operator."
+        clarification: "Keep the plan within packages/operator.",
       },
       snapshot: {
         state: "planning",
@@ -876,21 +948,23 @@ describe("operator Wayfinder plan revision", function() {
           planEvidenceId: null,
           planHash: null,
           approvalId: null,
-          approvalHash: null
-        }
+          approvalHash: null,
+        },
       },
-      effects: [expect.objectContaining({
-        payload: expect.objectContaining({
-          ownerId: "owner-1",
-          effectKind: "plan",
-          effectScope: SCOPE,
-          task: expect.objectContaining({
-            taskRevision: 2,
-            planClarification: "Keep the plan within packages/operator."
-          })
-        })
-      })]
-    })
+      effects: [
+        expect.objectContaining({
+          payload: expect.objectContaining({
+            ownerId: "owner-1",
+            effectKind: "plan",
+            effectScope: SCOPE,
+            task: expect.objectContaining({
+              taskRevision: 2,
+              planClarification: "Keep the plan within packages/operator.",
+            }),
+          }),
+        }),
+      ],
+    });
     expect(fake.decideApprovalAndAppend).toHaveBeenCalledWith({
       approval: {
         id: expect.any(String),
@@ -898,137 +972,147 @@ describe("operator Wayfinder plan revision", function() {
         ownerId: "owner-1",
         decidedBy: "owner-1",
         decision: "rejected",
-        reason: "plan-revision-requested"
+        reason: "plan-revision-requested",
       },
       append: expect.objectContaining({
         event: expect.objectContaining({
           type: "PLAN_REVISION_REQUESTED",
-          clarification: "Keep the plan within packages/operator."
-        })
-      })
-    })
-    return await expectWorkflowPortError(port.approve({
-      ownerId: "owner-1",
-      actorUserId: "owner-1",
-      runId: run.submitted.run.id,
-      requestId: "approve-stale-plan",
-      approval: oldApproval
-    }), "STALE_APPROVAL")
-  })
+          clarification: "Keep the plan within packages/operator.",
+        }),
+      }),
+    });
+    return await expectWorkflowPortError(
+      port.approve({
+        ownerId: "owner-1",
+        actorUserId: "owner-1",
+        runId: run.submitted.run.id,
+        requestId: "approve-stale-plan",
+        approval: oldApproval,
+      }),
+      "STALE_APPROVAL"
+    );
+  });
 
-  it("replays a lost approval response exactly and conflicts on changed text", async function() {
-    const fake = fakeRepository()
-    const port = portFor(fake)
-    const run = await awaitingRun(fake, port)
+  it("replays a lost approval response exactly and conflicts on changed text", async function () {
+    const fake = fakeRepository();
+    const port = portFor(fake);
+    const run = await awaitingRun(fake, port);
     const input = {
       ownerId: "owner-1",
       actorUserId: "owner-1",
       runId: run.submitted.run.id,
       idempotencyKey: "revision-lost-response",
       requestId: "revision-first-request",
-      clarification: "Keep the plan within packages/operator."
-    }
+      clarification: "Keep the plan within packages/operator.",
+    };
 
-    fake.failAfterNextDecision()
-    await expectWorkflowPortError(port.revise(input), "STORAGE_ERROR")
+    fake.failAfterNextDecision();
+    await expectWorkflowPortError(port.revise(input), "STORAGE_ERROR");
     const replayed = await port.revise({
       ...input,
-      requestId: "revision-retry-request"
-    })
+      requestId: "revision-retry-request",
+    });
 
     expect(replayed).toMatchObject({
       run: { state: "planning", sequence: run.submitted.run.sequence + 2 },
-      canRequestPlanRevision: false
-    })
-    expect(fake.decideApprovalAndAppend).toHaveBeenCalledTimes(2)
-    await expectWorkflowPortError(port.revise({
-      ...input,
-      requestId: "revision-conflict-request",
-      clarification: "Use a different plan."
-    }), "CONFLICT")
-    return expect(fake.decideApprovalAndAppend).toHaveBeenCalledTimes(2)
-  })
+      canRequestPlanRevision: false,
+    });
+    expect(fake.decideApprovalAndAppend).toHaveBeenCalledTimes(2);
+    await expectWorkflowPortError(
+      port.revise({
+        ...input,
+        requestId: "revision-conflict-request",
+        clarification: "Use a different plan.",
+      }),
+      "CONFLICT"
+    );
+    return expect(fake.decideApprovalAndAppend).toHaveBeenCalledTimes(2);
+  });
 
-  it("fails concurrency recovery when the requested revision was not committed", async function() {
-    const fake = fakeRepository()
-    const port = portFor(fake)
-    const run = await awaitingRun(fake, port)
+  it("fails concurrency recovery when the requested revision was not committed", async function () {
+    const fake = fakeRepository();
+    const port = portFor(fake);
+    const run = await awaitingRun(fake, port);
     const input = {
       ownerId: "owner-1",
       actorUserId: "owner-1",
       runId: run.submitted.run.id,
       idempotencyKey: "revision-uncommitted-concurrency",
       requestId: "revision-uncommitted-concurrency",
-      clarification: "Keep the recovery contract bounded."
-    }
+      clarification: "Keep the recovery contract bounded.",
+    };
     const requestedEventId = revisionEventIdFor(
       input.ownerId,
       input.runId,
-      input.idempotencyKey,
-    )
+      input.idempotencyKey
+    );
     fake.decideApprovalAndAppend.mockRejectedValueOnce(
-      new WorkflowConcurrencyError(),
-    )
+      new WorkflowConcurrencyError()
+    );
 
-    await expectWorkflowPortError(port.revise(input), "CONFLICT")
+    await expectWorkflowPortError(port.revise(input), "CONFLICT");
 
-    expect(fake.decideApprovalAndAppend).toHaveBeenCalledOnce()
+    expect(fake.decideApprovalAndAppend).toHaveBeenCalledOnce();
     const recovered = await fake.repository.findProjectionByOwner(
       input.runId,
-      input.ownerId,
-    )
-    return expect(recovered?.journal.some(
-      ({ eventId }) => eventId === requestedEventId,
-    )).toBe(false)
-  })
+      input.ownerId
+    );
+    return expect(
+      recovered?.journal.some(({ eventId }) => eventId === requestedEventId)
+    ).toBe(false);
+  });
 
-  it("coalesces concurrent exact revision requests into one journal event", async function() {
-    const fake = fakeRepository()
-    const port = portFor(fake)
-    const run = await awaitingRun(fake, port)
+  it("coalesces concurrent exact revision requests into one journal event", async function () {
+    const fake = fakeRepository();
+    const port = portFor(fake);
+    const run = await awaitingRun(fake, port);
     const input = {
       ownerId: "owner-1",
       actorUserId: "owner-1",
       runId: run.submitted.run.id,
       idempotencyKey: "revision-concurrent",
-      clarification: "Keep the plan bounded."
-    }
+      clarification: "Keep the plan bounded.",
+    };
 
     const [first, second] = await Promise.all([
       port.revise({ ...input, requestId: "revision-concurrent-1" }),
-      port.revise({ ...input, requestId: "revision-concurrent-2" })
-    ])
+      port.revise({ ...input, requestId: "revision-concurrent-2" }),
+    ]);
 
-    expect(second.run.sequence).toBe(first.run.sequence)
-    return expect(second.timeline.filter(
-      ({ eventType }) => eventType === "PLAN_REVISION_REQUESTED"
-    )).toHaveLength(1)
-  })
+    expect(second.run.sequence).toBe(first.run.sequence);
+    return expect(
+      second.timeline.filter(
+        ({ eventType }) => eventType === "PLAN_REVISION_REQUESTED"
+      )
+    ).toHaveLength(1);
+  });
 
-  it("bounds projected plan revision history at one thousand entries", function() {
-    const revisions = projectWorkflowPlanRevisions(Array.from(
-      { length: 1_001 },
-      (_, index) => ({
+  it("bounds projected plan revision history at one thousand entries", function () {
+    const revisions = projectWorkflowPlanRevisions(
+      Array.from({ length: 1_001 }, (_, index) => ({
         event: {
           type: "PLAN_REVISION_REQUESTED",
           clarification: `Revision ${index}.`,
           occurredAt: NOW.toISOString(),
         },
-      }),
-    ) as never)
+      })) as never
+    );
 
-    expect(revisions).toHaveLength(1_000)
-    expect(revisions.at(0)?.message).toBe("Revision 0.")
-    return expect(revisions.at(-1)?.message).toBe("Revision 999.")
-  })
+    expect(revisions).toHaveLength(1_000);
+    expect(revisions.at(0)?.message).toBe("Revision 0.");
+    return expect(revisions.at(-1)?.message).toBe("Revision 999.");
+  });
 
-  it("derives revision capability from state and the blocked failure stage", async function() {
-    const fake = fakeRepository()
-    const port = portFor(fake)
-    const submitted = await port.submit(submitInput())
-    const application = createWorkflowApplication(fake.repository, { now: () => NOW })
-    expect((await port.detail("owner-1", submitted.run.id))?.canRequestPlanRevision)
-      .toBe(false)
+  it("derives revision capability from state and the blocked failure stage", async function () {
+    const fake = fakeRepository();
+    const port = portFor(fake);
+    const submitted = await port.submit(submitInput());
+    const application = createWorkflowApplication(fake.repository, {
+      now: () => NOW,
+    });
+    expect(
+      (await port.detail("owner-1", submitted.run.id))?.canRequestPlanRevision
+    ).toBe(false);
     await application.transition({
       ownerId: "owner-1",
       runId: submitted.run.id,
@@ -1039,42 +1123,45 @@ describe("operator Wayfinder plan revision", function() {
         machineVersion: 1,
         occurredAt: NOW.toISOString(),
         effectKind: "plan",
-        failure: { code: "adapter_failed", retryable: true }
-      }
-    })
-    expect((await port.detail("owner-1", submitted.run.id))?.canRequestPlanRevision)
-      .toBe(true)
+        failure: { code: "adapter_failed", retryable: true },
+      },
+    });
+    expect(
+      (await port.detail("owner-1", submitted.run.id))?.canRequestPlanRevision
+    ).toBe(true);
     const blockedRevisionInput = {
       ownerId: "owner-1",
       actorUserId: "owner-1",
       runId: submitted.run.id,
       idempotencyKey: "blocked-plan-revision",
       requestId: "blocked-plan-revision",
-      clarification: "Use a smaller backend slice."
-    }
-    const blockedRevision = await port.revise(blockedRevisionInput)
-    expect(blockedRevision).toMatchObject({ canRequestPlanRevision: false })
-    await expect(port.revise({
-      ...blockedRevisionInput,
-      requestId: "blocked-plan-revision-replay"
-    })).resolves.toEqual(blockedRevision)
-    expect(fake.decideApprovalAndAppend).not.toHaveBeenCalled()
+      clarification: "Use a smaller backend slice.",
+    };
+    const blockedRevision = await port.revise(blockedRevisionInput);
+    expect(blockedRevision).toMatchObject({ canRequestPlanRevision: false });
+    await expect(
+      port.revise({
+        ...blockedRevisionInput,
+        requestId: "blocked-plan-revision-replay",
+      })
+    ).resolves.toEqual(blockedRevision);
+    expect(fake.decideApprovalAndAppend).not.toHaveBeenCalled();
 
-    const implementingFake = fakeRepository()
-    const implementingPort = portFor(implementingFake)
-    const awaiting = await awaitingRun(implementingFake, implementingPort)
-    const { stale: _stale, ...approval } = awaiting.approval
+    const implementingFake = fakeRepository();
+    const implementingPort = portFor(implementingFake);
+    const awaiting = await awaitingRun(implementingFake, implementingPort);
+    const { stale: _stale, ...approval } = awaiting.approval;
     await implementingPort.approve({
       ownerId: "owner-1",
       actorUserId: "owner-1",
       runId: awaiting.submitted.run.id,
       requestId: "approve-before-implementation-failure",
-      approval
-    })
+      approval,
+    });
     const implementingApplication = createWorkflowApplication(
       implementingFake.repository,
-      { now: () => NOW },
-    )
+      { now: () => NOW }
+    );
     await implementingApplication.transition({
       ownerId: "owner-1",
       runId: awaiting.submitted.run.id,
@@ -1085,131 +1172,157 @@ describe("operator Wayfinder plan revision", function() {
         machineVersion: 1,
         occurredAt: NOW.toISOString(),
         effectKind: "implement",
-        failure: { code: "adapter_failed", retryable: true }
-      }
-    })
-    return expect((await implementingPort.detail(
-      "owner-1",
-      awaiting.submitted.run.id,
-    ))?.canRequestPlanRevision).toBe(false)
-  })
+        failure: { code: "adapter_failed", retryable: true },
+      },
+    });
+    return expect(
+      (await implementingPort.detail("owner-1", awaiting.submitted.run.id))
+        ?.canRequestPlanRevision
+    ).toBe(false);
+  });
 
-  return it("rejects wrong-owner and invalid-state plan revisions", async function() {
-    const fake = fakeRepository()
-    const port = portFor(fake)
-    const submitted = await port.submit(submitInput())
-    await expectWorkflowPortError(port.revise({
-      ownerId: "owner-2",
-      actorUserId: "owner-2",
-      runId: submitted.run.id,
-      idempotencyKey: "wrong-owner-revision",
-      requestId: "wrong-owner-revision",
-      clarification: "Revise the plan."
-    }), "NOT_FOUND")
-    return await expectWorkflowPortError(port.revise({
-      ownerId: "owner-1",
-      actorUserId: "owner-1",
-      runId: submitted.run.id,
-      idempotencyKey: "invalid-state-revision",
-      requestId: "invalid-state-revision",
-      clarification: "Revise the plan."
-    }), "VALIDATION_ERROR")
-  })
-})
-
+  return it("rejects wrong-owner and invalid-state plan revisions", async function () {
+    const fake = fakeRepository();
+    const port = portFor(fake);
+    const submitted = await port.submit(submitInput());
+    await expectWorkflowPortError(
+      port.revise({
+        ownerId: "owner-2",
+        actorUserId: "owner-2",
+        runId: submitted.run.id,
+        idempotencyKey: "wrong-owner-revision",
+        requestId: "wrong-owner-revision",
+        clarification: "Revise the plan.",
+      }),
+      "NOT_FOUND"
+    );
+    return await expectWorkflowPortError(
+      port.revise({
+        ownerId: "owner-1",
+        actorUserId: "owner-1",
+        runId: submitted.run.id,
+        idempotencyKey: "invalid-state-revision",
+        requestId: "invalid-state-revision",
+        clarification: "Revise the plan.",
+      }),
+      "VALIDATION_ERROR"
+    );
+  });
+});
 
 describe("operator workflow pagination", () => {
   it("reaches owner-and-state-matching runs beyond the first 100 with limit plus one", async () => {
-    const fake = fakeRepository()
-    const port = portFor(fake)
+    const fake = fakeRepository();
+    const port = portFor(fake);
     for (let index = 0; index < 150; index += 1) {
-      await port.submit(submitInput("owner-1", `page-${index}`, `Run ${index}`))
+      await port.submit(
+        submitInput("owner-1", `page-${index}`, `Run ${index}`)
+      );
     }
     await port.submit({
       ...submitInput("owner-2", "other-owner-run", "Other owner"),
-      scope: { repositoryId: "owner-two-repository", paths: ["packages/state"] },
-    })
+      scope: {
+        repositoryId: "owner-two-repository",
+        paths: ["packages/state"],
+      },
+    });
 
-    const first = await port.list("owner-1", { state: "planning", limit: 100 })
+    const first = await port.list("owner-1", { state: "planning", limit: 100 });
     const second = await port.list("owner-1", {
       state: "planning",
       limit: 100,
       cursor: first.nextCursor!,
-    })
+    });
 
-    expect(first.runs).toHaveLength(100)
+    expect(first.runs).toHaveLength(100);
     expect(decodeWorkflowRunsCursor(first.nextCursor!)).toEqual({
       id: first.runs.at(-1)!.id,
       updatedAt: first.runs.at(-1)!.updatedAt,
       state: "planning",
-    })
-    expect(second.runs).toHaveLength(50)
-    expect(second.nextCursor).toBeNull()
-    expect(new Set([...first.runs, ...second.runs].map(({ id }) => id)).size).toBe(150)
+    });
+    expect(second.runs).toHaveLength(50);
+    expect(second.nextCursor).toBeNull();
+    expect(
+      new Set([...first.runs, ...second.runs].map(({ id }) => id)).size
+    ).toBe(150);
     expect(fake.listRunsByOwner).toHaveBeenNthCalledWith(1, "owner-1", {
       state: "planning",
       limit: 101,
-    })
+    });
     expect(fake.listRunsByOwner).toHaveBeenNthCalledWith(2, "owner-1", {
       state: "planning",
       cursor: first.nextCursor,
       limit: 101,
-    })
-    const results=[];for (const [ownerId, state] of [
+    });
+    const results = [];
+    for (const [ownerId, state] of [
       ["owner-2", "planning"],
       ["owner-1", "completed"],
     ] as const) {
-      results.push(await expect(port.list(ownerId, {
-        state,
-        limit: 100,
-        cursor: first.nextCursor!,
-      })).rejects.toEqual(new OperatorWorkflowPortError(
-        "VALIDATION_ERROR",
-        operatorServiceErrorMessage("VALIDATION_ERROR"),
-      )))
-    };return results;
-  }
-  )
+      results.push(
+        await expect(
+          port.list(ownerId, {
+            state,
+            limit: 100,
+            cursor: first.nextCursor!,
+          })
+        ).rejects.toEqual(
+          new OperatorWorkflowPortError(
+            "VALIDATION_ERROR",
+            operatorServiceErrorMessage("VALIDATION_ERROR")
+          )
+        )
+      );
+    }
+    return results;
+  });
 
-  it("encodes an unfiltered next cursor without a workflow state", async function() {
-    const fake = fakeRepository()
-    const port = portFor(fake)
-    await port.submit(submitInput("owner-1", "unfiltered-page-1"))
-    await port.submit(submitInput("owner-1", "unfiltered-page-2"))
+  it("encodes an unfiltered next cursor without a workflow state", async function () {
+    const fake = fakeRepository();
+    const port = portFor(fake);
+    await port.submit(submitInput("owner-1", "unfiltered-page-1"));
+    await port.submit(submitInput("owner-1", "unfiltered-page-2"));
 
-    const page = await port.list("owner-1", { limit: 1 })
+    const page = await port.list("owner-1", { limit: 1 });
 
     return expect(decodeWorkflowRunsCursor(page.nextCursor!)).toEqual({
       id: page.runs[0]!.id,
-      updatedAt: page.runs[0]!.updatedAt
-    })
-  })
+      updatedAt: page.runs[0]!.updatedAt,
+    });
+  });
 
   return it("rejects an unknown cursor instead of silently restarting the first page", async () => {
-    const fake = fakeRepository()
-    const port = portFor(fake)
-    await port.submit(submitInput())
+    const fake = fakeRepository();
+    const port = portFor(fake);
+    await port.submit(submitInput());
 
-    return await expect(port.list("owner-1", {
-      state: "planning",
-      limit: 10,
-      cursor: encodeWorkflowRunsCursor({
-        id: "unknown-run",
-        updatedAt: NOW,
+    return await expect(
+      port.list("owner-1", {
         state: "planning",
-      }),
-    })).rejects.toEqual(new OperatorWorkflowPortError(
-      "VALIDATION_ERROR",
-      operatorServiceErrorMessage("VALIDATION_ERROR"),
-    ))
-  }
-  )
-}
-)
+        limit: 10,
+        cursor: encodeWorkflowRunsCursor({
+          id: "unknown-run",
+          updatedAt: NOW,
+          state: "planning",
+        }),
+      })
+    ).rejects.toEqual(
+      new OperatorWorkflowPortError(
+        "VALIDATION_ERROR",
+        operatorServiceErrorMessage("VALIDATION_ERROR")
+      )
+    );
+  });
+});
 
-const awaitingRun = async (fake: FakeRepository, port: OperatorWorkflowPort) => {
-  const submitted = await port.submit(submitInput())
-  const application = createWorkflowApplication(fake.repository, { now: () => NOW })
+const awaitingRun = async (
+  fake: FakeRepository,
+  port: OperatorWorkflowPort
+) => {
+  const submitted = await port.submit(submitInput());
+  const application = createWorkflowApplication(fake.repository, {
+    now: () => NOW,
+  });
   await application.transition({
     ownerId: "owner-1",
     runId: submitted.run.id,
@@ -1221,71 +1334,70 @@ const awaitingRun = async (fake: FakeRepository, port: OperatorWorkflowPort) => 
       occurredAt: NOW.toISOString(),
       planEvidenceId: "plan-evidence",
       planHash: PLAN.digest,
-      implementationScope: SCOPE
-    }
-  })
-  const awaiting = await port.detail("owner-1", submitted.run.id)
+      implementationScope: SCOPE,
+    },
+  });
+  const awaiting = await port.detail("owner-1", submitted.run.id);
   return {
     submitted,
     application,
-    approval: awaiting!.approval!
-  }
-}
+    approval: awaiting!.approval!,
+  };
+};
 
 const expectWorkflowPortError = async (
   operation: Promise<unknown>,
-  code: ConstructorParameters<typeof OperatorWorkflowPortError>[0],
+  code: ConstructorParameters<typeof OperatorWorkflowPortError>[0]
 ): Promise<void> => {
-  const failure = await operation.catch((error: unknown) => error)
-  expect(failure).toBeInstanceOf(OperatorWorkflowPortError)
+  const failure = await operation.catch((error: unknown) => error);
+  expect(failure).toBeInstanceOf(OperatorWorkflowPortError);
   expect(failure).toMatchObject({
     code,
-    message: operatorServiceErrorMessage(code)
-  })
-}
+    message: operatorServiceErrorMessage(code),
+  });
+};
 
 const exposeCorruptPlanIdentityAfterVerification = async (
   fake: FakeRepository,
   runId: string,
   identity: Readonly<{
-    planEvidenceId: string | null
-    planHash: string | null
-  }>,
+    planEvidenceId: string | null;
+    planHash: string | null;
+  }>
 ): Promise<void> => {
-  const stored = await fake.repository.findProjectionByOwner(runId, "owner-1")
-  if (stored === null) throw new Error("Expected the awaiting run projection")
+  const stored = await fake.repository.findProjectionByOwner(runId, "owner-1");
+  if (stored === null) throw new Error("Expected the awaiting run projection");
   const evidence = await fake.repository.findEvidenceByOwner(
     "plan-evidence",
     runId,
-    "owner-1",
-  )
-  if (evidence === null) throw new Error("Expected digest-bound plan evidence")
-  let verified = false
+    "owner-1"
+  );
+  if (evidence === null) throw new Error("Expected digest-bound plan evidence");
+  let verified = false;
   const context = new Proxy(stored.snapshot.context, {
     get: (target, property, receiver) => {
       if (verified && property === "planEvidenceId") {
-        return identity.planEvidenceId
+        return identity.planEvidenceId;
       }
       if (verified && property === "planHash") {
-        return identity.planHash
+        return identity.planHash;
       }
-      return Reflect.get(target, property, receiver)
-    }
-  })
+      return Reflect.get(target, property, receiver);
+    },
+  });
   vi.spyOn(fake.repository, "findProjectionByOwner").mockResolvedValue({
     ...stored,
-    snapshot: { ...stored.snapshot, context }
-  })
+    snapshot: { ...stored.snapshot, context },
+  });
   fake.findEvidenceByOwner.mockImplementationOnce(async () => {
-    verified = true
-    return evidence
-  }
-  )
-}
+    verified = true;
+    return evidence;
+  });
+};
 
-describe("operator workflow port projections and actions", function() {
-  it("uses the default clock and exposes workspace, detail evidence, and message defaults", async function() {
-    const fake = fakeRepository()
+describe("operator workflow port projections and actions", function () {
+  it("uses the default clock and exposes workspace, detail evidence, and message defaults", async function () {
+    const fake = fakeRepository();
     vi.spyOn(fake.repository, "listEvidenceByOwner").mockResolvedValue({
       items: [
         {
@@ -1295,7 +1407,7 @@ describe("operator workflow port projections and actions", function() {
           requestHash: "a".repeat(64),
           summary: "[REDACTED] plan",
           data: { result: "[REDACTED]" },
-          createdAt: NOW
+          createdAt: NOW,
         },
         {
           id: "evidence-2",
@@ -1304,162 +1416,174 @@ describe("operator workflow port projections and actions", function() {
           requestHash: "b".repeat(64),
           summary: "Plan output",
           data: { result: "[REDACTED]" },
-          createdAt: NOW
-        }
+          createdAt: NOW,
+        },
       ],
-      nextCursor: "ignored-in-detail"
-    })
+      nextCursor: "ignored-in-detail",
+    });
     vi.spyOn(fake.repository, "listMessagesByOwner").mockResolvedValue({
-      items: [{
-        id: "message-1",
-        runId: "unused",
-        idempotencyKey: "message-1",
-        requestHash: "a".repeat(64),
-        authorId: null,
-        content: "System update",
-        createdAt: NOW
-      }],
-      nextCursor: null
-    })
+      items: [
+        {
+          id: "message-1",
+          runId: "unused",
+          idempotencyKey: "message-1",
+          requestHash: "a".repeat(64),
+          authorId: null,
+          content: "System update",
+          createdAt: NOW,
+        },
+      ],
+      nextCursor: null,
+    });
     const port = createOperatorWorkflowPort({
       repository: fake.repository,
-      authorizeRepository: () => true
-    })
-    const submitted = await port.submit(submitInput())
-    const workspace = await port.workspace("owner-1", { limit: 10 })
-    const found = await port.detail("owner-1", submitted.run.id)
+      authorizeRepository: () => true,
+    });
+    const submitted = await port.submit(submitInput());
+    const workspace = await port.workspace("owner-1", { limit: 10 });
+    const found = await port.detail("owner-1", submitted.run.id);
 
-    expect(submitted.timeline[0]!.createdAt.toISOString()).toMatch(/Z$/u)
-    expect(workspace).toHaveLength(1)
+    expect(submitted.timeline[0]!.createdAt.toISOString()).toMatch(/Z$/u);
+    expect(workspace).toHaveLength(1);
     expect(workspace[0]).toMatchObject({
       id: submitted.run.id,
-      title: "Pilot run"
-    })
+      title: "Pilot run",
+    });
     expect(found).toMatchObject({
       evidence: [
         {
           id: "evidence-1",
           content: '{"result":"[REDACTED]"}',
-          redacted: true
+          redacted: true,
         },
         {
           id: "evidence-2",
-          redacted: true
-        }
+          redacted: true,
+        },
       ],
-      messages: [{ authorLabel: "System", body: "System update" }]
-    })
+      messages: [{ authorLabel: "System", body: "System update" }],
+    });
     expect(fake.repository.listEvidenceByOwner).toHaveBeenLastCalledWith(
       submitted.run.id,
       "owner-1",
-      { limit: 100 },
-    )
+      { limit: 100 }
+    );
     expect(fake.repository.listMessagesByOwner).toHaveBeenLastCalledWith(
       submitted.run.id,
       "owner-1",
-      { limit: 100 },
-    )
-    return expect(await port.detail("owner-2", submitted.run.id)).toBeNull()
-  })
+      { limit: 100 }
+    );
+    return expect(await port.detail("owner-2", submitted.run.id)).toBeNull();
+  });
 
-  it("omits a null task title from an initial projected summary", async function() {
-    const fake = fakeRepository()
-    const port = portFor(fake)
-    const runId = "initial-draft-run"
-    const projection = initialProjectionFor(runId)
-    fake.listRunsByOwner.mockResolvedValueOnce([projection.run])
-    fake.listProjectionsByOwner.mockResolvedValueOnce([projection])
+  it("omits a null task title from an initial projected summary", async function () {
+    const fake = fakeRepository();
+    const port = portFor(fake);
+    const runId = "initial-draft-run";
+    const projection = initialProjectionFor(runId);
+    fake.listRunsByOwner.mockResolvedValueOnce([projection.run]);
+    fake.listProjectionsByOwner.mockResolvedValueOnce([projection]);
 
-    const workspace = await port.workspace("owner-1", { limit: 1 })
+    const workspace = await port.workspace("owner-1", { limit: 1 });
 
-    return expect(workspace[0]).not.toHaveProperty("title")
-  })
+    return expect(workspace[0]).not.toHaveProperty("title");
+  });
 
-  it("fails closed when detail receives a verified empty-journal initial projection", async function() {
-    const fake = fakeRepository()
-    const port = portFor(fake)
-    const runId = "empty-journal-detail-run"
-    const projection = initialProjectionFor(runId)
-    vi.spyOn(fake.repository, "findProjectionByOwner")
-      .mockResolvedValueOnce(projection)
+  it("fails closed when detail receives a verified empty-journal initial projection", async function () {
+    const fake = fakeRepository();
+    const port = portFor(fake);
+    const runId = "empty-journal-detail-run";
+    const projection = initialProjectionFor(runId);
+    vi.spyOn(fake.repository, "findProjectionByOwner").mockResolvedValueOnce(
+      projection
+    );
 
     await expectWorkflowPortError(
       port.detail("owner-1", runId),
-      "PROJECTION_INVALID",
-    )
-    return expect(fake.findEvidenceByOwner).not.toHaveBeenCalled()
-  })
+      "PROJECTION_INVALID"
+    );
+    return expect(fake.findEvidenceByOwner).not.toHaveBeenCalled();
+  });
 
-  it("projects only digest-bound plan evidence through the owner-scoped lookup", async function() {
-    const fake = fakeRepository()
-    const port = portFor(fake)
-    const { submitted } = await awaitingRun(fake, port)
+  it("projects only digest-bound plan evidence through the owner-scoped lookup", async function () {
+    const fake = fakeRepository();
+    const port = portFor(fake);
+    const { submitted } = await awaitingRun(fake, port);
 
-    const found = await port.detail("owner-1", submitted.run.id)
-    expect(found?.implementationPlan).toEqual(PLAN)
+    const found = await port.detail("owner-1", submitted.run.id);
+    expect(found?.implementationPlan).toEqual(PLAN);
     expect(fake.findEvidenceByOwner).toHaveBeenLastCalledWith(
       "plan-evidence",
       submitted.run.id,
-      "owner-1",
-    )
-    expect(await port.detail("owner-2", submitted.run.id)).toBeNull()
+      "owner-1"
+    );
+    expect(await port.detail("owner-2", submitted.run.id)).toBeNull();
     return expect(fake.findEvidenceByOwner).not.toHaveBeenCalledWith(
       "plan-evidence",
       submitted.run.id,
-      "owner-2",
-    )
-  })
+      "owner-2"
+    );
+  });
 
-  it("fails closed when a verified projection exposes an incomplete plan identity", async function() {
-    const results1=[];for (const identity of [
+  it("fails closed when a verified projection exposes an incomplete plan identity", async function () {
+    const results1 = [];
+    for (const identity of [
       { planEvidenceId: null, planHash: PLAN.digest },
-      { planEvidenceId: "plan-evidence", planHash: null }
+      { planEvidenceId: "plan-evidence", planHash: null },
     ]) {
-      const fake = fakeRepository()
-      const port = portFor(fake)
-      const { submitted } = await awaitingRun(fake, port)
+      const fake = fakeRepository();
+      const port = portFor(fake);
+      const { submitted } = await awaitingRun(fake, port);
       await exposeCorruptPlanIdentityAfterVerification(
         fake,
         submitted.run.id,
-        identity,
-      )
+        identity
+      );
 
-      results1.push(await expectWorkflowPortError(
-        port.detail("owner-1", submitted.run.id),
-        "PROJECTION_INVALID",
-      ))
-    };return results1;
-  })
+      results1.push(
+        await expectWorkflowPortError(
+          port.detail("owner-1", submitted.run.id),
+          "PROJECTION_INVALID"
+        )
+      );
+    }
+    return results1;
+  });
 
-  it("fails closed when verified plan evidence disappears or changes kind", async function() {
-    const results2=[];for (const corruption of ["missing", "invalid-kind"] as const) {
-      const fake = fakeRepository()
-      const port = portFor(fake)
-      const { submitted } = await awaitingRun(fake, port)
+  it("fails closed when verified plan evidence disappears or changes kind", async function () {
+    const results2 = [];
+    for (const corruption of ["missing", "invalid-kind"] as const) {
+      const fake = fakeRepository();
+      const port = portFor(fake);
+      const { submitted } = await awaitingRun(fake, port);
       const evidence = await fake.repository.findEvidenceByOwner(
         "plan-evidence",
         submitted.run.id,
-        "owner-1",
-      )
-      if (evidence === null) throw new Error("Expected digest-bound plan evidence")
-      fake.findEvidenceByOwner.mockResolvedValueOnce(evidence)
+        "owner-1"
+      );
+      if (evidence === null)
+        throw new Error("Expected digest-bound plan evidence");
+      fake.findEvidenceByOwner.mockResolvedValueOnce(evidence);
       fake.findEvidenceByOwner.mockResolvedValueOnce(
         corruption === "missing"
           ? null
-          : { ...evidence, kind: "unexpected-plan-kind" },
-      )
+          : { ...evidence, kind: "unexpected-plan-kind" }
+      );
 
-      results2.push(await expectWorkflowPortError(
-        port.detail("owner-1", submitted.run.id),
-        "PROJECTION_INVALID",
-      ))
-    };return results2;
-  })
+      results2.push(
+        await expectWorkflowPortError(
+          port.detail("owner-1", submitted.run.id),
+          "PROJECTION_INVALID"
+        )
+      );
+    }
+    return results2;
+  });
 
-  it("fails closed when replayed durable plan evidence is tampered", async function() {
-    const fake = fakeRepository()
-    const port = portFor(fake)
-    const { submitted } = await awaitingRun(fake, port)
+  it("fails closed when replayed durable plan evidence is tampered", async function () {
+    const fake = fakeRepository();
+    const port = portFor(fake);
+    const { submitted } = await awaitingRun(fake, port);
     fake.findEvidenceByOwner.mockResolvedValueOnce({
       id: "plan-evidence",
       runId: submitted.run.id,
@@ -1467,22 +1591,24 @@ describe("operator workflow port projections and actions", function() {
       requestHash: PLAN.digest,
       summary: "OMP implementation plan",
       data: { plan: { ...PLAN, summary: `${PLAN.summary} tampered` } },
-      createdAt: NOW
-    })
+      createdAt: NOW,
+    });
 
-    return await expect(port.detail("owner-1", submitted.run.id)).rejects.toEqual(
+    return await expect(
+      port.detail("owner-1", submitted.run.id)
+    ).rejects.toEqual(
       new OperatorWorkflowPortError(
         "PROJECTION_INVALID",
-        operatorServiceErrorMessage("PROJECTION_INVALID"),
-      ),
-    )
-  })
+        operatorServiceErrorMessage("PROJECTION_INVALID")
+      )
+    );
+  });
 
-  it("rejects approval before persistence when the digest-bound plan cannot be verified", async function() {
-    const fake = fakeRepository()
-    const port = portFor(fake)
-    const { submitted, approval: bound } = await awaitingRun(fake, port)
-    const { stale: _stale, ...approval } = bound
+  it("rejects approval before persistence when the digest-bound plan cannot be verified", async function () {
+    const fake = fakeRepository();
+    const port = portFor(fake);
+    const { submitted, approval: bound } = await awaitingRun(fake, port);
+    const { stale: _stale, ...approval } = bound;
     fake.findEvidenceByOwner.mockResolvedValueOnce({
       id: "plan-evidence",
       runId: submitted.run.id,
@@ -1490,106 +1616,120 @@ describe("operator workflow port projections and actions", function() {
       requestHash: PLAN.digest,
       summary: "OMP implementation plan",
       data: { plan: { ...PLAN, redacted: !PLAN.redacted } },
-      createdAt: NOW
-    })
+      createdAt: NOW,
+    });
 
-    await expect(port.approve({
-      ownerId: "owner-1",
-      actorUserId: "operator-1",
-      runId: submitted.run.id,
-      requestId: "reject-tampered-plan",
-      approval
-    })).rejects.toEqual(new OperatorWorkflowPortError(
-      "PROJECTION_INVALID",
-      operatorServiceErrorMessage("PROJECTION_INVALID"),
-    ))
-    return expect(fake.decideApprovalAndAppend).not.toHaveBeenCalled()
-  })
+    await expect(
+      port.approve({
+        ownerId: "owner-1",
+        actorUserId: "operator-1",
+        runId: submitted.run.id,
+        requestId: "reject-tampered-plan",
+        approval,
+      })
+    ).rejects.toEqual(
+      new OperatorWorkflowPortError(
+        "PROJECTION_INVALID",
+        operatorServiceErrorMessage("PROJECTION_INVALID")
+      )
+    );
+    return expect(fake.decideApprovalAndAppend).not.toHaveBeenCalled();
+  });
 
-  it("filters missing workspace projections and maps missing listed projections", async function() {
-    const fake = fakeRepository()
-    const port = portFor(fake)
-    await port.submit(submitInput())
-    vi.spyOn(fake.repository, "listProjectionsByOwner").mockResolvedValue([])
+  it("filters missing workspace projections and maps missing listed projections", async function () {
+    const fake = fakeRepository();
+    const port = portFor(fake);
+    await port.submit(submitInput());
+    vi.spyOn(fake.repository, "listProjectionsByOwner").mockResolvedValue([]);
 
-    await expect(port.workspace("owner-1", { limit: 5 })).resolves.toEqual([])
+    await expect(port.workspace("owner-1", { limit: 5 })).resolves.toEqual([]);
     return await expect(port.list("owner-1", { limit: 5 })).rejects.toEqual(
       new OperatorWorkflowPortError(
         "NOT_FOUND",
         operatorServiceErrorMessage("NOT_FOUND")
       )
-    )
-  })
+    );
+  });
 
-  it("hydrates workspace and list with one owner-scoped bulk projection read", async function() {
-    const fake = fakeRepository()
-    const port = portFor(fake)
-    await port.submit(submitInput("owner-1", "submit-bulk-1"))
-    await port.submit(submitInput("owner-1", "submit-bulk-2"))
+  it("hydrates workspace and list with one owner-scoped bulk projection read", async function () {
+    const fake = fakeRepository();
+    const port = portFor(fake);
+    await port.submit(submitInput("owner-1", "submit-bulk-1"));
+    await port.submit(submitInput("owner-1", "submit-bulk-2"));
     vi.spyOn(fake.repository, "findProjectionByOwner").mockRejectedValue(
-      new Error("per-run projection reads must not be used"),
-    )
+      new Error("per-run projection reads must not be used")
+    );
 
-    await expect(port.workspace("owner-1", { limit: 10 })).resolves.toHaveLength(2)
+    await expect(
+      port.workspace("owner-1", { limit: 10 })
+    ).resolves.toHaveLength(2);
     await expect(port.list("owner-1", { limit: 10 })).resolves.toMatchObject({
       runs: expect.arrayContaining([
         expect.objectContaining({ ownerId: "owner-1" }),
         expect.objectContaining({ ownerId: "owner-1" }),
       ]),
-      nextCursor: null
-    })
-    expect(fake.listProjectionsByOwner).toHaveBeenCalledTimes(2)
-    expect(fake.listProjectionsByOwner.mock.calls.every(
-      ([ownerId, runIds]) => ownerId === "owner-1" && runIds.length === 2,
-    )).toBe(true)
-    return expect(fake.repository.findProjectionByOwner).not.toHaveBeenCalled()
-  })
+      nextCursor: null,
+    });
+    expect(fake.listProjectionsByOwner).toHaveBeenCalledTimes(2);
+    expect(
+      fake.listProjectionsByOwner.mock.calls.every(
+        ([ownerId, runIds]) => ownerId === "owner-1" && runIds.length === 2
+      )
+    ).toBe(true);
+    return expect(fake.repository.findProjectionByOwner).not.toHaveBeenCalled();
+  });
 
-  it("rejects an occupied request ID and persists an optional rejection reason", async function() {
-    const fake = fakeRepository()
-    const port = portFor(fake)
-    const run = await awaitingRun(fake, port)
-    await expect(port.reject({
-      ownerId: "owner-1",
-      actorUserId: "operator-1",
-      runId: run.submitted.run.id,
-      requestId: `submit-${submissionHashFor("owner-1", "submit-attempt-1")}`,
-      reason: "must not overwrite"
-    })).rejects.toMatchObject({ code: "CONFLICT" })
+  it("rejects an occupied request ID and persists an optional rejection reason", async function () {
+    const fake = fakeRepository();
+    const port = portFor(fake);
+    const run = await awaitingRun(fake, port);
+    await expect(
+      port.reject({
+        ownerId: "owner-1",
+        actorUserId: "operator-1",
+        runId: run.submitted.run.id,
+        requestId: `submit-${submissionHashFor("owner-1", "submit-attempt-1")}`,
+        reason: "must not overwrite",
+      })
+    ).rejects.toMatchObject({ code: "CONFLICT" });
 
     const rejected = await port.reject({
       ownerId: "owner-1",
       actorUserId: "operator-1",
       runId: run.submitted.run.id,
       requestId: "reject-request",
-      reason: "Plan needs revision"
-    })
-    expect(rejected.run.state).toBe("cancelled")
+      reason: "Plan needs revision",
+    });
+    expect(rejected.run.state).toBe("cancelled");
     return expect(fake.decideApprovalAndAppend).toHaveBeenLastCalledWith(
       expect.objectContaining({
         approval: expect.objectContaining({
           decision: "rejected",
-          reason: "Plan needs revision"
-        })
+          reason: "Plan needs revision",
+        }),
       })
-    )
-  })
+    );
+  });
 
-  it("cancels, retries blocked effects, and records owner-scoped messages", async function() {
-    const cancelledFake = fakeRepository()
-    const cancelledPort = portFor(cancelledFake)
-    const submitted = await cancelledPort.submit(submitInput())
-    await expect(cancelledPort.cancel({
-      ownerId: "owner-1",
-      actorUserId: "operator-1",
-      runId: submitted.run.id,
-      requestId: "cancel-request"
-    })).resolves.toMatchObject({ run: { state: "cancelled" } })
+  it("cancels, retries blocked effects, and records owner-scoped messages", async function () {
+    const cancelledFake = fakeRepository();
+    const cancelledPort = portFor(cancelledFake);
+    const submitted = await cancelledPort.submit(submitInput());
+    await expect(
+      cancelledPort.cancel({
+        ownerId: "owner-1",
+        actorUserId: "operator-1",
+        runId: submitted.run.id,
+        requestId: "cancel-request",
+      })
+    ).resolves.toMatchObject({ run: { state: "cancelled" } });
 
-    const retryFake = fakeRepository()
-    const retryPort = portFor(retryFake)
-    const retrySubmitted = await retryPort.submit(submitInput())
-    const application = createWorkflowApplication(retryFake.repository, { now: () => NOW })
+    const retryFake = fakeRepository();
+    const retryPort = portFor(retryFake);
+    const retrySubmitted = await retryPort.submit(submitInput());
+    const application = createWorkflowApplication(retryFake.repository, {
+      now: () => NOW,
+    });
     await application.transition({
       ownerId: "owner-1",
       runId: retrySubmitted.run.id,
@@ -1600,22 +1740,26 @@ describe("operator workflow port projections and actions", function() {
         machineVersion: 1,
         occurredAt: NOW.toISOString(),
         effectKind: "plan",
-        failure: { code: "adapter_failed", retryable: true }
-      }
-    })
-    await expect(retryPort.workspace("owner-1", { limit: 10 })).resolves.toEqual([
-      expect.objectContaining({ blockedReason: "adapter_failed" })
-    ])
-    await expect(retryPort.retry({
-      ownerId: "owner-1",
-      actorUserId: "operator-1",
-      runId: retrySubmitted.run.id,
-      requestId: "retry-request"
-    })).resolves.toMatchObject({ run: { state: "planning" } })
+        failure: { code: "adapter_failed", retryable: true },
+      },
+    });
+    await expect(
+      retryPort.workspace("owner-1", { limit: 10 })
+    ).resolves.toEqual([
+      expect.objectContaining({ blockedReason: "adapter_failed" }),
+    ]);
+    await expect(
+      retryPort.retry({
+        ownerId: "owner-1",
+        actorUserId: "operator-1",
+        runId: retrySubmitted.run.id,
+        requestId: "retry-request",
+      })
+    ).resolves.toMatchObject({ run: { state: "planning" } });
     const beforeMessage = await retryPort.detail(
       "owner-1",
-      retrySubmitted.run.id,
-    )
+      retrySubmitted.run.id
+    );
     const messageInput = {
       ownerId: "owner-1",
       actorUserId: "operator-1",
@@ -1623,18 +1767,19 @@ describe("operator workflow port projections and actions", function() {
       requestId: "message-request",
       idempotencyKey: "message-key",
       body: "Status?",
-    }
-    const firstMessage = await retryPort.message(messageInput)
-    const replayedMessage = await retryPort.message(messageInput)
-    expect(firstMessage.run.sequence).toBe(beforeMessage!.run.sequence + 1)
-    expect(firstMessage.timeline.at(-1)?.eventType)
-      .toBe("OPERATOR_MESSAGE_ADDED")
+    };
+    const firstMessage = await retryPort.message(messageInput);
+    const replayedMessage = await retryPort.message(messageInput);
+    expect(firstMessage.run.sequence).toBe(beforeMessage!.run.sequence + 1);
+    expect(firstMessage.timeline.at(-1)?.eventType).toBe(
+      "OPERATOR_MESSAGE_ADDED"
+    );
     expect(firstMessage.messages).toEqual([
       expect.objectContaining({ body: "Status?" }),
-    ])
-    expect(replayedMessage.run.sequence).toBe(firstMessage.run.sequence)
-    expect(replayedMessage.messages).toHaveLength(1)
-    expect(retryFake.addMessageAndAppend).toHaveBeenCalledTimes(2)
+    ]);
+    expect(replayedMessage.run.sequence).toBe(firstMessage.run.sequence);
+    expect(replayedMessage.messages).toHaveLength(1);
+    expect(retryFake.addMessageAndAppend).toHaveBeenCalledTimes(2);
     expect(retryFake.addMessageAndAppend.mock.calls[0]?.[0]).toMatchObject({
       idempotencyKey: "message-key",
       runId: retrySubmitted.run.id,
@@ -1647,125 +1792,147 @@ describe("operator workflow port projections and actions", function() {
       append: expect.objectContaining({
         expectedSequence: beforeMessage!.run.sequence,
       }),
-    })
-    expect(retryFake.addMessageAndAppend.mock.calls[1]?.[0])
-      .toMatchObject({ append: null })
+    });
+    expect(retryFake.addMessageAndAppend.mock.calls[1]?.[0]).toMatchObject({
+      append: null,
+    });
 
-    await expect(retryPort.message({
-      ...messageInput,
-      body: "Different status?",
-    })).rejects.toEqual(new OperatorWorkflowPortError(
-      "CONFLICT",
-      operatorServiceErrorMessage("CONFLICT"),
-    ))
+    await expect(
+      retryPort.message({
+        ...messageInput,
+        body: "Different status?",
+      })
+    ).rejects.toEqual(
+      new OperatorWorkflowPortError(
+        "CONFLICT",
+        operatorServiceErrorMessage("CONFLICT")
+      )
+    );
 
-    await expect(cancelledPort.message({
-      ownerId: "owner-1",
-      actorUserId: "operator-1",
-      runId: submitted.run.id,
-      requestId: "late-message-request",
-      idempotencyKey: "late-message-key",
-      body: "Too late",
-    })).rejects.toEqual(new OperatorWorkflowPortError(
-      "CONFLICT",
-      operatorServiceErrorMessage("CONFLICT"),
-    ))
-    expect(cancelledFake.addMessageAndAppend).not.toHaveBeenCalled()
+    await expect(
+      cancelledPort.message({
+        ownerId: "owner-1",
+        actorUserId: "operator-1",
+        runId: submitted.run.id,
+        requestId: "late-message-request",
+        idempotencyKey: "late-message-key",
+        body: "Too late",
+      })
+    ).rejects.toEqual(
+      new OperatorWorkflowPortError(
+        "CONFLICT",
+        operatorServiceErrorMessage("CONFLICT")
+      )
+    );
+    expect(cancelledFake.addMessageAndAppend).not.toHaveBeenCalled();
 
-    const missingFake = fakeRepository()
-    await expect(portFor(missingFake).message({
-      ownerId: "owner-1",
-      actorUserId: "operator-1",
-      runId: "missing-run",
-      requestId: "missing-message-request",
-      idempotencyKey: "missing-message-key",
-      body: "Anyone there?",
-    })).rejects.toEqual(new OperatorWorkflowPortError(
-      "NOT_FOUND",
-      operatorServiceErrorMessage("NOT_FOUND"),
-    ))
-    return expect(missingFake.addMessageAndAppend).not.toHaveBeenCalled()
-  })
+    const missingFake = fakeRepository();
+    await expect(
+      portFor(missingFake).message({
+        ownerId: "owner-1",
+        actorUserId: "operator-1",
+        runId: "missing-run",
+        requestId: "missing-message-request",
+        idempotencyKey: "missing-message-key",
+        body: "Anyone there?",
+      })
+    ).rejects.toEqual(
+      new OperatorWorkflowPortError(
+        "NOT_FOUND",
+        operatorServiceErrorMessage("NOT_FOUND")
+      )
+    );
+    return expect(missingFake.addMessageAndAppend).not.toHaveBeenCalled();
+  });
 
-  return it("caps manual retries without appending another journal entry or effect", async function() {
-    const fake = fakeRepository()
-    const port = portFor(fake)
-    const submitted = await port.submit(submitInput(
-      "owner-1",
-      "bounded-retries"
-    ))
+  return it("caps manual retries without appending another journal entry or effect", async function () {
+    const fake = fakeRepository();
+    const port = portFor(fake);
+    const submitted = await port.submit(
+      submitInput("owner-1", "bounded-retries")
+    );
     const application = createWorkflowApplication(fake.repository, {
-      now: () => NOW
-    })
-    const failPlan = (eventId: string) => application.transition({
-      ownerId: "owner-1",
-      runId: submitted.run.id,
-      event: {
-        type: "EFFECT_FAILED",
-        eventId,
-        eventVersion: 1,
-        machineVersion: 1,
-        occurredAt: NOW.toISOString(),
-        effectKind: "plan",
-        failure: { code: "adapter_failed", retryable: true }
-      }
-    })
+      now: () => NOW,
+    });
+    const failPlan = (eventId: string) =>
+      application.transition({
+        ownerId: "owner-1",
+        runId: submitted.run.id,
+        event: {
+          type: "EFFECT_FAILED",
+          eventId,
+          eventVersion: 1,
+          machineVersion: 1,
+          occurredAt: NOW.toISOString(),
+          effectKind: "plan",
+          failure: { code: "adapter_failed", retryable: true },
+        },
+      });
 
     for (const attempt of Array.from(
       { length: MAX_WORKFLOW_STAGE_ATTEMPTS_V1 - 1 },
       (_, index) => index + 1
     )) {
-      await failPlan(`bounded-failure-${attempt}`)
+      await failPlan(`bounded-failure-${attempt}`);
       const retryInput = {
         ownerId: "owner-1",
         actorUserId: "operator-1",
         runId: submitted.run.id,
-        requestId: `bounded-retry-${attempt}`
-      }
-      const retried = await port.retry(retryInput)
+        requestId: `bounded-retry-${attempt}`,
+      };
+      const retried = await port.retry(retryInput);
       if (attempt === 1) {
-        const appendCount = fake.append.mock.calls.length
-        await expect(port.retry(retryInput)).resolves.toEqual(retried)
-        expect(fake.append).toHaveBeenCalledTimes(appendCount)
+        const appendCount = fake.append.mock.calls.length;
+        await expect(port.retry(retryInput)).resolves.toEqual(retried);
+        expect(fake.append).toHaveBeenCalledTimes(appendCount);
         const replayed = await application.findProjection(
           "owner-1",
           submitted.run.id
-        )
-        expect(replayed?.snapshot.context.attempts.plan).toBe(attempt + 1)
+        );
+        expect(replayed?.snapshot.context.attempts.plan).toBe(attempt + 1);
       }
     }
 
-    await failPlan("bounded-failure-at-limit")
-    const before = await application.findProjection("owner-1", submitted.run.id)
-    const appendCount = fake.append.mock.calls.length
-    const journalCount = before!.journal.length
-    const failure = await port.retry({
-      ownerId: "owner-1",
-      actorUserId: "operator-1",
-      runId: submitted.run.id,
-      requestId: "bounded-retry-exhausted"
-    }).catch((error: unknown) => error)
+    await failPlan("bounded-failure-at-limit");
+    const before = await application.findProjection(
+      "owner-1",
+      submitted.run.id
+    );
+    const appendCount = fake.append.mock.calls.length;
+    const journalCount = before!.journal.length;
+    const failure = await port
+      .retry({
+        ownerId: "owner-1",
+        actorUserId: "operator-1",
+        runId: submitted.run.id,
+        requestId: "bounded-retry-exhausted",
+      })
+      .catch((error: unknown) => error);
 
-    expect(failure).toEqual(new OperatorWorkflowPortError(
-      "CONFLICT",
-      operatorServiceErrorMessage("CONFLICT")
-    ))
-    expect(String(failure)).not.toMatch(/attempt|count|limit|\d+/iu)
-    expect(fake.append).toHaveBeenCalledTimes(appendCount)
-    const after = await application.findProjection("owner-1", submitted.run.id)
-    expect(after).toEqual(before)
-    expect(after!.journal).toHaveLength(journalCount)
+    expect(failure).toEqual(
+      new OperatorWorkflowPortError(
+        "CONFLICT",
+        operatorServiceErrorMessage("CONFLICT")
+      )
+    );
+    expect(String(failure)).not.toMatch(/attempt|count|limit|\d+/iu);
+    expect(fake.append).toHaveBeenCalledTimes(appendCount);
+    const after = await application.findProjection("owner-1", submitted.run.id);
+    expect(after).toEqual(before);
+    expect(after!.journal).toHaveLength(journalCount);
 
-    return await expect(port.cancel({
-      ownerId: "owner-1",
-      actorUserId: "operator-1",
-      runId: submitted.run.id,
-      requestId: "cancel-exhausted-run"
-    })).resolves.toMatchObject({ run: { state: "cancelled" } })
-  })
-})
+    return await expect(
+      port.cancel({
+        ownerId: "owner-1",
+        actorUserId: "operator-1",
+        runId: submitted.run.id,
+        requestId: "cancel-exhausted-run",
+      })
+    ).resolves.toMatchObject({ run: { state: "cancelled" } });
+  });
+});
 
-describe("operator workflow port error mapping", function() {
+describe("operator workflow port error mapping", function () {
   it.each([
     [new WorkflowRunNotFoundError(), "NOT_FOUND"],
     [new WorkflowConcurrencyError(), "CONFLICT"],
@@ -1776,66 +1943,72 @@ describe("operator workflow port error mapping", function() {
     [new WorkflowProjectionIntegrityError("corrupt"), "PROJECTION_INVALID"],
     [new WorkflowProjectionVerificationError("corrupt"), "PROJECTION_INVALID"],
     [new WorkflowPersistenceInputError("bad cursor"), "VALIDATION_ERROR"],
-    [
-      new OperatorWorkflowPortError("FORBIDDEN", "private detail"),
-      "FORBIDDEN"
-    ],
-    [new Error("database password=private"), "STORAGE_ERROR"]
+    [new OperatorWorkflowPortError("FORBIDDEN", "private detail"), "FORBIDDEN"],
+    [new Error("database password=private"), "STORAGE_ERROR"],
   ] as const)("maps repository failures to %s", async (failure, code) => {
-    const fake = fakeRepository()
-    vi.spyOn(fake.repository, "listRunsByOwner").mockRejectedValue(failure)
-    const port = portFor(fake)
-    return await expect(port.workspace("owner-1", { limit: 1 })).rejects.toEqual(
-      new OperatorWorkflowPortError(
-        code,
-        operatorServiceErrorMessage(code)
-      )
-    )
-  }
-  )
-  it("preserves an internal storage cause without exposing it in the public message", async function() {
-    const failure = Object.assign(new Error("database password=private"), { code: "XX000" })
-    const fake = fakeRepository()
-    vi.spyOn(fake.repository, "listRunsByOwner").mockRejectedValue(failure)
-    const port = portFor(fake)
-    const mapped = await port.workspace("owner-1", { limit: 1 }).catch((error) => error)
-    expect(mapped).toBeInstanceOf(OperatorWorkflowPortError)
+    const fake = fakeRepository();
+    vi.spyOn(fake.repository, "listRunsByOwner").mockRejectedValue(failure);
+    const port = portFor(fake);
+    return await expect(
+      port.workspace("owner-1", { limit: 1 })
+    ).rejects.toEqual(
+      new OperatorWorkflowPortError(code, operatorServiceErrorMessage(code))
+    );
+  });
+  it("preserves an internal storage cause without exposing it in the public message", async function () {
+    const failure = Object.assign(new Error("database password=private"), {
+      code: "XX000",
+    });
+    const fake = fakeRepository();
+    vi.spyOn(fake.repository, "listRunsByOwner").mockRejectedValue(failure);
+    const port = portFor(fake);
+    const mapped = await port
+      .workspace("owner-1", { limit: 1 })
+      .catch((error) => error);
+    expect(mapped).toBeInstanceOf(OperatorWorkflowPortError);
     expect(mapped).toMatchObject({
       code: "STORAGE_ERROR",
       message: operatorServiceErrorMessage("STORAGE_ERROR"),
       cause: failure,
-    })
-    return expect((mapped as Error).message).not.toContain("password")
-  })
+    });
+    return expect((mapped as Error).message).not.toContain("password");
+  });
 
-
-  return it("uses validation fallback errors for invalid submit, cancel, and retry input", async function() {
-    const fake = fakeRepository()
-    const port = portFor(fake)
-    await expect(port.submit({
-      ...submitInput(),
-      scope: { repositoryId: "../invalid", paths: ["."] }
-    })).rejects.toMatchObject({ code: "VALIDATION_ERROR" })
-    const results3=[];for (const operation of [
-      () => port.cancel({
-        ownerId: "owner-1",
-        actorUserId: "owner-1",
-        runId: "missing",
-        requestId: "cancel"
-      }),
-      () => port.retry({
-        ownerId: "owner-1",
-        actorUserId: "owner-1",
-        runId: "missing",
-        requestId: "retry"
+  return it("uses validation fallback errors for invalid submit, cancel, and retry input", async function () {
+    const fake = fakeRepository();
+    const port = portFor(fake);
+    await expect(
+      port.submit({
+        ...submitInput(),
+        scope: { repositoryId: "../invalid", paths: ["."] },
       })
+    ).rejects.toMatchObject({ code: "VALIDATION_ERROR" });
+    const results3 = [];
+    for (const operation of [
+      () =>
+        port.cancel({
+          ownerId: "owner-1",
+          actorUserId: "owner-1",
+          runId: "missing",
+          requestId: "cancel",
+        }),
+      () =>
+        port.retry({
+          ownerId: "owner-1",
+          actorUserId: "owner-1",
+          runId: "missing",
+          requestId: "retry",
+        }),
     ]) {
-      results3.push(await expect(operation()).rejects.toMatchObject({ code: "NOT_FOUND" }))
-    };return results3;
-  })
-})
+      results3.push(
+        await expect(operation()).rejects.toMatchObject({ code: "NOT_FOUND" })
+      );
+    }
+    return results3;
+  });
+});
 
-describe("operator approval replay binding comparisons", function() {
+describe("operator approval replay binding comparisons", function () {
   return it.each([
     ["machineId", "other-machine"],
     ["machineVersion", 2],
@@ -1843,79 +2016,80 @@ describe("operator approval replay binding comparisons", function() {
     ["snapshotSequence", 999],
     ["journalHeadHash", "f".repeat(64)],
     ["effectHash", "f".repeat(64)],
-    ["effectScope", '{"paths":["other"],"repositoryId":"darkfactory"}']
+    ["effectScope", '{"paths":["other"],"repositoryId":"darkfactory"}'],
   ] as const)("rejects a replay whose %s changes after event identity lookup", async (field, staleValue) => {
-    const fake = fakeRepository()
-    const port = portFor(fake)
-    const run = await awaitingRun(fake, port)
-    const { stale: _stale, ...approval } = run.approval
+    const fake = fakeRepository();
+    const port = portFor(fake);
+    const run = await awaitingRun(fake, port);
+    const { stale: _stale, ...approval } = run.approval;
     await port.approve({
       ownerId: "owner-1",
       actorUserId: "operator-1",
       runId: run.submitted.run.id,
       requestId: "initial-approval",
-      approval
-    })
-    let reads = 0
-    const replay = { ...approval } as Record<string, unknown>
+      approval,
+    });
+    let reads = 0;
+    const replay = { ...approval } as Record<string, unknown>;
     Object.defineProperty(replay, field, {
       enumerable: true,
       get: () => {
-        reads += 1
-        return reads === 1 ? approval[field] : staleValue
-      }
-    })
-    return await expect(port.approve({
-      ownerId: "owner-1",
-      actorUserId: "operator-1",
-      runId: run.submitted.run.id,
-      requestId: "replayed-approval",
-      approval: replay as never
-    })).rejects.toMatchObject({ code: "STALE_APPROVAL" })
-  }
-  )
-})
+        reads += 1;
+        return reads === 1 ? approval[field] : staleValue;
+      },
+    });
+    return await expect(
+      port.approve({
+        ownerId: "owner-1",
+        actorUserId: "operator-1",
+        runId: run.submitted.run.id,
+        requestId: "replayed-approval",
+        approval: replay as never,
+      })
+    ).rejects.toMatchObject({ code: "STALE_APPROVAL" });
+  });
+});
 
-describe("operator workflow remaining defaults and replay paths", function() {
-  it("applies list defaults without optional state or cursor filters", async function() {
-    const fake = fakeRepository()
-    const port = portFor(fake)
-    await port.submit(submitInput())
-    const listed = await port.list("owner-1", {})
+describe("operator workflow remaining defaults and replay paths", function () {
+  it("applies list defaults without optional state or cursor filters", async function () {
+    const fake = fakeRepository();
+    const port = portFor(fake);
+    await port.submit(submitInput());
+    const listed = await port.list("owner-1", {});
     expect(listed).toMatchObject({
       runs: [expect.objectContaining({ state: "planning" })],
-      nextCursor: null
-    })
+      nextCursor: null,
+    });
     return expect(fake.listRunsByOwner).toHaveBeenLastCalledWith("owner-1", {
-      limit: 101
-    })
-  })
+      limit: 101,
+    });
+  });
 
-  it("replays the same rejection event without duplicating a decision", async function() {
-    const fake = fakeRepository()
-    const port = portFor(fake)
-    const run = await awaitingRun(fake, port)
+  it("replays the same rejection event without duplicating a decision", async function () {
+    const fake = fakeRepository();
+    const port = portFor(fake);
+    const run = await awaitingRun(fake, port);
     const input = {
       ownerId: "owner-1",
       actorUserId: "operator-1",
       runId: run.submitted.run.id,
-      requestId: "stable-rejection"
-    }
-    const first = await port.reject(input)
-    const replayed = await port.reject(input)
-    expect(first.run.state).toBe("cancelled")
-    expect(replayed).toEqual(first)
-    expect(fake.decideApprovalAndAppend).toHaveBeenCalledTimes(2)
+      requestId: "stable-rejection",
+    };
+    const first = await port.reject(input);
+    const replayed = await port.reject(input);
+    expect(first.run.state).toBe("cancelled");
+    expect(replayed).toEqual(first);
+    expect(fake.decideApprovalAndAppend).toHaveBeenCalledTimes(2);
     return expect(fake.decideApprovalAndAppend).toHaveBeenNthCalledWith(
       2,
       expect.objectContaining({
         approval: expect.not.objectContaining({ reason: expect.anything() }),
         append: expect.objectContaining({
-          event: expect.objectContaining({ eventId: "stable-rejection" })
-        })
+          event: expect.objectContaining({ eventId: "stable-rejection" }),
+        }),
       })
-    )
-  })
+    );
+  });
 
   it.each([
     ["machineId", "other-machine"],
@@ -1924,37 +2098,42 @@ describe("operator workflow remaining defaults and replay paths", function() {
     ["snapshotSequence", 999],
     ["journalHeadHash", "f".repeat(64)],
     ["effectHash", "f".repeat(64)],
-    ["effectScope", '{"paths":["other"],"repositoryId":"darkfactory"}']
+    ["effectScope", '{"paths":["other"],"repositoryId":"darkfactory"}'],
   ] as const)("rejects a fresh approval with mismatched %s", async (field, value) => {
-    const fake = fakeRepository()
-    const port = portFor(fake)
-    const run = await awaitingRun(fake, port)
-    const { stale: _stale, ...approval } = run.approval
-    await expect(port.approve({
-      ownerId: "owner-1",
-      actorUserId: "operator-1",
-      runId: run.submitted.run.id,
-      requestId: "mismatched-approval",
-      approval: { ...approval, [field]: value }
-    })).rejects.toMatchObject({ code: "STALE_APPROVAL" })
-    return expect(fake.decideApprovalAndAppend).not.toHaveBeenCalled()
-  }
-  )
+    const fake = fakeRepository();
+    const port = portFor(fake);
+    const run = await awaitingRun(fake, port);
+    const { stale: _stale, ...approval } = run.approval;
+    await expect(
+      port.approve({
+        ownerId: "owner-1",
+        actorUserId: "operator-1",
+        runId: run.submitted.run.id,
+        requestId: "mismatched-approval",
+        approval: { ...approval, [field]: value },
+      })
+    ).rejects.toMatchObject({ code: "STALE_APPROVAL" });
+    return expect(fake.decideApprovalAndAppend).not.toHaveBeenCalled();
+  });
 
-  return it("uses validation fallback for an unexpected cancel persistence failure", async function() {
-    const fake = fakeRepository()
+  return it("uses validation fallback for an unexpected cancel persistence failure", async function () {
+    const fake = fakeRepository();
     vi.spyOn(fake.repository, "findProjectionByOwner").mockRejectedValue(
       new Error("unexpected persistence failure")
-    )
-    const port = portFor(fake)
-    return await expect(port.cancel({
-      ownerId: "owner-1",
-      actorUserId: "owner-1",
-      runId: "run-1",
-      requestId: "cancel"
-    })).rejects.toEqual(new OperatorWorkflowPortError(
-      "VALIDATION_ERROR",
-      operatorServiceErrorMessage("VALIDATION_ERROR")
-    ))
-  })
-})
+    );
+    const port = portFor(fake);
+    return await expect(
+      port.cancel({
+        ownerId: "owner-1",
+        actorUserId: "owner-1",
+        runId: "run-1",
+        requestId: "cancel",
+      })
+    ).rejects.toEqual(
+      new OperatorWorkflowPortError(
+        "VALIDATION_ERROR",
+        operatorServiceErrorMessage("VALIDATION_ERROR")
+      )
+    );
+  });
+});

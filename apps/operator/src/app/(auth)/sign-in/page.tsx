@@ -1,40 +1,55 @@
-import { ShieldCheck } from "lucide-react"
+import { ShieldCheck } from "lucide-react";
 
-import { OperatorSignIn } from "../../../components/operator-sign-in.tsx"
+import { OperatorSignIn } from "../../../components/operator-sign-in.tsx";
 
 export const metadata = {
   title: "Sign in",
   description: "Sign in with the seeded development administrator.",
-}
+};
 
-type SignInSearchParams = Promise<Readonly<Record<string, string | string[] | undefined>>>
+type SignInSearchParams = Promise<
+  Readonly<Record<string, string | string[] | undefined>>
+>;
 
 export default async function SignInPage({
   searchParams,
 }: Readonly<{ searchParams: SignInSearchParams }>) {
-  const params = await searchParams
-  const callbackValue = params["callbackURL"]
-  const callbackURL = Array.isArray(callbackValue) ? callbackValue[0] : callbackValue
+  const params = await searchParams;
+  const callbackValue = params["callbackURL"];
+  const callbackURL = Array.isArray(callbackValue)
+    ? callbackValue[0]
+    : callbackValue;
 
   return (
-    <main className="grid min-h-screen place-items-center bg-background px-4 py-12" id="main-content">
-      <section aria-labelledby="operator-sign-in-title" className="w-full max-w-md rounded-lg border border-border bg-surface p-6 shadow-sm sm:p-8">
+    <main
+      className="grid min-h-screen place-items-center bg-background px-4 py-12"
+      id="main-content"
+    >
+      <section
+        aria-labelledby="operator-sign-in-title"
+        className="w-full max-w-md rounded-lg border border-border bg-surface p-6 shadow-sm sm:p-8"
+      >
         <div className="mb-8 flex items-center gap-3 text-muted-foreground">
           <ShieldCheck aria-hidden="true" className="size-5" />
           <span className="text-sm font-semibold">DarkFactory Operator</span>
         </div>
-        <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Local development only
+        <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+          Local development only
         </p>
-        <h1 className="mt-3 font-heading text-2xl font-semibold text-foreground" id="operator-sign-in-title">
+        <h1
+          className="mt-3 font-heading text-2xl font-semibold text-foreground"
+          id="operator-sign-in-title"
+        >
           Administrator sign in
         </h1>
         <p className="mt-3 text-sm leading-6 text-muted-foreground">
-          Use the seeded development administrator stored in the existing Better Auth database.
+          Use the seeded development administrator stored in the existing Better
+          Auth database.
         </p>
         <div className="mt-8">
           <OperatorSignIn callbackURL={callbackURL ?? null} />
         </div>
       </section>
-  </main>
-  )
+    </main>
+  );
 }

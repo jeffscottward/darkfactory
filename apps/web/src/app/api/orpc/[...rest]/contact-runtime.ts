@@ -1,32 +1,32 @@
-import { bufferBoundedRequest } from "../../../../lib/bounded-request-body.ts"
+import { bufferBoundedRequest } from "../../../../lib/bounded-request-body.ts";
 
-export const CONTACT_REQUEST_MAX_BYTES = 64 * 1024
+export const CONTACT_REQUEST_MAX_BYTES = 64 * 1024;
 
-export type ContactThrottleDomain = "edge" | "submit"
+export type ContactThrottleDomain = "edge" | "submit";
 
 export type BufferedContactRequest = Readonly<{
-  request: Request
-  tooLarge: boolean
-}>
+  request: Request;
+  tooLarge: boolean;
+}>;
 
 export const bufferContactRequest = (
   request: Request,
-  maximumBytes = CONTACT_REQUEST_MAX_BYTES,
+  maximumBytes = CONTACT_REQUEST_MAX_BYTES
 ): Promise<BufferedContactRequest> => {
-  return bufferBoundedRequest(request, maximumBytes)
-}
+  return bufferBoundedRequest(request, maximumBytes);
+};
 
-const UNKNOWN_CONTACT_SOURCE = "unknown"
+const UNKNOWN_CONTACT_SOURCE = "unknown";
 const canonicalIpv4 = (value: string): string | undefined => {
-  const octets = value.split(".")
+  const octets = value.split(".");
   if (
     octets.length !== 4 ||
     !octets.every((octet) => /^\d{1,3}$/.test(octet) && Number(octet) <= 255)
   ) {
-    return undefined
+    return undefined;
   }
-  return octets.map((octet) => String(Number(octet))).join(".")
-}
+  return octets.map((octet) => String(Number(octet))).join(".");
+};
 
 const canonicalIpv6 = (value: string): string | undefined => {
   if (
@@ -37,53 +37,62 @@ const canonicalIpv6 = (value: string): string | undefined => {
     value.includes("[") ||
     value.includes("]")
   ) {
-    return undefined
+    return undefined;
   }
   try {
-    const hostname = new URL(`http://[${value}]/`).hostname
-    if (!hostname.startsWith("[") || !hostname.endsWith("]")) return undefined
-    return hostname.slice(1, -1)
+    const hostname = new URL(`http://[${value}]/`).hostname;
+    if (!hostname.startsWith("[") || !hostname.endsWith("]")) return undefined;
+    return hostname.slice(1, -1);
+  } catch {
+    return undefined;
   }
-  catch {
-    return undefined
-  }
-}
+};
 
 const trustedContactSource = (request: Request): string => {
-  const candidate = request.headers.get("cf-connecting-ip")?.trim()
+  const candidate = request.headers.get("cf-connecting-ip")?.trim();
   if (candidate === undefined || candidate.length === 0) {
-    return UNKNOWN_CONTACT_SOURCE
+    return UNKNOWN_CONTACT_SOURCE;
   }
-  return canonicalIpv4(candidate) ?? canonicalIpv6(candidate) ?? UNKNOWN_CONTACT_SOURCE
-}
+  return (
+    canonicalIpv4(candidate) ??
+    canonicalIpv6(candidate) ??
+    UNKNOWN_CONTACT_SOURCE
+  );
+};
 
 const hexDigest = (buffer: ArrayBuffer): string => {
-  let result = ""
+  let result = "";
   for (const byte of new Uint8Array(buffer)) {
-    result += byte.toString(16).padStart(2, "0")
+    result += byte.toString(16).padStart(2, "0");
   }
-  return result
-}
+  return result;
+};
 
 export const createContactThrottleKey = async (
   request: Request,
   secret: string,
-  domain: ContactThrottleDomain = "submit",
+  domain: ContactThrottleDomain = "submit"
 ): Promise<string> => {
   if (secret.length < 32) {
-    throw new TypeError("contact throttle secret must contain at least 32 characters")
+    throw new TypeError(
+      "contact throttle secret must contain at least 32 characters"
+    );
   }
-  const encoder = new TextEncoder()
+  const encoder = new TextEncoder();
   const key = await crypto.subtle.importKey(
     "raw",
     encoder.encode(secret),
     { name: "HMAC", hash: "SHA-256" },
     false,
-    ["sign"],
-  )
-  return hexDigest(await crypto.subtle.sign(
-    "HMAC",
-    key,
-    encoder.encode(`darkfactory.contact.${domain}\u0000${trustedContactSource(request)}`),
-  ))
-}
+    ["sign"]
+  );
+  return hexDigest(
+    await crypto.subtle.sign(
+      "HMAC",
+      key,
+      encoder.encode(
+        `darkfactory.contact.${domain}\u0000${trustedContactSource(request)}`
+      )
+    )
+  );
+};

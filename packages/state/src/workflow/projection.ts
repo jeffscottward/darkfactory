@@ -1,74 +1,90 @@
-import { canonicalJsonV1, hashWorkflowJournalEntryV1 } from "./canonical.ts"
-import { isWorkflowEventV1, isWorkflowSnapshotV1 } from "./guards.ts"
-import { replayWorkflowV1 } from "./machine.ts"
+import { canonicalJsonV1, hashWorkflowJournalEntryV1 } from "./canonical.ts";
+import { isWorkflowEventV1, isWorkflowSnapshotV1 } from "./guards.ts";
+import { replayWorkflowV1 } from "./machine.ts";
 import type {
   WorkflowIntegrityResultV1,
   WorkflowJournalEntryV1,
   WorkflowSnapshotV1,
-} from "./types.ts"
+} from "./types.ts";
 
 export interface VerifyWorkflowProjectionV1Input {
-  readonly initialSnapshot: WorkflowSnapshotV1
-  readonly snapshot: WorkflowSnapshotV1
-  readonly journal: readonly WorkflowJournalEntryV1[]
+  readonly initialSnapshot: WorkflowSnapshotV1;
+  readonly snapshot: WorkflowSnapshotV1;
+  readonly journal: readonly WorkflowJournalEntryV1[];
 }
 
 export const verifyWorkflowProjectionV1 = (
   input: VerifyWorkflowProjectionV1Input
 ): WorkflowIntegrityResultV1 => {
   if (!isWorkflowSnapshotV1(input.initialSnapshot)) {
-    return { ok: false, reason: "invalid-initial-snapshot" }
+    return { ok: false, reason: "invalid-initial-snapshot" };
   }
   if (!isWorkflowSnapshotV1(input.snapshot)) {
-    return { ok: false, reason: "invalid-snapshot" }
+    return { ok: false, reason: "invalid-snapshot" };
   }
 
-  let expectedSequence = input.initialSnapshot.sequence
-  let expectedPreviousHash = input.initialSnapshot.journalHeadHash
-  const events = [] as WorkflowJournalEntryV1["event"][]
+  let expectedSequence = input.initialSnapshot.sequence;
+  let expectedPreviousHash = input.initialSnapshot.journalHeadHash;
+  const events = [] as WorkflowJournalEntryV1["event"][];
 
   for (const entry of input.journal) {
-    if (!Number.isInteger(entry.sequence) ||
-        typeof entry.previousHash !== "string" ||
-        typeof entry.hash !== "string" ||
-        !isWorkflowEventV1(entry.event)) {
-      return { ok: false, reason: "invalid-journal-entry" }
+    if (
+      !Number.isInteger(entry.sequence) ||
+      typeof entry.previousHash !== "string" ||
+      typeof entry.hash !== "string" ||
+      !isWorkflowEventV1(entry.event)
+    ) {
+      return { ok: false, reason: "invalid-journal-entry" };
     }
 
-    expectedSequence += 1
+    expectedSequence += 1;
     if (entry.sequence !== expectedSequence) {
-      return { ok: false, reason: "journal-sequence-mismatch", sequence: entry.sequence }
+      return {
+        ok: false,
+        reason: "journal-sequence-mismatch",
+        sequence: entry.sequence,
+      };
     }
     if (entry.previousHash !== expectedPreviousHash) {
-      return { ok: false, reason: "journal-previous-hash-mismatch", sequence: entry.sequence }
+      return {
+        ok: false,
+        reason: "journal-previous-hash-mismatch",
+        sequence: entry.sequence,
+      };
     }
-    if (entry.hash !== hashWorkflowJournalEntryV1({
-      sequence: entry.sequence,
-      previousHash: entry.previousHash,
-      event: entry.event
-    })) {
-      return { ok: false, reason: "journal-entry-hash-mismatch", sequence: entry.sequence }
+    if (
+      entry.hash !==
+      hashWorkflowJournalEntryV1({
+        sequence: entry.sequence,
+        previousHash: entry.previousHash,
+        event: entry.event,
+      })
+    ) {
+      return {
+        ok: false,
+        reason: "journal-entry-hash-mismatch",
+        sequence: entry.sequence,
+      };
     }
 
-    expectedPreviousHash = entry.hash
-    events.push(entry.event)
+    expectedPreviousHash = entry.hash;
+    events.push(entry.event);
   }
 
   if (input.snapshot.sequence !== expectedSequence) {
-    return { ok: false, reason: "sequence-mismatch" }
+    return { ok: false, reason: "sequence-mismatch" };
   }
   if (input.snapshot.journalHeadHash !== expectedPreviousHash) {
-    return { ok: false, reason: "journal-head-mismatch" }
+    return { ok: false, reason: "journal-head-mismatch" };
   }
 
   try {
-    const replayed = replayWorkflowV1(input.initialSnapshot, events).snapshot
+    const replayed = replayWorkflowV1(input.initialSnapshot, events).snapshot;
     if (canonicalJsonV1(replayed) !== canonicalJsonV1(input.snapshot)) {
-      return { ok: false, reason: "projection-mismatch" }
+      return { ok: false, reason: "projection-mismatch" };
     }
+  } catch {
+    return { ok: false, reason: "replay-failed" };
   }
-  catch {
-    return { ok: false, reason: "replay-failed" }
-  }
-  return { ok: true }
-}
+  return { ok: true };
+};

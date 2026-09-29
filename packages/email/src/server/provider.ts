@@ -1,4 +1,4 @@
-import { Resend } from "resend"
+import { Resend } from "resend";
 
 import type {
   EmailDeliveryFailureCode,
@@ -6,8 +6,8 @@ import type {
   EmailPort,
   EmailVerificationEmailInput,
   PasswordResetEmailInput,
-} from "../index.ts"
-import { normalizeRecipient } from "../recipient.ts"
+} from "../index.ts";
+import { normalizeRecipient } from "../recipient.ts";
 import {
   createPreviewEmailPort,
   renderEmailVerificationEmail,
@@ -18,64 +18,62 @@ import {
   type RenderedPasswordResetEmail,
   type RenderEmailVerificationEmailOptions,
   type RenderPasswordResetEmailOptions,
-} from "./preview.ts"
-import { createRemotePreviewEmailPort } from "./remote-preview.ts"
+} from "./preview.ts";
+import { createRemotePreviewEmailPort } from "./remote-preview.ts";
 
 export type ResendMessage = Readonly<{
-  from: string
-  to: readonly string[]
-  subject: string
-  html: string
-  text: string
-}>
+  from: string;
+  to: readonly string[];
+  subject: string;
+  html: string;
+  text: string;
+}>;
 
 export type ResendProviderError = Readonly<{
-  name?: string | undefined
-  statusCode?: number | null | undefined
-}>
+  name?: string | undefined;
+  statusCode?: number | null | undefined;
+}>;
 
 export type ResendClient = Readonly<{
   emails: Readonly<{
     send: (message: ResendMessage) => Promise<
       Readonly<{
-        data: Readonly<{ id: string }> | null
-        error: ResendProviderError | null
+        data: Readonly<{ id: string }> | null;
+        error: ResendProviderError | null;
       }>
-    >
-  }>
-}>
+    >;
+  }>;
+}>;
 
 export type ResendEmailPortOptions = Readonly<{
-  enabled: boolean
-  apiKey?: string | undefined
-  from?: string | undefined
-  trustedAppOrigin?: string | undefined
-  client?: ResendClient | undefined
-}>
+  enabled: boolean;
+  apiKey?: string | undefined;
+  from?: string | undefined;
+  trustedAppOrigin?: string | undefined;
+  client?: ResendClient | undefined;
+}>;
 
 export type SelectEmailPortOptions = Readonly<{
-  environment: "development" | "test" | "production"
-  transport?: "preview" | "resend" | "disabled" | undefined
-  previewDirectory?: string | undefined
-  previewMaxArtifacts?: number | undefined
-  previewMaxBytes?: number | undefined
-  previewBinding?: PreviewEmailBinding | undefined
-  previewCaptureEndpoint?: string | undefined
-  resendApiKey?: string | undefined
-  from?: string | undefined
-  trustedAppOrigin?: string | undefined
-  resendClient?: ResendClient | undefined
-}>
+  environment: "development" | "test" | "production";
+  transport?: "preview" | "resend" | "disabled" | undefined;
+  previewDirectory?: string | undefined;
+  previewMaxArtifacts?: number | undefined;
+  previewMaxBytes?: number | undefined;
+  previewBinding?: PreviewEmailBinding | undefined;
+  previewCaptureEndpoint?: string | undefined;
+  resendApiKey?: string | undefined;
+  from?: string | undefined;
+  trustedAppOrigin?: string | undefined;
+  resendClient?: ResendClient | undefined;
+}>;
 
 const RETRYABLE_RESEND_ERROR_NAMES = new Set([
   "rate_limit_exceeded",
   "application_error",
   "internal_server_error",
-])
+]);
 
-const createDisabledEmailPort = (
-  code: EmailDeliveryFailureCode,
-): EmailPort => {
+const createDisabledEmailPort = (code: EmailDeliveryFailureCode): EmailPort => {
   return Object.freeze({
     sendPasswordReset: async (): Promise<EmailDeliveryResult> => ({
       status: "failed",
@@ -89,73 +87,73 @@ const createDisabledEmailPort = (
       code,
       retryable: false,
     }),
-  })
-}
+  });
+};
 
 const resendFailure = (
   code: EmailDeliveryFailureCode,
-  retryable: boolean,
+  retryable: boolean
 ): EmailDeliveryResult => ({
   status: "failed",
   provider: "resend",
   code,
   retryable,
-})
-
+});
 
 const isRetryableProviderError = (error: ResendProviderError): boolean => {
-  return error.name !== undefined && RETRYABLE_RESEND_ERROR_NAMES.has(error.name)
-}
+  return (
+    error.name !== undefined && RETRYABLE_RESEND_ERROR_NAMES.has(error.name)
+  );
+};
 
 export const createResendEmailPort = (
-  options: ResendEmailPortOptions,
+  options: ResendEmailPortOptions
 ): EmailPort => {
   if (!options.enabled) {
-    return createDisabledEmailPort("EMAIL_DELIVERY_DISABLED")
+    return createDisabledEmailPort("EMAIL_DELIVERY_DISABLED");
   }
 
-  const apiKey = options.apiKey?.trim()
-  const from = options.from?.trim()
+  const apiKey = options.apiKey?.trim();
+  const from = options.from?.trim();
   if (!apiKey || !from) {
-    return createDisabledEmailPort("EMAIL_PROVIDER_NOT_CONFIGURED")
+    return createDisabledEmailPort("EMAIL_PROVIDER_NOT_CONFIGURED");
   }
 
-  const sdkClient = options.client ? undefined : new Resend(apiKey)
+  const sdkClient = options.client ? undefined : new Resend(apiKey);
   const send = options.client
     ? (message: ResendMessage) => options.client!.emails.send(message)
     : async (message: ResendMessage) => {
         const response = await sdkClient!.emails.send({
           ...message,
           to: [...message.to],
-        })
+        });
         return {
           data: response.data,
           error: response.error,
-        }
-    }
+        };
+      };
 
   const deliver = async (
     recipientValue: string,
     renderEmail: () => Promise<{
-      subject: string
-      html: string
-      text: string
-    }>,
+      subject: string;
+      html: string;
+      text: string;
+    }>
   ): Promise<EmailDeliveryResult> => {
-    const recipient = normalizeRecipient(recipientValue)
+    const recipient = normalizeRecipient(recipientValue);
     if (!recipient) {
-      return resendFailure("EMAIL_RECIPIENT_INVALID", false)
+      return resendFailure("EMAIL_RECIPIENT_INVALID", false);
     }
 
-    let rendered
+    let rendered;
     try {
-      rendered = await renderEmail()
-    }
-    catch {
-      return resendFailure("EMAIL_RENDER_FAILED", false)
+      rendered = await renderEmail();
+    } catch {
+      return resendFailure("EMAIL_RENDER_FAILED", false);
     }
 
-    let response
+    let response;
     try {
       response = await send({
         from,
@@ -163,58 +161,55 @@ export const createResendEmailPort = (
         subject: rendered.subject,
         html: rendered.html,
         text: rendered.text,
-      })
-    }
-    catch {
-      return resendFailure("EMAIL_PROVIDER_UNAVAILABLE", true)
+      });
+    } catch {
+      return resendFailure("EMAIL_PROVIDER_UNAVAILABLE", true);
     }
 
     if (response.error) {
-      const retryable = isRetryableProviderError(response.error)
+      const retryable = isRetryableProviderError(response.error);
       return resendFailure(
         retryable ? "EMAIL_PROVIDER_UNAVAILABLE" : "EMAIL_PROVIDER_REJECTED",
-        retryable,
-      )
+        retryable
+      );
     }
 
     if (!response.data?.id) {
-      return resendFailure("EMAIL_PROVIDER_INVALID_RESPONSE", false)
+      return resendFailure("EMAIL_PROVIDER_INVALID_RESPONSE", false);
     }
 
     return {
       status: "sent",
       provider: "resend",
       messageId: response.data.id,
-    }
-  }
+    };
+  };
 
   return Object.freeze({
     sendPasswordReset: async (
-      input: PasswordResetEmailInput,
+      input: PasswordResetEmailInput
     ): Promise<EmailDeliveryResult> => {
       const renderEmail = () => {
         return renderPasswordResetEmail(input, {
           trustedAppOrigin: options.trustedAppOrigin,
-        })
-      }
-      return await deliver(input.to, renderEmail)
+        });
+      };
+      return await deliver(input.to, renderEmail);
     },
     sendEmailVerification: async (
-      input: EmailVerificationEmailInput,
+      input: EmailVerificationEmailInput
     ): Promise<EmailDeliveryResult> => {
       const renderEmail = () => {
         return renderEmailVerificationEmail(input, {
           trustedAppOrigin: options.trustedAppOrigin,
-        })
-      }
-      return await deliver(input.to, renderEmail)
-    }
-  })
-}
+        });
+      };
+      return await deliver(input.to, renderEmail);
+    },
+  });
+};
 
-export const selectEmailPort = (
-  options: SelectEmailPortOptions,
-): EmailPort => {
+export const selectEmailPort = (options: SelectEmailPortOptions): EmailPort => {
   if (options.transport === "resend") {
     return createResendEmailPort({
       enabled: true,
@@ -222,26 +217,29 @@ export const selectEmailPort = (
       from: options.from,
       trustedAppOrigin: options.trustedAppOrigin,
       client: options.resendClient,
-    })
+    });
   }
 
   const isLocal =
-    options.environment === "development" || options.environment === "test"
-  if (isLocal && (options.transport === undefined || options.transport === "preview")) {
+    options.environment === "development" || options.environment === "test";
+  if (
+    isLocal &&
+    (options.transport === undefined || options.transport === "preview")
+  ) {
     if (options.previewCaptureEndpoint !== undefined) {
       if (options.previewBinding === undefined) {
-        throw new Error("Remote preview transport requires a binding")
+        throw new Error("Remote preview transport requires a binding");
       }
       return createRemotePreviewEmailPort({
         environment: options.environment,
         endpoint: options.previewCaptureEndpoint,
         binding: options.previewBinding,
-      })
+      });
     }
     if (
       (process.env as { readonly NODE_ENV?: string }).NODE_ENV === "production"
     ) {
-      return createDisabledEmailPort("EMAIL_DELIVERY_DISABLED")
+      return createDisabledEmailPort("EMAIL_DELIVERY_DISABLED");
     }
     const previewOptions: PreviewEmailPortOptions = {
       environment: options.environment,
@@ -250,19 +248,19 @@ export const selectEmailPort = (
       maxBytes: options.previewMaxBytes,
       binding: options.previewBinding,
       trustedAppOrigin: options.trustedAppOrigin,
-    }
-    return createPreviewEmailPort(previewOptions)
+    };
+    return createPreviewEmailPort(previewOptions);
   }
 
-  return createDisabledEmailPort("EMAIL_DELIVERY_DISABLED")
-}
+  return createDisabledEmailPort("EMAIL_DELIVERY_DISABLED");
+};
 
 export {
   createPreviewEmailPort,
   normalizeRecipient,
   renderPasswordResetEmail,
   renderEmailVerificationEmail,
-}
+};
 export type {
   PreviewEmailPortOptions,
   PreviewEmailBinding,
@@ -270,4 +268,4 @@ export type {
   RenderPasswordResetEmailOptions,
   RenderedEmailVerificationEmail,
   RenderEmailVerificationEmailOptions,
-}
+};

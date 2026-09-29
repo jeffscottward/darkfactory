@@ -1,89 +1,86 @@
-import { beforeEach, describe, expect, it, vi } from "vitest"
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const driver = vi.hoisted(() => {
-  type DatabaseErrorListener = (error: unknown) => void
+  type DatabaseErrorListener = (error: unknown) => void;
   type ClientDouble = {
-    options: unknown
-    connect: ReturnType<typeof vi.fn<() => Promise<void>>>
-    emitError: (error: unknown) => void
-    on: ReturnType<typeof vi.fn>
-    end: ReturnType<typeof vi.fn>
-  }
-  const clients: ClientDouble[] = []
+    options: unknown;
+    connect: ReturnType<typeof vi.fn<() => Promise<void>>>;
+    emitError: (error: unknown) => void;
+    on: ReturnType<typeof vi.fn>;
+    end: ReturnType<typeof vi.fn>;
+  };
+  const clients: ClientDouble[] = [];
   const pools: Array<{
-    options: unknown
-    end: ReturnType<typeof vi.fn>
-  }> = []
+    options: unknown;
+    end: ReturnType<typeof vi.fn>;
+  }> = [];
   const databases: Array<{
-    client: unknown
-    transaction: ReturnType<typeof vi.fn>
-  }> = []
-  let nextConnectionError: unknown
-  let nextEndError: unknown
+    client: unknown;
+    transaction: ReturnType<typeof vi.fn>;
+  }> = [];
+  let nextConnectionError: unknown;
+  let nextEndError: unknown;
 
   class Client {
-    options: unknown
-    private readonly errorListeners: DatabaseErrorListener[] = []
+    options: unknown;
+    private readonly errorListeners: DatabaseErrorListener[] = [];
     on = vi.fn((event: string, listener: DatabaseErrorListener) => {
-      if (event === "error") this.errorListeners.push(listener)
-      return this
-    }
-    )
+      if (event === "error") this.errorListeners.push(listener);
+      return this;
+    });
     emitError = (error: unknown): void => {
-      for (const listener of this.errorListeners) listener(error)
-    }
+      for (const listener of this.errorListeners) listener(error);
+    };
     connect = vi.fn(async () => {
       if (nextConnectionError !== undefined) {
-        const error = nextConnectionError
-        nextConnectionError = undefined
-        throw error
-      };return
-    }
-    )
-    end = vi.fn(async () => undefined)
+        const error = nextConnectionError;
+        nextConnectionError = undefined;
+        throw error;
+      }
+      return;
+    });
+    end = vi.fn(async () => undefined);
 
     constructor(options: unknown) {
-      this.options = options
+      this.options = options;
       if (nextEndError !== undefined) {
-        this.end.mockRejectedValueOnce(nextEndError)
-        nextEndError = undefined
+        this.end.mockRejectedValueOnce(nextEndError);
+        nextEndError = undefined;
       }
-      clients.push(this)
+      clients.push(this);
     }
   }
 
   class Pool {
-    options: unknown
-    end = vi.fn(async () => undefined)
+    options: unknown;
+    end = vi.fn(async () => undefined);
 
     constructor(options: unknown) {
-      this.options = options
-      pools.push(this)
+      this.options = options;
+      pools.push(this);
     }
   }
   const drizzle = vi.fn(({ client }: { client: unknown }) => {
     const database = {
       client,
       transaction: vi.fn(),
-    }
-    databases.push(database)
-    return database
-  }
-  )
-  const runMigrations = vi.fn(async () => undefined)
+    };
+    databases.push(database);
+    return database;
+  });
+  const runMigrations = vi.fn(async () => undefined);
 
   const failNextConnection = (error: unknown): void => {
-    nextConnectionError = error
-  }
+    nextConnectionError = error;
+  };
   const failNextEnd = (error: unknown): void => {
-    nextEndError = error
-  }
-
+    nextEndError = error;
+  };
 
   const resetFailures = (): void => {
-    nextConnectionError = undefined
-    nextEndError = undefined
-  }
+    nextConnectionError = undefined;
+    nextEndError = undefined;
+  };
 
   return {
     Pool,
@@ -96,15 +93,14 @@ const driver = vi.hoisted(() => {
     pools,
     runMigrations,
     resetFailures,
-  }
-}
-)
+  };
+});
 
-vi.mock("pg", () => ({ Client: driver.Client, Pool: driver.Pool }))
-vi.mock("drizzle-orm/node-postgres", () => ({ drizzle: driver.drizzle }))
+vi.mock("pg", () => ({ Client: driver.Client, Pool: driver.Pool }));
+vi.mock("drizzle-orm/node-postgres", () => ({ drizzle: driver.drizzle }));
 vi.mock("drizzle-orm/node-postgres/migrator", () => ({
   migrate: driver.runMigrations,
-}))
+}));
 
 import {
   REQUEST_DATABASE_POOL_MAX_CONNECTIONS,
@@ -112,46 +108,46 @@ import {
   createNodeDatabase,
   createRequestDatabase,
   withTransaction,
-} from "./client.ts"
-import { migrate } from "@darkfactory/db/server/migration"
+} from "./client.ts";
+import { migrate } from "@darkfactory/db/server/migration";
 
-const CONNECTION_STRING = "postgresql://localhost/darkfactory_test"
+const CONNECTION_STRING = "postgresql://localhost/darkfactory_test";
 const PLANETSCALE_SYSTEM_ROOT_CONNECTION_STRING =
-  "postgresql://worker:credential@aws.connect.psdb.cloud/darkfactory?sslmode=verify-full&sslrootcert=system&application_name=darkfactory"
+  "postgresql://worker:credential@aws.connect.psdb.cloud/darkfactory?sslmode=verify-full&sslrootcert=system&application_name=darkfactory";
 const NORMALIZED_PLANETSCALE_CONNECTION_STRING =
-  "postgresql://worker:credential@aws.connect.psdb.cloud/darkfactory?sslmode=verify-full&application_name=darkfactory"
+  "postgresql://worker:credential@aws.connect.psdb.cloud/darkfactory?sslmode=verify-full&application_name=darkfactory";
 
-describe("database client factories", function() {
-  beforeEach(function() {
-    driver.databases.length = 0
-    driver.clients.length = 0
-    driver.pools.length = 0
-    driver.drizzle.mockClear()
-    driver.runMigrations.mockClear()
-    return driver.resetFailures()
-  })
+describe("database client factories", function () {
+  beforeEach(function () {
+    driver.databases.length = 0;
+    driver.clients.length = 0;
+    driver.pools.length = 0;
+    driver.drizzle.mockClear();
+    driver.runMigrations.mockClear();
+    return driver.resetFailures();
+  });
 
-  it("creates one private Node pool and closes it through a neutral resource", async function() {
+  it("creates one private Node pool and closes it through a neutral resource", async function () {
     const resource = createNodeDatabase({
       connectionString: CONNECTION_STRING,
       maxConnections: 7,
       idleTimeoutMillis: 12_000,
       connectionTimeoutMillis: 4_000,
-    })
+    });
 
-    expect(driver.pools).toHaveLength(1)
+    expect(driver.pools).toHaveLength(1);
     expect(driver.pools[0]?.options).toEqual({
       connectionString: CONNECTION_STRING,
       max: 7,
       idleTimeoutMillis: 12_000,
       connectionTimeoutMillis: 4_000,
-    })
-    expect(resource.db).toBe(driver.databases[0])
-    expect(resource).not.toHaveProperty("pool")
+    });
+    expect(resource.db).toBe(driver.databases[0]);
+    expect(resource).not.toHaveProperty("pool");
 
-    await resource.close()
-    return expect(driver.pools[0]?.end).toHaveBeenCalledOnce()
-  })
+    await resource.close();
+    return expect(driver.pools[0]?.end).toHaveBeenCalledOnce();
+  });
 
   it.each([
     [
@@ -171,20 +167,19 @@ describe("database client factories", function() {
       "postgresql://worker:credential@aws.connect.psdb.cloud:5432/darkfactory?sslmode=verify-full",
     ],
   ])("uses runtime system roots for %s", async (connectionString, normalized) => {
-    const nodeResource = createNodeDatabase({ connectionString })
-    const requestResource = await createRequestDatabase({ connectionString })
+    const nodeResource = createNodeDatabase({ connectionString });
+    const requestResource = await createRequestDatabase({ connectionString });
 
     expect(driver.clients[0]?.options).toEqual({
       connectionString: normalized,
       connectionTimeoutMillis: 10_000,
       query_timeout: 10_000,
-    })
-    expect(driver.pools[0]?.options).toEqual({ connectionString: normalized })
+    });
+    expect(driver.pools[0]?.options).toEqual({ connectionString: normalized });
 
-    await nodeResource.close()
-    return await requestResource.close()
-  }
-  )
+    await nodeResource.close();
+    return await requestResource.close();
+  });
   it.each([
     "postgresql://worker:credential@aws.connect.psdb.cloud/darkfactory?sslmode=verify-full&sslrootcert=custom.pem",
     "postgresql://worker:credential@aws.connect.psdb.cloud/darkfactory?sslmode=require&sslrootcert=system",
@@ -198,20 +193,19 @@ describe("database client factories", function() {
     "postgresql://worker:credential@aws.connect.psdb.cloud/darkfactory?sslmode=verify-full&sslrootcert=system&host=attacker.example",
     "postgresql://worker:credential@%2Ftmp.psdb.cloud/darkfactory?sslmode=verify-full&sslrootcert=system&query_timeout_extra=0&application_name=dark factory%ZZ",
   ])("preserves non-PlanetScale system-root configuration %s", async (connectionString) => {
-    const nodeResource = createNodeDatabase({ connectionString })
-    const requestResource = await createRequestDatabase({ connectionString })
+    const nodeResource = createNodeDatabase({ connectionString });
+    const requestResource = await createRequestDatabase({ connectionString });
 
     expect(driver.clients[0]?.options).toEqual({
       connectionString,
       connectionTimeoutMillis: 10_000,
       query_timeout: 10_000,
-    })
-    expect(driver.pools[0]?.options).toEqual({ connectionString })
+    });
+    expect(driver.pools[0]?.options).toEqual({ connectionString });
 
-    await nodeResource.close()
-    return await requestResource.close()
-  }
-  )
+    await nodeResource.close();
+    return await requestResource.close();
+  });
 
   it.each([
     "postgresql://worker:credential-that-must-not-leak@localhost/darkfactory?query_timeout=0",
@@ -220,26 +214,24 @@ describe("database client factories", function() {
     "postgresql://worker:credential-that-must-not-leak@%2Fvar%2Frun%2Fpostgresql/darkfactory?query%5Ftimeout=0",
     "postgresql://worker:credential-that-must-not-leak@localhost/darkfactory?query_timeout=0#client-fragment",
   ])("rejects request query timeout URL overrides before constructing a client", async (connectionString) => {
-    let rejection: unknown
+    let rejection: unknown;
     try {
-      await createRequestDatabase({ connectionString })
-    }
-    catch (error) {
-      rejection = error
+      await createRequestDatabase({ connectionString });
+    } catch (error) {
+      rejection = error;
     }
 
-    expect(rejection).toBeInstanceOf(TypeError)
+    expect(rejection).toBeInstanceOf(TypeError);
     expect((rejection as Error).message).toBe(
-      "Request database connection strings cannot set query_timeout",
-    )
+      "Request database connection strings cannot set query_timeout"
+    );
     expect((rejection as Error).message).not.toContain(
-      "credential-that-must-not-leak",
-    )
-    expect(driver.pools).toHaveLength(0)
-    expect(driver.clients).toHaveLength(0)
-    return expect(driver.drizzle).not.toHaveBeenCalled()
-  }
-  )
+      "credential-that-must-not-leak"
+    );
+    expect(driver.pools).toHaveLength(0);
+    expect(driver.clients).toHaveLength(0);
+    return expect(driver.drizzle).not.toHaveBeenCalled();
+  });
 
   it.each([
     "postgresql://worker:credential-that-must-not-leak@localhost/darkfactory?query_\ntimeout=0",
@@ -250,38 +242,36 @@ describe("database client factories", function() {
     "postgresql://worker:credential-that-must-not-leak@localhost/darkfactory?query_timeout ",
     "postgresql://worker:credential-that-must-not-leak@localhost/darkfactory?application_name=darkfactory\u000b&pool=worker",
   ])("rejects raw URL controls before constructing a client", async (connectionString) => {
-    let rejection: unknown
+    let rejection: unknown;
     try {
-      await createRequestDatabase({ connectionString })
-    }
-    catch (error) {
-      rejection = error
+      await createRequestDatabase({ connectionString });
+    } catch (error) {
+      rejection = error;
     }
 
-    expect(rejection).toBeInstanceOf(TypeError)
+    expect(rejection).toBeInstanceOf(TypeError);
     expect((rejection as Error).message).toBe(
-      "Request database connection strings cannot contain raw URL controls",
-    )
+      "Request database connection strings cannot contain raw URL controls"
+    );
     expect((rejection as Error).message).not.toContain(
-      "credential-that-must-not-leak",
-    )
-    expect(driver.pools).toHaveLength(0)
-    expect(driver.clients).toHaveLength(0)
-    return expect(driver.drizzle).not.toHaveBeenCalled()
-  }
-  )
+      "credential-that-must-not-leak"
+    );
+    expect(driver.pools).toHaveLength(0);
+    expect(driver.clients).toHaveLength(0);
+    return expect(driver.drizzle).not.toHaveBeenCalled();
+  });
 
-  it("creates one client per production request and ends each socket on close", async function() {
+  it("creates one client per production request and ends each socket on close", async function () {
     const first = await createRequestDatabase({
       connectionString: CONNECTION_STRING,
       connectionTimeoutMillis: 3_000,
-    })
+    });
     const second = await createRequestDatabase({
       connectionString: CONNECTION_STRING,
       connectionTimeoutMillis: 3_000,
-    })
+    });
 
-    expect(driver.pools).toHaveLength(0)
+    expect(driver.pools).toHaveLength(0);
     expect(driver.clients.map(({ options }) => options)).toEqual([
       {
         connectionString: CONNECTION_STRING,
@@ -293,59 +283,56 @@ describe("database client factories", function() {
         connectionTimeoutMillis: 3_000,
         query_timeout: 10_000,
       },
-    ])
-    expect(driver.databases[0]?.client).toBe(driver.clients[0])
-    expect(driver.databases[1]?.client).toBe(driver.clients[1])
+    ]);
+    expect(driver.databases[0]?.client).toBe(driver.clients[0]);
+    expect(driver.databases[1]?.client).toBe(driver.clients[1]);
 
-    await first.close()
-    await first.close()
-    await second.close()
-    expect(driver.clients[0]?.end).toHaveBeenCalledOnce()
-    return expect(driver.clients[1]?.end).toHaveBeenCalledOnce()
-  })
+    await first.close();
+    await first.close();
+    await second.close();
+    expect(driver.clients[0]?.end).toHaveBeenCalledOnce();
+    return expect(driver.clients[1]?.end).toHaveBeenCalledOnce();
+  });
 
-  it("contains production client background errors through a fixed secret-safe diagnostic", async function() {
-    const diagnosticSink = vi.fn()
+  it("contains production client background errors through a fixed secret-safe diagnostic", async function () {
+    const diagnosticSink = vi.fn();
     const resource = await createRequestDatabase({
       connectionString: CONNECTION_STRING,
       diagnosticSink,
-    })
+    });
     const backgroundError = new Error(
-      `client failed for ${CONNECTION_STRING}; select private_value`,
-    )
+      `client failed for ${CONNECTION_STRING}; select private_value`
+    );
 
-    expect(() => driver.clients[0]!.emitError(backgroundError)).not.toThrow()
+    expect(() => driver.clients[0]!.emitError(backgroundError)).not.toThrow();
     expect(driver.clients[0]!.on).toHaveBeenCalledWith(
       "error",
-      expect.any(Function),
-    )
-    expect(
-      driver.clients[0]!.on.mock.invocationCallOrder[0],
-    ).toBeLessThan(
-      driver.clients[0]!.connect.mock.invocationCallOrder[0]!,
-    )
+      expect.any(Function)
+    );
+    expect(driver.clients[0]!.on.mock.invocationCallOrder[0]).toBeLessThan(
+      driver.clients[0]!.connect.mock.invocationCallOrder[0]!
+    );
     expect(diagnosticSink).toHaveBeenCalledWith({
       code: "REQUEST_DATABASE_CLIENT_ERROR",
-    })
-    expect(Object.isFrozen(diagnosticSink.mock.calls[0]![0])).toBe(true)
+    });
+    expect(Object.isFrozen(diagnosticSink.mock.calls[0]![0])).toBe(true);
     expect(JSON.stringify(diagnosticSink.mock.calls)).not.toContain(
-      CONNECTION_STRING,
-    )
+      CONNECTION_STRING
+    );
     expect(JSON.stringify(diagnosticSink.mock.calls)).not.toContain(
-      "private_value",
-    )
+      "private_value"
+    );
 
     diagnosticSink.mockImplementation(() => {
-      throw new Error("diagnostic sink failed")
-    }
-    )
-    expect(() => driver.clients[0]!.emitError(backgroundError)).not.toThrow()
-    return await resource.close()
-  })
+      throw new Error("diagnostic sink failed");
+    });
+    expect(() => driver.clients[0]!.emitError(backgroundError)).not.toThrow();
+    return await resource.close();
+  });
 
-  it("isolates diagnostics between concurrent request resources", async function() {
-    const firstSink = vi.fn()
-    const secondSink = vi.fn()
+  it("isolates diagnostics between concurrent request resources", async function () {
+    const firstSink = vi.fn();
+    const secondSink = vi.fn();
     const [first, second] = await Promise.all([
       createRequestDatabase({
         connectionString: CONNECTION_STRING,
@@ -355,260 +342,269 @@ describe("database client factories", function() {
         connectionString: CONNECTION_STRING,
         diagnosticSink: secondSink,
       }),
-    ])
+    ]);
 
-    driver.clients[0]!.emitError(new Error("first private error"))
-    driver.clients[1]!.emitError(new Error("second private error"))
+    driver.clients[0]!.emitError(new Error("first private error"));
+    driver.clients[1]!.emitError(new Error("second private error"));
 
-    expect(firstSink).toHaveBeenCalledOnce()
-    expect(secondSink).toHaveBeenCalledOnce()
+    expect(firstSink).toHaveBeenCalledOnce();
+    expect(secondSink).toHaveBeenCalledOnce();
     expect(firstSink).toHaveBeenCalledWith({
       code: "REQUEST_DATABASE_CLIENT_ERROR",
-    })
+    });
     expect(secondSink).toHaveBeenCalledWith({
       code: "REQUEST_DATABASE_CLIENT_ERROR",
-    })
-    return await Promise.all([first.close(), second.close()])
-  })
+    });
+    return await Promise.all([first.close(), second.close()]);
+  });
 
-  it("releases production capacity only after a successful close", async function() {
-    const resources = await Promise.all(Array.from(
-      { length: REQUEST_DATABASE_POOL_MAX_CONNECTIONS },
-      () => createRequestDatabase({ connectionString: CONNECTION_STRING }),
-    ))
-    let resolveClose!: () => void
+  it("releases production capacity only after a successful close", async function () {
+    const resources = await Promise.all(
+      Array.from({ length: REQUEST_DATABASE_POOL_MAX_CONNECTIONS }, () =>
+        createRequestDatabase({ connectionString: CONNECTION_STRING })
+      )
+    );
+    let resolveClose!: () => void;
     const closePromise = new Promise<void>((resolve) => {
-      return resolveClose = resolve
-    }
-    )
-    driver.clients[0]!.end.mockReturnValueOnce(closePromise)
+      return (resolveClose = resolve);
+    });
+    driver.clients[0]!.end.mockReturnValueOnce(closePromise);
 
     await expect(
-      createRequestDatabase({ connectionString: CONNECTION_STRING }),
-    ).rejects.toBeInstanceOf(RequestDatabaseCapacityError)
-    expect(driver.clients).toHaveLength(REQUEST_DATABASE_POOL_MAX_CONNECTIONS)
+      createRequestDatabase({ connectionString: CONNECTION_STRING })
+    ).rejects.toBeInstanceOf(RequestDatabaseCapacityError);
+    expect(driver.clients).toHaveLength(REQUEST_DATABASE_POOL_MAX_CONNECTIONS);
 
-    const firstClose = resources[0]!.close()
-    const concurrentClose = resources[0]!.close()
-    expect(concurrentClose).toBe(firstClose)
-    expect(driver.clients[0]!.end).toHaveBeenCalledOnce()
+    const firstClose = resources[0]!.close();
+    const concurrentClose = resources[0]!.close();
+    expect(concurrentClose).toBe(firstClose);
+    expect(driver.clients[0]!.end).toHaveBeenCalledOnce();
     await expect(
-      createRequestDatabase({ connectionString: CONNECTION_STRING }),
-    ).rejects.toBeInstanceOf(RequestDatabaseCapacityError)
+      createRequestDatabase({ connectionString: CONNECTION_STRING })
+    ).rejects.toBeInstanceOf(RequestDatabaseCapacityError);
 
-    resolveClose()
-    await firstClose
+    resolveClose();
+    await firstClose;
     const replacement = await createRequestDatabase({
       connectionString: CONNECTION_STRING,
-    })
+    });
     expect(driver.clients).toHaveLength(
-      REQUEST_DATABASE_POOL_MAX_CONNECTIONS + 1,
-    )
+      REQUEST_DATABASE_POOL_MAX_CONNECTIONS + 1
+    );
     return await Promise.all([
       ...resources.slice(1).map(({ close }) => close()),
       replacement.close(),
-    ])
-  })
+    ]);
+  });
 
-  it("preserves connection failures and releases admission after confirmed end", async function() {
-    const connectionFailure = new Error("connection failed")
-    driver.failNextConnection(connectionFailure)
+  it("preserves connection failures and releases admission after confirmed end", async function () {
+    const connectionFailure = new Error("connection failed");
+    driver.failNextConnection(connectionFailure);
 
     await expect(
-      createRequestDatabase({ connectionString: CONNECTION_STRING }),
-    ).rejects.toBe(connectionFailure)
-    expect(driver.clients[0]?.end).toHaveBeenCalledOnce()
+      createRequestDatabase({ connectionString: CONNECTION_STRING })
+    ).rejects.toBe(connectionFailure);
+    expect(driver.clients[0]?.end).toHaveBeenCalledOnce();
 
-    const resources = await Promise.all(Array.from(
-      { length: REQUEST_DATABASE_POOL_MAX_CONNECTIONS },
-      () => createRequestDatabase({ connectionString: CONNECTION_STRING }),
-    ))
-    return await Promise.all(resources.map(({ close }) => close()))
-  })
+    const resources = await Promise.all(
+      Array.from({ length: REQUEST_DATABASE_POOL_MAX_CONNECTIONS }, () =>
+        createRequestDatabase({ connectionString: CONNECTION_STRING })
+      )
+    );
+    return await Promise.all(resources.map(({ close }) => close()));
+  });
 
-  it("preserves production initialization failures after confirmed client end", async function() {
-    const databaseFailure = new Error("database initialization failed")
+  it("preserves production initialization failures after confirmed client end", async function () {
+    const databaseFailure = new Error("database initialization failed");
     driver.drizzle.mockImplementationOnce(() => {
-      throw databaseFailure
-    }
-    )
+      throw databaseFailure;
+    });
 
     await expect(
-      createRequestDatabase({ connectionString: CONNECTION_STRING }),
-    ).rejects.toBe(databaseFailure)
-    expect(driver.clients[0]?.end).toHaveBeenCalledOnce()
+      createRequestDatabase({ connectionString: CONNECTION_STRING })
+    ).rejects.toBe(databaseFailure);
+    expect(driver.clients[0]?.end).toHaveBeenCalledOnce();
 
     const replacement = await createRequestDatabase({
       connectionString: CONNECTION_STRING,
-    })
-    return await replacement.close()
-  })
+    });
+    return await replacement.close();
+  });
 
-  it("retains admission and reports secret-safe diagnostics when client end is unconfirmed", async function() {
-    const diagnosticSink = vi.fn()
-    const resources = await Promise.all(Array.from(
-      { length: REQUEST_DATABASE_POOL_MAX_CONNECTIONS },
-      () => createRequestDatabase({
-        connectionString: CONNECTION_STRING,
-        diagnosticSink,
-      }),
-    ))
+  it("retains admission and reports secret-safe diagnostics when client end is unconfirmed", async function () {
+    const diagnosticSink = vi.fn();
+    const resources = await Promise.all(
+      Array.from({ length: REQUEST_DATABASE_POOL_MAX_CONNECTIONS }, () =>
+        createRequestDatabase({
+          connectionString: CONNECTION_STRING,
+          diagnosticSink,
+        })
+      )
+    );
     const closeFailure = new Error(
-      `close failed for ${CONNECTION_STRING}; select private_close_value`,
-    )
-    driver.clients[0]!.end.mockRejectedValueOnce(closeFailure)
+      `close failed for ${CONNECTION_STRING}; select private_close_value`
+    );
+    driver.clients[0]!.end.mockRejectedValueOnce(closeFailure);
 
-    const firstClose = resources[0]!.close()
-    const concurrentClose = resources[0]!.close()
-    expect(concurrentClose).toBe(firstClose)
-    const closeResults = await Promise.allSettled([firstClose, concurrentClose])
+    const firstClose = resources[0]!.close();
+    const concurrentClose = resources[0]!.close();
+    expect(concurrentClose).toBe(firstClose);
+    const closeResults = await Promise.allSettled([
+      firstClose,
+      concurrentClose,
+    ]);
     expect(closeResults).toEqual([
       { status: "rejected", reason: closeFailure },
       { status: "rejected", reason: closeFailure },
-    ])
-    const repeatedClose = resources[0]!.close()
-    expect(repeatedClose).toBe(firstClose)
-    await expect(repeatedClose).rejects.toBe(closeFailure)
-    expect(driver.clients[0]!.end).toHaveBeenCalledOnce()
-    expect(diagnosticSink).toHaveBeenCalledTimes(1)
+    ]);
+    const repeatedClose = resources[0]!.close();
+    expect(repeatedClose).toBe(firstClose);
+    await expect(repeatedClose).rejects.toBe(closeFailure);
+    expect(driver.clients[0]!.end).toHaveBeenCalledOnce();
+    expect(diagnosticSink).toHaveBeenCalledTimes(1);
     expect(diagnosticSink).toHaveBeenLastCalledWith({
       code: "REQUEST_DATABASE_CLIENT_CLOSE_ERROR",
-    })
+    });
     await expect(
-      createRequestDatabase({ connectionString: CONNECTION_STRING }),
-    ).rejects.toBeInstanceOf(RequestDatabaseCapacityError)
+      createRequestDatabase({ connectionString: CONNECTION_STRING })
+    ).rejects.toBeInstanceOf(RequestDatabaseCapacityError);
 
-    await Promise.all(resources.slice(1).map(({ close }) => close()))
+    await Promise.all(resources.slice(1).map(({ close }) => close()));
 
-    const initializationFailure = new Error("database initialization failed")
+    const initializationFailure = new Error("database initialization failed");
     const initializationEndFailure = new Error(
-      `end failed for ${CONNECTION_STRING}; select private_init_end_value`,
-    )
+      `end failed for ${CONNECTION_STRING}; select private_init_end_value`
+    );
     driver.drizzle.mockImplementationOnce(() => {
-      throw initializationFailure
-    }
-    )
-    driver.failNextEnd(initializationEndFailure)
+      throw initializationFailure;
+    });
+    driver.failNextEnd(initializationEndFailure);
     await expect(
       createRequestDatabase({
         connectionString: CONNECTION_STRING,
         diagnosticSink,
-      }),
-    ).rejects.toBe(initializationFailure)
+      })
+    ).rejects.toBe(initializationFailure);
     expect(
-      driver.clients[REQUEST_DATABASE_POOL_MAX_CONNECTIONS]?.end,
-    ).toHaveBeenCalledOnce()
-    expect(diagnosticSink).toHaveBeenCalledTimes(2)
+      driver.clients[REQUEST_DATABASE_POOL_MAX_CONNECTIONS]?.end
+    ).toHaveBeenCalledOnce();
+    expect(diagnosticSink).toHaveBeenCalledTimes(2);
     expect(diagnosticSink).toHaveBeenLastCalledWith({
       code: "REQUEST_DATABASE_CLIENT_CLOSE_ERROR",
-    })
+    });
 
-    const connectionFailure = new Error("connection failed")
+    const connectionFailure = new Error("connection failed");
     const connectEndFailure = new Error(
-      `end failed for ${CONNECTION_STRING}; select private_end_value`,
-    )
-    driver.failNextConnection(connectionFailure)
-    driver.failNextEnd(connectEndFailure)
+      `end failed for ${CONNECTION_STRING}; select private_end_value`
+    );
+    driver.failNextConnection(connectionFailure);
+    driver.failNextEnd(connectEndFailure);
     await expect(
       createRequestDatabase({
         connectionString: CONNECTION_STRING,
         diagnosticSink,
-      }),
-    ).rejects.toBe(connectionFailure)
+      })
+    ).rejects.toBe(connectionFailure);
     expect(
-      driver.clients[REQUEST_DATABASE_POOL_MAX_CONNECTIONS + 1]?.end,
-    ).toHaveBeenCalledOnce()
-    expect(diagnosticSink).toHaveBeenCalledTimes(3)
+      driver.clients[REQUEST_DATABASE_POOL_MAX_CONNECTIONS + 1]?.end
+    ).toHaveBeenCalledOnce();
+    expect(diagnosticSink).toHaveBeenCalledTimes(3);
     expect(diagnosticSink).toHaveBeenLastCalledWith({
       code: "REQUEST_DATABASE_CLIENT_CLOSE_ERROR",
-    })
+    });
     expect(JSON.stringify(diagnosticSink.mock.calls)).not.toContain(
-      CONNECTION_STRING,
-    )
+      CONNECTION_STRING
+    );
     expect(JSON.stringify(diagnosticSink.mock.calls)).not.toContain(
-      "private_close_value",
-    )
+      "private_close_value"
+    );
     expect(JSON.stringify(diagnosticSink.mock.calls)).not.toContain(
-      "private_end_value",
-    )
+      "private_end_value"
+    );
     expect(JSON.stringify(diagnosticSink.mock.calls)).not.toContain(
-      "private_init_end_value",
-    )
+      "private_init_end_value"
+    );
 
-    const remainingCapacity = await Promise.all(Array.from(
-      { length: REQUEST_DATABASE_POOL_MAX_CONNECTIONS - 3 },
-      () => createRequestDatabase({ connectionString: CONNECTION_STRING }),
-    ))
+    const remainingCapacity = await Promise.all(
+      Array.from({ length: REQUEST_DATABASE_POOL_MAX_CONNECTIONS - 3 }, () =>
+        createRequestDatabase({ connectionString: CONNECTION_STRING })
+      )
+    );
     await expect(
-      createRequestDatabase({ connectionString: CONNECTION_STRING }),
-    ).rejects.toBeInstanceOf(RequestDatabaseCapacityError)
-    return await Promise.all(remainingCapacity.map(({ close }) => close()))
-  })
+      createRequestDatabase({ connectionString: CONNECTION_STRING })
+    ).rejects.toBeInstanceOf(RequestDatabaseCapacityError);
+    return await Promise.all(remainingCapacity.map(({ close }) => close()));
+  });
 
+  it("runs migrations from the package folder unless explicitly overridden", async function () {
+    const resource = createNodeDatabase({
+      connectionString: CONNECTION_STRING,
+    });
 
-  it("runs migrations from the package folder unless explicitly overridden", async function() {
-    const resource = createNodeDatabase({ connectionString: CONNECTION_STRING })
-
-    await migrate(resource.db)
+    await migrate(resource.db);
     expect(driver.runMigrations).toHaveBeenCalledWith(
       resource.db,
       expect.objectContaining({
         migrationsFolder: expect.stringMatching(/packages\/db\/migrations$/),
-      }),
-    )
+      })
+    );
 
-    await migrate(resource.db, { migrationsFolder: "/tmp/darkfactory-migrations" })
+    await migrate(resource.db, {
+      migrationsFolder: "/tmp/darkfactory-migrations",
+    });
     return expect(driver.runMigrations).toHaveBeenLastCalledWith(resource.db, {
       migrationsFolder: "/tmp/darkfactory-migrations",
-    })
-  })
+    });
+  });
 
-  it("returns transaction results and preserves rollback rejections", async function() {
+  it("returns transaction results and preserves rollback rejections", async function () {
     const successfulDatabase = {
-      transaction: vi.fn(async (operation: (tx: { marker: string }) => unknown) => {
-        return operation({ marker: "transaction" })
-      }
+      transaction: vi.fn(
+        async (operation: (tx: { marker: string }) => unknown) => {
+          return operation({ marker: "transaction" });
+        }
       ),
-    }
+    };
     const result = await withTransaction(
       successfulDatabase as never,
-      async (transaction) => (transaction as unknown as { marker: string }).marker,
-    )
-    expect(result).toBe("transaction")
+      async (transaction) =>
+        (transaction as unknown as { marker: string }).marker
+    );
+    expect(result).toBe("transaction");
 
-    const rollbackError = new Error("roll back")
+    const rollbackError = new Error("roll back");
     const failingDatabase = {
       transaction: vi.fn(async () => {
-        throw rollbackError
-      }
-      ),
-    }
+        throw rollbackError;
+      }),
+    };
     return await expect(
-      withTransaction(failingDatabase as never, async () => "unreachable"),
-    ).rejects.toBe(rollbackError)
-  })
+      withTransaction(failingDatabase as never, async () => "unreachable")
+    ).rejects.toBe(rollbackError);
+  });
 
-
-  it("propagates private Node pool close failures", async function() {
+  it("propagates private Node pool close failures", async function () {
     const poolResource = createNodeDatabase({
       connectionString: CONNECTION_STRING,
-    })
-    const poolFailure = new Error("pool close failed")
-    driver.pools[0]!.end.mockRejectedValueOnce(poolFailure)
-    return await expect(poolResource.close()).rejects.toBe(poolFailure)
-  })
+    });
+    const poolFailure = new Error("pool close failed");
+    driver.pools[0]!.end.mockRejectedValueOnce(poolFailure);
+    return await expect(poolResource.close()).rejects.toBe(poolFailure);
+  });
 
-  return it("propagates migration-provider failures without rewriting them", async function() {
-    const resource = createNodeDatabase({ connectionString: CONNECTION_STRING })
-    const migrationFailure = new Error("migration provider failed")
-    driver.runMigrations.mockRejectedValueOnce(migrationFailure)
+  return it("propagates migration-provider failures without rewriting them", async function () {
+    const resource = createNodeDatabase({
+      connectionString: CONNECTION_STRING,
+    });
+    const migrationFailure = new Error("migration provider failed");
+    driver.runMigrations.mockRejectedValueOnce(migrationFailure);
 
-    await expect(migrate(resource.db)).rejects.toBe(migrationFailure)
+    await expect(migrate(resource.db)).rejects.toBe(migrationFailure);
     return expect(driver.runMigrations).toHaveBeenCalledWith(
       resource.db,
       expect.objectContaining({
         migrationsFolder: expect.stringMatching(/packages\/db\/migrations$/),
-      }),
-    )
-  })
-})
+      })
+    );
+  });
+});

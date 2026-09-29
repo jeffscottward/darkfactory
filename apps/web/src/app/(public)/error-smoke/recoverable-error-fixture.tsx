@@ -1,28 +1,30 @@
-"use client"
+"use client";
 
-import { useEffect, useState } from "react"
+import { useEffect, useState } from "react";
 
-import { PublicPage } from "../_components/public-content.tsx"
-import PublicLoading from "../loading.tsx"
+import { PublicPage } from "../_components/public-content.tsx";
+import PublicLoading from "../loading.tsx";
 
-const recoveryMarker = "darkfactory:e2e:public-error-recovered"
+const recoveryMarker = "darkfactory:e2e:public-error-recovered";
 
 export const RecoverableErrorFixture = () => {
-  const [phase, setPhase] = useState<"checking" | "recovered" | "throw">("checking")
+  const [phase, setPhase] = useState<"checking" | "recovered" | "throw">(
+    "checking"
+  );
 
   useEffect(() => {
     if (window.sessionStorage.getItem(recoveryMarker) === "1") {
-      setPhase("recovered")
-      return undefined
+      setPhase("recovered");
+      return undefined;
     }
-    window.sessionStorage.setItem(recoveryMarker, "1")
-    setPhase("throw")
-    return undefined
-  }
-  , [])
+    window.sessionStorage.setItem(recoveryMarker, "1");
+    setPhase("throw");
+    return undefined;
+  }, []);
 
-  if (phase === "checking") return <PublicLoading />
-  if (phase === "throw") throw new Error("E2E recoverable public error fixture")
+  if (phase === "checking") return <PublicLoading />;
+  if (phase === "throw")
+    throw new Error("E2E recoverable public error fixture");
 
   return (
     <PublicPage
@@ -33,6 +35,6 @@ export const RecoverableErrorFixture = () => {
       <p className="py-16 text-base leading-7 text-muted-foreground">
         Recovery completed without submitting data or changing an account.
       </p>
-  </PublicPage>
-  )
-}
+    </PublicPage>
+  );
+};

@@ -1,22 +1,22 @@
-import { AuthPanel } from "../../../components/auth/auth-panel.tsx"
-import { SessionRedirect } from "../../../components/auth/session-redirect.tsx"
-import { SignInForm } from "../../../components/auth/sign-in-form.tsx"
+import { AuthPanel } from "../../../components/auth/auth-panel.tsx";
+import { SessionRedirect } from "../../../components/auth/session-redirect.tsx";
+import { SignInForm } from "../../../components/auth/sign-in-form.tsx";
 import {
   firstSearchParam,
   type AuthSearchParams,
-} from "../auth-search-params.ts"
+} from "../auth-search-params.ts";
 
 export const metadata = {
   title: "Sign in",
   description: "Sign in to the DarkFactory portal with a verified account.",
-}
+};
 
 export default async function SignInPage({
   searchParams,
 }: Readonly<{ searchParams: AuthSearchParams }>) {
-  const params = await searchParams
-  const callbackURL = firstSearchParam(params["callbackURL"])
-  const wasReset = firstSearchParam(params["reset"]) === "1"
+  const params = await searchParams;
+  const callbackURL = firstSearchParam(params["callbackURL"]);
+  const wasReset = firstSearchParam(params["reset"]) === "1";
 
   return (
     <AuthPanel
@@ -29,11 +29,11 @@ export default async function SignInPage({
           {wasReset ? (
             <p className="mb-6 text-sm leading-6 text-foreground" role="status">
               Your password was updated. Sign in with the new password.
-          </p>
+            </p>
           ) : null}
           <SignInForm callbackURL={callbackURL} />
         </>
       </SessionRedirect>
-  </AuthPanel>
-  )
+    </AuthPanel>
+  );
 }

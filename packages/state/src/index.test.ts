@@ -1,4 +1,4 @@
-import { describe, expect, expectTypeOf, it } from "vitest"
+import { describe, expect, expectTypeOf, it } from "vitest";
 
 import {
   CONSENT_STATES,
@@ -11,10 +11,10 @@ import {
   type ConsentState,
   type Palette,
   type ThemeMode,
-} from "./index.ts"
+} from "./index.ts";
 
-describe("theme contracts", function() {
-  it("exposes the canonical ordered persisted ten-palette contract", function() {
+describe("theme contracts", function () {
+  it("exposes the canonical ordered persisted ten-palette contract", function () {
     expect(PALETTES).toEqual([
       "neutral",
       "slate",
@@ -26,19 +26,20 @@ describe("theme contracts", function() {
       "red",
       "rose",
       "violet",
-    ])
-    expect(PALETTES).toHaveLength(10)
-    expect(new Set(PALETTES).size).toBe(10)
-    expect(Object.isFrozen(PALETTES)).toBe(true)
-    return expectTypeOf<Palette>().toEqualTypeOf<(typeof PALETTES)[number]>()
-  })
+    ]);
+    expect(PALETTES).toHaveLength(10);
+    expect(new Set(PALETTES).size).toBe(10);
+    expect(Object.isFrozen(PALETTES)).toBe(true);
+    return expectTypeOf<Palette>().toEqualTypeOf<(typeof PALETTES)[number]>();
+  });
 
-  it("validates only the ten palette names", function() {
+  it("validates only the ten palette names", function () {
     for (const palette of PALETTES) {
-      expect(isPalette(palette)).toBe(true)
+      expect(isPalette(palette)).toBe(true);
     }
 
-    const results=[];for (const value of [
+    const results = [];
+    for (const value of [
       "studio",
       "Neutral",
       "cobalt",
@@ -50,48 +51,53 @@ describe("theme contracts", function() {
       10,
       {},
     ]) {
-      results.push(expect(isPalette(value)).toBe(false))
-    };return results;
-  })
+      results.push(expect(isPalette(value)).toBe(false));
+    }
+    return results;
+  });
 
-  it("validates only light, dark, and system theme modes", function() {
-    expect(THEME_MODES).toEqual(["light", "dark", "system"])
-    expect(Object.isFrozen(THEME_MODES)).toBe(true)
+  it("validates only light, dark, and system theme modes", function () {
+    expect(THEME_MODES).toEqual(["light", "dark", "system"]);
+    expect(Object.isFrozen(THEME_MODES)).toBe(true);
 
     for (const mode of THEME_MODES) {
-      expect(isThemeMode(mode)).toBe(true)
+      expect(isThemeMode(mode)).toBe(true);
     }
 
     for (const value of ["auto", "Light", "", null, undefined, false]) {
-      expect(isThemeMode(value)).toBe(false)
+      expect(isThemeMode(value)).toBe(false);
     }
 
-    return expectTypeOf<ThemeMode>().toEqualTypeOf<(typeof THEME_MODES)[number]>()
-  })
+    return expectTypeOf<ThemeMode>().toEqualTypeOf<
+      (typeof THEME_MODES)[number]
+    >();
+  });
 
-  it("validates only granted, denied, and unknown consent states", function() {
-    expect(CONSENT_STATES).toEqual(["granted", "denied", "unknown"])
-    expect(Object.isFrozen(CONSENT_STATES)).toBe(true)
+  it("validates only granted, denied, and unknown consent states", function () {
+    expect(CONSENT_STATES).toEqual(["granted", "denied", "unknown"]);
+    expect(Object.isFrozen(CONSENT_STATES)).toBe(true);
 
     for (const consent of CONSENT_STATES) {
-      expect(isConsentState(consent)).toBe(true)
+      expect(isConsentState(consent)).toBe(true);
     }
 
     for (const value of ["pending", "Granted", "", null, undefined, true]) {
-      expect(isConsentState(value)).toBe(false)
+      expect(isConsentState(value)).toBe(false);
     }
 
-    return expectTypeOf<ConsentState>().toEqualTypeOf<(typeof CONSENT_STATES)[number]>()
-  })
+    return expectTypeOf<ConsentState>().toEqualTypeOf<
+      (typeof CONSENT_STATES)[number]
+    >();
+  });
 
-  return it("uses safe deterministic defaults", function() {
+  return it("uses safe deterministic defaults", function () {
     expect(DEFAULT_UI_PREFERENCES).toEqual({
       sidebar: "expanded",
       mobileNavigationOpen: false,
       themeMode: "system",
       palette: "neutral",
       consent: "unknown",
-    })
-    return expect(Object.isFrozen(DEFAULT_UI_PREFERENCES)).toBe(true)
-  })
-})
+    });
+    return expect(Object.isFrozen(DEFAULT_UI_PREFERENCES)).toBe(true);
+  });
+});

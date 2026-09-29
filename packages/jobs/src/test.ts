@@ -6,53 +6,49 @@ import {
   type JobPayload,
   type JobReceipt,
   type JsonObject,
-} from "./index.ts"
+} from "./index.ts";
 
 export type RecordingJobPortOptions = Readonly<{
-  now?: (() => string) | undefined
-}>
+  now?: (() => string) | undefined;
+}>;
 
 export interface RecordingJobPort extends JobPort {
-  getEnvelopes(): readonly JobEnvelope<string, JsonObject>[]
+  getEnvelopes(): readonly JobEnvelope<string, JsonObject>[];
 }
 
 const formatSequence = (sequence: number): string => {
-  return sequence.toString().padStart(6, "0")
-}
+  return sequence.toString().padStart(6, "0");
+};
 
 const cloneEnvelope = <Name extends string, Payload extends object>(
-  envelope: JobEnvelope<Name, Payload>,
+  envelope: JobEnvelope<Name, Payload>
 ): JobEnvelope<Name, Payload> => {
-  const snapshot = snapshotJobPayload(envelope.payload)
+  const snapshot = snapshotJobPayload(envelope.payload);
   if (snapshot.status === "invalid") {
-    throw new Error("recorded job payload invariant violated")
+    throw new Error("recorded job payload invariant violated");
   }
   return Object.freeze({
     ...envelope,
     payload: snapshot.payload as JobPayload<Payload>,
-  })
-}
+  });
+};
 
 export const createRecordingJobPort = (
-  options: RecordingJobPortOptions = {},
+  options: RecordingJobPortOptions = {}
 ): RecordingJobPort => {
-  const now = options.now ?? (() => "1970-01-01T00:00:00.000Z")
-  const envelopes: JobEnvelope<string, JsonObject>[] = []
-  let sequence = 0
+  const now = options.now ?? (() => "1970-01-01T00:00:00.000Z");
+  const envelopes: JobEnvelope<string, JsonObject>[] = [];
+  let sequence = 0;
 
-  const enqueue = async <
-    Name extends string,
-    Payload extends object,
-    Result,
-  >(
+  const enqueue = async <Name extends string, Payload extends object, Result>(
     definition: JobDefinition<Name, Payload, Result>,
-    payload: JobPayload<Payload>,
+    payload: JobPayload<Payload>
   ): Promise<JobReceipt<Name, Result>> => {
-    sequence += 1
-    const jobId = `recording-job-${formatSequence(sequence)}`
-    const jobName = definition.name
-    const enqueuedAt = now()
-    const snapshot = snapshotJobPayload(payload)
+    sequence += 1;
+    const jobId = `recording-job-${formatSequence(sequence)}`;
+    const jobName = definition.name;
+    const enqueuedAt = now();
+    const snapshot = snapshotJobPayload(payload);
     if (snapshot.status === "invalid") {
       return Object.freeze({
         status: "failed",
@@ -64,7 +60,7 @@ export const createRecordingJobPort = (
           code: "JOB_PAYLOAD_INVALID",
           retryable: false,
         }),
-      })
+      });
     }
 
     const envelope: JobEnvelope<Name, Payload> = Object.freeze({
@@ -72,8 +68,8 @@ export const createRecordingJobPort = (
       name: jobName,
       payload: snapshot.payload as JobPayload<Payload>,
       enqueuedAt,
-    })
-    envelopes.push(envelope)
+    });
+    envelopes.push(envelope);
 
     return Object.freeze({
       status: "recorded",
@@ -81,15 +77,15 @@ export const createRecordingJobPort = (
       jobId,
       jobName,
       enqueuedAt,
-    })
-  }
+    });
+  };
 
   const flush = async (): Promise<void> => {
-    return
-  }
+    return;
+  };
   const getEnvelopes = (): readonly JobEnvelope<string, JsonObject>[] => {
-    return Object.freeze(envelopes.map((envelope) => cloneEnvelope(envelope)))
-  }
+    return Object.freeze(envelopes.map((envelope) => cloneEnvelope(envelope)));
+  };
 
-  return Object.freeze({ enqueue, flush, getEnvelopes })
-}
+  return Object.freeze({ enqueue, flush, getEnvelopes });
+};

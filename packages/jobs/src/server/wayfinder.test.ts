@@ -1,43 +1,56 @@
-import { chmod, lstat, mkdtemp, mkdir, readFile, readdir, readlink, rm, stat, symlink, writeFile } from "node:fs/promises"
-import { tmpdir } from "node:os"
-import { join } from "node:path"
+import {
+  chmod,
+  lstat,
+  mkdtemp,
+  mkdir,
+  readFile,
+  readdir,
+  readlink,
+  rm,
+  stat,
+  symlink,
+  writeFile,
+} from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
-import { afterEach, describe, expect, it, vi } from "vitest"
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 type WayfinderFilesystemDelegate = (
   actual: (...arguments_: any[]) => any,
   ...arguments_: any[]
-) => any
+) => any;
 
 const filesystemMocks = vi.hoisted(() => ({
   lstat: undefined as WayfinderFilesystemDelegate | undefined,
   mkdir: undefined as WayfinderFilesystemDelegate | undefined,
   open: undefined as WayfinderFilesystemDelegate | undefined,
   readlink: undefined as WayfinderFilesystemDelegate | undefined,
-  symlink: undefined as WayfinderFilesystemDelegate | undefined
-}))
+  symlink: undefined as WayfinderFilesystemDelegate | undefined,
+}));
 
 vi.mock("node:fs/promises", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("node:fs/promises")>()
-  const delegated = (
-    selected: () => WayfinderFilesystemDelegate | undefined,
-    implementation: (...arguments_: any[]) => any,
-  ) => (...arguments_: any[]) => {
-    const delegate = selected()
-    return delegate === undefined
-      ? implementation(...arguments_)
-      : delegate(implementation, ...arguments_)
-  }
+  const actual = await importOriginal<typeof import("node:fs/promises")>();
+  const delegated =
+    (
+      selected: () => WayfinderFilesystemDelegate | undefined,
+      implementation: (...arguments_: any[]) => any
+    ) =>
+    (...arguments_: any[]) => {
+      const delegate = selected();
+      return delegate === undefined
+        ? implementation(...arguments_)
+        : delegate(implementation, ...arguments_);
+    };
   return {
     ...actual,
     lstat: delegated(() => filesystemMocks.lstat, actual.lstat),
     mkdir: delegated(() => filesystemMocks.mkdir, actual.mkdir),
     open: delegated(() => filesystemMocks.open, actual.open),
     readlink: delegated(() => filesystemMocks.readlink, actual.readlink),
-    symlink: delegated(() => filesystemMocks.symlink, actual.symlink)
-  }
-}
-)
+    symlink: delegated(() => filesystemMocks.symlink, actual.symlink),
+  };
+});
 
 import {
   WayfinderRequestError,
@@ -46,78 +59,78 @@ import {
   persistLocalWayfinderTrackerArtifact,
   type WayfinderExecutionPort,
   type WayfinderWorkflowQueuePort,
-} from "./wayfinder.ts"
+} from "./wayfinder.ts";
 import {
   captureOmpWayfinderTrackerArtifact,
   type OmpCliAdapter,
   type OmpExecutionRequest,
   type OmpExecutionResult,
   type OmpWayfinderTrackerArtifact,
-} from "./omp.ts"
+} from "./omp.ts";
 import {
   MAX_WORKFLOW_PLAN_SUMMARY_BYTES,
   createWorkflowPlanEvidenceV1,
   hashWorkflowPlanEvidenceV1,
-} from "./plan-evidence.ts"
+} from "./plan-evidence.ts";
 
-const temporaryRoots = new Set<string>()
+const temporaryRoots = new Set<string>();
 
 const createSkillPath = async (content = "---\nname: wayfinder\n---\n") => {
-  const root = await mkdtemp(join(tmpdir(), "darkfactory-wayfinder-test-"))
-  temporaryRoots.add(root)
-  const directory = join(root, ".agents", "skills", "wayfinder")
-  await mkdir(directory, { recursive: true })
-  const skillPath = join(directory, "SKILL.md")
-  await writeFile(skillPath, content)
-  return skillPath
-}
+  const root = await mkdtemp(join(tmpdir(), "darkfactory-wayfinder-test-"));
+  temporaryRoots.add(root);
+  const directory = join(root, ".agents", "skills", "wayfinder");
+  await mkdir(directory, { recursive: true });
+  const skillPath = join(directory, "SKILL.md");
+  await writeFile(skillPath, content);
+  return skillPath;
+};
 
 afterEach(async () => {
-  vi.restoreAllMocks()
-  filesystemMocks.lstat = undefined
-  filesystemMocks.mkdir = undefined
-  filesystemMocks.open = undefined
-  filesystemMocks.readlink = undefined
-  filesystemMocks.symlink = undefined
-  vi.unstubAllEnvs()
-  await Promise.all([...temporaryRoots].map((root) => {
-    return rm(root, { recursive: true, force: true })
-  }
-  ))
-  return temporaryRoots.clear()
-}
-)
+  vi.restoreAllMocks();
+  filesystemMocks.lstat = undefined;
+  filesystemMocks.mkdir = undefined;
+  filesystemMocks.open = undefined;
+  filesystemMocks.readlink = undefined;
+  filesystemMocks.symlink = undefined;
+  vi.unstubAllEnvs();
+  await Promise.all(
+    [...temporaryRoots].map((root) => {
+      return rm(root, { recursive: true, force: true });
+    })
+  );
+  return temporaryRoots.clear();
+});
 
 const resultFor = (
   artifact?: OmpWayfinderTrackerArtifact,
-  finalize = vi.fn(async () => undefined),
-): OmpExecutionResult => Object.freeze({
-  command: "print",
-  status: "succeeded",
-  exitCode: 0,
-  signal: null,
-  durationMs: 5,
-  output: Object.freeze({
-    stdout: "Map queued",
-    stderr: "",
-    stdoutBytes: 10,
-    stderrBytes: 0,
-    truncated: false,
-    redacted: false
-  }),
-  change: null,
-  verification: null,
-  implementationArtifact: null,
-  ...(artifact === undefined ? {} : { wayfinderTrackerArtifact: artifact }),
-  lifecycle: Object.freeze({ finalize })
-})
+  finalize = vi.fn(async () => undefined)
+): OmpExecutionResult =>
+  Object.freeze({
+    command: "print",
+    status: "succeeded",
+    exitCode: 0,
+    signal: null,
+    durationMs: 5,
+    output: Object.freeze({
+      stdout: "Map queued",
+      stderr: "",
+      stdoutBytes: 10,
+      stderrBytes: 0,
+      truncated: false,
+      redacted: false,
+    }),
+    change: null,
+    verification: null,
+    implementationArtifact: null,
+    ...(artifact === undefined ? {} : { wayfinderTrackerArtifact: artifact }),
+    lifecycle: Object.freeze({ finalize }),
+  });
 
-const ompAdapter = (
-  execute: OmpCliAdapter["execute"],
-): OmpCliAdapter => Object.freeze({
-  execute,
-  cleanupRetainedWorkspace: async () => undefined
-})
+const ompAdapter = (execute: OmpCliAdapter["execute"]): OmpCliAdapter =>
+  Object.freeze({
+    execute,
+    cleanupRetainedWorkspace: async () => undefined,
+  });
 
 const executionRequest = Object.freeze({
   command: "print" as const,
@@ -126,41 +139,44 @@ const executionRequest = Object.freeze({
   cwd: "darkfactory",
   scopePaths: Object.freeze(["packages/jobs"]),
   humanRequest: "Chart a safe route for splitting the operator plane.",
-  repositoryId: "darkfactory"
-})
+  repositoryId: "darkfactory",
+});
 
 const createRepositoriesRoot = async (): Promise<string> => {
-  const root = await mkdtemp(join(tmpdir(), "darkfactory-wayfinder-repositories-"))
-  temporaryRoots.add(root)
-  await mkdir(join(root, "darkfactory"), { mode: 0o700 })
-  return root
-}
+  const root = await mkdtemp(
+    join(tmpdir(), "darkfactory-wayfinder-repositories-")
+  );
+  temporaryRoots.add(root);
+  await mkdir(join(root, "darkfactory"), { mode: 0o700 });
+  return root;
+};
 
 const trackerArtifactFor = async (
   map = "# Route\n",
   issue = "# Storage\n",
   runId = "run-wayfinder-1",
-  issueName = "01-storage.md",
+  issueName = "01-storage.md"
 ): Promise<OmpWayfinderTrackerArtifact> => {
-  const root = await mkdtemp(join(tmpdir(), "darkfactory-wayfinder-artifact-"))
-  temporaryRoots.add(root)
-  const trackerDirectory = join(root, runId)
-  await mkdir(join(trackerDirectory, "issues"), { recursive: true, mode: 0o700 })
-  await writeFile(join(trackerDirectory, "map.md"), map, { mode: 0o600 })
-  await writeFile(
-    join(trackerDirectory, "issues", issueName),
-    issue,
-    { mode: 0o600 },
-  )
+  const root = await mkdtemp(join(tmpdir(), "darkfactory-wayfinder-artifact-"));
+  temporaryRoots.add(root);
+  const trackerDirectory = join(root, runId);
+  await mkdir(join(trackerDirectory, "issues"), {
+    recursive: true,
+    mode: 0o700,
+  });
+  await writeFile(join(trackerDirectory, "map.md"), map, { mode: 0o600 });
+  await writeFile(join(trackerDirectory, "issues", issueName), issue, {
+    mode: 0o600,
+  });
   return captureOmpWayfinderTrackerArtifact({
     trackerDirectory,
     repositoryId: "darkfactory",
-    runId
-  })
-}
+    runId,
+  });
+};
 
 const planReviewFor = (artifact: OmpWayfinderTrackerArtifact): string => {
-  const map = artifact.entries.find((entry) => entry.path === "map.md")!
+  const map = artifact.entries.find((entry) => entry.path === "map.md")!;
   return [
     "# Wayfinder plan",
     map.content.trim(),
@@ -168,96 +184,96 @@ const planReviewFor = (artifact: OmpWayfinderTrackerArtifact): string => {
     "## Integrity",
     `Tracker digest: ${artifact.digest}`,
     `Map digest: ${map.digest}`,
-  ].join("\n")
-}
+  ].join("\n");
+};
 
 const mapOnlyTrackerArtifactFor = async (
   repositoryId = "darkfactory",
-  runId = "run-wayfinder-map-only",
+  runId = "run-wayfinder-map-only"
 ): Promise<OmpWayfinderTrackerArtifact> => {
-  const root = await mkdtemp(join(tmpdir(), "darkfactory-wayfinder-map-only-"))
-  temporaryRoots.add(root)
-  const trackerDirectory = join(root, runId)
-  await mkdir(trackerDirectory, { mode: 0o700 })
-  await writeFile(join(trackerDirectory, "map.md"), "# Map only\n", { mode: 0o600 })
+  const root = await mkdtemp(join(tmpdir(), "darkfactory-wayfinder-map-only-"));
+  temporaryRoots.add(root);
+  const trackerDirectory = join(root, runId);
+  await mkdir(trackerDirectory, { mode: 0o700 });
+  await writeFile(join(trackerDirectory, "map.md"), "# Map only\n", {
+    mode: 0o600,
+  });
   return captureOmpWayfinderTrackerArtifact({
     trackerDirectory,
     repositoryId,
-    runId
-  })
-}
+    runId,
+  });
+};
 
 const writePublishedArtifact = async (
   trackerDirectory: string,
-  artifact: OmpWayfinderTrackerArtifact,
+  artifact: OmpWayfinderTrackerArtifact
 ): Promise<void> => {
-  await mkdir(trackerDirectory, { mode: 0o700 })
+  await mkdir(trackerDirectory, { mode: 0o700 });
   if (artifact.entries.some((entry) => entry.path.startsWith("issues/"))) {
-    await mkdir(join(trackerDirectory, "issues"), { mode: 0o700 })
+    await mkdir(join(trackerDirectory, "issues"), { mode: 0o700 });
   }
   for (const entry of artifact.entries) {
     await writeFile(
       join(trackerDirectory, ...entry.path.split("/")),
       entry.content,
-      { mode: 0o600 },
-    )
+      { mode: 0o600 }
+    );
   }
-}
+};
 
 describe("local Wayfinder execution adapter", () => {
   it("reports installed only when the exact Wayfinder skill manifest is valid", async () => {
-    const installedPath = await createSkillPath()
+    const installedPath = await createSkillPath();
     const installed = createLocalWayfinderExecutionAdapter({
       repositoriesRoot: tmpdir(),
       skillPath: installedPath,
-      omp: ompAdapter(async () => resultFor())
-    })
+      omp: ompAdapter(async () => resultFor()),
+    });
     const missing = createLocalWayfinderExecutionAdapter({
       repositoriesRoot: tmpdir(),
       skillPath: join(tmpdir(), "missing-wayfinder", "SKILL.md"),
-      omp: ompAdapter(async () => resultFor())
-    })
-    const wrongPath = await createSkillPath("---\nname: another-skill\n---\n")
+      omp: ompAdapter(async () => resultFor()),
+    });
+    const wrongPath = await createSkillPath("---\nname: another-skill\n---\n");
     const wrong = createLocalWayfinderExecutionAdapter({
       repositoriesRoot: tmpdir(),
       skillPath: wrongPath,
-      omp: ompAdapter(async () => resultFor())
-    })
+      omp: ompAdapter(async () => resultFor()),
+    });
 
     await expect(installed.status()).resolves.toEqual({
       availability: "installed",
-      tracker: "local-markdown"
-    })
+      tracker: "local-markdown",
+    });
     await expect(missing.status()).resolves.toEqual({
       availability: "unavailable",
-      tracker: "local-markdown"
-    })
+      tracker: "local-markdown",
+    });
     return await expect(wrong.status()).resolves.toEqual({
       availability: "unavailable",
-      tracker: "local-markdown"
-    })
-  }
-  )
+      tracker: "local-markdown",
+    });
+  });
 
   it("constructs a bounded /wayfinder OMP request and returns a canonical tracker receipt", async () => {
-    const skillPath = await createSkillPath()
-    const repositoriesRoot = await createRepositoriesRoot()
-    const artifact = await trackerArtifactFor()
-    const requests: OmpExecutionRequest[] = []
-    const ompResult = resultFor(artifact)
-    vi.stubEnv("OPENAI_API_KEY", "sk-wayfinder-secret-value")
+    const skillPath = await createSkillPath();
+    const repositoriesRoot = await createRepositoriesRoot();
+    const artifact = await trackerArtifactFor();
+    const requests: OmpExecutionRequest[] = [];
+    const ompResult = resultFor(artifact);
+    vi.stubEnv("OPENAI_API_KEY", "sk-wayfinder-secret-value");
     const adapter = createLocalWayfinderExecutionAdapter({
       repositoriesRoot,
       skillPath,
       omp: ompAdapter(async (request) => {
-        requests.push(request)
-        return ompResult
-      }
-      )
-    })
+        requests.push(request);
+        return ompResult;
+      }),
+    });
 
-    const result = await adapter.execute(executionRequest)
-    const stdout = planReviewFor(artifact)
+    const result = await adapter.execute(executionRequest);
+    const stdout = planReviewFor(artifact);
     expect(result).toEqual({
       command: "print",
       status: "succeeded",
@@ -270,851 +286,903 @@ describe("local Wayfinder execution adapter", () => {
         stdoutBytes: Buffer.byteLength(stdout),
         stderrBytes: 0,
         truncated: false,
-        redacted: false
+        redacted: false,
       },
       change: null,
       verification: null,
       implementationArtifact: null,
-      lifecycle: ompResult.lifecycle
-    })
-    expect("wayfinderTrackerArtifact" in result).toBe(false)
-    expect(result.output.stdout).toContain("# Route")
-    expect(result.output.stdout).toContain(`Tracker digest: ${artifact.digest}`)
-    expect(requests).toHaveLength(1)
+      lifecycle: ompResult.lifecycle,
+    });
+    expect("wayfinderTrackerArtifact" in result).toBe(false);
+    expect(result.output.stdout).toContain("# Route");
+    expect(result.output.stdout).toContain(
+      `Tracker digest: ${artifact.digest}`
+    );
+    expect(requests).toHaveLength(1);
     expect(requests[0]).toMatchObject({
       command: "print",
       workspaceId: "run-wayfinder-1",
       effectKind: "plan",
       cwd: "darkfactory",
       scopePaths: ["packages/jobs"],
-      skillProfile: "wayfinder"
-    })
-    expect(requests[0]!.instruction).toContain("/wayfinder")
-    expect(requests[0]!.instruction).toContain("local-markdown")
-    expect(requests[0]!.instruction).toContain(executionRequest.humanRequest)
+      skillProfile: "wayfinder",
+    });
+    expect(requests[0]!.instruction).toContain("/wayfinder");
+    expect(requests[0]!.instruction).toContain("local-markdown");
+    expect(requests[0]!.instruction).toContain(executionRequest.humanRequest);
+    expect(requests[0]!.instruction).toContain(".scratch/run-wayfinder-1");
     expect(requests[0]!.instruction).toContain(
-      ".scratch/run-wayfinder-1",
-    )
-    expect(requests[0]!.instruction).toContain(
-      "Use the write tool to create map.md in the tracker root before responding.",
-    )
-    await expect(readFile(
-      join(repositoriesRoot, "darkfactory", ".scratch", "run-wayfinder-1", "map.md"),
-      "utf8",
-    )).resolves.toBe("# Route\n")
+      "Use the write tool to create map.md in the tracker root before responding."
+    );
+    await expect(
+      readFile(
+        join(
+          repositoriesRoot,
+          "darkfactory",
+          ".scratch",
+          "run-wayfinder-1",
+          "map.md"
+        ),
+        "utf8"
+      )
+    ).resolves.toBe("# Route\n");
     const target = join(
       repositoriesRoot,
       "darkfactory",
       ".scratch",
-      "run-wayfinder-1",
-    )
-    expect((await lstat(target)).isSymbolicLink()).toBe(true)
+      "run-wayfinder-1"
+    );
+    expect((await lstat(target)).isSymbolicLink()).toBe(true);
     expect(await readlink(target)).toMatch(
       new RegExp(
         `^\\.run-wayfinder-1\\.publish-${artifact.digest}-[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$`,
-        "u",
-      ),
-    )
-    const serialized = JSON.stringify(requests[0])
-    expect(serialized).not.toContain(skillPath)
-    return expect(serialized).not.toContain("sk-wayfinder-secret-value")
-  }
-  )
+        "u"
+      )
+    );
+    const serialized = JSON.stringify(requests[0]);
+    expect(serialized).not.toContain(skillPath);
+    return expect(serialized).not.toContain("sk-wayfinder-secret-value");
+  });
 
-  it("includes requested plan changes and forwards explicit redactions through OMP and publication", async function() {
-    const planClarification = "Keep the storage route explicit and preserve rollback ordering."
+  it("includes requested plan changes and forwards explicit redactions through OMP and publication", async function () {
+    const planClarification =
+      "Keep the storage route explicit and preserve rollback ordering.";
     const redactions = Object.freeze([
       "private-plan-token",
-      "second-plan-secret"
-    ])
-    const redactedMap = "# Route\nKeep [REDACTED] outside publication.\n"
-    const redactedIssue = "# Storage\nNever persist [REDACTED].\n"
-    const skillPath = await createSkillPath()
-    const repositoriesRoot = await createRepositoriesRoot()
+      "second-plan-secret",
+    ]);
+    const redactedMap = "# Route\nKeep [REDACTED] outside publication.\n";
+    const redactedIssue = "# Storage\nNever persist [REDACTED].\n";
+    const skillPath = await createSkillPath();
+    const repositoriesRoot = await createRepositoriesRoot();
     const artifact = await trackerArtifactFor(
       "# Route\nKeep private-plan-token outside publication.\n",
       "# Storage\nNever persist second-plan-secret.\n"
-    )
+    );
     const expectedArtifact = await trackerArtifactFor(
       redactedMap,
       redactedIssue
-    )
-    const requests: OmpExecutionRequest[] = []
+    );
+    const requests: OmpExecutionRequest[] = [];
     const adapter = createLocalWayfinderExecutionAdapter({
       repositoriesRoot,
       skillPath,
       omp: ompAdapter(async (request) => {
-        requests.push(request)
-        return resultFor(artifact)
-      }
-      )
-    })
+        requests.push(request);
+        return resultFor(artifact);
+      }),
+    });
 
     const result = await adapter.execute({
       ...executionRequest,
       planClarification,
-      redactions
-    })
+      redactions,
+    });
     const trackerRoot = join(
       repositoriesRoot,
       "darkfactory",
       ".scratch",
       executionRequest.workspaceId
-    )
+    );
 
-    expect(requests).toHaveLength(1)
+    expect(requests).toHaveLength(1);
     expect(requests[0]!.instruction.split("\n")).toContain(
       `Requested plan changes: ${JSON.stringify(planClarification)}.`
-    )
-    expect(requests[0]!.redactions).toEqual(redactions)
-    await expect(readFile(join(trackerRoot, "map.md"), "utf8"))
-      .resolves.toBe(redactedMap)
-    await expect(readFile(
-      join(trackerRoot, "issues", "01-storage.md"),
-      "utf8"
-    )).resolves.toBe(redactedIssue)
+    );
+    expect(requests[0]!.redactions).toEqual(redactions);
+    await expect(readFile(join(trackerRoot, "map.md"), "utf8")).resolves.toBe(
+      redactedMap
+    );
+    await expect(
+      readFile(join(trackerRoot, "issues", "01-storage.md"), "utf8")
+    ).resolves.toBe(redactedIssue);
     expect(result.output).toMatchObject({
       redacted: true,
-      stdout: planReviewFor(expectedArtifact)
-    })
-    const results=[];for (const redaction of redactions) {
-      results.push(expect(result.output.stdout).not.toContain(redaction))
-    };return results;
-  })
+      stdout: planReviewFor(expectedArtifact),
+    });
+    const results = [];
+    for (const redaction of redactions) {
+      results.push(expect(result.output.stdout).not.toContain(redaction));
+    }
+    return results;
+  });
 
-  it("bounds and redacts tracker plan content before worker persistence", async function() {
-    const secret = "sk-wayfinder-plan-secret"
-    const skillPath = await createSkillPath()
-    const repositoriesRoot = await createRepositoriesRoot()
+  it("bounds and redacts tracker plan content before worker persistence", async function () {
+    const secret = "sk-wayfinder-plan-secret";
+    const skillPath = await createSkillPath();
+    const repositoriesRoot = await createRepositoriesRoot();
     const artifact = await trackerArtifactFor(
       `# Route\n${secret}\n${"é".repeat(MAX_WORKFLOW_PLAN_SUMMARY_BYTES)}`
-    )
+    );
     const adapter = createLocalWayfinderExecutionAdapter({
       repositoriesRoot,
       skillPath,
-      omp: ompAdapter(async () => resultFor(artifact))
-    })
+      omp: ompAdapter(async () => resultFor(artifact)),
+    });
 
-    const result = await adapter.execute(executionRequest)
+    const result = await adapter.execute(executionRequest);
 
-    expect(result.output.truncated).toBe(true)
-    expect(result.output.redacted).toBe(true)
+    expect(result.output.truncated).toBe(true);
+    expect(result.output.redacted).toBe(true);
     expect(result.output.stdoutBytes).toBeLessThanOrEqual(
       MAX_WORKFLOW_PLAN_SUMMARY_BYTES
-    )
-    expect(result.output.stdout).not.toContain(secret)
-    return expect(result.output.stdout).toContain("[REDACTED]")
-  })
+    );
+    expect(result.output.stdout).not.toContain(secret);
+    return expect(result.output.stdout).toContain("[REDACTED]");
+  });
 
-  it("redacts effective OMP environment secrets before tracker publication and plan evidence", async function() {
-    const secret = "standalone-wayfinder-environment-value"
-    const redactedMap = "# Route\nUse [REDACTED] only.\n"
-    const redactedIssue = "# Storage\nNever persist [REDACTED].\n"
-    vi.stubEnv("OPENAI_API_KEY", secret)
-    const skillPath = await createSkillPath()
-    const repositoriesRoot = await createRepositoriesRoot()
+  it("redacts effective OMP environment secrets before tracker publication and plan evidence", async function () {
+    const secret = "standalone-wayfinder-environment-value";
+    const redactedMap = "# Route\nUse [REDACTED] only.\n";
+    const redactedIssue = "# Storage\nNever persist [REDACTED].\n";
+    vi.stubEnv("OPENAI_API_KEY", secret);
+    const skillPath = await createSkillPath();
+    const repositoriesRoot = await createRepositoriesRoot();
     const artifact = await trackerArtifactFor(
       `# Route\nUse ${secret} only.\n`,
       `# Storage\nNever persist ${secret}.\n`
-    )
+    );
     const expectedArtifact = await trackerArtifactFor(
       redactedMap,
       redactedIssue
-    )
-    const execute = vi.fn(async () => resultFor(artifact))
+    );
+    const execute = vi.fn(async () => resultFor(artifact));
     const adapter = createLocalWayfinderExecutionAdapter({
       repositoriesRoot,
       skillPath,
-      omp: ompAdapter(execute)
-    })
+      omp: ompAdapter(execute),
+    });
 
-    const result = await adapter.execute(executionRequest)
+    const result = await adapter.execute(executionRequest);
     const trackerRoot = join(
       repositoriesRoot,
       "darkfactory",
       ".scratch",
       executionRequest.workspaceId
-    )
-    const plan = createWorkflowPlanEvidenceV1(result.output)
+    );
+    const plan = createWorkflowPlanEvidenceV1(result.output);
 
-    await expect(readFile(join(trackerRoot, "map.md"), "utf8"))
-      .resolves.toBe(redactedMap)
-    await expect(readFile(
-      join(trackerRoot, "issues", "01-storage.md"),
-      "utf8"
-    )).resolves.toBe(redactedIssue)
-    expect(await readlink(trackerRoot)).toContain(expectedArtifact.digest)
+    await expect(readFile(join(trackerRoot, "map.md"), "utf8")).resolves.toBe(
+      redactedMap
+    );
+    await expect(
+      readFile(join(trackerRoot, "issues", "01-storage.md"), "utf8")
+    ).resolves.toBe(redactedIssue);
+    expect(await readlink(trackerRoot)).toContain(expectedArtifact.digest);
     expect(result.output).toMatchObject({
       redacted: true,
-      stdout: planReviewFor(expectedArtifact)
-    })
+      stdout: planReviewFor(expectedArtifact),
+    });
     expect(plan).toMatchObject({
       summary: planReviewFor(expectedArtifact),
-      redacted: true
-    })
-    expect(plan.digest).toBe(hashWorkflowPlanEvidenceV1(plan))
-    expect(JSON.stringify({ result, plan })).not.toContain(secret)
-    vi.unstubAllEnvs()
-    const replayResult = await adapter.execute(executionRequest)
-    const replayPlan = createWorkflowPlanEvidenceV1(replayResult.output)
-    expect(replayResult.output).toEqual(result.output)
-    expect(replayPlan).toEqual(plan)
-    return expect(execute).toHaveBeenCalledOnce()
-  })
+      redacted: true,
+    });
+    expect(plan.digest).toBe(hashWorkflowPlanEvidenceV1(plan));
+    expect(JSON.stringify({ result, plan })).not.toContain(secret);
+    vi.unstubAllEnvs();
+    const replayResult = await adapter.execute(executionRequest);
+    const replayPlan = createWorkflowPlanEvidenceV1(replayResult.output);
+    expect(replayResult.output).toEqual(result.output);
+    expect(replayPlan).toEqual(plan);
+    return expect(execute).toHaveBeenCalledOnce();
+  });
 
-  it("rejects an effective environment secret in a tracker path", async function() {
-    const secret = "standalone-wayfinder-path-value"
-    vi.stubEnv("OPENAI_API_KEY", secret)
-    const skillPath = await createSkillPath()
-    const repositoriesRoot = await createRepositoriesRoot()
+  it("rejects an effective environment secret in a tracker path", async function () {
+    const secret = "standalone-wayfinder-path-value";
+    vi.stubEnv("OPENAI_API_KEY", secret);
+    const skillPath = await createSkillPath();
+    const repositoriesRoot = await createRepositoriesRoot();
     const artifact = await trackerArtifactFor(
       "# Route\n",
       "# Storage\n",
       executionRequest.workspaceId,
       `01-${secret}.md`
-    )
-    const finalize = vi.fn(async () => undefined)
+    );
+    const finalize = vi.fn(async () => undefined);
     const adapter = createLocalWayfinderExecutionAdapter({
       repositoriesRoot,
       skillPath,
-      omp: ompAdapter(async () => resultFor(artifact, finalize))
-    })
+      omp: ompAdapter(async () => resultFor(artifact, finalize)),
+    });
 
     await expect(adapter.execute(executionRequest)).rejects.toMatchObject({
       code: "WAYFINDER_UNAVAILABLE",
-      message: "Wayfinder tracker publication failed"
-    })
-    return expect(finalize).toHaveBeenCalledWith("unpersisted")
-  })
+      message: "Wayfinder tracker publication failed",
+    });
+    return expect(finalize).toHaveBeenCalledWith("unpersisted");
+  });
 
   it("fails closed and finalizes once when a successful OMP result has a missing or invalid artifact", async () => {
-    const skillPath = await createSkillPath()
-    const repositoriesRoot = await createRepositoriesRoot()
-    const finalize = vi.fn(async () => undefined)
+    const skillPath = await createSkillPath();
+    const repositoriesRoot = await createRepositoriesRoot();
+    const finalize = vi.fn(async () => undefined);
     const adapter = createLocalWayfinderExecutionAdapter({
       skillPath,
       repositoriesRoot,
-      omp: ompAdapter(async () => resultFor(undefined, finalize))
-    })
+      omp: ompAdapter(async () => resultFor(undefined, finalize)),
+    });
 
     await expect(adapter.execute(executionRequest)).rejects.toMatchObject({
       code: "WAYFINDER_UNAVAILABLE",
-      message: "Wayfinder tracker publication failed"
-    })
-    expect(finalize).toHaveBeenCalledOnce()
-    expect(finalize).toHaveBeenCalledWith("unpersisted")
+      message: "Wayfinder tracker publication failed",
+    });
+    expect(finalize).toHaveBeenCalledOnce();
+    expect(finalize).toHaveBeenCalledWith("unpersisted");
 
-    const artifact = await trackerArtifactFor()
+    const artifact = await trackerArtifactFor();
     const invalid = Object.freeze({
       ...artifact,
-      digest: "0".repeat(64)
-    })
-    const invalidFinalize = vi.fn(async () => undefined)
+      digest: "0".repeat(64),
+    });
+    const invalidFinalize = vi.fn(async () => undefined);
     const invalidAdapter = createLocalWayfinderExecutionAdapter({
       skillPath,
       repositoriesRoot,
-      omp: ompAdapter(async () => resultFor(invalid, invalidFinalize))
-    })
-    await expect(invalidAdapter.execute(executionRequest)).rejects.toMatchObject({
+      omp: ompAdapter(async () => resultFor(invalid, invalidFinalize)),
+    });
+    await expect(
+      invalidAdapter.execute(executionRequest)
+    ).rejects.toMatchObject({
       code: "WAYFINDER_UNAVAILABLE",
-      message: "Wayfinder tracker publication failed"
-    })
-    expect(invalidFinalize).toHaveBeenCalledOnce()
-    return expect(invalidFinalize).toHaveBeenCalledWith("unpersisted")
-  }
-  )
+      message: "Wayfinder tracker publication failed",
+    });
+    expect(invalidFinalize).toHaveBeenCalledOnce();
+    return expect(invalidFinalize).toHaveBeenCalledWith("unpersisted");
+  });
 
   it("replays a crash-after-link receipt without skill availability or OMP", async () => {
-    const skillPath = await createSkillPath()
-    const repositoriesRoot = await createRepositoriesRoot()
-    const artifact = await trackerArtifactFor()
-    const freshOmpResult = resultFor(artifact)
-    const executeFresh = vi.fn(async () => freshOmpResult)
+    const skillPath = await createSkillPath();
+    const repositoriesRoot = await createRepositoriesRoot();
+    const artifact = await trackerArtifactFor();
+    const freshOmpResult = resultFor(artifact);
+    const executeFresh = vi.fn(async () => freshOmpResult);
     const freshAdapter = createLocalWayfinderExecutionAdapter({
       skillPath,
       repositoriesRoot,
-      omp: ompAdapter(executeFresh)
-    })
+      omp: ompAdapter(executeFresh),
+    });
 
-    const fresh = await freshAdapter.execute(executionRequest)
-    const { lifecycle, ...canonicalReceipt } = fresh
-    expect(lifecycle).toBe(freshOmpResult.lifecycle)
-    expect(executeFresh).toHaveBeenCalledOnce()
+    const fresh = await freshAdapter.execute(executionRequest);
+    const { lifecycle, ...canonicalReceipt } = fresh;
+    expect(lifecycle).toBe(freshOmpResult.lifecycle);
+    expect(executeFresh).toHaveBeenCalledOnce();
 
     const executeReplay = vi.fn(async () => {
-      throw new Error("OMP must not run during tracker replay")
-    }
-    )
+      throw new Error("OMP must not run during tracker replay");
+    });
     const replayAdapter = createLocalWayfinderExecutionAdapter({
       skillPath: join(repositoriesRoot, "missing-wayfinder-skill"),
       repositoriesRoot,
-      omp: ompAdapter(executeReplay)
-    })
+      omp: ompAdapter(executeReplay),
+    });
 
-    const replay = await replayAdapter.execute(executionRequest)
-    expect(replay).toEqual(canonicalReceipt)
-    expect(executeReplay).not.toHaveBeenCalled()
-    expect("lifecycle" in replay).toBe(false)
+    const replay = await replayAdapter.execute(executionRequest);
+    expect(replay).toEqual(canonicalReceipt);
+    expect(executeReplay).not.toHaveBeenCalled();
+    expect("lifecycle" in replay).toBe(false);
 
     const target = join(
       repositoriesRoot,
       "darkfactory",
       ".scratch",
-      "run-wayfinder-1",
-    )
-    await expect(readFile(join(target, "map.md"), "utf8")).resolves.toBe("# Route\n")
-    expect((await lstat(target)).isSymbolicLink()).toBe(true)
-    expect((await stat(target)).mode & 0o777).toBe(0o700)
-    expect((await stat(join(target, "issues"))).mode & 0o777).toBe(0o700)
-    expect((await stat(join(target, "map.md"))).mode & 0o777).toBe(0o600)
-    return expect((await stat(join(target, "issues", "01-storage.md"))).mode & 0o777)
-      .toBe(0o600)
-  }
-  )
+      "run-wayfinder-1"
+    );
+    await expect(readFile(join(target, "map.md"), "utf8")).resolves.toBe(
+      "# Route\n"
+    );
+    expect((await lstat(target)).isSymbolicLink()).toBe(true);
+    expect((await stat(target)).mode & 0o777).toBe(0o700);
+    expect((await stat(join(target, "issues"))).mode & 0o777).toBe(0o700);
+    expect((await stat(join(target, "map.md"))).mode & 0o777).toBe(0o600);
+    return expect(
+      (await stat(join(target, "issues", "01-storage.md"))).mode & 0o777
+    ).toBe(0o600);
+  });
   it("keeps a linked tracker recoverable when the post-link scratch fsync fails", async () => {
-    const skillPath = await createSkillPath()
-    const repositoriesRoot = await createRepositoriesRoot()
-    const artifact = await trackerArtifactFor()
-    const scratch = join(repositoriesRoot, "darkfactory", ".scratch")
-    const finalize = vi.fn(async () => undefined)
-    let scratchSyncs = 0
+    const skillPath = await createSkillPath();
+    const repositoriesRoot = await createRepositoriesRoot();
+    const artifact = await trackerArtifactFor();
+    const scratch = join(repositoriesRoot, "darkfactory", ".scratch");
+    const finalize = vi.fn(async () => undefined);
+    let scratchSyncs = 0;
     filesystemMocks.open = async (actual, path, ...arguments_) => {
-      const handle = await actual(path, ...arguments_)
-      if (!String(path).endsWith("/darkfactory/.scratch")) return handle
+      const handle = await actual(path, ...arguments_);
+      if (!String(path).endsWith("/darkfactory/.scratch")) return handle;
       return {
         sync: async () => {
-          scratchSyncs += 1
+          scratchSyncs += 1;
           if (scratchSyncs === 2) {
-            throw new Error("scratch fsync failed")
-          };return
+            throw new Error("scratch fsync failed");
+          }
+          return;
         },
-        close: async () => handle.close()
-      }
-    }
+        close: async () => handle.close(),
+      };
+    };
     const adapter = createLocalWayfinderExecutionAdapter({
       skillPath,
       repositoriesRoot,
-      omp: ompAdapter(async () => resultFor(artifact, finalize))
-    })
+      omp: ompAdapter(async () => resultFor(artifact, finalize)),
+    });
 
     await expect(adapter.execute(executionRequest)).rejects.toMatchObject({
       code: "WAYFINDER_UNAVAILABLE",
-      message: "Wayfinder tracker publication failed"
-    })
-    expect(finalize).toHaveBeenCalledWith("unpersisted")
-    filesystemMocks.open = undefined
-    const target = join(scratch, artifact.runId)
-    const stagingBasename = await readlink(target)
-    expect((await lstat(target)).isSymbolicLink()).toBe(true)
+      message: "Wayfinder tracker publication failed",
+    });
+    expect(finalize).toHaveBeenCalledWith("unpersisted");
+    filesystemMocks.open = undefined;
+    const target = join(scratch, artifact.runId);
+    const stagingBasename = await readlink(target);
+    expect((await lstat(target)).isSymbolicLink()).toBe(true);
     await expect(stat(join(scratch, stagingBasename))).resolves.toMatchObject({
-      mode: expect.any(Number)
-    })
+      mode: expect.any(Number),
+    });
 
     const executeReplay = vi.fn(async () => {
-      throw new Error("OMP must not run during tracker recovery")
-    }
-    )
+      throw new Error("OMP must not run during tracker recovery");
+    });
     const replayAdapter = createLocalWayfinderExecutionAdapter({
       repositoriesRoot,
       skillPath: join(repositoriesRoot, "missing-wayfinder-skill"),
-      omp: ompAdapter(executeReplay)
-    })
-    await expect(replayAdapter.execute(executionRequest)).resolves.toMatchObject({
+      omp: ompAdapter(executeReplay),
+    });
+    await expect(
+      replayAdapter.execute(executionRequest)
+    ).resolves.toMatchObject({
       status: "succeeded",
-      output: { stdout: planReviewFor(artifact) }
-    })
-    expect(executeReplay).not.toHaveBeenCalled()
-    return await expect(readFile(join(scratch, artifact.runId, "map.md"), "utf8"))
-      .resolves.toBe("# Route\n")
-  }
-  )
+      output: { stdout: planReviewFor(artifact) },
+    });
+    expect(executeReplay).not.toHaveBeenCalled();
+    return await expect(
+      readFile(join(scratch, artifact.runId, "map.md"), "utf8")
+    ).resolves.toBe("# Route\n");
+  });
   it("binds receipt identity to the digest and rejects every replay after post-link mutation", async () => {
-    const repositoriesRoot = await createRepositoriesRoot()
-    const artifact = await mapOnlyTrackerArtifactFor()
+    const repositoriesRoot = await createRepositoriesRoot();
+    const artifact = await mapOnlyTrackerArtifactFor();
     filesystemMocks.symlink = async (actual, source, target, type) => {
-      await actual(source, target, type)
-      return await writeFile(join(String(target), "map.md"), "# Changed after link\n", {
-        mode: 0o600,
+      await actual(source, target, type);
+      return await writeFile(
+        join(String(target), "map.md"),
+        "# Changed after link\n",
+        {
+          mode: 0o600,
+        }
+      );
+    };
+
+    await expect(
+      persistLocalWayfinderTrackerArtifact({
+        repositoriesRoot,
+        repositoryId: "darkfactory",
+        runId: artifact.runId,
+        artifact,
       })
-    }
+    ).rejects.toThrow("Wayfinder tracker publication failed");
 
-    await expect(persistLocalWayfinderTrackerArtifact({
-      repositoriesRoot,
-      repositoryId: "darkfactory",
-      runId: artifact.runId,
-      artifact
-    })).rejects.toThrow("Wayfinder tracker publication failed")
-
-    filesystemMocks.symlink = undefined
-    const scratch = join(repositoriesRoot, "darkfactory", ".scratch")
-    const target = join(scratch, artifact.runId)
-    const stagingBasename = await readlink(target)
-    expect(stagingBasename).toContain(`.publish-${artifact.digest}-`)
-    expect((await lstat(target)).isSymbolicLink()).toBe(true)
-    await expect(readFile(join(scratch, stagingBasename, "map.md"), "utf8"))
-      .resolves.toBe("# Changed after link\n")
-    await expect(persistLocalWayfinderTrackerArtifact({
-      repositoriesRoot,
-      repositoryId: "darkfactory",
-      runId: artifact.runId,
-      artifact
-    })).rejects.toThrow("Wayfinder tracker publication failed")
-    return expect(await readlink(target)).toBe(stagingBasename)
-  }
-  )
+    filesystemMocks.symlink = undefined;
+    const scratch = join(repositoriesRoot, "darkfactory", ".scratch");
+    const target = join(scratch, artifact.runId);
+    const stagingBasename = await readlink(target);
+    expect(stagingBasename).toContain(`.publish-${artifact.digest}-`);
+    expect((await lstat(target)).isSymbolicLink()).toBe(true);
+    await expect(
+      readFile(join(scratch, stagingBasename, "map.md"), "utf8")
+    ).resolves.toBe("# Changed after link\n");
+    await expect(
+      persistLocalWayfinderTrackerArtifact({
+        repositoriesRoot,
+        repositoryId: "darkfactory",
+        runId: artifact.runId,
+        artifact,
+      })
+    ).rejects.toThrow("Wayfinder tracker publication failed");
+    return expect(await readlink(target)).toBe(stagingBasename);
+  });
   it("ignores a stale legacy fixed publication lock", async () => {
-    const skillPath = await createSkillPath()
-    const repositoriesRoot = await createRepositoriesRoot()
-    const artifact = await trackerArtifactFor()
-    const scratch = join(repositoriesRoot, "darkfactory", ".scratch")
-    const legacyLock = join(scratch, `.${artifact.runId}.publish.lock`)
-    await mkdir(scratch, { mode: 0o700 })
-    await mkdir(legacyLock, { mode: 0o700 })
-    const execute = vi.fn(async () => resultFor(artifact))
+    const skillPath = await createSkillPath();
+    const repositoriesRoot = await createRepositoriesRoot();
+    const artifact = await trackerArtifactFor();
+    const scratch = join(repositoriesRoot, "darkfactory", ".scratch");
+    const legacyLock = join(scratch, `.${artifact.runId}.publish.lock`);
+    await mkdir(scratch, { mode: 0o700 });
+    await mkdir(legacyLock, { mode: 0o700 });
+    const execute = vi.fn(async () => resultFor(artifact));
     const adapter = createLocalWayfinderExecutionAdapter({
       skillPath,
       repositoriesRoot,
-      omp: ompAdapter(execute)
-    })
+      omp: ompAdapter(execute),
+    });
 
     await expect(adapter.execute(executionRequest)).resolves.toMatchObject({
       status: "succeeded",
-      output: { stdout: planReviewFor(artifact) }
-    })
-    expect(execute).toHaveBeenCalledOnce()
-    await expect(stat(legacyLock)).resolves.toMatchObject({ mode: expect.any(Number) })
-    return await expect(readFile(join(scratch, artifact.runId, "map.md"), "utf8"))
-      .resolves.toBe("# Route\n")
-  }
-  )
+      output: { stdout: planReviewFor(artifact) },
+    });
+    expect(execute).toHaveBeenCalledOnce();
+    await expect(stat(legacyLock)).resolves.toMatchObject({
+      mode: expect.any(Number),
+    });
+    return await expect(
+      readFile(join(scratch, artifact.runId, "map.md"), "utf8")
+    ).resolves.toBe("# Route\n");
+  });
   it("returns a competing valid receipt that wins the link race and cleans only the losing stage", async () => {
-    const skillPath = await createSkillPath()
-    const repositoriesRoot = await createRepositoriesRoot()
-    const losing = await trackerArtifactFor("# Losing route\n")
-    const winner = await trackerArtifactFor("# Winning route\n")
-    const finalize = vi.fn(async () => undefined)
-    const winnerBasename =
-      `.${winner.runId}.publish-${winner.digest}-00000000-0000-4000-8000-000000000001`
+    const skillPath = await createSkillPath();
+    const repositoriesRoot = await createRepositoriesRoot();
+    const losing = await trackerArtifactFor("# Losing route\n");
+    const winner = await trackerArtifactFor("# Winning route\n");
+    const finalize = vi.fn(async () => undefined);
+    const winnerBasename = `.${winner.runId}.publish-${winner.digest}-00000000-0000-4000-8000-000000000001`;
     filesystemMocks.symlink = async (actual, source, target, type) => {
-      const scratch = join(String(target), "..")
-      await writePublishedArtifact(join(scratch, winnerBasename), winner)
-      await actual(winnerBasename, target, "dir")
-      return actual(source, target, type)
-    }
+      const scratch = join(String(target), "..");
+      await writePublishedArtifact(join(scratch, winnerBasename), winner);
+      await actual(winnerBasename, target, "dir");
+      return actual(source, target, type);
+    };
     const adapter = createLocalWayfinderExecutionAdapter({
       skillPath,
       repositoriesRoot,
-      omp: ompAdapter(async () => resultFor(losing, finalize))
-    })
+      omp: ompAdapter(async () => resultFor(losing, finalize)),
+    });
 
-    const result = await adapter.execute(executionRequest)
+    const result = await adapter.execute(executionRequest);
     expect(result).toMatchObject({
       status: "succeeded",
       durationMs: 0,
       output: {
-        stdout: planReviewFor(winner)
-      }
-    })
-    expect("lifecycle" in result).toBe(false)
-    expect(finalize).toHaveBeenCalledOnce()
-    expect(finalize).toHaveBeenCalledWith("unpersisted")
-    const scratch = join(repositoriesRoot, "darkfactory", ".scratch")
-    await expect(readFile(join(scratch, winner.runId, "map.md"), "utf8"))
-      .resolves.toBe("# Winning route\n")
-    return expect((await readdir(scratch)).filter((entry) => {
-      return entry.startsWith(`.${winner.runId}.publish-`)
-    }
-    )).toEqual([winnerBasename])
-  }
-  )
+        stdout: planReviewFor(winner),
+      },
+    });
+    expect("lifecycle" in result).toBe(false);
+    expect(finalize).toHaveBeenCalledOnce();
+    expect(finalize).toHaveBeenCalledWith("unpersisted");
+    const scratch = join(repositoriesRoot, "darkfactory", ".scratch");
+    await expect(
+      readFile(join(scratch, winner.runId, "map.md"), "utf8")
+    ).resolves.toBe("# Winning route\n");
+    return expect(
+      (await readdir(scratch)).filter((entry) => {
+        return entry.startsWith(`.${winner.runId}.publish-`);
+      })
+    ).toEqual([winnerBasename]);
+  });
   it("cannot replace an empty target created immediately before exclusive publication", async () => {
-    const repositoriesRoot = await createRepositoriesRoot()
-    const artifact = await mapOnlyTrackerArtifactFor()
+    const repositoriesRoot = await createRepositoriesRoot();
+    const artifact = await mapOnlyTrackerArtifactFor();
     filesystemMocks.symlink = async (actual, source, target, type) => {
-      await mkdir(String(target), { mode: 0o700 })
-      return actual(source, target, type)
-    }
+      await mkdir(String(target), { mode: 0o700 });
+      return actual(source, target, type);
+    };
 
-    await expect(persistLocalWayfinderTrackerArtifact({
-      repositoriesRoot,
-      repositoryId: "darkfactory",
-      runId: artifact.runId,
-      artifact
-    })).rejects.toThrow("Wayfinder tracker publication failed")
-
-    const scratch = join(repositoriesRoot, "darkfactory", ".scratch")
-    expect(await readdir(join(scratch, artifact.runId))).toEqual([])
-    return expect((await readdir(scratch)).filter((entry) => {
-      return entry.startsWith(`.${artifact.runId}.publish-`)
-    }
-    )).toEqual([])
-  }
-  )
-
-  it("accepts a valid self-receipt when linking reports a late error", async () => {
-    const repositoriesRoot = await createRepositoriesRoot()
-    const artifact = await mapOnlyTrackerArtifactFor()
-    filesystemMocks.symlink = async (actual, source, target, type) => {
-      await actual(source, target, type)
-      throw new Error("link completion was reported as failed")
-    }
-
-    await expect(persistLocalWayfinderTrackerArtifact({
-      repositoriesRoot,
-      repositoryId: "darkfactory",
-      runId: artifact.runId,
-      artifact
-    })).resolves.toBeUndefined()
-
-    const scratch = join(repositoriesRoot, "darkfactory", ".scratch")
-    const target = join(scratch, artifact.runId)
-    expect(await readlink(target)).toContain(`.publish-${artifact.digest}-`)
-    return await expect(readFile(join(target, "map.md"), "utf8"))
-      .resolves.toBe("# Map only\n")
-  }
-  )
-
-  it("fails closed when linking fails without a target after the owned stage vanished", async () => {
-    const repositoriesRoot = await createRepositoriesRoot()
-    const artifact = await mapOnlyTrackerArtifactFor()
-    filesystemMocks.symlink = async (_actual, source, target) => {
-      await rm(join(String(target), "..", String(source)), { recursive: true })
-      throw new Error("link failed before publication")
-    }
-
-    await expect(persistLocalWayfinderTrackerArtifact({
-      repositoriesRoot,
-      repositoryId: "darkfactory",
-      runId: artifact.runId,
-      artifact
-    })).rejects.toThrow("Wayfinder tracker publication failed")
-
-    const scratch = join(repositoriesRoot, "darkfactory", ".scratch")
-    return expect(await readdir(scratch)).toEqual([])
-  }
-  )
-
-  it("does not swallow an unexpected staging cleanup metadata failure", async () => {
-    const repositoriesRoot = await createRepositoriesRoot()
-    const artifact = await mapOnlyTrackerArtifactFor(
-      "darkfactory",
-      "run-wayfinder-cleanup-metadata-error",
-    )
-    let cleanupStarted = false
-    filesystemMocks.symlink = async () => {
-      cleanupStarted = true
-      throw new Error("link failed before publication")
-    }
-    filesystemMocks.lstat = async (actual, path, ...arguments_) => {
-      if (cleanupStarted && String(path).includes(".publish-")) {
-        throw Object.assign(
-          new Error("staging cleanup metadata unavailable"),
-          { code: "EIO" },
-        )
-      }
-      return actual(path, ...arguments_)
-    }
-
-    await expect(persistLocalWayfinderTrackerArtifact({
-      repositoriesRoot,
-      repositoryId: "darkfactory",
-      runId: artifact.runId,
-      artifact
-    })).rejects.toThrow("staging cleanup metadata unavailable")
-
-    const scratch = join(repositoriesRoot, "darkfactory", ".scratch")
-    return expect((await readdir(scratch)).some((entry) => {
-      return entry.startsWith(`.${artifact.runId}.publish-`)
-    }
-    )).toBe(true)
-  }
-  )
-
-  it("never removes a file or symlink that replaces its owned staging directory", async () => {
-    const results1=[];for (const replacementKind of ["file", "symlink"] as const) {
-      const repositoriesRoot = await createRepositoriesRoot()
-      const artifact = await mapOnlyTrackerArtifactFor(
-        "darkfactory",
-        `run-wayfinder-replaced-stage-${replacementKind}`,
-      )
-      const outside = await mkdtemp(join(tmpdir(), "wayfinder-stage-referent-"))
-      temporaryRoots.add(outside)
-      const marker = join(outside, "marker")
-      await writeFile(marker, replacementKind)
-      let replacement = ""
-      filesystemMocks.symlink = async (actual, source, target) => {
-        replacement = join(String(target), "..", String(source))
-        await rm(replacement, { recursive: true })
-        if (replacementKind === "file") {
-          await writeFile(replacement, "replacement")
-        }
-        else {
-          await actual(outside, replacement, "dir")
-        }
-        throw new Error("link failed after staging ownership changed")
-      }
-
-      await expect(persistLocalWayfinderTrackerArtifact({
+    await expect(
+      persistLocalWayfinderTrackerArtifact({
         repositoriesRoot,
         repositoryId: "darkfactory",
         runId: artifact.runId,
-        artifact
-      })).rejects.toThrow("Wayfinder tracker publication failed")
+        artifact,
+      })
+    ).rejects.toThrow("Wayfinder tracker publication failed");
 
-      if (replacementKind === "file") {
-        await expect(readFile(replacement, "utf8")).resolves.toBe("replacement")
-      }
-      else {
-        expect((await lstat(replacement)).isSymbolicLink()).toBe(true)
-      }
-      await expect(readFile(marker, "utf8")).resolves.toBe(replacementKind)
-      results1.push(filesystemMocks.symlink = undefined)
-    };return results1;
-  }
-  )
+    const scratch = join(repositoriesRoot, "darkfactory", ".scratch");
+    expect(await readdir(join(scratch, artifact.runId))).toEqual([]);
+    return expect(
+      (await readdir(scratch)).filter((entry) => {
+        return entry.startsWith(`.${artifact.runId}.publish-`);
+      })
+    ).toEqual([]);
+  });
 
-  it("rejects a missing or digest-mismatched direct target after linking", async () => {
-    const results2=[];for (const persistedCase of ["missing", "digest-mismatch"] as const) {
-      const repositoriesRoot = await createRepositoriesRoot()
+  it("accepts a valid self-receipt when linking reports a late error", async () => {
+    const repositoriesRoot = await createRepositoriesRoot();
+    const artifact = await mapOnlyTrackerArtifactFor();
+    filesystemMocks.symlink = async (actual, source, target, type) => {
+      await actual(source, target, type);
+      throw new Error("link completion was reported as failed");
+    };
+
+    await expect(
+      persistLocalWayfinderTrackerArtifact({
+        repositoriesRoot,
+        repositoryId: "darkfactory",
+        runId: artifact.runId,
+        artifact,
+      })
+    ).resolves.toBeUndefined();
+
+    const scratch = join(repositoriesRoot, "darkfactory", ".scratch");
+    const target = join(scratch, artifact.runId);
+    expect(await readlink(target)).toContain(`.publish-${artifact.digest}-`);
+    return await expect(readFile(join(target, "map.md"), "utf8")).resolves.toBe(
+      "# Map only\n"
+    );
+  });
+
+  it("fails closed when linking fails without a target after the owned stage vanished", async () => {
+    const repositoriesRoot = await createRepositoriesRoot();
+    const artifact = await mapOnlyTrackerArtifactFor();
+    filesystemMocks.symlink = async (_actual, source, target) => {
+      await rm(join(String(target), "..", String(source)), { recursive: true });
+      throw new Error("link failed before publication");
+    };
+
+    await expect(
+      persistLocalWayfinderTrackerArtifact({
+        repositoriesRoot,
+        repositoryId: "darkfactory",
+        runId: artifact.runId,
+        artifact,
+      })
+    ).rejects.toThrow("Wayfinder tracker publication failed");
+
+    const scratch = join(repositoriesRoot, "darkfactory", ".scratch");
+    return expect(await readdir(scratch)).toEqual([]);
+  });
+
+  it("does not swallow an unexpected staging cleanup metadata failure", async () => {
+    const repositoriesRoot = await createRepositoriesRoot();
+    const artifact = await mapOnlyTrackerArtifactFor(
+      "darkfactory",
+      "run-wayfinder-cleanup-metadata-error"
+    );
+    let cleanupStarted = false;
+    filesystemMocks.symlink = async () => {
+      cleanupStarted = true;
+      throw new Error("link failed before publication");
+    };
+    filesystemMocks.lstat = async (actual, path, ...arguments_) => {
+      if (cleanupStarted && String(path).includes(".publish-")) {
+        throw Object.assign(new Error("staging cleanup metadata unavailable"), {
+          code: "EIO",
+        });
+      }
+      return actual(path, ...arguments_);
+    };
+
+    await expect(
+      persistLocalWayfinderTrackerArtifact({
+        repositoriesRoot,
+        repositoryId: "darkfactory",
+        runId: artifact.runId,
+        artifact,
+      })
+    ).rejects.toThrow("staging cleanup metadata unavailable");
+
+    const scratch = join(repositoriesRoot, "darkfactory", ".scratch");
+    return expect(
+      (await readdir(scratch)).some((entry) => {
+        return entry.startsWith(`.${artifact.runId}.publish-`);
+      })
+    ).toBe(true);
+  });
+
+  it("never removes a file or symlink that replaces its owned staging directory", async () => {
+    const results1 = [];
+    for (const replacementKind of ["file", "symlink"] as const) {
+      const repositoriesRoot = await createRepositoriesRoot();
       const artifact = await mapOnlyTrackerArtifactFor(
         "darkfactory",
-        `run-wayfinder-persisted-${persistedCase}`,
-      )
+        `run-wayfinder-replaced-stage-${replacementKind}`
+      );
+      const outside = await mkdtemp(
+        join(tmpdir(), "wayfinder-stage-referent-")
+      );
+      temporaryRoots.add(outside);
+      const marker = join(outside, "marker");
+      await writeFile(marker, replacementKind);
+      let replacement = "";
+      filesystemMocks.symlink = async (actual, source, target) => {
+        replacement = join(String(target), "..", String(source));
+        await rm(replacement, { recursive: true });
+        if (replacementKind === "file") {
+          await writeFile(replacement, "replacement");
+        } else {
+          await actual(outside, replacement, "dir");
+        }
+        throw new Error("link failed after staging ownership changed");
+      };
+
+      await expect(
+        persistLocalWayfinderTrackerArtifact({
+          repositoriesRoot,
+          repositoryId: "darkfactory",
+          runId: artifact.runId,
+          artifact,
+        })
+      ).rejects.toThrow("Wayfinder tracker publication failed");
+
+      if (replacementKind === "file") {
+        await expect(readFile(replacement, "utf8")).resolves.toBe(
+          "replacement"
+        );
+      } else {
+        expect((await lstat(replacement)).isSymbolicLink()).toBe(true);
+      }
+      await expect(readFile(marker, "utf8")).resolves.toBe(replacementKind);
+      results1.push((filesystemMocks.symlink = undefined));
+    }
+    return results1;
+  });
+
+  it("rejects a missing or digest-mismatched direct target after linking", async () => {
+    const results2 = [];
+    for (const persistedCase of ["missing", "digest-mismatch"] as const) {
+      const repositoriesRoot = await createRepositoriesRoot();
+      const artifact = await mapOnlyTrackerArtifactFor(
+        "darkfactory",
+        `run-wayfinder-persisted-${persistedCase}`
+      );
       const conflicting = await trackerArtifactFor(
         "# Conflicting direct target\n",
         "# Conflicting issue\n",
-        artifact.runId,
-      )
+        artifact.runId
+      );
       filesystemMocks.symlink = async (actual, source, target, type) => {
-        await actual(source, target, type)
-        await rm(String(target))
+        await actual(source, target, type);
+        await rm(String(target));
         if (persistedCase === "digest-mismatch") {
-          return await writePublishedArtifact(String(target), conflicting)
-        };return
-      }
+          return await writePublishedArtifact(String(target), conflicting);
+        }
+        return;
+      };
 
-      await expect(persistLocalWayfinderTrackerArtifact({
-        repositoriesRoot,
-        repositoryId: "darkfactory",
-        runId: artifact.runId,
-        artifact
-      })).rejects.toThrow("Wayfinder tracker publication failed")
+      await expect(
+        persistLocalWayfinderTrackerArtifact({
+          repositoriesRoot,
+          repositoryId: "darkfactory",
+          runId: artifact.runId,
+          artifact,
+        })
+      ).rejects.toThrow("Wayfinder tracker publication failed");
 
       const target = join(
         repositoriesRoot,
         "darkfactory",
         ".scratch",
-        artifact.runId,
-      )
+        artifact.runId
+      );
       if (persistedCase === "missing") {
-        await expect(lstat(target)).rejects.toMatchObject({ code: "ENOENT" })
+        await expect(lstat(target)).rejects.toMatchObject({ code: "ENOENT" });
+      } else {
+        expect((await lstat(target)).isDirectory()).toBe(true);
+        await expect(readFile(join(target, "map.md"), "utf8")).resolves.toBe(
+          "# Conflicting direct target\n"
+        );
       }
-      else {
-        expect((await lstat(target)).isDirectory()).toBe(true)
-        await expect(readFile(join(target, "map.md"), "utf8"))
-          .resolves.toBe("# Conflicting direct target\n")
-      }
-      results2.push(filesystemMocks.symlink = undefined)
-    };return results2;
-  }
-  )
+      results2.push((filesystemMocks.symlink = undefined));
+    }
+    return results2;
+  });
 
   it("accepts an identical direct replay and rejects a conflicting direct artifact", async () => {
-    const repositoriesRoot = await createRepositoriesRoot()
-    const published = await trackerArtifactFor("# Published route\n")
-    const conflicting = await trackerArtifactFor("# Conflicting route\n")
+    const repositoriesRoot = await createRepositoriesRoot();
+    const published = await trackerArtifactFor("# Published route\n");
+    const conflicting = await trackerArtifactFor("# Conflicting route\n");
     await persistLocalWayfinderTrackerArtifact({
       repositoriesRoot,
       repositoryId: "darkfactory",
       runId: published.runId,
-      artifact: published
-    })
+      artifact: published,
+    });
     const target = join(
       repositoriesRoot,
       "darkfactory",
       ".scratch",
-      published.runId,
-    )
-    const winnerReceipt = await readlink(target)
+      published.runId
+    );
+    const winnerReceipt = await readlink(target);
 
-    await expect(persistLocalWayfinderTrackerArtifact({
-      repositoriesRoot,
-      repositoryId: "darkfactory",
-      runId: published.runId,
-      artifact: published
-    })).resolves.toBeUndefined()
-    await expect(persistLocalWayfinderTrackerArtifact({
-      repositoriesRoot,
-      repositoryId: "darkfactory",
-      runId: published.runId,
-      artifact: conflicting
-    })).rejects.toThrow("Wayfinder tracker publication failed")
-    await expect(readFile(join(
-      repositoriesRoot,
-      "darkfactory",
-      ".scratch",
-      published.runId,
-      "map.md",
-    ), "utf8")).resolves.toBe("# Published route\n")
-    return expect(await readlink(target)).toBe(winnerReceipt)
-  }
-  )
+    await expect(
+      persistLocalWayfinderTrackerArtifact({
+        repositoriesRoot,
+        repositoryId: "darkfactory",
+        runId: published.runId,
+        artifact: published,
+      })
+    ).resolves.toBeUndefined();
+    await expect(
+      persistLocalWayfinderTrackerArtifact({
+        repositoriesRoot,
+        repositoryId: "darkfactory",
+        runId: published.runId,
+        artifact: conflicting,
+      })
+    ).rejects.toThrow("Wayfinder tracker publication failed");
+    await expect(
+      readFile(
+        join(
+          repositoriesRoot,
+          "darkfactory",
+          ".scratch",
+          published.runId,
+          "map.md"
+        ),
+        "utf8"
+      )
+    ).resolves.toBe("# Published route\n");
+    return expect(await readlink(target)).toBe(winnerReceipt);
+  });
   it("replays a legacy physical tracker directory", async () => {
-    const repositoriesRoot = await createRepositoriesRoot()
-    const artifact = await trackerArtifactFor("# Legacy route\n")
-    const scratch = join(repositoriesRoot, "darkfactory", ".scratch")
-    const target = join(scratch, artifact.runId)
-    await mkdir(scratch, { mode: 0o700 })
-    await writePublishedArtifact(target, artifact)
+    const repositoriesRoot = await createRepositoriesRoot();
+    const artifact = await trackerArtifactFor("# Legacy route\n");
+    const scratch = join(repositoriesRoot, "darkfactory", ".scratch");
+    const target = join(scratch, artifact.runId);
+    await mkdir(scratch, { mode: 0o700 });
+    await writePublishedArtifact(target, artifact);
     const execute = vi.fn(async () => {
-      throw new Error("OMP must not run during legacy tracker replay")
-    }
-    )
+      throw new Error("OMP must not run during legacy tracker replay");
+    });
     const adapter = createLocalWayfinderExecutionAdapter({
       repositoriesRoot,
       skillPath: join(repositoriesRoot, "missing-wayfinder-skill"),
-      omp: ompAdapter(execute)
-    })
+      omp: ompAdapter(execute),
+    });
 
     await expect(adapter.execute(executionRequest)).resolves.toMatchObject({
       status: "succeeded",
-      output: { stdout: planReviewFor(artifact) }
-    })
-    expect(execute).not.toHaveBeenCalled()
-    expect((await lstat(target)).isSymbolicLink()).toBe(false)
-    return await expect(readFile(join(target, "map.md"), "utf8"))
-      .resolves.toBe("# Legacy route\n")
-  }
-  )
+      output: { stdout: planReviewFor(artifact) },
+    });
+    expect(execute).not.toHaveBeenCalled();
+    expect((await lstat(target)).isSymbolicLink()).toBe(false);
+    return await expect(readFile(join(target, "map.md"), "utf8")).resolves.toBe(
+      "# Legacy route\n"
+    );
+  });
 
   it("rejects malformed, absolute, and out-of-scratch tracker links", async () => {
-    const cases = ["malformed", "absolute", "out-of-scratch"] as const
-    const results3=[];for (const linkCase of cases) {
-      const repositoriesRoot = await createRepositoriesRoot()
+    const cases = ["malformed", "absolute", "out-of-scratch"] as const;
+    const results3 = [];
+    for (const linkCase of cases) {
+      const repositoriesRoot = await createRepositoriesRoot();
       const artifact = await trackerArtifactFor(
         `# ${linkCase}\n`,
         "# Storage\n",
-        `run-wayfinder-${linkCase}`,
-      )
-      const scratch = join(repositoriesRoot, "darkfactory", ".scratch")
-      const target = join(scratch, artifact.runId)
-      await mkdir(scratch, { mode: 0o700 })
-      let linkText: string
+        `run-wayfinder-${linkCase}`
+      );
+      const scratch = join(repositoriesRoot, "darkfactory", ".scratch");
+      const target = join(scratch, artifact.runId);
+      await mkdir(scratch, { mode: 0o700 });
+      let linkText: string;
       if (linkCase === "malformed") {
-        linkText = "not-a-publication-receipt"
-        await writePublishedArtifact(join(scratch, linkText), artifact)
+        linkText = "not-a-publication-receipt";
+        await writePublishedArtifact(join(scratch, linkText), artifact);
+      } else if (linkCase === "absolute") {
+        const outside = await mkdtemp(
+          join(tmpdir(), "wayfinder-absolute-link-")
+        );
+        temporaryRoots.add(outside);
+        const outsideTracker = join(outside, "tracker");
+        await writePublishedArtifact(outsideTracker, artifact);
+        linkText = outsideTracker;
+      } else {
+        const outside = await mkdtemp(
+          join(tmpdir(), "wayfinder-outside-stage-")
+        );
+        temporaryRoots.add(outside);
+        const outsideTracker = join(outside, "tracker");
+        await writePublishedArtifact(outsideTracker, artifact);
+        linkText = `.${artifact.runId}.publish-${artifact.digest}-00000000-0000-4000-8000-000000000002`;
+        await symlink(outsideTracker, join(scratch, linkText), "dir");
       }
-      else if (linkCase === "absolute") {
-        const outside = await mkdtemp(join(tmpdir(), "wayfinder-absolute-link-"))
-        temporaryRoots.add(outside)
-        const outsideTracker = join(outside, "tracker")
-        await writePublishedArtifact(outsideTracker, artifact)
-        linkText = outsideTracker
-      }
-      else {
-        const outside = await mkdtemp(join(tmpdir(), "wayfinder-outside-stage-"))
-        temporaryRoots.add(outside)
-        const outsideTracker = join(outside, "tracker")
-        await writePublishedArtifact(outsideTracker, artifact)
-        linkText =
-          `.${artifact.runId}.publish-${artifact.digest}-00000000-0000-4000-8000-000000000002`
-        await symlink(outsideTracker, join(scratch, linkText), "dir")
-      }
-      await symlink(linkText, target, "dir")
+      await symlink(linkText, target, "dir");
 
-      await expect(persistLocalWayfinderTrackerArtifact({
-        repositoriesRoot,
-        repositoryId: "darkfactory",
-        runId: artifact.runId,
-        artifact
-      })).rejects.toThrow("Wayfinder tracker publication failed")
-      results3.push(expect(await readlink(target)).toBe(linkText))
-    };return results3;
-  }
-  )
+      await expect(
+        persistLocalWayfinderTrackerArtifact({
+          repositoriesRoot,
+          repositoryId: "darkfactory",
+          runId: artifact.runId,
+          artifact,
+        })
+      ).rejects.toThrow("Wayfinder tracker publication failed");
+      results3.push(expect(await readlink(target)).toBe(linkText));
+    }
+    return results3;
+  });
 
   it("rejects a receipt whose private stage becomes an outside symlink before resolution", async () => {
-    const repositoriesRoot = await createRepositoriesRoot()
-    const artifact = await mapOnlyTrackerArtifactFor()
+    const repositoriesRoot = await createRepositoriesRoot();
+    const artifact = await mapOnlyTrackerArtifactFor();
     await persistLocalWayfinderTrackerArtifact({
       repositoriesRoot,
       repositoryId: "darkfactory",
       runId: artifact.runId,
-      artifact
-    })
-    const scratch = join(repositoriesRoot, "darkfactory", ".scratch")
-    const target = join(scratch, artifact.runId)
-    const receipt = await readlink(target)
-    const stage = join(scratch, receipt)
-    const outside = await mkdtemp(join(tmpdir(), "wayfinder-replaced-referent-"))
-    temporaryRoots.add(outside)
-    const marker = join(outside, "marker")
-    await writeFile(marker, "outside")
-    let replaced = false
+      artifact,
+    });
+    const scratch = join(repositoriesRoot, "darkfactory", ".scratch");
+    const target = join(scratch, artifact.runId);
+    const receipt = await readlink(target);
+    const stage = join(scratch, receipt);
+    const outside = await mkdtemp(
+      join(tmpdir(), "wayfinder-replaced-referent-")
+    );
+    temporaryRoots.add(outside);
+    const marker = join(outside, "marker");
+    await writeFile(marker, "outside");
+    let replaced = false;
     filesystemMocks.lstat = async (actual, path, ...arguments_) => {
-      const metadata = await actual(path, ...arguments_)
+      const metadata = await actual(path, ...arguments_);
       if (String(path).endsWith(`/.scratch/${receipt}`) && !replaced) {
-        replaced = true
-        await rm(stage, { recursive: true })
-        await symlink(outside, stage, "dir")
+        replaced = true;
+        await rm(stage, { recursive: true });
+        await symlink(outside, stage, "dir");
       }
-      return metadata
-    }
+      return metadata;
+    };
 
-    await expect(persistLocalWayfinderTrackerArtifact({
-      repositoriesRoot,
-      repositoryId: "darkfactory",
-      runId: artifact.runId,
-      artifact
-    })).rejects.toThrow("Wayfinder tracker publication failed")
+    await expect(
+      persistLocalWayfinderTrackerArtifact({
+        repositoriesRoot,
+        repositoryId: "darkfactory",
+        runId: artifact.runId,
+        artifact,
+      })
+    ).rejects.toThrow("Wayfinder tracker publication failed");
 
-    filesystemMocks.lstat = undefined
-    expect(await readlink(target)).toBe(receipt)
-    expect((await lstat(stage)).isSymbolicLink()).toBe(true)
-    return await expect(readFile(marker, "utf8")).resolves.toBe("outside")
-  }
-  )
+    filesystemMocks.lstat = undefined;
+    expect(await readlink(target)).toBe(receipt);
+    expect((await lstat(stage)).isSymbolicLink()).toBe(true);
+    return await expect(readFile(marker, "utf8")).resolves.toBe("outside");
+  });
 
   it("rejects each malformed publication receipt component without following it", async () => {
-    const receiptUuid = "00000000-0000-4000-8000-000000000003"
-    const results4=[];for (const malformedPart of [
+    const receiptUuid = "00000000-0000-4000-8000-000000000003";
+    const results4 = [];
+    for (const malformedPart of [
       "path-separator",
       "digest-separator",
       "digest",
       "uuid",
     ] as const) {
-      const runId = `run-wayfinder-malformed-${malformedPart}`
-      const repositoriesRoot = await createRepositoriesRoot()
-      const artifact = await mapOnlyTrackerArtifactFor("darkfactory", runId)
-      const scratch = join(repositoriesRoot, "darkfactory", ".scratch")
-      const target = join(scratch, artifact.runId)
-      const prefix = `.${artifact.runId}.publish-`
-      let linkText: string
+      const runId = `run-wayfinder-malformed-${malformedPart}`;
+      const repositoriesRoot = await createRepositoriesRoot();
+      const artifact = await mapOnlyTrackerArtifactFor("darkfactory", runId);
+      const scratch = join(repositoriesRoot, "darkfactory", ".scratch");
+      const target = join(scratch, artifact.runId);
+      const prefix = `.${artifact.runId}.publish-`;
+      let linkText: string;
       if (malformedPart === "path-separator") {
-        linkText = `${prefix}${artifact.digest}-${receiptUuid}/child`
+        linkText = `${prefix}${artifact.digest}-${receiptUuid}/child`;
+      } else if (malformedPart === "digest-separator") {
+        linkText = `${prefix}${artifact.digest}_${receiptUuid}`;
+      } else if (malformedPart === "digest") {
+        linkText = `${prefix}${"g".repeat(64)}-${receiptUuid}`;
+      } else {
+        linkText = `${prefix}${artifact.digest}-not-a-uuid`;
       }
-      else if (malformedPart === "digest-separator") {
-        linkText = `${prefix}${artifact.digest}_${receiptUuid}`
-      }
-      else if (malformedPart === "digest") {
-        linkText = `${prefix}${"g".repeat(64)}-${receiptUuid}`
-      }
-      else {
-        linkText = `${prefix}${artifact.digest}-not-a-uuid`
-      }
-      await mkdir(scratch, { mode: 0o700 })
-      await symlink(linkText, target, "dir")
+      await mkdir(scratch, { mode: 0o700 });
+      await symlink(linkText, target, "dir");
 
-      await expect(persistLocalWayfinderTrackerArtifact({
-        repositoriesRoot,
-        repositoryId: "darkfactory",
-        runId: artifact.runId,
-        artifact
-      })).rejects.toThrow("Wayfinder tracker publication failed")
-      results4.push(expect(await readlink(target)).toBe(linkText))
-    };return results4;
-  }
-  )
+      await expect(
+        persistLocalWayfinderTrackerArtifact({
+          repositoriesRoot,
+          repositoryId: "darkfactory",
+          runId: artifact.runId,
+          artifact,
+        })
+      ).rejects.toThrow("Wayfinder tracker publication failed");
+      results4.push(expect(await readlink(target)).toBe(linkText));
+    }
+    return results4;
+  });
 
   it("rejects every unstable publication receipt identity recheck", async () => {
     const identityCases = [
@@ -1123,527 +1191,573 @@ describe("local Wayfinder execution adapter", () => {
       "inode",
       ...(typeof process.getuid === "function" ? ["owner"] : []),
       "link",
-    ] as const
-    const results5=[];for (const identityCase of identityCases) {
-      const repositoriesRoot = await createRepositoriesRoot()
+    ] as const;
+    const results5 = [];
+    for (const identityCase of identityCases) {
+      const repositoriesRoot = await createRepositoriesRoot();
       const artifact = await mapOnlyTrackerArtifactFor(
         "darkfactory",
-        `run-wayfinder-unstable-${identityCase}`,
-      )
+        `run-wayfinder-unstable-${identityCase}`
+      );
       await persistLocalWayfinderTrackerArtifact({
         repositoriesRoot,
         repositoryId: "darkfactory",
         runId: artifact.runId,
-        artifact
-      })
+        artifact,
+      });
       const target = join(
         repositoriesRoot,
         "darkfactory",
         ".scratch",
-        artifact.runId,
-      )
-      const receipt = await readlink(target)
-      let targetMetadataReads = 0
-      let targetLinkReads = 0
+        artifact.runId
+      );
+      const receipt = await readlink(target);
+      let targetMetadataReads = 0;
+      let targetLinkReads = 0;
       filesystemMocks.lstat = async (actual, path, ...arguments_) => {
-        const metadata = await actual(path, ...arguments_)
-        if (!String(path).endsWith(`/.scratch/${artifact.runId}`)) return metadata
-        targetMetadataReads += 1
-        if (targetMetadataReads !== 2) return metadata
+        const metadata = await actual(path, ...arguments_);
+        if (!String(path).endsWith(`/.scratch/${artifact.runId}`))
+          return metadata;
+        targetMetadataReads += 1;
+        if (targetMetadataReads !== 2) return metadata;
         if (identityCase === "type") {
-          return Object.assign(metadata, { isSymbolicLink: () => false })
+          return Object.assign(metadata, { isSymbolicLink: () => false });
         }
         if (identityCase === "device") {
-          return Object.assign(metadata, { dev: metadata.dev + 1 })
+          return Object.assign(metadata, { dev: metadata.dev + 1 });
         }
         if (identityCase === "inode") {
-          return Object.assign(metadata, { ino: metadata.ino + 1 })
+          return Object.assign(metadata, { ino: metadata.ino + 1 });
         }
         if (identityCase === "owner") {
-          return Object.assign(metadata, { uid: process.getuid!() + 1 })
+          return Object.assign(metadata, { uid: process.getuid!() + 1 });
         }
-        return metadata
-      }
+        return metadata;
+      };
       filesystemMocks.readlink = async (actual, path, ...arguments_) => {
-        const link = await actual(path, ...arguments_)
-        if (!String(path).endsWith(`/.scratch/${artifact.runId}`)) return link
-        targetLinkReads += 1
+        const link = await actual(path, ...arguments_);
+        if (!String(path).endsWith(`/.scratch/${artifact.runId}`)) return link;
+        targetLinkReads += 1;
         return identityCase === "link" && targetLinkReads === 2
           ? `${link}-changed`
-          : link
-      }
+          : link;
+      };
 
-      await expect(persistLocalWayfinderTrackerArtifact({
-        repositoriesRoot,
-        repositoryId: "darkfactory",
-        runId: artifact.runId,
-        artifact
-      })).rejects.toThrow("Wayfinder tracker publication failed")
+      await expect(
+        persistLocalWayfinderTrackerArtifact({
+          repositoriesRoot,
+          repositoryId: "darkfactory",
+          runId: artifact.runId,
+          artifact,
+        })
+      ).rejects.toThrow("Wayfinder tracker publication failed");
 
-      filesystemMocks.lstat = undefined
-      filesystemMocks.readlink = undefined
-      results5.push(expect(await readlink(target)).toBe(receipt))
-    };return results5;
-  }
-  )
+      filesystemMocks.lstat = undefined;
+      filesystemMocks.readlink = undefined;
+      results5.push(expect(await readlink(target)).toBe(receipt));
+    }
+    return results5;
+  });
 
   it("publishes safely when the runtime does not expose a UID API", async () => {
-    const getuidDescriptor = Object.getOwnPropertyDescriptor(process, "getuid")
+    const getuidDescriptor = Object.getOwnPropertyDescriptor(process, "getuid");
     Object.defineProperty(process, "getuid", {
       configurable: true,
-      value: undefined
-    })
+      value: undefined,
+    });
     try {
-      const repositoriesRoot = await createRepositoriesRoot()
+      const repositoriesRoot = await createRepositoriesRoot();
       const artifact = await trackerArtifactFor(
         "# UID-independent route\n",
         "# UID-independent issue\n",
-        "run-wayfinder-without-getuid",
-      )
-      await expect(persistLocalWayfinderTrackerArtifact({
-        repositoriesRoot,
-        repositoryId: "darkfactory",
-        runId: artifact.runId,
-        artifact
-      })).resolves.toBeUndefined()
-      return await expect(readFile(join(
-        repositoriesRoot,
-        "darkfactory",
-        ".scratch",
-        artifact.runId,
-        "issues",
-        "01-storage.md",
-      ), "utf8")).resolves.toBe("# UID-independent issue\n")
-    }
-    finally {
+        "run-wayfinder-without-getuid"
+      );
+      await expect(
+        persistLocalWayfinderTrackerArtifact({
+          repositoriesRoot,
+          repositoryId: "darkfactory",
+          runId: artifact.runId,
+          artifact,
+        })
+      ).resolves.toBeUndefined();
+      return await expect(
+        readFile(
+          join(
+            repositoriesRoot,
+            "darkfactory",
+            ".scratch",
+            artifact.runId,
+            "issues",
+            "01-storage.md"
+          ),
+          "utf8"
+        )
+      ).resolves.toBe("# UID-independent issue\n");
+    } finally {
       if (getuidDescriptor === undefined) {
-        Reflect.deleteProperty(process, "getuid")
-      }
-      else {
-        Object.defineProperty(process, "getuid", getuidDescriptor)
+        Reflect.deleteProperty(process, "getuid");
+      } else {
+        Object.defineProperty(process, "getuid", getuidDescriptor);
       }
     }
-  }
-  )
+  });
 
   it("rejects a publication receipt not owned by the current user", async () => {
-    const repositoriesRoot = await createRepositoriesRoot()
-    const artifact = await mapOnlyTrackerArtifactFor()
+    const repositoriesRoot = await createRepositoriesRoot();
+    const artifact = await mapOnlyTrackerArtifactFor();
     await persistLocalWayfinderTrackerArtifact({
       repositoriesRoot,
       repositoryId: "darkfactory",
       runId: artifact.runId,
-      artifact
-    })
+      artifact,
+    });
     const target = join(
       repositoriesRoot,
       "darkfactory",
       ".scratch",
-      artifact.runId,
-    )
+      artifact.runId
+    );
     filesystemMocks.lstat = async (actual, path, ...arguments_) => {
-      const metadata = await actual(path, ...arguments_)
+      const metadata = await actual(path, ...arguments_);
       if (String(path).endsWith(`/.scratch/${artifact.runId}`)) {
-        return Object.assign(metadata, { uid: process.getuid!() + 1 })
+        return Object.assign(metadata, { uid: process.getuid!() + 1 });
       }
-      return metadata
-    }
+      return metadata;
+    };
 
-    await expect(persistLocalWayfinderTrackerArtifact({
-      repositoriesRoot,
-      repositoryId: "darkfactory",
-      runId: artifact.runId,
-      artifact
-    })).rejects.toThrow("Wayfinder tracker publication failed")
-    return await expect(readFile(join(target, "map.md"), "utf8"))
-      .resolves.toBe("# Map only\n")
-  }
-  )
+    await expect(
+      persistLocalWayfinderTrackerArtifact({
+        repositoriesRoot,
+        repositoryId: "darkfactory",
+        runId: artifact.runId,
+        artifact,
+      })
+    ).rejects.toThrow("Wayfinder tracker publication failed");
+    return await expect(readFile(join(target, "map.md"), "utf8")).resolves.toBe(
+      "# Map only\n"
+    );
+  });
 
   it("publishes different runs concurrently when the private scratch root is absent", async () => {
-    const repositoriesRoot = await createRepositoriesRoot()
+    const repositoriesRoot = await createRepositoriesRoot();
     const first = await trackerArtifactFor(
       "# First\n",
       "# First ticket\n",
-      "run-wayfinder-first",
-    )
+      "run-wayfinder-first"
+    );
     const second = await trackerArtifactFor(
       "# Second\n",
       "# Second ticket\n",
-      "run-wayfinder-second",
-    )
+      "run-wayfinder-second"
+    );
 
     await Promise.all([
       persistLocalWayfinderTrackerArtifact({
         repositoriesRoot,
         repositoryId: "darkfactory",
         runId: first.runId,
-        artifact: first
+        artifact: first,
       }),
       persistLocalWayfinderTrackerArtifact({
         repositoriesRoot,
         repositoryId: "darkfactory",
         runId: second.runId,
-        artifact: second
+        artifact: second,
       }),
-    ])
+    ]);
 
-    const scratch = join(repositoriesRoot, "darkfactory", ".scratch")
-    await expect(readFile(join(scratch, first.runId, "map.md"), "utf8"))
-      .resolves.toBe("# First\n")
-    await expect(readFile(join(scratch, second.runId, "map.md"), "utf8"))
-      .resolves.toBe("# Second\n")
-    const entries = await readdir(scratch)
-    expect(entries).toEqual(expect.arrayContaining([
-      "run-wayfinder-first",
-      "run-wayfinder-second",
-    ]))
-    return expect(entries.filter((entry) => entry.startsWith(".run-wayfinder-")))
-      .toHaveLength(2)
-  }
-  )
+    const scratch = join(repositoriesRoot, "darkfactory", ".scratch");
+    await expect(
+      readFile(join(scratch, first.runId, "map.md"), "utf8")
+    ).resolves.toBe("# First\n");
+    await expect(
+      readFile(join(scratch, second.runId, "map.md"), "utf8")
+    ).resolves.toBe("# Second\n");
+    const entries = await readdir(scratch);
+    expect(entries).toEqual(
+      expect.arrayContaining(["run-wayfinder-first", "run-wayfinder-second"])
+    );
+    return expect(
+      entries.filter((entry) => entry.startsWith(".run-wayfinder-"))
+    ).toHaveLength(2);
+  });
   it("covers unavailable skill metadata and local request boundaries", async () => {
-    const root = await mkdtemp(join(tmpdir(), "darkfactory-wayfinder-skills-"))
-    temporaryRoots.add(root)
-    const executionRepositoriesRoot = await createRepositoriesRoot()
-    const directoryPath = join(root, "directory-skill")
-    const emptyPath = join(root, "empty-skill")
-    const oversizedPath = join(root, "oversized-skill")
-    await mkdir(directoryPath)
-    await writeFile(emptyPath, "")
-    await writeFile(oversizedPath, "x".repeat(256 * 1_024 + 1))
-    const execute = vi.fn(async () => resultFor())
+    const root = await mkdtemp(join(tmpdir(), "darkfactory-wayfinder-skills-"));
+    temporaryRoots.add(root);
+    const executionRepositoriesRoot = await createRepositoriesRoot();
+    const directoryPath = join(root, "directory-skill");
+    const emptyPath = join(root, "empty-skill");
+    const oversizedPath = join(root, "oversized-skill");
+    await mkdir(directoryPath);
+    await writeFile(emptyPath, "");
+    await writeFile(oversizedPath, "x".repeat(256 * 1_024 + 1));
+    const execute = vi.fn(async () => resultFor());
     for (const skillPath of [directoryPath, emptyPath, oversizedPath]) {
       const adapter = createLocalWayfinderExecutionAdapter({
         repositoriesRoot: tmpdir(),
         skillPath,
-        omp: ompAdapter(execute)
-      })
+        omp: ompAdapter(execute),
+      });
       await expect(adapter.status()).resolves.toEqual({
         availability: "unavailable",
-        tracker: "local-markdown"
-      })
+        tracker: "local-markdown",
+      });
     }
 
-    expect(() => createLocalWayfinderExecutionAdapter({
-      repositoriesRoot: "relative",
-      omp: ompAdapter(execute)
-    })).toThrow("Wayfinder tracker publication failed")
+    expect(() =>
+      createLocalWayfinderExecutionAdapter({
+        repositoriesRoot: "relative",
+        omp: ompAdapter(execute),
+      })
+    ).toThrow("Wayfinder tracker publication failed");
     const defaultSkill = createLocalWayfinderExecutionAdapter({
       repositoriesRoot: tmpdir(),
-      omp: ompAdapter(execute)
-    })
+      omp: ompAdapter(execute),
+    });
     await expect(defaultSkill.status()).resolves.toMatchObject({
-      tracker: "local-markdown"
-    })
+      tracker: "local-markdown",
+    });
 
-    const installedPath = await createSkillPath()
+    const installedPath = await createSkillPath();
     const installed = createLocalWayfinderExecutionAdapter({
       repositoriesRoot: tmpdir(),
       skillPath: installedPath,
-      omp: ompAdapter(execute)
-    })
+      omp: ompAdapter(execute),
+    });
     for (const invalid of [
       { ...executionRequest, humanRequest: null as never },
       { ...executionRequest, workspaceId: "unsafe:run" },
-      { ...executionRequest, effectKind: "implement" as never }
+      { ...executionRequest, effectKind: "implement" as never },
     ]) {
       await expect(installed.execute(invalid)).rejects.toBeInstanceOf(
-        WayfinderRequestError,
-      )
+        WayfinderRequestError
+      );
     }
 
     const unavailable = createLocalWayfinderExecutionAdapter({
       repositoriesRoot: executionRepositoriesRoot,
       skillPath: join(root, "missing-skill"),
-      omp: ompAdapter(execute)
-    })
+      omp: ompAdapter(execute),
+    });
     await expect(unavailable.execute(executionRequest)).rejects.toMatchObject({
       code: "WAYFINDER_UNAVAILABLE",
-      message: "Wayfinder is unavailable"
-    })
-    return expect(execute).not.toHaveBeenCalled()
-  }
-  )
+      message: "Wayfinder is unavailable",
+    });
+    return expect(execute).not.toHaveBeenCalled();
+  });
 
   it("forwards optional execution controls and strips unsuccessful artifacts", async () => {
-    const skillPath = await createSkillPath()
-    const repositoriesRoot = await createRepositoriesRoot()
-    const requests: OmpExecutionRequest[] = []
+    const skillPath = await createSkillPath();
+    const repositoriesRoot = await createRepositoriesRoot();
+    const requests: OmpExecutionRequest[] = [];
     const failed = Object.freeze({
       ...resultFor(),
       status: "failed" as const,
-      exitCode: 1
-    })
+      exitCode: 1,
+    });
     const adapter = createLocalWayfinderExecutionAdapter({
       repositoriesRoot,
       skillPath,
       omp: ompAdapter(async (request) => {
-        requests.push(request)
-        return failed
-      }
-      )
-    })
-    const controller = new AbortController()
+        requests.push(request);
+        return failed;
+      }),
+    });
+    const controller = new AbortController();
 
-    await expect(adapter.execute({
-      ...executionRequest,
-      redactions: ["secret"],
-      signal: controller.signal
-    })).resolves.toEqual(expect.objectContaining({
-      status: "failed",
-      exitCode: 1
-    }))
+    await expect(
+      adapter.execute({
+        ...executionRequest,
+        redactions: ["secret"],
+        signal: controller.signal,
+      })
+    ).resolves.toEqual(
+      expect.objectContaining({
+        status: "failed",
+        exitCode: 1,
+      })
+    );
     return expect(requests[0]).toMatchObject({
       redactions: ["secret"],
-      signal: controller.signal
-    })
-  }
-  )
+      signal: controller.signal,
+    });
+  });
 
   it("keeps publication failure authoritative when lifecycle finalization also fails", async () => {
-    const skillPath = await createSkillPath()
-    const repositoriesRoot = await createRepositoriesRoot()
+    const skillPath = await createSkillPath();
+    const repositoriesRoot = await createRepositoriesRoot();
     const finalize = vi.fn(async () => {
-      throw new Error("cleanup failed")
-    }
-    )
+      throw new Error("cleanup failed");
+    });
     const adapter = createLocalWayfinderExecutionAdapter({
       repositoriesRoot,
       skillPath,
-      omp: ompAdapter(async () => resultFor(undefined, finalize))
-    })
+      omp: ompAdapter(async () => resultFor(undefined, finalize)),
+    });
 
     await expect(adapter.execute(executionRequest)).rejects.toMatchObject({
       code: "WAYFINDER_UNAVAILABLE",
-      message: "Wayfinder tracker publication failed"
-    })
-    return expect(finalize).toHaveBeenCalledWith("unpersisted")
-  }
-  )
+      message: "Wayfinder tracker publication failed",
+    });
+    return expect(finalize).toHaveBeenCalledWith("unpersisted");
+  });
 
   it("persists map-only trackers and rejects repository and mode boundaries", async () => {
-    const repositoriesRoot = await createRepositoriesRoot()
-    const mapOnly = await mapOnlyTrackerArtifactFor()
-    await expect(persistLocalWayfinderTrackerArtifact({
-      repositoriesRoot,
-      repositoryId: "darkfactory",
-      runId: mapOnly.runId,
-      artifact: mapOnly
-    })).resolves.toBeUndefined()
-    await expect(readFile(
-      join(repositoriesRoot, "darkfactory", ".scratch", mapOnly.runId, "map.md"),
-      "utf8",
-    )).resolves.toBe("# Map only\n")
+    const repositoriesRoot = await createRepositoriesRoot();
+    const mapOnly = await mapOnlyTrackerArtifactFor();
+    await expect(
+      persistLocalWayfinderTrackerArtifact({
+        repositoriesRoot,
+        repositoryId: "darkfactory",
+        runId: mapOnly.runId,
+        artifact: mapOnly,
+      })
+    ).resolves.toBeUndefined();
+    await expect(
+      readFile(
+        join(
+          repositoriesRoot,
+          "darkfactory",
+          ".scratch",
+          mapOnly.runId,
+          "map.md"
+        ),
+        "utf8"
+      )
+    ).resolves.toBe("# Map only\n");
 
-    const writableRepositoriesRoot = await createRepositoriesRoot()
-    await chmod(join(writableRepositoriesRoot, "darkfactory"), 0o777)
-    await expect(persistLocalWayfinderTrackerArtifact({
-      repositoriesRoot: writableRepositoriesRoot,
-      repositoryId: "darkfactory",
-      runId: mapOnly.runId,
-      artifact: mapOnly
-    })).rejects.toThrow("Wayfinder tracker publication failed")
-    const writableRoot = await createRepositoriesRoot()
-    await chmod(writableRoot, 0o777)
-    await expect(persistLocalWayfinderTrackerArtifact({
-      repositoriesRoot: writableRoot,
-      repositoryId: "darkfactory",
-      runId: mapOnly.runId,
-      artifact: mapOnly
-    })).rejects.toThrow("Wayfinder tracker publication failed")
-    const nestedRepositoriesRoot = await createRepositoriesRoot()
-    await mkdir(join(nestedRepositoriesRoot, "team"), { mode: 0o777 })
-    await mkdir(join(nestedRepositoriesRoot, "team", "repo"), { mode: 0o700 })
+    const writableRepositoriesRoot = await createRepositoriesRoot();
+    await chmod(join(writableRepositoriesRoot, "darkfactory"), 0o777);
+    await expect(
+      persistLocalWayfinderTrackerArtifact({
+        repositoriesRoot: writableRepositoriesRoot,
+        repositoryId: "darkfactory",
+        runId: mapOnly.runId,
+        artifact: mapOnly,
+      })
+    ).rejects.toThrow("Wayfinder tracker publication failed");
+    const writableRoot = await createRepositoriesRoot();
+    await chmod(writableRoot, 0o777);
+    await expect(
+      persistLocalWayfinderTrackerArtifact({
+        repositoriesRoot: writableRoot,
+        repositoryId: "darkfactory",
+        runId: mapOnly.runId,
+        artifact: mapOnly,
+      })
+    ).rejects.toThrow("Wayfinder tracker publication failed");
+    const nestedRepositoriesRoot = await createRepositoriesRoot();
+    await mkdir(join(nestedRepositoriesRoot, "team"), { mode: 0o777 });
+    await mkdir(join(nestedRepositoriesRoot, "team", "repo"), { mode: 0o700 });
     const nestedArtifact = await mapOnlyTrackerArtifactFor(
       "team/repo",
-      "run-wayfinder-nested",
-    )
-    await expect(persistLocalWayfinderTrackerArtifact({
-      repositoriesRoot: nestedRepositoriesRoot,
-      repositoryId: "team/repo",
-      runId: nestedArtifact.runId,
-      artifact: nestedArtifact
-    })).rejects.toThrow("Wayfinder tracker publication failed")
+      "run-wayfinder-nested"
+    );
+    await expect(
+      persistLocalWayfinderTrackerArtifact({
+        repositoriesRoot: nestedRepositoriesRoot,
+        repositoryId: "team/repo",
+        runId: nestedArtifact.runId,
+        artifact: nestedArtifact,
+      })
+    ).rejects.toThrow("Wayfinder tracker publication failed");
 
+    await expect(
+      persistLocalWayfinderTrackerArtifact({
+        repositoriesRoot: "relative",
+        repositoryId: "darkfactory",
+        runId: mapOnly.runId,
+        artifact: mapOnly,
+      })
+    ).rejects.toThrow("Wayfinder tracker publication failed");
 
-    await expect(persistLocalWayfinderTrackerArtifact({
-      repositoriesRoot: "relative",
-      repositoryId: "darkfactory",
-      runId: mapOnly.runId,
-      artifact: mapOnly
-    })).rejects.toThrow("Wayfinder tracker publication failed")
-
-    const fileRepositoryId = "repository-file"
-    await writeFile(join(repositoriesRoot, fileRepositoryId), "not a directory")
+    const fileRepositoryId = "repository-file";
+    await writeFile(
+      join(repositoriesRoot, fileRepositoryId),
+      "not a directory"
+    );
     const fileRepositoryArtifact = await mapOnlyTrackerArtifactFor(
       fileRepositoryId,
-      "run-wayfinder-file",
-    )
-    await expect(persistLocalWayfinderTrackerArtifact({
-      repositoriesRoot,
-      repositoryId: fileRepositoryId,
-      runId: fileRepositoryArtifact.runId,
-      artifact: fileRepositoryArtifact
-    })).rejects.toThrow("Wayfinder tracker publication failed")
+      "run-wayfinder-file"
+    );
+    await expect(
+      persistLocalWayfinderTrackerArtifact({
+        repositoriesRoot,
+        repositoryId: fileRepositoryId,
+        runId: fileRepositoryArtifact.runId,
+        artifact: fileRepositoryArtifact,
+      })
+    ).rejects.toThrow("Wayfinder tracker publication failed");
 
-    const outside = await mkdtemp(join(tmpdir(), "darkfactory-wayfinder-outside-"))
-    temporaryRoots.add(outside)
-    await symlink(outside, join(repositoriesRoot, "linked-repository"))
+    const outside = await mkdtemp(
+      join(tmpdir(), "darkfactory-wayfinder-outside-")
+    );
+    temporaryRoots.add(outside);
+    await symlink(outside, join(repositoriesRoot, "linked-repository"));
     const linkedArtifact = await mapOnlyTrackerArtifactFor(
       "linked-repository",
-      "run-wayfinder-linked",
-    )
-    await expect(persistLocalWayfinderTrackerArtifact({
-      repositoriesRoot,
-      repositoryId: "linked-repository",
-      runId: linkedArtifact.runId,
-      artifact: linkedArtifact
-    })).rejects.toThrow("Wayfinder tracker publication failed")
+      "run-wayfinder-linked"
+    );
+    await expect(
+      persistLocalWayfinderTrackerArtifact({
+        repositoriesRoot,
+        repositoryId: "linked-repository",
+        runId: linkedArtifact.runId,
+        artifact: linkedArtifact,
+      })
+    ).rejects.toThrow("Wayfinder tracker publication failed");
 
-    const insecureRoot = await createRepositoriesRoot()
-    await mkdir(join(insecureRoot, "darkfactory", ".scratch"), { mode: 0o755 })
+    const insecureRoot = await createRepositoriesRoot();
+    await mkdir(join(insecureRoot, "darkfactory", ".scratch"), { mode: 0o755 });
     // mkdir applies the caller's umask; explicitly create the insecure fixture.
-    await chmod(join(insecureRoot, "darkfactory", ".scratch"), 0o755)
-    return await expect(persistLocalWayfinderTrackerArtifact({
-      repositoriesRoot: insecureRoot,
-      repositoryId: "darkfactory",
-      runId: mapOnly.runId,
-      artifact: mapOnly
-    })).rejects.toThrow("Wayfinder tracker publication failed")
-  }
-  )
+    await chmod(join(insecureRoot, "darkfactory", ".scratch"), 0o755);
+    return await expect(
+      persistLocalWayfinderTrackerArtifact({
+        repositoriesRoot: insecureRoot,
+        repositoryId: "darkfactory",
+        runId: mapOnly.runId,
+        artifact: mapOnly,
+      })
+    ).rejects.toThrow("Wayfinder tracker publication failed");
+  });
 
   it("rejects matching published trackers whose private modes were weakened", async () => {
-    const results6=[];for (const weakened of ["tracker", "issues", "map"] as const) {
-      const repositoriesRoot = await createRepositoriesRoot()
-      const artifact = await trackerArtifactFor()
+    const results6 = [];
+    for (const weakened of ["tracker", "issues", "map"] as const) {
+      const repositoriesRoot = await createRepositoriesRoot();
+      const artifact = await trackerArtifactFor();
       await persistLocalWayfinderTrackerArtifact({
         repositoriesRoot,
         repositoryId: "darkfactory",
         runId: artifact.runId,
-        artifact
-      })
+        artifact,
+      });
       const tracker = join(
         repositoriesRoot,
         "darkfactory",
         ".scratch",
-        artifact.runId,
-      )
-      if (weakened === "tracker") { await chmod(tracker, 0o755)}
-      else if (weakened === "issues") { await chmod(join(tracker, "issues"), 0o755)}
-      else await chmod(join(tracker, "map.md"), 0o644)
+        artifact.runId
+      );
+      if (weakened === "tracker") {
+        await chmod(tracker, 0o755);
+      } else if (weakened === "issues") {
+        await chmod(join(tracker, "issues"), 0o755);
+      } else await chmod(join(tracker, "map.md"), 0o644);
 
-      results6.push(await expect(persistLocalWayfinderTrackerArtifact({
+      results6.push(
+        await expect(
+          persistLocalWayfinderTrackerArtifact({
+            repositoriesRoot,
+            repositoryId: "darkfactory",
+            runId: artifact.runId,
+            artifact,
+          })
+        ).rejects.toThrow("Wayfinder tracker publication failed")
+      );
+    }
+    return results6;
+  });
+
+  it("normalizes unexpected target metadata failures before publication", async () => {
+    const repositoriesRoot = await createRepositoriesRoot();
+    const artifact = await mapOnlyTrackerArtifactFor();
+    filesystemMocks.lstat = async (actual, path, ...arguments_) => {
+      if (String(path).endsWith(`/${artifact.runId}`)) {
+        throw Object.assign(new Error("metadata unavailable"), { code: "EIO" });
+      }
+      return actual(path, ...arguments_);
+    };
+
+    return await expect(
+      persistLocalWayfinderTrackerArtifact({
         repositoriesRoot,
         repositoryId: "darkfactory",
         runId: artifact.runId,
-        artifact
-      })).rejects.toThrow("Wayfinder tracker publication failed"))
-    };return results6;
-  }
-  )
-
-  it("normalizes unexpected target metadata failures before publication", async () => {
-    const repositoriesRoot = await createRepositoriesRoot()
-    const artifact = await mapOnlyTrackerArtifactFor()
-    filesystemMocks.lstat = async (actual, path, ...arguments_) => {
-      if (String(path).endsWith(`/${artifact.runId}`)) {
-        throw Object.assign(new Error("metadata unavailable"), { code: "EIO" })
-      }
-      return actual(path, ...arguments_)
-    }
-
-    return await expect(persistLocalWayfinderTrackerArtifact({
-      repositoriesRoot,
-      repositoryId: "darkfactory",
-      runId: artifact.runId,
-      artifact
-    })).rejects.toThrow("Wayfinder tracker publication failed")
-  }
-  )
+        artifact,
+      })
+    ).rejects.toThrow("Wayfinder tracker publication failed");
+  });
 
   return it("fails closed on an insecure prepublished target before skill availability", async () => {
-    const repositoriesRoot = await createRepositoriesRoot()
-    const artifact = await mapOnlyTrackerArtifactFor()
-    const scratch = join(repositoriesRoot, "darkfactory", ".scratch")
-    const target = join(scratch, artifact.runId)
-    await mkdir(scratch, { mode: 0o700 })
-    await writePublishedArtifact(target, artifact)
-    await chmod(join(target, "map.md"), 0o644)
-    const execute = vi.fn(async () => resultFor(artifact))
+    const repositoriesRoot = await createRepositoriesRoot();
+    const artifact = await mapOnlyTrackerArtifactFor();
+    const scratch = join(repositoriesRoot, "darkfactory", ".scratch");
+    const target = join(scratch, artifact.runId);
+    await mkdir(scratch, { mode: 0o700 });
+    await writePublishedArtifact(target, artifact);
+    await chmod(join(target, "map.md"), 0o644);
+    const execute = vi.fn(async () => resultFor(artifact));
     const adapter = createLocalWayfinderExecutionAdapter({
       repositoriesRoot,
       skillPath: join(repositoriesRoot, "missing-wayfinder-skill"),
-      omp: ompAdapter(execute)
-    })
+      omp: ompAdapter(execute),
+    });
 
-    await expect(adapter.execute({
-      ...executionRequest,
-      workspaceId: artifact.runId
-    })).rejects.toMatchObject({
+    await expect(
+      adapter.execute({
+        ...executionRequest,
+        workspaceId: artifact.runId,
+      })
+    ).rejects.toMatchObject({
       code: "WAYFINDER_UNAVAILABLE",
-      message: "Wayfinder tracker publication failed"
-    })
-    expect(execute).not.toHaveBeenCalled()
-    return expect((await stat(join(target, "map.md"))).mode & 0o777).toBe(0o644)
-  }
-  )
-}
-
-
-)
+      message: "Wayfinder tracker publication failed",
+    });
+    expect(execute).not.toHaveBeenCalled();
+    return expect((await stat(join(target, "map.md"))).mode & 0o777).toBe(
+      0o644
+    );
+  });
+});
 
 describe("Wayfinder workflow service", () => {
   const installedStatus = Object.freeze({
     availability: "installed" as const,
-    tracker: "local-markdown" as const
-  })
+    tracker: "local-markdown" as const,
+  });
 
   it("durably queues the run before any OMP execution", async () => {
-    const operations: string[] = []
+    const operations: string[] = [];
     const createRun = vi.fn(async (input) => {
-      operations.push("queue")
-      return Object.freeze({ input })
-    }
-    )
+      operations.push("queue");
+      return Object.freeze({ input });
+    });
     const execute = vi.fn(async () => {
-      operations.push("execute")
-      return resultFor()
-    }
-    )
+      operations.push("execute");
+      return resultFor();
+    });
     const execution = Object.freeze({
       status: vi.fn(async () => {
-        operations.push("status")
-        return installedStatus
-      }
-      ),
-      execute
-    } satisfies WayfinderExecutionPort)
+        operations.push("status");
+        return installedStatus;
+      }),
+      execute,
+    } satisfies WayfinderExecutionPort);
     const service = createWayfinderWorkflowService({
       queue: Object.freeze({ createRun }),
       execution,
       authorizeRepository: (ownerId, repositoryId) => {
-        return ownerId === "owner-1" && repositoryId === "darkfactory"
+        return ownerId === "owner-1" && repositoryId === "darkfactory";
       },
       generateId: () => "run-wayfinder-1",
-      now: () => new Date("2026-07-30T12:00:00.000Z")
-    })
+      now: () => new Date("2026-07-30T12:00:00.000Z"),
+    });
 
-    await expect(service.start({
-      ownerId: "owner-1",
-      repositoryId: "darkfactory",
-      paths: ["packages/jobs"],
-      request: "Chart the operator extraction."
-    })).resolves.toEqual({
+    await expect(
+      service.start({
+        ownerId: "owner-1",
+        repositoryId: "darkfactory",
+        paths: ["packages/jobs"],
+        request: "Chart the operator extraction.",
+      })
+    ).resolves.toEqual({
       runId: "run-wayfinder-1",
       status: "queued",
-      tracker: "local-markdown"
-    })
+      tracker: "local-markdown",
+    });
 
-    expect(operations).toEqual(["status", "queue"])
-    expect(execute).not.toHaveBeenCalled()
-    expect(createRun).toHaveBeenCalledOnce()
+    expect(operations).toEqual(["status", "queue"]);
+    expect(execute).not.toHaveBeenCalled();
+    expect(createRun).toHaveBeenCalledOnce();
     return expect(createRun.mock.calls[0]![0]).toMatchObject({
       ownerId: "owner-1",
       runId: "run-wayfinder-1",
@@ -1660,49 +1774,50 @@ describe("Wayfinder workflow service", () => {
         humanRequest: "Chart the operator extraction.",
         scope: {
           repositoryId: "darkfactory",
-          paths: ["packages/jobs"]
-        }
-      }
-    })
-  }
-  )
+          paths: ["packages/jobs"],
+        },
+      },
+    });
+  });
 
   it("rejects unavailable skills, invalid requests, and unbounded repository scope before queueing", async () => {
-    const createRun = vi.fn(async () => Object.freeze({}))
+    const createRun = vi.fn(async () => Object.freeze({}));
     const execution = Object.freeze({
       status: vi.fn(async () => installedStatus),
-      execute: vi.fn(async () => resultFor())
-    } satisfies WayfinderExecutionPort)
+      execute: vi.fn(async () => resultFor()),
+    } satisfies WayfinderExecutionPort);
     const service = createWayfinderWorkflowService({
       queue: Object.freeze({ createRun }),
       execution,
       authorizeRepository: () => true,
-      generateId: () => "run-wayfinder-invalid"
-    })
+      generateId: () => "run-wayfinder-invalid",
+    });
     const valid = {
       ownerId: "owner-1",
       repositoryId: "darkfactory",
       paths: ["packages/jobs"],
-      request: "Chart this work."
-    } as const
+      request: "Chart this work.",
+    } as const;
 
-    await expect(service.start({
-      ...valid,
-      ownerId: "unsafe owner"
-    })).rejects.toMatchObject({
+    await expect(
+      service.start({
+        ...valid,
+        ownerId: "unsafe owner",
+      })
+    ).rejects.toMatchObject({
       code: "INVALID_WAYFINDER_REQUEST",
-      message: "Wayfinder owner is invalid"
-    })
+      message: "Wayfinder owner is invalid",
+    });
 
     const forbidden = createWayfinderWorkflowService({
       queue: Object.freeze({ createRun }),
       execution,
-      authorizeRepository: () => false
-    })
+      authorizeRepository: () => false,
+    });
     await expect(forbidden.start(valid)).rejects.toMatchObject({
       code: "WAYFINDER_FORBIDDEN",
-      message: "Wayfinder repository access is denied"
-    })
+      message: "Wayfinder repository access is denied",
+    });
 
     for (const input of [
       { ...valid, request: "" },
@@ -1710,71 +1825,77 @@ describe("Wayfinder workflow service", () => {
       { ...valid, request: "unsafe\nrequest" },
       { ...valid, repositoryId: "../darkfactory" },
       { ...valid, paths: ["../secrets"] },
-      { ...valid, paths: Array.from({ length: 129 }, (_, index) => `path-${index}`) }
+      {
+        ...valid,
+        paths: Array.from({ length: 129 }, (_, index) => `path-${index}`),
+      },
     ]) {
-      await expect(service.start(input)).rejects.toBeInstanceOf(WayfinderRequestError)
+      await expect(service.start(input)).rejects.toBeInstanceOf(
+        WayfinderRequestError
+      );
     }
 
-    expect(createRun).not.toHaveBeenCalled()
+    expect(createRun).not.toHaveBeenCalled();
 
     const unsafeRun = createWayfinderWorkflowService({
       queue: Object.freeze({ createRun }),
       execution,
       authorizeRepository: () => true,
-      generateId: () => "run:wayfinder:unsafe"
-    })
+      generateId: () => "run:wayfinder:unsafe",
+    });
     await expect(unsafeRun.start(valid)).rejects.toMatchObject({
       code: "INVALID_WAYFINDER_REQUEST",
-      message: "Wayfinder run identity is invalid"
-    })
-    expect(createRun).not.toHaveBeenCalled()
+      message: "Wayfinder run identity is invalid",
+    });
+    expect(createRun).not.toHaveBeenCalled();
 
     const unavailable = createWayfinderWorkflowService({
       queue: Object.freeze({ createRun }),
       execution: Object.freeze({
-        status: async () => Object.freeze({
-          availability: "unavailable" as const,
-          tracker: "local-markdown" as const
-        }),
-        execute: vi.fn(async () => resultFor())
+        status: async () =>
+          Object.freeze({
+            availability: "unavailable" as const,
+            tracker: "local-markdown" as const,
+          }),
+        execute: vi.fn(async () => resultFor()),
       }),
       authorizeRepository: () => true,
-      generateId: () => "run-wayfinder-unavailable"
-    })
+      generateId: () => "run-wayfinder-unavailable",
+    });
     await expect(unavailable.start(valid)).rejects.toMatchObject({
       code: "WAYFINDER_UNAVAILABLE",
-      message: "Wayfinder is unavailable"
-    })
-    return expect(createRun).not.toHaveBeenCalled()
-  }
-  )
+      message: "Wayfinder is unavailable",
+    });
+    return expect(createRun).not.toHaveBeenCalled();
+  });
   return it("uses bounded generated identifiers and timestamps by default", async () => {
-    const createRun = vi.fn(async (
-      _input: Parameters<WayfinderWorkflowQueuePort["createRun"]>[0],
-    ) => Object.freeze({}))
+    const createRun = vi.fn(
+      async (_input: Parameters<WayfinderWorkflowQueuePort["createRun"]>[0]) =>
+        Object.freeze({})
+    );
     const service = createWayfinderWorkflowService({
       queue: Object.freeze({ createRun }),
       execution: Object.freeze({
         status: async () => installedStatus,
-        execute: vi.fn(async () => resultFor())
+        execute: vi.fn(async () => resultFor()),
       }),
-      authorizeRepository: () => true
-    })
+      authorizeRepository: () => true,
+    });
 
     const result = await service.start({
       ownerId: "owner-defaults",
       repositoryId: "darkfactory",
       paths: ["packages/jobs"],
-      request: "Chart defaults."
-    })
+      request: "Chart defaults.",
+    });
     expect(result.runId).toMatch(
-      /^run-wayfinder-[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/u,
-    )
-    expect(createRun).toHaveBeenCalledTimes(1)
-    const queued = createRun.mock.calls[0]![0]
-    expect(queued.runId).toBe(result.runId)
-    return expect(Number.isNaN(Date.parse(queued.event.occurredAt))).toBe(false)
-  }
-  )
-}
-)
+      /^run-wayfinder-[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/u
+    );
+    expect(createRun).toHaveBeenCalledTimes(1);
+    const queued = createRun.mock.calls[0]![0];
+    expect(queued.runId).toBe(result.runId);
+    return expect(Number.isNaN(Date.parse(queued.event.occurredAt))).toBe(
+      false
+    );
+  });
+});

@@ -1,29 +1,32 @@
-import { describe, expect, it } from "vitest"
+import { describe, expect, it } from "vitest";
 
-import type { JobDefinition, JsonObject } from "../index.ts"
-import { createInlineJobPort } from "./inline.ts"
+import type { JobDefinition, JsonObject } from "../index.ts";
+import { createInlineJobPort } from "./inline.ts";
 
 const deferred = () => {
-  let release!: () => void
+  let release!: () => void;
   const promise = new Promise<void>((resolve) => {
-    release = resolve
-    return
-  }
-  )
-  return { promise, release }
-}
+    release = resolve;
+    return;
+  });
+  return { promise, release };
+};
 
-describe("inline job adapter", function() {
-  it("returns a typed result from inline execution", async function() {
+describe("inline job adapter", function () {
+  it("returns a typed result from inline execution", async function () {
     const jobs = createInlineJobPort({
       now: () => "2026-01-02T03:04:05.000Z",
-    })
-    const definition: JobDefinition<"sum", { left: number; right: number }, number> = {
+    });
+    const definition: JobDefinition<
+      "sum",
+      { left: number; right: number },
+      number
+    > = {
       name: "sum",
       execute: async ({ left, right }) => left + right,
-    }
+    };
 
-    const receipt = await jobs.enqueue(definition, { left: 2, right: 3 })
+    const receipt = await jobs.enqueue(definition, { left: 2, right: 3 });
 
     return expect(receipt).toEqual({
       status: "completed",
@@ -32,127 +35,134 @@ describe("inline job adapter", function() {
       jobName: "sum",
       enqueuedAt: "2026-01-02T03:04:05.000Z",
       result: 5,
-    })
-  })
-  
-  it("executes concurrent enqueue calls sequentially in enqueue order", async function() {
-    const jobs = createInlineJobPort()
-    const firstGate = deferred()
-    const order: string[] = []
-    const definition: JobDefinition<"ordered", { label: string; wait: boolean }, string> = {
+    });
+  });
+
+  it("executes concurrent enqueue calls sequentially in enqueue order", async function () {
+    const jobs = createInlineJobPort();
+    const firstGate = deferred();
+    const order: string[] = [];
+    const definition: JobDefinition<
+      "ordered",
+      { label: string; wait: boolean },
+      string
+    > = {
       name: "ordered",
       execute: async ({ label, wait }) => {
-        order.push(`${label}:start`)
-        if (wait) await firstGate.promise
-        order.push(`${label}:end`)
-        return label
-      }
-    }
+        order.push(`${label}:start`);
+        if (wait) await firstGate.promise;
+        order.push(`${label}:end`);
+        return label;
+      },
+    };
 
-    const first = jobs.enqueue(definition, { label: "first", wait: true })
-    const second = jobs.enqueue(definition, { label: "second", wait: false })
-    await Promise.resolve()
-    await Promise.resolve()
+    const first = jobs.enqueue(definition, { label: "first", wait: true });
+    const second = jobs.enqueue(definition, { label: "second", wait: false });
+    await Promise.resolve();
+    await Promise.resolve();
 
-    expect(order).toEqual(["first:start"])
-    firstGate.release()
+    expect(order).toEqual(["first:start"]);
+    firstGate.release();
     await expect(Promise.all([first, second])).resolves.toMatchObject([
       { status: "completed", result: "first" },
       { status: "completed", result: "second" },
-    ])
+    ]);
     return expect(order).toEqual([
       "first:start",
       "first:end",
       "second:start",
       "second:end",
-    ])
-  })
+    ]);
+  });
 
-  it("captures the handler and payload snapshot synchronously at enqueue", async function() {
-    const jobs = createInlineJobPort()
-    const gate = deferred()
-    const callerPayload = { nested: { value: "original" } }
+  it("captures the handler and payload snapshot synchronously at enqueue", async function () {
+    const jobs = createInlineJobPort();
+    const gate = deferred();
+    const callerPayload = { nested: { value: "original" } };
     const definition: {
-      name: "snapshot"
+      name: "snapshot";
       execute: JobDefinition<
         "snapshot",
         { readonly nested: { readonly value: string } },
         string
-      >["execute"]
+      >["execute"];
     } = {
       name: "snapshot",
       execute: async (payload) => {
-        await gate.promise
-        ;(payload.nested as { value: string }).value = "handler mutation"
-        return payload.nested.value
-      }
-    }
+        await gate.promise;
+        (payload.nested as { value: string }).value = "handler mutation";
+        return payload.nested.value;
+      },
+    };
 
-    const receiptPromise = jobs.enqueue(definition, callerPayload)
-    callerPayload.nested.value = "caller mutation"
-    definition.execute = async () => "replacement handler"
-    gate.release()
+    const receiptPromise = jobs.enqueue(definition, callerPayload);
+    callerPayload.nested.value = "caller mutation";
+    definition.execute = async () => "replacement handler";
+    gate.release();
 
     await expect(receiptPromise).resolves.toMatchObject({
       status: "completed",
       result: "handler mutation",
-    })
-    return expect(callerPayload).toEqual({ nested: { value: "caller mutation" } })
-  })
+    });
+    return expect(callerPayload).toEqual({
+      nested: { value: "caller mutation" },
+    });
+  });
 
-  it("normalizes invalid payloads without invoking the handler and continues", async function() {
-    const jobs = createInlineJobPort()
-    let executions = 0
+  it("normalizes invalid payloads without invoking the handler and continues", async function () {
+    const jobs = createInlineJobPort();
+    let executions = 0;
     const definition: JobDefinition<"validated", JsonObject, string> = {
       name: "validated",
       execute: async () => {
-        executions += 1
-        return "safe"
-      }
-    }
+        executions += 1;
+        return "safe";
+      },
+    };
 
-    const invalid = await jobs.enqueue(
-      definition,
-      { callback: () => "unsafe" } as unknown as JsonObject,
-    )
-    const completed = await jobs.enqueue(definition, {})
+    const invalid = await jobs.enqueue(definition, {
+      callback: () => "unsafe",
+    } as unknown as JsonObject);
+    const completed = await jobs.enqueue(definition, {});
 
     expect(invalid).toMatchObject({
       status: "failed",
       execution: "inline",
       error: { code: "JOB_PAYLOAD_INVALID", retryable: false },
-    })
-    expect(completed).toMatchObject({ status: "completed", result: "safe" })
-    return expect(executions).toBe(1)
-  })
-  
-  return it("normalizes execution failures without exposing thrown messages and continues", async function() {
-    const jobs = createInlineJobPort()
+    });
+    expect(completed).toMatchObject({ status: "completed", result: "safe" });
+    return expect(executions).toBe(1);
+  });
+
+  return it("normalizes execution failures without exposing thrown messages and continues", async function () {
+    const jobs = createInlineJobPort();
     const failing: JobDefinition<"failing", JsonObject, never> = {
       name: "failing",
       execute: async () => {
-        throw new Error("token=provider-secret payload=user@example.test")
-      }
-    }
+        throw new Error("token=provider-secret payload=user@example.test");
+      },
+    };
     const succeeding: JobDefinition<"succeeding", JsonObject, string> = {
       name: "succeeding",
       execute: async () => "safe",
-    }
+    };
 
-    const failed = await jobs.enqueue(failing, {})
-    const completed = await jobs.enqueue(succeeding, {})
+    const failed = await jobs.enqueue(failing, {});
+    const completed = await jobs.enqueue(succeeding, {});
 
     expect(failed).toMatchObject({
       status: "failed",
       execution: "inline",
       jobName: "failing",
       error: { code: "JOB_EXECUTION_FAILED", retryable: false },
-    })
-    expect(JSON.stringify(failed)).not.toMatch(/provider-secret|user@example\.test/)
+    });
+    expect(JSON.stringify(failed)).not.toMatch(
+      /provider-secret|user@example\.test/
+    );
     expect(completed).toMatchObject({
       status: "completed",
       result: "safe",
-    })
-    return await expect(jobs.flush()).resolves.toBeUndefined()
-  })
-})
+    });
+    return await expect(jobs.flush()).resolves.toBeUndefined();
+  });
+});

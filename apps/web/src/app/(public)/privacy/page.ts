@@ -1,5 +1,5 @@
-import { redirect } from "next/navigation"
+import { redirect } from "next/navigation";
 
 export default function PrivacyAliasPage() {
-  return redirect("/legal/privacy")
+  return redirect("/legal/privacy");
 }

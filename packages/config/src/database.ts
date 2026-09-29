@@ -1,160 +1,157 @@
-import type { ServerEnv } from "./server.ts"
+import type { ServerEnv } from "./server.ts";
 
-export type DatabaseProvider = ServerEnv["DATABASE_PROVIDER"]
-export type DatabaseDeploymentProfile = "managed" | "standard"
+export type DatabaseProvider = ServerEnv["DATABASE_PROVIDER"];
+export type DatabaseDeploymentProfile = "managed" | "standard";
 
 export type DatabaseCompositionMetadata = Readonly<{
-  provider: DatabaseProvider
-  deployment: DatabaseDeploymentProfile
-}>
+  provider: DatabaseProvider;
+  deployment: DatabaseDeploymentProfile;
+}>;
 
 export type DatabaseConnectionContract = Readonly<{
-  protocol: "postgresql"
-  connectionString: string
-}>
+  protocol: "postgresql";
+  connectionString: string;
+}>;
 
 /** Structural request input so runtime bindings do not leak platform-specific types. */
 export type DatabaseRequestBinding = Readonly<{
-  connectionString: string
-  trustedPlatform: "cloudflare-hyperdrive"
-}>
+  connectionString: string;
+  trustedPlatform: "cloudflare-hyperdrive";
+}>;
 
 export type DatabaseCompositionProfile = Readonly<{
-  composition: DatabaseCompositionMetadata
-  connection: DatabaseConnectionContract
-}>
+  composition: DatabaseCompositionMetadata;
+  connection: DatabaseConnectionContract;
+}>;
 
 export class DatabaseConfigurationError extends Error {
   constructor(message: string) {
-    super(`Invalid database configuration: ${message}`)
-    this.name = "DatabaseConfigurationError"
+    super(`Invalid database configuration: ${message}`);
+    this.name = "DatabaseConfigurationError";
   }
 }
 
 export type RequestDatabaseEndpointConfiguration = Readonly<{
-  appEnvironment: ServerEnv["APP_ENV"]
-  provider: DatabaseProvider
-  connectionString: string
-}>
+  appEnvironment: ServerEnv["APP_ENV"];
+  provider: DatabaseProvider;
+  connectionString: string;
+}>;
 
 export class RequestDatabaseEndpointError extends Error {
-  readonly diagnostic: string
+  readonly diagnostic: string;
 
   constructor(diagnostic: string) {
-    super(`Invalid request database endpoint: ${diagnostic}`)
-    this.name = "RequestDatabaseEndpointError"
-    this.diagnostic = diagnostic
+    super(`Invalid request database endpoint: ${diagnostic}`);
+    this.name = "RequestDatabaseEndpointError";
+    this.diagnostic = diagnostic;
   }
 }
 
-const PLANETSCALE_POOLED_HOST_SUFFIX = ".pg.psdb.cloud"
-const PLANETSCALE_PGBOUNCER_PORT = "6432"
+const PLANETSCALE_POOLED_HOST_SUFFIX = ".pg.psdb.cloud";
+const PLANETSCALE_PGBOUNCER_PORT = "6432";
 
 const parsePostgresUrl = (value: string): URL | undefined => {
   try {
-    const url = new URL(value)
+    const url = new URL(value);
     if (
       (url.protocol === "postgres:" || url.protocol === "postgresql:") &&
       url.hostname.length > 0
     ) {
-      return url
+      return url;
     }
-    return undefined
+    return undefined;
+  } catch {
+    return undefined;
   }
-  catch {
-    return undefined
-  }
-}
+};
 
 export const validateRequestDatabaseEndpoint = (
-  configuration: RequestDatabaseEndpointConfiguration,
+  configuration: RequestDatabaseEndpointConfiguration
 ): void => {
-  if (configuration.appEnvironment !== "production") return
+  if (configuration.appEnvironment !== "production") return;
 
-  const url = parsePostgresUrl(configuration.connectionString)
+  const url = parsePostgresUrl(configuration.connectionString);
   if (url === undefined) {
     throw new RequestDatabaseEndpointError(
-      "DATABASE_URL must be a PostgreSQL URL",
-    )
+      "DATABASE_URL must be a PostgreSQL URL"
+    );
   }
 
-  const sslModes = url.searchParams.getAll("sslmode")
-  if (
-    sslModes.length !== 1 ||
-    sslModes[0]?.toLowerCase() !== "verify-full"
-  ) {
+  const sslModes = url.searchParams.getAll("sslmode");
+  if (sslModes.length !== 1 || sslModes[0]?.toLowerCase() !== "verify-full") {
     throw new RequestDatabaseEndpointError(
-      "DATABASE_URL must use sslmode=verify-full in production",
-    )
+      "DATABASE_URL must use sslmode=verify-full in production"
+    );
   }
 
   if (configuration.provider !== "planetscale") {
     throw new RequestDatabaseEndpointError(
-      "Production DATABASE_URL must use an explicitly supported provider-managed pooled endpoint; DATABASE_PROVIDER=postgres has no documented pooled-host pattern",
-    )
+      "Production DATABASE_URL must use an explicitly supported provider-managed pooled endpoint; DATABASE_PROVIDER=postgres has no documented pooled-host pattern"
+    );
   }
 
-  const hostname = url.hostname.toLowerCase()
+  const hostname = url.hostname.toLowerCase();
   if (
     !hostname.endsWith(PLANETSCALE_POOLED_HOST_SUFFIX) ||
     hostname.length <= PLANETSCALE_POOLED_HOST_SUFFIX.length
   ) {
     throw new RequestDatabaseEndpointError(
-      "Production PlanetScale DATABASE_URL must use a provider-managed hostname ending in .pg.psdb.cloud",
-    )
+      "Production PlanetScale DATABASE_URL must use a provider-managed hostname ending in .pg.psdb.cloud"
+    );
   }
   if (url.port !== PLANETSCALE_PGBOUNCER_PORT) {
     throw new RequestDatabaseEndpointError(
-      "Production PlanetScale DATABASE_URL must use the provider-managed PgBouncer endpoint on port 6432; direct port 5432 is not allowed",
-    )
+      "Production PlanetScale DATABASE_URL must use the provider-managed PgBouncer endpoint on port 6432; direct port 5432 is not allowed"
+    );
   }
 
-  return undefined
-}
+  return undefined;
+};
 
 const isPostgresUrl = (value: string): boolean => {
-  return parsePostgresUrl(value) !== undefined
-}
+  return parsePostgresUrl(value) !== undefined;
+};
 
 const getConnectionString = (
   env: ServerEnv,
-  requestBinding?: DatabaseRequestBinding,
+  requestBinding?: DatabaseRequestBinding
 ): string => {
   if (
     requestBinding &&
     requestBinding.trustedPlatform !== "cloudflare-hyperdrive"
   ) {
     throw new DatabaseConfigurationError(
-      "request binding must declare the trusted Cloudflare Hyperdrive platform",
-    )
+      "request binding must declare the trusted Cloudflare Hyperdrive platform"
+    );
   }
-  if (!requestBinding) return env.DATABASE_URL
+  if (!requestBinding) return env.DATABASE_URL;
 
-  const connectionString = requestBinding.connectionString.trim()
-  if (isPostgresUrl(connectionString)) return connectionString
+  const connectionString = requestBinding.connectionString.trim();
+  if (isPostgresUrl(connectionString)) return connectionString;
 
   throw new DatabaseConfigurationError(
-    "request binding connectionString must be a PostgreSQL URL",
-  )
-}
+    "request binding connectionString must be a PostgreSQL URL"
+  );
+};
 
 export const composeDatabaseProfile = (
   env: ServerEnv,
-  requestBinding?: DatabaseRequestBinding,
+  requestBinding?: DatabaseRequestBinding
 ): DatabaseCompositionProfile => {
   validateRequestDatabaseEndpoint({
     appEnvironment: env.APP_ENV,
     provider: env.DATABASE_PROVIDER,
     connectionString: env.DATABASE_URL,
-  })
+  });
   return {
     composition: {
       provider: env.DATABASE_PROVIDER,
-      deployment: env.DATABASE_PROVIDER === "planetscale" ? "managed" : "standard",
+      deployment:
+        env.DATABASE_PROVIDER === "planetscale" ? "managed" : "standard",
     },
     connection: {
       protocol: "postgresql",
       connectionString: getConnectionString(env, requestBinding),
     },
-  }
-}
+  };
+};

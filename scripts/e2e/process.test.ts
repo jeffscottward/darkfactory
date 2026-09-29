@@ -1,68 +1,67 @@
-import { EventEmitter } from "node:events"
-import { PassThrough } from "node:stream"
-import { type AddressInfo, createConnection, createServer } from "node:net"
-import { mkdtemp, readFile, rm } from "node:fs/promises"
-import { tmpdir } from "node:os"
-import { join } from "node:path"
+import { EventEmitter } from "node:events";
+import { PassThrough } from "node:stream";
+import { type AddressInfo, createConnection, createServer } from "node:net";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
-import { afterEach, describe, expect, it, vi } from "vitest"
+import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { runOwnedCommand, type ProcessSignals } from "./process.ts"
+import { runOwnedCommand, type ProcessSignals } from "./process.ts";
 
 const commandOptions = Object.freeze({
   cwd: process.cwd(),
   env: process.env,
-})
+});
 
 const reservePort = async (): Promise<number> => {
-  const server = createServer()
+  const server = createServer();
   await new Promise<void>((resolve, reject) => {
-    server.once("error", reject)
-    return server.listen(0, "127.0.0.1", resolve)
-  }
-  )
-  const port = (server.address() as AddressInfo).port
+    server.once("error", reject);
+    return server.listen(0, "127.0.0.1", resolve);
+  });
+  const port = (server.address() as AddressInfo).port;
   await new Promise<void>((resolve, reject) => {
-    return server.close((error) => error === undefined ? resolve() : reject(error))
-  }
-  )
-  return port
-}
+    return server.close((error) =>
+      error === undefined ? resolve() : reject(error)
+    );
+  });
+  return port;
+};
 
 const portAcceptsConnections = async (port: number): Promise<boolean> => {
   return new Promise((resolve) => {
-    const socket = createConnection({ host: "127.0.0.1", port })
-    let settled = false
+    const socket = createConnection({ host: "127.0.0.1", port });
+    let settled = false;
     const finish = (connected: boolean): void => {
-      if (settled) return
-      settled = true
-      socket.destroy()
-      resolve(connected)
-    }
-    socket.setTimeout(100, () => finish(false))
-    socket.once("connect", () => finish(true))
-    return socket.once("error", () => finish(false))
-  }
-  )
-}
+      if (settled) return;
+      settled = true;
+      socket.destroy();
+      resolve(connected);
+    };
+    socket.setTimeout(100, () => finish(false));
+    socket.once("connect", () => finish(true));
+    return socket.once("error", () => finish(false));
+  });
+};
 
 const waitForListeningPort = async (port: number): Promise<void> => {
-  const deadline = Date.now() + 3_000
+  const deadline = Date.now() + 3_000;
   while (Date.now() < deadline) {
-    if (await portAcceptsConnections(port)) return
-    await new Promise((resolve) => setTimeout(resolve, 10))
+    if (await portAcceptsConnections(port)) return;
+    await new Promise((resolve) => setTimeout(resolve, 10));
   }
-  throw new Error("Timed out waiting for descendant TCP fixture")
-}
+  throw new Error("Timed out waiting for descendant TCP fixture");
+};
 const waitForFileContents = async (path: string): Promise<string> => {
-  const deadline = Date.now() + 2_000
+  const deadline = Date.now() + 2_000;
   while (Date.now() < deadline) {
-    const contents = await readFile(path, "utf8").catch(() => undefined)
-    if (contents !== undefined) return contents
-    await new Promise((resolve) => setTimeout(resolve, 10))
+    const contents = await readFile(path, "utf8").catch(() => undefined);
+    if (contents !== undefined) return contents;
+    await new Promise((resolve) => setTimeout(resolve, 10));
   }
-  throw new Error("Timed out waiting for escaped descendant write")
-}
+  throw new Error("Timed out waiting for escaped descendant write");
+};
 
 const processTreeScript = (port: number, overflow: boolean): string => {
   const descendant = `
@@ -70,10 +69,10 @@ const processTreeScript = (port: number, overflow: boolean): string => {
     const server = createServer();
     server.listen(${port}, "127.0.0.1", () => process.stdout.write("ready\\n"));
     setInterval(() => undefined, 1000);
-  `
+  `;
   const overflowAction = overflow
     ? "setTimeout(() => process.stdout.write('x'.repeat(4096)), 500);"
-    : ""
+    : "";
   return `
     import { spawn } from "node:child_process";
     const child = spawn(
@@ -86,28 +85,28 @@ const processTreeScript = (port: number, overflow: boolean): string => {
       ${overflowAction}
     });
     setInterval(() => undefined, 1000);
-  `
-}
+  `;
+};
 
 const expectPortStoppedWithoutTreeProof = async (
   result: Awaited<ReturnType<typeof runOwnedCommand>>,
-  port: number,
+  port: number
 ): Promise<void> => {
   expect(result).toMatchObject({
     exitCode: 1,
     reason: "termination-unproven",
     treeTerminated: false,
-  })
-  expect(await portAcceptsConnections(port)).toBe(false)
-}
+  });
+  expect(await portAcceptsConnections(port)).toBe(false);
+};
 
 describe("owned E2E command lifecycle", () => {
   it("captures bounded output and proves the completed process tree is dead", async () => {
     const result = await runOwnedCommand(
       process.execPath,
       ["-e", "process.stdout.write('ready'); process.stderr.write('notice')"],
-      commandOptions,
-    )
+      commandOptions
+    );
 
     return expect(result).toEqual({
       exitCode: 0,
@@ -115,9 +114,8 @@ describe("owned E2E command lifecycle", () => {
       stderr: "notice",
       treeTerminated: true,
       reason: "completed",
-    })
-  }
-  )
+    });
+  });
 
   it("drains scanner output inherited by a short-lived command wrapper", async () => {
     const scannerReport = JSON.stringify({
@@ -125,7 +123,7 @@ describe("owned E2E command lifecycle", () => {
       version: 1,
       reportNonce: "r".repeat(43),
       report: { ok: true, purged: false },
-    })
+    });
     const scanner = `
       const wrapperPid = Number(process.argv[1]);
       const deadline = Date.now() + 2000;
@@ -147,7 +145,7 @@ describe("owned E2E command lifecycle", () => {
         setTimeout(writeAfterWrapperExit, 10);
       };
       writeAfterWrapperExit();
-    `
+    `;
     const wrapper = `
       const { spawn } = require("node:child_process");
       const child = spawn(
@@ -156,13 +154,13 @@ describe("owned E2E command lifecycle", () => {
         { stdio: ["ignore", "inherit", "inherit"] },
       );
       child.unref();
-    `
+    `;
 
     const result = await runOwnedCommand(
       process.execPath,
       ["-e", wrapper],
-      commandOptions,
-    )
+      commandOptions
+    );
 
     return expect(result).toEqual({
       exitCode: 0,
@@ -170,57 +168,52 @@ describe("owned E2E command lifecycle", () => {
       stderr: "",
       treeTerminated: true,
       reason: "completed",
-    })
-  }
-  )
+    });
+  });
 
   it("survives completed Playwright-like and scanner-like detached process groups", async () => {
-    const parentPid = process.pid
+    const parentPid = process.pid;
     const completed = await runOwnedCommand(
       process.execPath,
       ["-e", "process.stdout.write('prepared')"],
-      commandOptions,
-    )
+      commandOptions
+    );
     const playwright = await runOwnedCommand(
       process.execPath,
       [
         "-e",
         "process.stderr.write('webServer failed safely'); process.exitCode = 1",
       ],
-      commandOptions,
-    )
-    let afterScan = false
+      commandOptions
+    );
+    let afterScan = false;
     const scanner = await runOwnedCommand(
       process.execPath,
-      [
-        "-e",
-        "process.stdout.write(JSON.stringify({ok:true,purged:false}))",
-      ],
-      commandOptions,
-    )
-    afterScan = true
+      ["-e", "process.stdout.write(JSON.stringify({ok:true,purged:false}))"],
+      commandOptions
+    );
+    afterScan = true;
 
-    expect(process.pid).toBe(parentPid)
+    expect(process.pid).toBe(parentPid);
     expect(completed).toMatchObject({
       exitCode: 0,
       reason: "completed",
       treeTerminated: true,
-    })
+    });
     expect(playwright).toMatchObject({
       exitCode: 1,
       reason: "completed",
       stderr: "webServer failed safely",
       treeTerminated: true,
-    })
+    });
     expect(scanner).toMatchObject({
       exitCode: 0,
       reason: "completed",
-      stdout: "{\"ok\":true,\"purged\":false}",
+      stdout: '{"ok":true,"purged":false}',
       treeTerminated: true,
-    })
-    return expect(afterScan).toBe(true)
-  }
-  )
+    });
+    return expect(afterScan).toBe(true);
+  });
 
   it("loads auth, database, and testkit modules under Node type stripping", async () => {
     const result = await runOwnedCommand(
@@ -239,56 +232,54 @@ describe("owned E2E command lifecycle", () => {
           "process.stdout.write('module-imports-ready');",
         ].join(""),
       ],
-      { ...commandOptions, timeoutMillis: 30_000 },
-    )
+      { ...commandOptions, timeoutMillis: 30_000 }
+    );
 
     expect(result).toMatchObject({
       exitCode: 0,
       reason: "completed",
       stdout: "module-imports-ready",
       treeTerminated: true,
-    })
-    return expect(result.stderr).not.toMatch(/Error|ERR_|Cannot find|failed/iu)
-  }
-  , 30_000)
+    });
+    return expect(result.stderr).not.toMatch(/Error|ERR_|Cannot find|failed/iu);
+  }, 30_000);
 
   it("kills a listening descendant when output exceeds its bound", async () => {
-    const port = await reservePort()
+    const port = await reservePort();
     const resultPromise = runOwnedCommand(
       process.execPath,
       ["--input-type=module", "--eval", processTreeScript(port, true)],
-      { ...commandOptions, maxOutputBytes: 256, timeoutMillis: 5_000 },
-    )
-    await waitForListeningPort(port)
-    const result = await resultPromise
+      { ...commandOptions, maxOutputBytes: 256, timeoutMillis: 5_000 }
+    );
+    await waitForListeningPort(port);
+    const result = await resultPromise;
 
-    expect(Buffer.byteLength(result.stdout)).toBeLessThanOrEqual(256)
-    return await expectPortStoppedWithoutTreeProof(result, port)
-  }
-  )
+    expect(Buffer.byteLength(result.stdout)).toBeLessThanOrEqual(256);
+    return await expectPortStoppedWithoutTreeProof(result, port);
+  });
 
   it("kills a listening descendant at the command deadline", async () => {
-    const port = await reservePort()
+    const port = await reservePort();
     const resultPromise = runOwnedCommand(
       process.execPath,
       ["--input-type=module", "--eval", processTreeScript(port, false)],
-      { ...commandOptions, timeoutMillis: 1_000 },
-    )
-    await waitForListeningPort(port)
-    return await expectPortStoppedWithoutTreeProof(await resultPromise, port)
-  }
-  )
+      { ...commandOptions, timeoutMillis: 1_000 }
+    );
+    await waitForListeningPort(port);
+    return await expectPortStoppedWithoutTreeProof(await resultPromise, port);
+  });
 
   it("bounds cancellation and withholds proof while an escaped descendant writes later", async () => {
-    const listeners = new Map<"SIGINT" | "SIGTERM", () => void>()
+    const listeners = new Map<"SIGINT" | "SIGTERM", () => void>();
     const signals: ProcessSignals = {
       on: (name, listener) => listeners.set(name, listener),
       off: (name, listener) => {
-        if (listeners.get(name) === listener) return listeners.delete(name);return
-      }
-    }
-    const fixtureRoot = await mkdtemp(join(tmpdir(), "darkfactory-process-"))
-    const markerPath = join(fixtureRoot, "escaped-writer.txt")
+        if (listeners.get(name) === listener) return listeners.delete(name);
+        return;
+      },
+    };
+    const fixtureRoot = await mkdtemp(join(tmpdir(), "darkfactory-process-"));
+    const markerPath = join(fixtureRoot, "escaped-writer.txt");
     const holder = `
       const { writeFileSync } = require("node:fs");
       setTimeout(() => {
@@ -296,7 +287,7 @@ describe("owned E2E command lifecycle", () => {
         process.exit(0);
       }, 250);
       setTimeout(() => process.exit(0), 1000);
-    `
+    `;
     const wrapper = `
       const { spawn } = require("node:child_process");
       const { writeSync } = require("node:fs");
@@ -311,84 +302,80 @@ describe("owned E2E command lifecycle", () => {
       writeSync(1, "holder-pid=" + child.pid + "\\n");
       child.unref();
       setInterval(() => undefined, 1000);
-    `
-    const startedAt = Date.now()
-    const result = await runOwnedCommand(
-      process.execPath,
-      ["-e", wrapper],
-      {
-        ...commandOptions,
-        signals,
-        timeoutMillis: 100,
-      },
-    )
-    const elapsedMillis = Date.now() - startedAt
-    const holderPid = Number(
-      /^holder-pid=(\d+)$/mu.exec(result.stdout)?.[1],
-    )
+    `;
+    const startedAt = Date.now();
+    const result = await runOwnedCommand(process.execPath, ["-e", wrapper], {
+      ...commandOptions,
+      signals,
+      timeoutMillis: 100,
+    });
+    const elapsedMillis = Date.now() - startedAt;
+    const holderPid = Number(/^holder-pid=(\d+)$/mu.exec(result.stdout)?.[1]);
     try {
-      expect(holderPid).toBeGreaterThan(0)
+      expect(holderPid).toBeGreaterThan(0);
       if (process.platform !== "win32") {
-        expect(() => process.kill(holderPid, 0)).not.toThrow()
+        expect(() => process.kill(holderPid, 0)).not.toThrow();
       }
       expect(result).toMatchObject({
         exitCode: 1,
         reason: "termination-unproven",
         treeTerminated: false,
-      })
-      expect(elapsedMillis).toBeLessThan(600)
-      expect(listeners.size).toBe(0)
+      });
+      expect(elapsedMillis).toBeLessThan(600);
+      expect(listeners.size).toBe(0);
       if (process.platform !== "win32") {
-        return expect(await waitForFileContents(markerPath)).toBe("escaped-writer")
-      };return
-    }
-    finally {
+        return expect(await waitForFileContents(markerPath)).toBe(
+          "escaped-writer"
+        );
+      }
+      return;
+    } finally {
       if (Number.isSafeInteger(holderPid) && holderPid > 0) {
         try {
-          process.kill(holderPid, "SIGKILL")
-        }
-        catch {
+          process.kill(holderPid, "SIGKILL");
+        } catch {
           // The bounded fixture may have already reached its safety exit.
         }
       }
-      await rm(fixtureRoot, { force: true, recursive: true })
+      await rm(fixtureRoot, { force: true, recursive: true });
     }
-  }
-  )
+  });
 
   for (const signal of ["SIGINT", "SIGTERM"] as const) {
     it(`kills a listening descendant and unregisters handlers after ${signal}`, async () => {
-      const listeners = new Map<"SIGINT" | "SIGTERM", () => void>()
+      const listeners = new Map<"SIGINT" | "SIGTERM", () => void>();
       const signals: ProcessSignals = {
         on: (name, listener) => listeners.set(name, listener),
         off: (name, listener) => {
-          if (listeners.get(name) === listener) return listeners.delete(name);return
-        }
-      }
-      const port = await reservePort()
+          if (listeners.get(name) === listener) return listeners.delete(name);
+          return;
+        },
+      };
+      const port = await reservePort();
       const resultPromise = runOwnedCommand(
         process.execPath,
         ["--input-type=module", "--eval", processTreeScript(port, false)],
-        { ...commandOptions, signals, timeoutMillis: 5_000 },
-      )
-      await waitForListeningPort(port)
-      listeners.get(signal)?.()
-      await expectPortStoppedWithoutTreeProof(await resultPromise, port)
-      return expect(listeners.size).toBe(0)
-    }
-    )
+        { ...commandOptions, signals, timeoutMillis: 5_000 }
+      );
+      await waitForListeningPort(port);
+      listeners.get(signal)?.();
+      await expectPortStoppedWithoutTreeProof(await resultPromise, port);
+      return expect(listeners.size).toBe(0);
+    });
   }
   it("cannot miss an immediate termination-unproven signal before awaiting exit", async () => {
-    const listeners = new Map<"SIGINT" | "SIGTERM", () => void>()
+    const listeners = new Map<"SIGINT" | "SIGTERM", () => void>();
     const signals: ProcessSignals = {
       on: (name, listener) => {
-        listeners.set(name, listener)
-        if (name === "SIGINT") return listener();return
+        listeners.set(name, listener);
+        if (name === "SIGINT") return listener();
+        return;
       },
       off: (name, listener) => {
-        if (listeners.get(name) === listener) return listeners.delete(name);return
-      }
-    }
+        if (listeners.get(name) === listener) return listeners.delete(name);
+        return;
+      },
+    };
     const result = await runOwnedCommand(
       process.execPath,
       ["-e", "setTimeout(() => undefined, 250)"],
@@ -397,26 +384,26 @@ describe("owned E2E command lifecycle", () => {
         signals,
         terminateTree: async () => false,
         timeoutMillis: 5_000,
-      },
-    )
+      }
+    );
 
     expect(result).toMatchObject({
       exitCode: 1,
       reason: "termination-unproven",
       treeTerminated: false,
-    })
-    return expect(listeners.size).toBe(0)
-  }
-  )
+    });
+    return expect(listeners.size).toBe(0);
+  });
 
   return it("returns a distinct fail-closed result and detaches listeners when death is unproven", async () => {
-    const listeners = new Map<"SIGINT" | "SIGTERM", () => void>()
+    const listeners = new Map<"SIGINT" | "SIGTERM", () => void>();
     const signals: ProcessSignals = {
       on: (name, listener) => listeners.set(name, listener),
       off: (name, listener) => {
-        if (listeners.get(name) === listener) return listeners.delete(name);return
-      }
-    }
+        if (listeners.get(name) === listener) return listeners.delete(name);
+        return;
+      },
+    };
     const result = await runOwnedCommand(
       process.execPath,
       ["-e", "setTimeout(() => undefined, 250)"],
@@ -425,77 +412,76 @@ describe("owned E2E command lifecycle", () => {
         signals,
         terminateTree: async () => false,
         timeoutMillis: 25,
-      },
-    )
+      }
+    );
 
     expect(result).toMatchObject({
       exitCode: 1,
       reason: "termination-unproven",
       treeTerminated: false,
-    })
-    return expect(listeners.size).toBe(0)
-  }
-  )
-}
+    });
+    return expect(listeners.size).toBe(0);
+  });
+});
 
-)
+type FakeOwnedChild = EventEmitter &
+  Readonly<{
+    pid: number;
+    stderr: PassThrough;
+    stdout: PassThrough;
+  }>;
 
-type FakeOwnedChild = EventEmitter & Readonly<{
-  pid: number
-  stderr: PassThrough
-  stdout: PassThrough
-}>
-
-const fakeOwnedChild = (): FakeOwnedChild => Object.assign(new EventEmitter(), {
-  pid: 9_999,
-  stderr: new PassThrough(),
-  stdout: new PassThrough(),
-})
+const fakeOwnedChild = (): FakeOwnedChild =>
+  Object.assign(new EventEmitter(), {
+    pid: 9_999,
+    stderr: new PassThrough(),
+    stdout: new PassThrough(),
+  });
 
 const loadFakeCommandRunner = async (
   child: FakeOwnedChild,
-  terminateOwnedProcessTree = vi.fn(async () => undefined),
+  terminateOwnedProcessTree = vi.fn(async () => undefined)
 ) => {
-  vi.resetModules()
-  const spawnOwnedProcess = vi.fn(() => child)
+  vi.resetModules();
+  const spawnOwnedProcess = vi.fn(() => child);
   vi.doMock("./owned-process-tree.ts", () => ({
     spawnOwnedProcess,
     terminateOwnedProcessTree,
-  }))
-  const { runOwnedCommand: runFakeCommand } = await import("./process.ts")
-  return { runFakeCommand, spawnOwnedProcess, terminateOwnedProcessTree }
-}
+  }));
+  const { runOwnedCommand: runFakeCommand } = await import("./process.ts");
+  return { runFakeCommand, spawnOwnedProcess, terminateOwnedProcessTree };
+};
 
 describe("owned command event fakes", () => {
   afterEach(() => {
-    vi.useRealTimers()
-    vi.doUnmock("./owned-process-tree.ts")
-    vi.resetModules()
-    return vi.restoreAllMocks()
-  }
-  )
+    vi.useRealTimers();
+    vi.doUnmock("./owned-process-tree.ts");
+    vi.resetModules();
+    return vi.restoreAllMocks();
+  });
 
   it("uses exit as the close fallback and releases every child stream listener", async () => {
-    const child = fakeOwnedChild()
+    const child = fakeOwnedChild();
     const { runFakeCommand, spawnOwnedProcess, terminateOwnedProcessTree } =
-      await loadFakeCommandRunner(child)
-    const listeners = new Map<"SIGINT" | "SIGTERM", () => void>()
+      await loadFakeCommandRunner(child);
+    const listeners = new Map<"SIGINT" | "SIGTERM", () => void>();
     const signals: ProcessSignals = {
       on: (name, listener) => listeners.set(name, listener),
       off: (name, listener) => {
-        if (listeners.get(name) === listener) return listeners.delete(name);return
-      }
-    }
+        if (listeners.get(name) === listener) return listeners.delete(name);
+        return;
+      },
+    };
 
     const execution = runFakeCommand("trusted-command", ["--safe"], {
       cwd: "/workspace",
       env: { SAFE: "yes" },
       signals,
-    })
-    child.stdout.emit("data", Buffer.from("ready"))
-    child.stderr.emit("data", "warning")
-    child.emit("exit", 7)
-    child.emit("close", null)
+    });
+    child.stdout.emit("data", Buffer.from("ready"));
+    child.stderr.emit("data", "warning");
+    child.emit("exit", 7);
+    child.emit("close", null);
 
     await expect(execution).resolves.toEqual({
       exitCode: 7,
@@ -503,33 +489,32 @@ describe("owned command event fakes", () => {
       stderr: "warning",
       treeTerminated: true,
       reason: "completed",
-    })
+    });
     expect(spawnOwnedProcess).toHaveBeenCalledWith(
       "trusted-command",
       ["--safe"],
-      { cwd: "/workspace", env: { SAFE: "yes" }, windowsHide: true },
-    )
-    expect(terminateOwnedProcessTree).toHaveBeenCalledWith(child)
-    expect(listeners.size).toBe(0)
-    expect(child.stdout.destroyed).toBe(true)
-    expect(child.stderr.destroyed).toBe(true)
-    expect(child.listenerCount("error")).toBe(0)
-    expect(child.listenerCount("exit")).toBe(0)
-    return expect(child.listenerCount("close")).toBe(0)
-  }
-  )
+      { cwd: "/workspace", env: { SAFE: "yes" }, windowsHide: true }
+    );
+    expect(terminateOwnedProcessTree).toHaveBeenCalledWith(child);
+    expect(listeners.size).toBe(0);
+    expect(child.stdout.destroyed).toBe(true);
+    expect(child.stderr.destroyed).toBe(true);
+    expect(child.listenerCount("error")).toBe(0);
+    expect(child.listenerCount("exit")).toBe(0);
+    return expect(child.listenerCount("close")).toBe(0);
+  });
 
   it("fails closed without PID cleanup after a Windows direct child closes", async () => {
-    vi.spyOn(process, "platform", "get").mockReturnValue("win32")
-    const child = fakeOwnedChild()
+    vi.spyOn(process, "platform", "get").mockReturnValue("win32");
+    const child = fakeOwnedChild();
     const { runFakeCommand, terminateOwnedProcessTree } =
-      await loadFakeCommandRunner(child)
+      await loadFakeCommandRunner(child);
     const execution = runFakeCommand("trusted-command", [], {
       cwd: "/workspace",
       env: {},
-    })
+    });
 
-    child.emit("close", 0)
+    child.emit("close", 0);
 
     await expect(execution).resolves.toEqual({
       exitCode: 1,
@@ -537,52 +522,51 @@ describe("owned command event fakes", () => {
       stderr: "",
       treeTerminated: false,
       reason: "termination-unproven",
-    })
-    return expect(terminateOwnedProcessTree).not.toHaveBeenCalled()
-  }
-  )
+    });
+    return expect(terminateOwnedProcessTree).not.toHaveBeenCalled();
+  });
 
   it("withholds proof after an unclosed child error and accepts an observed close", async () => {
-    const erroredChild = fakeOwnedChild()
-    const errored = await loadFakeCommandRunner(erroredChild)
+    const erroredChild = fakeOwnedChild();
+    const errored = await loadFakeCommandRunner(erroredChild);
     const failed = errored.runFakeCommand("missing-command", [], {
       cwd: "/workspace",
       env: {},
-    })
-    erroredChild.emit("error", new Error("private spawn failure"))
+    });
+    erroredChild.emit("error", new Error("private spawn failure"));
     await expect(failed).resolves.toMatchObject({
       exitCode: 1,
       reason: "termination-unproven",
       treeTerminated: false,
-    })
+    });
 
-    vi.doUnmock("./owned-process-tree.ts")
-    const closedChild = fakeOwnedChild()
-    const closed = await loadFakeCommandRunner(closedChild)
+    vi.doUnmock("./owned-process-tree.ts");
+    const closedChild = fakeOwnedChild();
+    const closed = await loadFakeCommandRunner(closedChild);
     const completed = closed.runFakeCommand("wrapper", [], {
       cwd: "/workspace",
       env: {},
-    })
-    closedChild.emit("close", null)
+    });
+    closedChild.emit("close", null);
     return await expect(completed).resolves.toMatchObject({
       exitCode: 1,
       reason: "completed",
       treeTerminated: true,
-    })
-  }
-  )
+    });
+  });
 
   it("shares termination and withholds proof after output overflow", async () => {
-    const child = fakeOwnedChild()
-    const { runFakeCommand } = await loadFakeCommandRunner(child)
-    const listeners = new Map<"SIGINT" | "SIGTERM", () => void>()
+    const child = fakeOwnedChild();
+    const { runFakeCommand } = await loadFakeCommandRunner(child);
+    const listeners = new Map<"SIGINT" | "SIGTERM", () => void>();
     const signals: ProcessSignals = {
       on: (name, listener) => listeners.set(name, listener),
       off: (name, listener) => {
-        if (listeners.get(name) === listener) return listeners.delete(name);return
-      }
-    }
-    const terminateTree = vi.fn(async () => true)
+        if (listeners.get(name) === listener) return listeners.delete(name);
+        return;
+      },
+    };
+    const terminateTree = vi.fn(async () => true);
 
     const execution = runFakeCommand("chatty-command", [], {
       cwd: "/workspace",
@@ -590,10 +574,10 @@ describe("owned command event fakes", () => {
       maxOutputBytes: 3,
       signals,
       terminateTree,
-    })
-    child.stdout.emit("data", "four")
-    listeners.get("SIGTERM")?.()
-    child.emit("close", 1)
+    });
+    child.stdout.emit("data", "four");
+    listeners.get("SIGTERM")?.();
+    child.emit("close", 1);
 
     await expect(execution).resolves.toEqual({
       exitCode: 1,
@@ -601,75 +585,70 @@ describe("owned command event fakes", () => {
       stderr: "",
       treeTerminated: false,
       reason: "termination-unproven",
-    })
-    expect(terminateTree).toHaveBeenCalledOnce()
-    return expect(listeners.size).toBe(0)
-  }
-  )
+    });
+    expect(terminateTree).toHaveBeenCalledOnce();
+    return expect(listeners.size).toBe(0);
+  });
 
   it("settles a timeout through fake timers without waiting for a real process", async () => {
-    vi.useFakeTimers()
-    const child = fakeOwnedChild()
-    const { runFakeCommand } = await loadFakeCommandRunner(child)
-    const terminateTree = vi.fn(async () => true)
+    vi.useFakeTimers();
+    const child = fakeOwnedChild();
+    const { runFakeCommand } = await loadFakeCommandRunner(child);
+    const terminateTree = vi.fn(async () => true);
     const execution = runFakeCommand("hung-command", [], {
       cwd: "/workspace",
       env: {},
       timeoutMillis: 25,
       terminateTree,
-    })
+    });
 
-    await vi.advanceTimersByTimeAsync(25)
-    child.emit("close", 1)
+    await vi.advanceTimersByTimeAsync(25);
+    child.emit("close", 1);
 
     await expect(execution).resolves.toMatchObject({
       exitCode: 1,
       reason: "termination-unproven",
       treeTerminated: false,
-    })
-    return expect(terminateTree).toHaveBeenCalledOnce()
-  }
-  )
+    });
+    return expect(terminateTree).toHaveBeenCalledOnce();
+  });
 
   return it("fails closed when default and in-flight termination promises reject", async () => {
-    const completedChild = fakeOwnedChild()
+    const completedChild = fakeOwnedChild();
     const terminateOwnedProcessTree = vi.fn(async () => {
-      throw new Error("private termination failure")
-    }
-    )
+      throw new Error("private termination failure");
+    });
     const completed = await loadFakeCommandRunner(
       completedChild,
-      terminateOwnedProcessTree,
-    )
+      terminateOwnedProcessTree
+    );
     const completion = completed.runFakeCommand("completed-command", [], {
       cwd: "/workspace",
       env: {},
-    })
-    completedChild.emit("close", 0)
+    });
+    completedChild.emit("close", 0);
     await expect(completion).resolves.toMatchObject({
       exitCode: 1,
       reason: "termination-unproven",
       treeTerminated: false,
-    })
+    });
 
-    vi.doUnmock("./owned-process-tree.ts")
-    const overflowingChild = fakeOwnedChild()
-    const overflowing = await loadFakeCommandRunner(overflowingChild)
+    vi.doUnmock("./owned-process-tree.ts");
+    const overflowingChild = fakeOwnedChild();
+    const overflowing = await loadFakeCommandRunner(overflowingChild);
     const overflow = overflowing.runFakeCommand("overflowing-command", [], {
       cwd: "/workspace",
       env: {},
       maxOutputBytes: 1,
       terminateTree: async () => {
-        throw new Error("private stop failure")
-      }
-    })
-    overflowingChild.stderr.emit("data", "too much")
+        throw new Error("private stop failure");
+      },
+    });
+    overflowingChild.stderr.emit("data", "too much");
     return await expect(overflow).resolves.toMatchObject({
       exitCode: 1,
       reason: "termination-unproven",
       treeTerminated: false,
-    })
-  }
-  )
-}
-)
+    });
+  });
+});

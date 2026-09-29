@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest"
+import { describe, expect, it } from "vitest";
 
 import {
   createInitialWorkflowSnapshotV1,
@@ -6,17 +6,17 @@ import {
   replayWorkflowV1,
   transitionWorkflowV1,
   type WorkflowEventV1,
-} from "./index.ts"
+} from "./index.ts";
 
 const base = (eventId: string, occurredAt: string) => ({
   eventId,
   eventVersion: 1 as const,
   machineVersion: 1 as const,
-  occurredAt
-})
+  occurredAt,
+});
 
 const submit = (
-  wayfinder: boolean,
+  wayfinder: boolean
 ): Extract<WorkflowEventV1, { readonly type: "RUN_SUBMITTED" }> => ({
   ...base("submit-1", "2026-07-30T12:00:00.000Z"),
   type: "RUN_SUBMITTED",
@@ -26,23 +26,23 @@ const submit = (
   taskHash: "a".repeat(64),
   scope: {
     repositoryId: "darkfactory",
-    paths: ["packages/jobs"]
+    paths: ["packages/jobs"],
   },
   ...(wayfinder
     ? {
         executionMode: "wayfinder" as const,
-        humanRequest: "Chart the operator extraction."
+        humanRequest: "Chart the operator extraction.",
       }
-    : {})
-})
+    : {}),
+});
 
 describe("Wayfinder workflow projection", () => {
   it("durably carries execution mode and the bounded request into emitted and retried effects", () => {
     const initial = createInitialWorkflowSnapshotV1({
       runId: "run-wayfinder-1",
-      ownerId: "owner-1"
-    })
-    const submitted = transitionWorkflowV1(initial, submit(true), "live")
+      ownerId: "owner-1",
+    });
+    const submitted = transitionWorkflowV1(initial, submit(true), "live");
 
     expect(submitted.snapshot.context).toMatchObject({
       executionMode: "wayfinder",
@@ -51,69 +51,77 @@ describe("Wayfinder workflow projection", () => {
         kind: "plan",
         payload: {
           executionMode: "wayfinder",
-          humanRequest: "Chart the operator extraction."
-        }
-      }
-    })
+          humanRequest: "Chart the operator extraction.",
+        },
+      },
+    });
     expect(submitted.effects[0]).toMatchObject({
       kind: "plan",
       payload: {
         executionMode: "wayfinder",
-        humanRequest: "Chart the operator extraction."
-      }
-    })
+        humanRequest: "Chart the operator extraction.",
+      },
+    });
 
-    const blocked = transitionWorkflowV1(submitted.snapshot, {
-      ...base("failed-1", "2026-07-30T12:00:01.000Z"),
-      type: "EFFECT_FAILED",
-      effectKind: "plan",
-      failure: { code: "failed", retryable: true }
-    }, "live")
-    const retried = transitionWorkflowV1(blocked.snapshot, {
-      ...base("retry-1", "2026-07-30T12:00:02.000Z"),
-      type: "RETRY_REQUESTED",
-      reasonCode: "operator-requested"
-    }, "live")
+    const blocked = transitionWorkflowV1(
+      submitted.snapshot,
+      {
+        ...base("failed-1", "2026-07-30T12:00:01.000Z"),
+        type: "EFFECT_FAILED",
+        effectKind: "plan",
+        failure: { code: "failed", retryable: true },
+      },
+      "live"
+    );
+    const retried = transitionWorkflowV1(
+      blocked.snapshot,
+      {
+        ...base("retry-1", "2026-07-30T12:00:02.000Z"),
+        type: "RETRY_REQUESTED",
+        reasonCode: "operator-requested",
+      },
+      "live"
+    );
 
     return expect(retried.effects[0]).toMatchObject({
       kind: "plan",
       payload: {
         executionMode: "wayfinder",
-        humanRequest: "Chart the operator extraction."
-      }
-    })
-  }
-  )
+        humanRequest: "Chart the operator extraction.",
+      },
+    });
+  });
 
   it("accepts explicit pilot mode only when no human request is present", () => {
-    const pilot = { ...submit(false), executionMode: "pilot" as const }
+    const pilot = { ...submit(false), executionMode: "pilot" as const };
 
-    expect(isWorkflowEventV1(pilot)).toBe(true)
-    return expect(isWorkflowEventV1({
-      ...pilot,
-      humanRequest: "Only Wayfinder runs accept a human request."
-    })).toBe(false)
-  }
-  )
+    expect(isWorkflowEventV1(pilot)).toBe(true);
+    return expect(
+      isWorkflowEventV1({
+        ...pilot,
+        humanRequest: "Only Wayfinder runs accept a human request.",
+      })
+    ).toBe(false);
+  });
 
   return it("keeps legacy pilot projections byte-shape compatible when mode fields are absent", () => {
     const initial = createInitialWorkflowSnapshotV1({
       runId: "run-pilot-1",
-      ownerId: "owner-1"
-    })
-    const event = submit(false)
-    const submitted = transitionWorkflowV1(initial, event, "live")
-    const replayed = replayWorkflowV1(initial, [event])
+      ownerId: "owner-1",
+    });
+    const event = submit(false);
+    const submitted = transitionWorkflowV1(initial, event, "live");
+    const replayed = replayWorkflowV1(initial, [event]);
 
-    expect(submitted.snapshot).toEqual(replayed.snapshot)
-    expect(replayed.effects).toEqual([])
-    expect(submitted.snapshot.context).not.toHaveProperty("executionMode")
-    expect(submitted.snapshot.context).not.toHaveProperty("humanRequest")
-    expect(submitted.snapshot.context.pendingEffect?.payload)
-      .not.toHaveProperty("executionMode")
-    return expect(submitted.snapshot.context.pendingEffect?.payload)
-      .not.toHaveProperty("humanRequest")
-  }
-  )
-}
-)
+    expect(submitted.snapshot).toEqual(replayed.snapshot);
+    expect(replayed.effects).toEqual([]);
+    expect(submitted.snapshot.context).not.toHaveProperty("executionMode");
+    expect(submitted.snapshot.context).not.toHaveProperty("humanRequest");
+    expect(
+      submitted.snapshot.context.pendingEffect?.payload
+    ).not.toHaveProperty("executionMode");
+    return expect(
+      submitted.snapshot.context.pendingEffect?.payload
+    ).not.toHaveProperty("humanRequest");
+  });
+});

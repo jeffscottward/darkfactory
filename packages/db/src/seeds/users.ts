@@ -1,67 +1,68 @@
-import type { Transaction } from "../server/client.ts"
+import type { Transaction } from "../server/client.ts";
 
-import type { UserRole } from "../schema/index.ts"
+import type { UserRole } from "../schema/index.ts";
 
-const DEVELOPMENT_PASSWORD = "Development123!"
+const DEVELOPMENT_PASSWORD = "Development123!";
 
 export type SeedIdentityInput = Readonly<{
-  userId: string
-  accountId: string
-  name: string
-  email: string
-  image: string
-  role: UserRole
-  password: string
-}>
+  userId: string;
+  accountId: string;
+  name: string;
+  email: string;
+  image: string;
+  role: UserRole;
+  password: string;
+}>;
 
 export type EnsureSeedIdentity = (
   identity: SeedIdentityInput,
   exists: boolean,
-  database: Transaction,
-) => Promise<unknown>
+  database: Transaction
+) => Promise<unknown>;
 
 export type PrepareSeedIdentities = (
-  identities: readonly SeedIdentityInput[],
-) => Promise<EnsureSeedIdentity>
+  identities: readonly SeedIdentityInput[]
+) => Promise<EnsureSeedIdentity>;
 
 export type DevelopmentPersona = Readonly<{
-  userId: string
-  accountId: string
-  name: string
-  email: string
-  image: string
-  role: UserRole
-}>
+  userId: string;
+  accountId: string;
+  name: string;
+  email: string;
+  image: string;
+  role: UserRole;
+}>;
 
-export const DEVELOPMENT_PERSONAS: readonly DevelopmentPersona[] = Object.freeze([
-  Object.freeze({
-    userId: "00000000-0000-4000-8000-000000000001",
-    accountId: "10000000-0000-4000-8000-000000000001",
-    name: "Admin User",
-    email: "admin@domain.test",
-    image: "https://placehold.co/256x256/png?text=AU",
-    role: "admin",
-  }),
-  Object.freeze({
-    userId: "00000000-0000-4000-8000-000000000002",
-    accountId: "10000000-0000-4000-8000-000000000002",
-    name: "Alice Adams",
-    email: "alice@domain.test",
-    image: "https://placehold.co/256x256/png?text=AA",
-    role: "member",
-  }),
-  Object.freeze({
-    userId: "00000000-0000-4000-8000-000000000003",
-    accountId: "10000000-0000-4000-8000-000000000003",
-    name: "Bob Baker",
-    email: "bob@domain.test",
-    image: "https://placehold.co/256x256/png?text=BB",
-    role: "member",
-  }),
-])
+export const DEVELOPMENT_PERSONAS: readonly DevelopmentPersona[] =
+  Object.freeze([
+    Object.freeze({
+      userId: "00000000-0000-4000-8000-000000000001",
+      accountId: "10000000-0000-4000-8000-000000000001",
+      name: "Admin User",
+      email: "admin@domain.test",
+      image: "https://placehold.co/256x256/png?text=AU",
+      role: "admin",
+    }),
+    Object.freeze({
+      userId: "00000000-0000-4000-8000-000000000002",
+      accountId: "10000000-0000-4000-8000-000000000002",
+      name: "Alice Adams",
+      email: "alice@domain.test",
+      image: "https://placehold.co/256x256/png?text=AA",
+      role: "member",
+    }),
+    Object.freeze({
+      userId: "00000000-0000-4000-8000-000000000003",
+      accountId: "10000000-0000-4000-8000-000000000003",
+      name: "Bob Baker",
+      email: "bob@domain.test",
+      image: "https://placehold.co/256x256/png?text=BB",
+      role: "member",
+    }),
+  ]);
 
 export const seedIdentityInput = (
-  persona: DevelopmentPersona,
+  persona: DevelopmentPersona
 ): SeedIdentityInput => ({
   userId: persona.userId,
   accountId: persona.accountId,
@@ -70,4 +71,4 @@ export const seedIdentityInput = (
   image: persona.image,
   role: persona.role,
   password: DEVELOPMENT_PASSWORD,
-})
+});

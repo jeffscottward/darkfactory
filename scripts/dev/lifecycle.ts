@@ -1,12 +1,12 @@
 export type DevelopmentProfile = Readonly<{
-  processName: string
-  routeName: string
-  canonicalUrl: string
+  processName: string;
+  routeName: string;
+  canonicalUrl: string;
   command: Readonly<{
-    executable: string
-    arguments: readonly string[]
-  }>
-}>
+    executable: string;
+    arguments: readonly string[];
+  }>;
+}>;
 
 export const WEB_DEVELOPMENT_PROFILE: DevelopmentProfile = Object.freeze({
   processName: "darkfactory-web-dev",
@@ -16,7 +16,7 @@ export const WEB_DEVELOPMENT_PROFILE: DevelopmentProfile = Object.freeze({
     executable: "bun",
     arguments: Object.freeze(["run", "dev"]),
   }),
-})
+});
 export const OPERATOR_DEVELOPMENT_PROFILE: DevelopmentProfile = Object.freeze({
   processName: "darkfactory-operator-dev",
   routeName: "operator.darkfactory",
@@ -31,17 +31,18 @@ export const OPERATOR_DEVELOPMENT_PROFILE: DevelopmentProfile = Object.freeze({
       "--filter=@darkfactory/operator-app",
     ]),
   }),
-})
+});
 
-export const PROCESS_NAME = WEB_DEVELOPMENT_PROFILE.processName
-export const ROUTE_NAME = WEB_DEVELOPMENT_PROFILE.routeName
-export const CANONICAL_URL = WEB_DEVELOPMENT_PROFILE.canonicalUrl
-export const MAX_COMMAND_OUTPUT_BYTES = 1_048_576
-export const PM2_ENVIRONMENT_VERSION = "3"
-export const POST_START_READINESS_RETRY_DELAY_MS = 250
-export const POST_START_READINESS_MAX_RETRIES = 80
+export const PROCESS_NAME = WEB_DEVELOPMENT_PROFILE.processName;
+export const ROUTE_NAME = WEB_DEVELOPMENT_PROFILE.routeName;
+export const CANONICAL_URL = WEB_DEVELOPMENT_PROFILE.canonicalUrl;
+export const MAX_COMMAND_OUTPUT_BYTES = 1_048_576;
+export const PM2_ENVIRONMENT_VERSION = "3";
+export const POST_START_READINESS_RETRY_DELAY_MS = 250;
+export const POST_START_READINESS_MAX_RETRIES = 80;
 
-export const PM2_ENVIRONMENT_VERSION_KEY = "DARKFACTORY_PM2_ENVIRONMENT_VERSION"
+export const PM2_ENVIRONMENT_VERSION_KEY =
+  "DARKFACTORY_PM2_ENVIRONMENT_VERSION";
 export const SAFE_PROCESS_ENVIRONMENT_KEYS = Object.freeze([
   "PATH",
   "HOME",
@@ -55,12 +56,12 @@ export const SAFE_PROCESS_ENVIRONMENT_KEYS = Object.freeze([
   "NODE_EXTRA_CA_CERTS",
   "PM2_HOME",
   "COREPACK_HOME",
-] as const)
+] as const);
 const PM2_PERSISTED_ENVIRONMENT_KEYS = Object.freeze([
   "PM2_USAGE",
   "NODE_APP_INSTANCE",
   "unique_id",
-] as const)
+] as const);
 const SENSITIVE_PROCESS_ENVIRONMENT_KEYS = Object.freeze([
   "DATABASE_URL",
   "BETTER_AUTH_SECRET",
@@ -74,63 +75,69 @@ const SENSITIVE_PROCESS_ENVIRONMENT_KEYS = Object.freeze([
   "R2_ACCESS_KEY_ID",
   "R2_SECRET_ACCESS_KEY",
   "ERROR_TRACKING_DSN",
-])
+]);
 
 export type CommandResult = Readonly<{
-  exitCode: number
-  stdout: string
-  stderr: string
-}>
+  exitCode: number;
+  stdout: string;
+  stderr: string;
+}>;
 
 export type CommandOptions = Readonly<{
-  timeoutMs?: number
-  maxOutputBytes?: number
-  environment?: Readonly<Record<string, string>>
-}>
+  timeoutMs?: number;
+  maxOutputBytes?: number;
+  environment?: Readonly<Record<string, string>>;
+}>;
 
 export type ProcessAdapter = Readonly<{
-  workingDirectory: string
-  pm2DaemonAvailable: () => Promise<boolean>
-  probeHttps: (url: string) => Promise<boolean>
+  workingDirectory: string;
+  pm2DaemonAvailable: () => Promise<boolean>;
+  probeHttps: (url: string) => Promise<boolean>;
   run: (
     command: string,
     arguments_: readonly string[],
-    options?: CommandOptions,
-  ) => Promise<CommandResult>
+    options?: CommandOptions
+  ) => Promise<CommandResult>;
   runInteractive: (
     command: string,
     arguments_: readonly string[],
-    options?: CommandOptions,
-  ) => Promise<CommandResult>
-}>
+    options?: CommandOptions
+  ) => Promise<CommandResult>;
+}>;
 
 export type PreparedCertificateOutputs = Readonly<{
-  certificatePath: string
-  keyPath: string
-  commit: () => Promise<void>
-  cleanup: () => Promise<void>
-}>
+  certificatePath: string;
+  keyPath: string;
+  commit: () => Promise<void>;
+  cleanup: () => Promise<void>;
+}>;
 
 export type LifecycleFileSystem = Readonly<{
   prepareCertificateOutputs: (
     directory: string,
-    paths: readonly string[],
-  ) => Promise<PreparedCertificateOutputs>
-}>
+    paths: readonly string[]
+  ) => Promise<PreparedCertificateOutputs>;
+}>;
 
-export type ProcessStatus = "absent" | "stopped" | "online" | "errored" | "stale" | "unknown"
+export type ProcessStatus =
+  | "absent"
+  | "stopped"
+  | "online"
+  | "errored"
+  | "stale"
+  | "unknown";
 
 export type DevelopmentReport = Readonly<{
-  action: DevelopmentAction
-  ok: boolean
-  changed: boolean
-  processStatus?: ProcessStatus
-  processId?: number
-  routeHealthy?: boolean
-  canonicalUrl?: string
-  output?: string
-  reason: string
-}>
+  action: DevelopmentAction;
+  ok: boolean;
+  changed: boolean;
+  processStatus?: ProcessStatus;
+  processId?: number;
+  routeHealthy?: boolean;
+  canonicalUrl?: string;
+  output?: string;
+  reason: string;
+}>;
 
 export type DevelopmentAction =
   | "start"
@@ -139,106 +146,117 @@ export type DevelopmentAction =
   | "stop"
   | "trust"
   | "certs-install"
-  | "certs-generate"
+  | "certs-generate";
 
 const commandOptions = Object.freeze({
   timeoutMs: 15_000,
   maxOutputBytes: MAX_COMMAND_OUTPUT_BYTES,
-})
+});
 
 const asRecord = (value: unknown): Record<string, unknown> | null => {
   return typeof value === "object" && value !== null && !Array.isArray(value)
-    ? value as Record<string, unknown>
-    : null
-}
+    ? (value as Record<string, unknown>)
+    : null;
+};
 
 const hasUnexpectedPersistedEnvironment = (
   environment: Record<string, unknown> | null,
-  profile: DevelopmentProfile,
+  profile: DevelopmentProfile
 ): boolean => {
-  const persisted = asRecord(environment?.["env"])
-  if (persisted === null) return false
+  const persisted = asRecord(environment?.["env"]);
+  if (persisted === null) return false;
   return Object.keys(persisted).some((key) => {
-    return key !== "PORTLESS_PORT" &&
-    key !== PM2_ENVIRONMENT_VERSION_KEY &&
-    key !== profile.processName &&
-    !SAFE_PROCESS_ENVIRONMENT_KEYS.some((allowed) => allowed === key) &&
-    !PM2_PERSISTED_ENVIRONMENT_KEYS.some((allowed) => allowed === key)
-  }
-  )
-}
+    return (
+      key !== "PORTLESS_PORT" &&
+      key !== PM2_ENVIRONMENT_VERSION_KEY &&
+      key !== profile.processName &&
+      !SAFE_PROCESS_ENVIRONMENT_KEYS.some((allowed) => allowed === key) &&
+      !PM2_PERSISTED_ENVIRONMENT_KEYS.some((allowed) => allowed === key)
+    );
+  });
+};
 
 export const parsePm2ProcessList = (
   source: string,
   expectedWorkingDirectory: string,
-  profile: DevelopmentProfile = WEB_DEVELOPMENT_PROFILE,
+  profile: DevelopmentProfile = WEB_DEVELOPMENT_PROFILE
 ): Readonly<{ status: ProcessStatus; processId?: number }> => {
   if (Buffer.byteLength(source, "utf8") > MAX_COMMAND_OUTPUT_BYTES) {
-    throw new Error("PM2 status output is too large")
+    throw new Error("PM2 status output is too large");
   }
 
-  let parsed: unknown
+  let parsed: unknown;
   try {
-    parsed = JSON.parse(source)
+    parsed = JSON.parse(source);
+  } catch {
+    throw new Error("PM2 status output is malformed");
   }
-  catch {
-    throw new Error("PM2 status output is malformed")
-  }
-  if (!Array.isArray(parsed)) throw new Error("PM2 status output must be a process list")
+  if (!Array.isArray(parsed))
+    throw new Error("PM2 status output must be a process list");
 
-  const matches = parsed.filter((entry) => asRecord(entry)?.["name"] === profile.processName)
+  const matches = parsed.filter(
+    (entry) => asRecord(entry)?.["name"] === profile.processName
+  );
   if (matches.length > 1) {
-    throw new Error(`PM2 has duplicate ${profile.processName} processes`)
+    throw new Error(`PM2 has duplicate ${profile.processName} processes`);
   }
-  if (matches.length === 0) return Object.freeze({ status: "absent" })
+  if (matches.length === 0) return Object.freeze({ status: "absent" });
 
-  const process = asRecord(matches[0])
-  const environment = asRecord(process?.["pm2_env"])
-  const processId = process?.["pm_id"]
-  const executable = environment?.["pm_exec_path"]
-  const workingDirectory = environment?.["pm_cwd"]
-  const arguments_ = environment?.["args"]
-  const executableName = typeof executable === "string"
-    ? executable.replaceAll("\\", "/").split("/").at(-1)
-    : undefined
+  const process = asRecord(matches[0]);
+  const environment = asRecord(process?.["pm2_env"]);
+  const processId = process?.["pm_id"];
+  const executable = environment?.["pm_exec_path"];
+  const workingDirectory = environment?.["pm_cwd"];
+  const arguments_ = environment?.["args"];
+  const executableName =
+    typeof executable === "string"
+      ? executable.replaceAll("\\", "/").split("/").at(-1)
+      : undefined;
   const expectedArguments = [
     profile.routeName,
     profile.command.executable,
     ...profile.command.arguments,
-  ]
-  const validArguments = Array.isArray(arguments_) &&
+  ];
+  const validArguments =
+    Array.isArray(arguments_) &&
     arguments_.length === expectedArguments.length &&
-    arguments_.every((argument, index) => argument === expectedArguments[index])
+    arguments_.every(
+      (argument, index) => argument === expectedArguments[index]
+    );
   if (
     !Number.isSafeInteger(processId) ||
     Number(processId) < 0 ||
     executableName !== "portless" ||
     workingDirectory !== expectedWorkingDirectory ||
     !validArguments
-  ) throw new Error(`${profile.processName} is owned by an unexpected command`)
+  )
+    throw new Error(`${profile.processName} is owned by an unexpected command`);
 
   if (
     environment?.[PM2_ENVIRONMENT_VERSION_KEY] !== PM2_ENVIRONMENT_VERSION ||
-    SENSITIVE_PROCESS_ENVIRONMENT_KEYS.some((key) => Object.hasOwn(environment, key)) ||
+    SENSITIVE_PROCESS_ENVIRONMENT_KEYS.some((key) =>
+      Object.hasOwn(environment, key)
+    ) ||
     hasUnexpectedPersistedEnvironment(environment, profile)
   ) {
-    return Object.freeze({ status: "stale", processId: processId as number })
+    return Object.freeze({ status: "stale", processId: processId as number });
   }
-  const status = environment?.["status"]
+  const status = environment?.["status"];
   if (status === "online" || status === "stopped" || status === "errored") {
-    return Object.freeze({ status, processId: processId as number })
+    return Object.freeze({ status, processId: processId as number });
   }
-  return Object.freeze({ status: "unknown", processId: processId as number })
-}
+  return Object.freeze({ status: "unknown", processId: processId as number });
+};
 
 const containsExactCanonicalUrl = (
   source: string,
-  profile: DevelopmentProfile,
+  profile: DevelopmentProfile
 ): boolean => {
   return source.split(/\s+/).some((value) => {
     try {
-      const route = new URL(value)
-      return route.protocol === "https:" &&
+      const route = new URL(value);
+      return (
+        route.protocol === "https:" &&
         route.hostname === `${profile.routeName}.localhost` &&
         route.port === "" &&
         route.pathname === "/" &&
@@ -246,26 +264,27 @@ const containsExactCanonicalUrl = (
         route.hash === "" &&
         route.username === "" &&
         route.password === ""
+      );
+    } catch {
+      return false;
     }
-    catch {
-      return false
-    }
-  }
-  )
-}
+  });
+};
 
 export const isCanonicalRouteOutput = (
   result: CommandResult,
-  profile: DevelopmentProfile = WEB_DEVELOPMENT_PROFILE,
+  profile: DevelopmentProfile = WEB_DEVELOPMENT_PROFILE
 ): boolean => {
-  return result.exitCode === 0 && containsExactCanonicalUrl(result.stdout, profile)
-}
+  return (
+    result.exitCode === 0 && containsExactCanonicalUrl(result.stdout, profile)
+  );
+};
 
 export const inspectDevelopmentState = async (
   process: ProcessAdapter,
-  profile: DevelopmentProfile = WEB_DEVELOPMENT_PROFILE,
+  profile: DevelopmentProfile = WEB_DEVELOPMENT_PROFILE
 ): Promise<DevelopmentReport> => {
-  if (!await process.pm2DaemonAvailable()) {
+  if (!(await process.pm2DaemonAvailable())) {
     return Object.freeze({
       action: "status",
       ok: false,
@@ -274,33 +293,33 @@ export const inspectDevelopmentState = async (
       routeHealthy: false,
       canonicalUrl: profile.canonicalUrl,
       reason: `${profile.processName} is absent`,
-    })
+    });
   }
 
   const pm2 = await process.run("pm2", ["jlist"], {
     ...commandOptions,
     environment: { PM2_SILENT: "true" },
-  })
+  });
   if (pm2.exitCode !== 0) {
     return Object.freeze({
       action: "status",
       ok: false,
       changed: false,
       reason: "PM2 status inspection failed",
-    })
+    });
   }
 
-  let parsed: Readonly<{ status: ProcessStatus; processId?: number }>
+  let parsed: Readonly<{ status: ProcessStatus; processId?: number }>;
   try {
-    parsed = parsePm2ProcessList(pm2.stdout, process.workingDirectory, profile)
-  }
-  catch (error) {
+    parsed = parsePm2ProcessList(pm2.stdout, process.workingDirectory, profile);
+  } catch (error) {
     return Object.freeze({
       action: "status",
       ok: false,
       changed: false,
-      reason: error instanceof Error ? error.message : "PM2 status inspection failed",
-    })
+      reason:
+        error instanceof Error ? error.message : "PM2 status inspection failed",
+    });
   }
 
   if (parsed.status !== "online") {
@@ -309,20 +328,28 @@ export const inspectDevelopmentState = async (
       ok: false,
       changed: false,
       processStatus: parsed.status,
-      ...(parsed.processId === undefined ? {} : { processId: parsed.processId }),
+      ...(parsed.processId === undefined
+        ? {}
+        : { processId: parsed.processId }),
       routeHealthy: false,
       canonicalUrl: profile.canonicalUrl,
-      reason: parsed.status === "absent"
-        ? `${profile.processName} is absent`
-        : `${profile.processName} is ${parsed.status}`,
-    })
+      reason:
+        parsed.status === "absent"
+          ? `${profile.processName} is absent`
+          : `${profile.processName} is ${parsed.status}`,
+    });
   }
 
-  const routes = await process.run("portless", ["list"], commandOptions)
-  const route = await process.run("portless", ["get", profile.routeName], commandOptions)
-  const healthy = isCanonicalRouteOutput(routes, profile) &&
+  const routes = await process.run("portless", ["list"], commandOptions);
+  const route = await process.run(
+    "portless",
+    ["get", profile.routeName],
+    commandOptions
+  );
+  const healthy =
+    isCanonicalRouteOutput(routes, profile) &&
     isCanonicalRouteOutput(route, profile) &&
-    await process.probeHttps(profile.canonicalUrl).catch(() => false)
+    (await process.probeHttps(profile.canonicalUrl).catch(() => false));
   return Object.freeze({
     action: "status",
     ok: healthy,
@@ -334,8 +361,8 @@ export const inspectDevelopmentState = async (
     reason: healthy
       ? `${profile.processName} is online at ${profile.canonicalUrl}`
       : `${profile.processName} is online but its portless route is unhealthy`,
-  })
-}
+  });
+};
 
 const runSimpleAction = async (
   action: DevelopmentAction,
@@ -343,38 +370,44 @@ const runSimpleAction = async (
   command: string,
   arguments_: readonly string[],
   success: string,
-  options: CommandOptions = commandOptions,
+  options: CommandOptions = commandOptions
 ): Promise<DevelopmentReport> => {
-  const result = await process.runInteractive(command, arguments_, options)
+  const result = await process.runInteractive(command, arguments_, options);
   return Object.freeze({
     action,
     ok: result.exitCode === 0,
     changed: result.exitCode === 0,
     reason: result.exitCode === 0 ? success : `${action} failed`,
-  })
-}
+  });
+};
 
-const ensureCanonicalProxy = async (process: ProcessAdapter): Promise<string | null> => {
-  const routes = await process.run("portless", ["list"], commandOptions)
+const ensureCanonicalProxy = async (
+  process: ProcessAdapter
+): Promise<string | null> => {
+  const routes = await process.run("portless", ["list"], commandOptions);
   if (/https:\/\/[^\s]+\.localhost:\d+/i.test(routes.stdout)) {
-    return "A noncanonical portless proxy is active; stop it and run dev:trust before retrying"
+    return "A noncanonical portless proxy is active; stop it and run dev:trust before retrying";
   }
-  const proxy = await process.runInteractive("portless", ["proxy", "start", "-p", "443"], {
-    ...commandOptions,
-    timeoutMs: 120_000,
-    environment: { PORTLESS_PORT: "443" },
-  })
+  const proxy = await process.runInteractive(
+    "portless",
+    ["proxy", "start", "-p", "443"],
+    {
+      ...commandOptions,
+      timeoutMs: 120_000,
+      environment: { PORTLESS_PORT: "443" },
+    }
+  );
   return proxy.exitCode === 0
     ? null
-    : "Canonical HTTPS proxy failed; run bun run dev:trust and retry"
-}
+    : "Canonical HTTPS proxy failed; run bun run dev:trust and retry";
+};
 
 const inspectPostStartReadiness = async (
   process: ProcessAdapter,
-  profile: DevelopmentProfile,
+  profile: DevelopmentProfile
 ): Promise<DevelopmentReport> => {
-  let current = await inspectDevelopmentState(process, profile)
-  let retriesRemaining = POST_START_READINESS_MAX_RETRIES
+  let current = await inspectDevelopmentState(process, profile);
+  let retriesRemaining = POST_START_READINESS_MAX_RETRIES;
   while (
     !current.ok &&
     current.processStatus === "online" &&
@@ -382,44 +415,43 @@ const inspectPostStartReadiness = async (
     retriesRemaining > 0
   ) {
     await new Promise<void>((resolve) => {
-      return setTimeout(resolve, POST_START_READINESS_RETRY_DELAY_MS)
-    }
-    )
-    current = await inspectDevelopmentState(process, profile)
-    retriesRemaining -= 1
+      return setTimeout(resolve, POST_START_READINESS_RETRY_DELAY_MS);
+    });
+    current = await inspectDevelopmentState(process, profile);
+    retriesRemaining -= 1;
   }
-  return current
-}
+  return current;
+};
 
 const startDevelopment = async (
   process: ProcessAdapter,
-  profile: DevelopmentProfile,
+  profile: DevelopmentProfile
 ): Promise<DevelopmentReport> => {
-  let initial = await inspectDevelopmentState(process, profile)
-  let replacedStaleProcess = false
+  let initial = await inspectDevelopmentState(process, profile);
+  let replacedStaleProcess = false;
   if (initial.processStatus === "stale" && initial.processId !== undefined) {
     const deleted = await process.run(
       "pm2",
       ["delete", String(initial.processId)],
-      commandOptions,
-    )
+      commandOptions
+    );
     if (deleted.exitCode !== 0) {
       return Object.freeze({
         ...initial,
         action: "start",
         reason: `PM2 could not remove stale ${profile.processName}`,
-      })
+      });
     }
-    const cleaned = await process.run("pm2", ["save"], commandOptions)
+    const cleaned = await process.run("pm2", ["save"], commandOptions);
     if (cleaned.exitCode !== 0) {
       return Object.freeze({
         ...initial,
         action: "start",
         changed: true,
         reason: `PM2 removed stale ${profile.processName} but could not save its process list`,
-      })
+      });
     }
-    replacedStaleProcess = true
+    replacedStaleProcess = true;
     initial = Object.freeze({
       action: "status",
       ok: false,
@@ -428,16 +460,19 @@ const startDevelopment = async (
       routeHealthy: false,
       canonicalUrl: profile.canonicalUrl,
       reason: `${profile.processName} stale process environment was removed`,
-    })
+    });
   }
   if (initial.processStatus === "online") {
-    return Object.freeze({ ...initial, action: "start" })
+    return Object.freeze({ ...initial, action: "start" });
   }
-  if (initial.processStatus !== "absent" && initial.processStatus !== "stopped") {
-    return Object.freeze({ ...initial, action: "start" })
+  if (
+    initial.processStatus !== "absent" &&
+    initial.processStatus !== "stopped"
+  ) {
+    return Object.freeze({ ...initial, action: "start" });
   }
 
-  const proxyFailure = await ensureCanonicalProxy(process)
+  const proxyFailure = await ensureCanonicalProxy(process);
   if (proxyFailure) {
     return Object.freeze({
       action: "start",
@@ -447,23 +482,24 @@ const startDevelopment = async (
       routeHealthy: false,
       canonicalUrl: profile.canonicalUrl,
       reason: proxyFailure,
-    })
+    });
   }
 
-  const startArguments = initial.processStatus === "absent"
-    ? [
-      "start",
-      "portless",
-      "--interpreter",
-      "none",
-      "--name",
-      profile.processName,
-      "--",
-      profile.routeName,
-      profile.command.executable,
-      ...profile.command.arguments,
-    ]
-    : ["start", String(initial.processId)]
+  const startArguments =
+    initial.processStatus === "absent"
+      ? [
+          "start",
+          "portless",
+          "--interpreter",
+          "none",
+          "--name",
+          profile.processName,
+          "--",
+          profile.routeName,
+          profile.command.executable,
+          ...profile.command.arguments,
+        ]
+      : ["start", String(initial.processId)];
   const started = await process.run("pm2", startArguments, {
     ...commandOptions,
     timeoutMs: 30_000,
@@ -471,7 +507,7 @@ const startDevelopment = async (
       PORTLESS_PORT: "443",
       [PM2_ENVIRONMENT_VERSION_KEY]: PM2_ENVIRONMENT_VERSION,
     },
-  })
+  });
   if (started.exitCode !== 0) {
     return Object.freeze({
       action: "start",
@@ -481,97 +517,106 @@ const startDevelopment = async (
       routeHealthy: false,
       canonicalUrl: profile.canonicalUrl,
       reason: `PM2 could not start ${profile.processName}`,
-    })
+    });
   }
 
-  const saved = await process.run("pm2", ["save"], commandOptions)
+  const saved = await process.run("pm2", ["save"], commandOptions);
   if (saved.exitCode !== 0) {
     return Object.freeze({
       action: "start",
       ok: false,
       changed: true,
       reason: "PM2 started the process but could not save its process list",
-    })
+    });
   }
 
-  const current = await inspectPostStartReadiness(process, profile)
-  return Object.freeze({ ...current, action: "start", changed: true })
-}
+  const current = await inspectPostStartReadiness(process, profile);
+  return Object.freeze({ ...current, action: "start", changed: true });
+};
 
 const stopDevelopment = async (
   process: ProcessAdapter,
-  profile: DevelopmentProfile,
+  profile: DevelopmentProfile
 ): Promise<DevelopmentReport> => {
-  const current = await inspectDevelopmentState(process, profile)
+  const current = await inspectDevelopmentState(process, profile);
   if (current.processStatus === "stale" && current.processId !== undefined) {
     const deleted = await process.run(
       "pm2",
       ["delete", String(current.processId)],
-      commandOptions,
-    )
+      commandOptions
+    );
     if (deleted.exitCode !== 0) {
       return Object.freeze({
         ...current,
         action: "stop",
         reason: `PM2 could not remove stale ${profile.processName}`,
-      })
+      });
     }
-    const saved = await process.run("pm2", ["save"], commandOptions)
+    const saved = await process.run("pm2", ["save"], commandOptions);
     return Object.freeze({
       action: "stop",
       ok: saved.exitCode === 0,
       changed: true,
       processStatus: "absent",
-      reason: saved.exitCode === 0
-        ? `${profile.processName} stale process environment removed and PM2 state saved`
-        : `${profile.processName} stale process environment removed but PM2 state could not be saved`,
-    })
+      reason:
+        saved.exitCode === 0
+          ? `${profile.processName} stale process environment removed and PM2 state saved`
+          : `${profile.processName} stale process environment removed but PM2 state could not be saved`,
+    });
   }
-  if (current.processStatus === "absent" || current.processStatus === "stopped") {
+  if (
+    current.processStatus === "absent" ||
+    current.processStatus === "stopped"
+  ) {
     return Object.freeze({
       action: "stop",
       ok: true,
       changed: false,
       processStatus: current.processStatus,
       reason: `${profile.processName} is already stopped`,
-    })
+    });
   }
   if (current.processStatus !== "online" || current.processId === undefined) {
-    return Object.freeze({ ...current, action: "stop" })
+    return Object.freeze({ ...current, action: "stop" });
   }
-  const stopped = await process.run("pm2", ["stop", String(current.processId)], commandOptions)
+  const stopped = await process.run(
+    "pm2",
+    ["stop", String(current.processId)],
+    commandOptions
+  );
   if (stopped.exitCode !== 0) {
     return Object.freeze({
       action: "stop",
       ok: false,
       changed: false,
       reason: `${profile.processName} could not be stopped`,
-    })
+    });
   }
-  const saved = await process.run("pm2", ["save"], commandOptions)
+  const saved = await process.run("pm2", ["save"], commandOptions);
   return Object.freeze({
     action: "stop",
     ok: saved.exitCode === 0,
     changed: true,
-    reason: saved.exitCode === 0
-      ? `${profile.processName} stopped and PM2 state saved`
-      : `${profile.processName} stopped but PM2 state could not be saved`,
-  })
-}
+    reason:
+      saved.exitCode === 0
+        ? `${profile.processName} stopped and PM2 state saved`
+        : `${profile.processName} stopped but PM2 state could not be saved`,
+  });
+};
 
 const readDevelopmentLogs = async (
   process: ProcessAdapter,
-  profile: DevelopmentProfile,
+  profile: DevelopmentProfile
 ): Promise<DevelopmentReport> => {
-  const current = await inspectDevelopmentState(process, profile)
+  const current = await inspectDevelopmentState(process, profile);
   if (current.processStatus !== "online" || current.processId === undefined) {
-    return Object.freeze({ ...current, action: "logs" })
+    return Object.freeze({ ...current, action: "logs" });
   }
   const logs = await process.run(
     "pm2",
     ["logs", String(current.processId), "--lines", "200", "--nostream"],
-    commandOptions,
-  )
+    commandOptions
+  );
   return Object.freeze({
     action: "logs",
     ok: logs.exitCode === 0,
@@ -579,20 +624,23 @@ const readDevelopmentLogs = async (
     processStatus: current.processStatus,
     processId: current.processId,
     ...(logs.exitCode === 0 ? { output: logs.stdout } : {}),
-    reason: logs.exitCode === 0 ? `Read logs for ${profile.processName}` : "logs failed",
-  })
-}
+    reason:
+      logs.exitCode === 0
+        ? `Read logs for ${profile.processName}`
+        : "logs failed",
+  });
+};
 
 export const runDevelopmentAction = async (
   action: DevelopmentAction,
   process: ProcessAdapter,
   files?: LifecycleFileSystem,
-  profile: DevelopmentProfile = WEB_DEVELOPMENT_PROFILE,
+  profile: DevelopmentProfile = WEB_DEVELOPMENT_PROFILE
 ): Promise<DevelopmentReport> => {
-  if (action === "start") return startDevelopment(process, profile)
-  if (action === "status") return inspectDevelopmentState(process, profile)
-  if (action === "stop") return stopDevelopment(process, profile)
-  if (action === "logs") return readDevelopmentLogs(process, profile)
+  if (action === "start") return startDevelopment(process, profile);
+  if (action === "status") return inspectDevelopmentState(process, profile);
+  if (action === "stop") return stopDevelopment(process, profile);
+  if (action === "logs") return readDevelopmentLogs(process, profile);
   if (action === "trust") {
     return runSimpleAction(
       action,
@@ -600,11 +648,17 @@ export const runDevelopmentAction = async (
       "portless",
       ["trust"],
       "portless trust configured",
-      { ...commandOptions, environment: { PORTLESS_PORT: "443" } },
-    )
+      { ...commandOptions, environment: { PORTLESS_PORT: "443" } }
+    );
   }
   if (action === "certs-install") {
-    return runSimpleAction(action, process, "mkcert", ["-install"], "mkcert fallback trust configured")
+    return runSimpleAction(
+      action,
+      process,
+      "mkcert",
+      ["-install"],
+      "mkcert fallback trust configured"
+    );
   }
 
   if (!files) {
@@ -613,12 +667,12 @@ export const runDevelopmentAction = async (
       ok: false,
       changed: false,
       reason: "Certificate filesystem adapter is unavailable",
-    })
+    });
   }
   const prepared = await files.prepareCertificateOutputs(".certs", [
     ".certs/localhost.pem",
     ".certs/localhost-key.pem",
-  ])
+  ]);
   const generated = await process.run(
     "mkcert",
     [
@@ -631,17 +685,22 @@ export const runDevelopmentAction = async (
       "127.0.0.1",
       "::1",
     ],
-    commandOptions,
-  )
+    commandOptions
+  );
   if (generated.exitCode !== 0) {
-    await prepared.cleanup()
-    return Object.freeze({ action, ok: false, changed: false, reason: "certs-generate failed" })
+    await prepared.cleanup();
+    return Object.freeze({
+      action,
+      ok: false,
+      changed: false,
+      reason: "certs-generate failed",
+    });
   }
-  await prepared.commit()
+  await prepared.commit();
   return Object.freeze({
     action,
     ok: true,
     changed: true,
     reason: "mkcert fallback certificates generated",
-  })
-}
+  });
+};

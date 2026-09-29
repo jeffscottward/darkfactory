@@ -2,7 +2,7 @@ import {
   AUTHORIZATION_ERROR_CODES,
   AuthAuthorizationError,
   type SafeAuthSession,
-} from "@darkfactory/auth/server"
+} from "@darkfactory/auth/server";
 import {
   DatabaseConflictError,
   DatabasePersistenceError,
@@ -11,23 +11,23 @@ import {
   type Repositories,
   type UserPreferencesRepository,
   type UserThemePreference,
-} from "@darkfactory/db/server"
+} from "@darkfactory/db/server";
 import type {
   SemanticEvent,
   SemanticEventPort,
-} from "@darkfactory/observability/port"
-import { ORPCError } from "@orpc/client"
-import { describe, expect, it, vi } from "vitest"
+} from "@darkfactory/observability/port";
+import { ORPCError } from "@orpc/client";
+import { describe, expect, it, vi } from "vitest";
 
-import { createApiClient } from "./client.ts"
-import { createApiContext } from "./server/context.ts"
-import { handleApiRequest } from "./server/handler.ts"
+import { createApiClient } from "./client.ts";
+import { createApiContext } from "./server/context.ts";
+import { handleApiRequest } from "./server/handler.ts";
 import {
   ThemePreferenceServiceError,
   createThemePreferenceService,
-} from "./server/service.ts"
+} from "./server/service.ts";
 
-const THEME_VERSION = new Date("2026-01-02T03:04:05.000Z")
+const THEME_VERSION = new Date("2026-01-02T03:04:05.000Z");
 
 const memberSession: SafeAuthSession = {
   user: {
@@ -51,185 +51,186 @@ const memberSession: SafeAuthSession = {
     userAgent: null,
   },
   principal: { userId: "member-1", role: "member", status: "active" },
-}
+};
 
 const themeRepository = (
-  overrides: Partial<UserPreferencesRepository> = {},
+  overrides: Partial<UserPreferencesRepository> = {}
 ): UserPreferencesRepository => ({
   findByUserId: vi.fn(async () => null),
   findThemeByUserId: vi.fn(async () => null),
   upsert: vi.fn(async () => {
-    throw new Error("Legacy full-preference upsert must not be called")
-  }
-  ),
+    throw new Error("Legacy full-preference upsert must not be called");
+  }),
   updateOptimistic: vi.fn(async () => {
-    throw new Error("Full preference update must not be called")
-  }
-  ),
+    throw new Error("Full preference update must not be called");
+  }),
   upsertTheme: vi.fn(async (input) => ({
     mode: input.mode,
     colorScheme: input.colorScheme,
     updatedAt: THEME_VERSION,
   })),
   ...overrides,
-})
+});
 
-const repositories = (userPreferences: UserPreferencesRepository): Repositories => ({
+const repositories = (
+  userPreferences: UserPreferencesRepository
+): Repositories => ({
   profiles: {} as Repositories["profiles"],
   addresses: {} as Repositories["addresses"],
   userPreferences,
   featureItems: {} as FeatureItemRepository,
   adminUsers: {} as Repositories["adminUsers"],
   dashboard: {} as Repositories["dashboard"],
-})
+});
 
 const clientFor = (
   requestSession: SafeAuthSession | null,
   userPreferences: UserPreferencesRepository = themeRepository(),
-  semanticEvents?: SemanticEventPort,
+  semanticEvents?: SemanticEventPort
 ) => {
   const fetch = async (request: Request): Promise<Response> => {
     const context = createApiContext(request, {
       repositories: repositories(userPreferences),
       requestId: "request-theme-1",
       capabilities: {
-        ai: false, emailDelivery: false, analytics: false,
-        telemetryExport: false, storage: false, errorTracking: false,
+        ai: false,
+        emailDelivery: false,
+        analytics: false,
+        telemetryExport: false,
+        storage: false,
+        errorTracking: false,
       },
       requireSession: async () => {
         if (requestSession === null) {
           throw new AuthAuthorizationError(
             AUTHORIZATION_ERROR_CODES.AUTH_REQUIRED,
-            401,
-          )
+            401
+          );
         }
-        return requestSession
+        return requestSession;
       },
       requireRole: async () => {
         if (requestSession === null) {
           throw new AuthAuthorizationError(
             AUTHORIZATION_ERROR_CODES.AUTH_REQUIRED,
-            401,
-          )
+            401
+          );
         }
-        return requestSession
+        return requestSession;
       },
       ...(semanticEvents === undefined ? {} : { semanticEvents }),
-    })
-    return handleApiRequest(request, context)
-  }
+    });
+    return handleApiRequest(request, context);
+  };
 
-  return createApiClient({ baseUrl: "https://darkfactory.localhost", fetch })
-}
+  return createApiClient({ baseUrl: "https://darkfactory.localhost", fetch });
+};
 
 const expectError = async (
   promise: Promise<unknown>,
   code: string,
-  status: number,
+  status: number
 ): Promise<void> => {
   try {
-    await promise
-    throw new Error("Expected the oRPC call to fail")
+    await promise;
+    throw new Error("Expected the oRPC call to fail");
+  } catch (error) {
+    expect(error).toBeInstanceOf(ORPCError);
+    expect(error).toMatchObject({ code, status, defined: true });
   }
-  catch (error) {
-    expect(error).toBeInstanceOf(ORPCError)
-    expect(error).toMatchObject({ code, status, defined: true })
-  }
-}
+};
 
 const recordingPort = (): Readonly<{
-  events: SemanticEvent[]
-  port: SemanticEventPort
+  events: SemanticEvent[];
+  port: SemanticEventPort;
 }> => {
-  const events: SemanticEvent[] = []
+  const events: SemanticEvent[] = [];
   const port: SemanticEventPort = {
     emit: vi.fn(async (event) => {
-      events.push(event)
+      events.push(event);
       return {
         structuredEvent: "emitted" as const,
         span: "skipped" as const,
         analytics: "skipped" as const,
-      }
-    }
-    ),
-  }
-  return { events, port }
-}
+      };
+    }),
+  };
+  return { events, port };
+};
 
-describe("DF-088 theme preference service", function() {
-  it("maps missing storage to canonical database defaults", async function() {
-    const findThemeByUserId = vi.fn(async () => null)
+describe("DF-088 theme preference service", function () {
+  it("maps missing storage to canonical database defaults", async function () {
+    const findThemeByUserId = vi.fn(async () => null);
     const service = createThemePreferenceService(
-      themeRepository({ findThemeByUserId }),
-    )
+      themeRepository({ findThemeByUserId })
+    );
 
     await expect(service.get(memberSession.principal)).resolves.toEqual({
       themeMode: "system",
       palette: "neutral",
       updatedAt: null,
-    })
-    return expect(findThemeByUserId).toHaveBeenCalledWith("member-1")
-  })
+    });
+    return expect(findThemeByUserId).toHaveBeenCalledWith("member-1");
+  });
 
-  it("maps projected storage fields and always derives the owner from principal", async function() {
+  it("maps projected storage fields and always derives the owner from principal", async function () {
     const stored: UserThemePreference = {
       mode: "light",
       colorScheme: "cyan",
       updatedAt: THEME_VERSION,
-    }
-    const findThemeByUserId = vi.fn(async () => stored)
+    };
+    const findThemeByUserId = vi.fn(async () => stored);
     const upsertTheme = vi.fn(async (input) => ({
       mode: input.mode,
       colorScheme: input.colorScheme,
       updatedAt: THEME_VERSION,
-    }))
+    }));
     const service = createThemePreferenceService(
-      themeRepository({ findThemeByUserId, upsertTheme }),
-    )
+      themeRepository({ findThemeByUserId, upsertTheme })
+    );
 
     await expect(service.get(memberSession.principal)).resolves.toEqual({
       themeMode: "light",
       palette: "cyan",
       updatedAt: THEME_VERSION,
-    })
+    });
     await expect(
       service.update(memberSession.principal, {
         themeMode: "dark",
         palette: "rose",
         expectedUpdatedAt: THEME_VERSION,
-      }),
+      })
     ).resolves.toEqual({
       themeMode: "dark",
       palette: "rose",
       updatedAt: THEME_VERSION,
-    })
+    });
     return expect(upsertTheme).toHaveBeenCalledWith({
       userId: "member-1",
       mode: "dark",
       colorScheme: "rose",
       expectedUpdatedAt: THEME_VERSION,
-    })
-  })
+    });
+  });
 
-  it("sanitizes expected storage failures", async function() {
+  it("sanitizes expected storage failures", async function () {
     const service = createThemePreferenceService(
       themeRepository({
         findThemeByUserId: vi.fn(async () => {
-          throw new DatabasePersistenceError("private preference query")
-        }
-        ),
-      }),
-    )
+          throw new DatabasePersistenceError("private preference query");
+        }),
+      })
+    );
 
     await expect(service.get(memberSession.principal)).rejects.toMatchObject({
       name: "ThemePreferenceServiceError",
       code: "STORAGE_ERROR",
       message: "Theme preference storage is unavailable",
-    })
+    });
     return expect(
-      new ThemePreferenceServiceError("VALIDATION_ERROR", "Invalid theme"),
-    ).toMatchObject({ code: "VALIDATION_ERROR", message: "Invalid theme" })
-  })
+      new ThemePreferenceServiceError("VALIDATION_ERROR", "Invalid theme")
+    ).toMatchObject({ code: "VALIDATION_ERROR", message: "Invalid theme" });
+  });
 
   it.each([
     {
@@ -242,67 +243,69 @@ describe("DF-088 theme preference service", function() {
       code: "CONFLICT",
       message: "Theme preference conflict",
     },
-  ] as const)("maps repository failures to the stable $code contract", async function({ failure, code, message }) {
+  ] as const)("maps repository failures to the stable $code contract", async function ({
+    failure,
+    code,
+    message,
+  }) {
     const service = createThemePreferenceService(
       themeRepository({
         upsertTheme: vi.fn(async () => {
-          throw failure
-        }
-        ),
-      }),
-    )
+          throw failure;
+        }),
+      })
+    );
 
-    return await expect(service.update(memberSession.principal, {
-      themeMode: "dark",
-      palette: "violet",
-      expectedUpdatedAt: THEME_VERSION,
-    })).rejects.toMatchObject({
+    return await expect(
+      service.update(memberSession.principal, {
+        themeMode: "dark",
+        palette: "violet",
+        expectedUpdatedAt: THEME_VERSION,
+      })
+    ).rejects.toMatchObject({
       name: "ThemePreferenceServiceError",
       code,
       message,
-    })
-  }
-  )
+    });
+  });
 
-  return it("preserves classified failures and does not disguise unexpected adapter errors", async function() {
+  return it("preserves classified failures and does not disguise unexpected adapter errors", async function () {
     const classified = new ThemePreferenceServiceError(
       "CONFLICT",
-      "Theme preference conflict",
-    )
+      "Theme preference conflict"
+    );
     const classifiedService = createThemePreferenceService(
       themeRepository({
         findThemeByUserId: vi.fn(async () => {
-          throw classified
-        }
-        ),
-      }),
-    )
-    await expect(
-      classifiedService.get(memberSession.principal),
-    ).rejects.toBe(classified)
+          throw classified;
+        }),
+      })
+    );
+    await expect(classifiedService.get(memberSession.principal)).rejects.toBe(
+      classified
+    );
 
-    const unexpected = new Error("unexpected theme adapter contract violation")
+    const unexpected = new Error("unexpected theme adapter contract violation");
     const unexpectedService = createThemePreferenceService(
       themeRepository({
         findThemeByUserId: vi.fn(async () => {
-          throw unexpected
-        }
-        ),
-      }),
-    )
+          throw unexpected;
+        }),
+      })
+    );
     return await expect(
-      unexpectedService.get(memberSession.principal),
-    ).rejects.toBe(unexpected)
-  })
-})
+      unexpectedService.get(memberSession.principal)
+    ).rejects.toBe(unexpected);
+  });
+});
 
-describe("DF-088 authenticated theme preference router", function() {
-  it("denies anonymous reads and updates", async function() {
+describe("DF-088 authenticated theme preference router", function () {
+  it("denies anonymous reads and updates", async function () {
     await expectError(
       clientFor(null).preferences.theme.get({}),
       "UNAUTHORIZED",
-      401,
-    )
+      401
+    );
     return await expectError(
       clientFor(null).preferences.theme.update({
         themeMode: "dark",
@@ -310,55 +313,49 @@ describe("DF-088 authenticated theme preference router", function() {
         expectedUpdatedAt: null,
       }),
       "UNAUTHORIZED",
-      401,
-    )
-  })
+      401
+    );
+  });
 
-  it("reads defaults and persists exact canonical input for the principal", async function() {
+  it("reads defaults and persists exact canonical input for the principal", async function () {
     const upsertTheme = vi.fn(async (input) => ({
       mode: input.mode,
       colorScheme: input.colorScheme,
       updatedAt: THEME_VERSION,
-    }))
-    const client = clientFor(
-      memberSession,
-      themeRepository({ upsertTheme }),
-    )
+    }));
+    const client = clientFor(memberSession, themeRepository({ upsertTheme }));
 
     await expect(client.preferences.theme.get({})).resolves.toEqual({
       themeMode: "system",
       palette: "neutral",
       updatedAt: null,
-    })
+    });
     await expect(
       client.preferences.theme.update({
         themeMode: "dark",
         palette: "violet",
         expectedUpdatedAt: null,
-      }),
+      })
     ).resolves.toEqual({
       themeMode: "dark",
       palette: "violet",
       updatedAt: THEME_VERSION,
-    })
+    });
     return expect(upsertTheme).toHaveBeenCalledWith({
       userId: "member-1",
       mode: "dark",
       colorScheme: "violet",
       expectedUpdatedAt: null,
-    })
-  })
+    });
+  });
 
-  it("rejects non-canonical and owner-bearing update payloads before persistence", async function() {
+  it("rejects non-canonical and owner-bearing update payloads before persistence", async function () {
     const upsertTheme = vi.fn(async (input) => ({
       mode: input.mode,
       colorScheme: input.colorScheme,
       updatedAt: THEME_VERSION,
-    }))
-    const client = clientFor(
-      memberSession,
-      themeRepository({ upsertTheme }),
-    )
+    }));
+    const client = clientFor(memberSession, themeRepository({ upsertTheme }));
 
     await expectError(
       client.preferences.theme.update({
@@ -367,8 +364,8 @@ describe("DF-088 authenticated theme preference router", function() {
         expectedUpdatedAt: null,
       } as never),
       "BAD_REQUEST",
-      400,
-    )
+      400
+    );
     await expectError(
       client.preferences.theme.update({
         themeMode: "dark",
@@ -377,30 +374,30 @@ describe("DF-088 authenticated theme preference router", function() {
         ownerId: "victim-user",
       } as never),
       "BAD_REQUEST",
-      400,
-    )
-    return expect(upsertTheme).not.toHaveBeenCalled()
-  })
+      400
+    );
+    return expect(upsertTheme).not.toHaveBeenCalled();
+  });
 
-  it("emits one safe correlated success event with an independent UUID", async function() {
-    const recording = recordingPort()
+  it("emits one safe correlated success event with an independent UUID", async function () {
+    const recording = recordingPort();
     await expect(
       clientFor(
         memberSession,
         themeRepository(),
-        recording.port,
+        recording.port
       ).preferences.theme.update({
         themeMode: "dark",
         palette: "violet",
         expectedUpdatedAt: null,
-      }),
+      })
     ).resolves.toEqual({
       themeMode: "dark",
       palette: "violet",
       updatedAt: THEME_VERSION,
-    })
+    });
 
-    expect(recording.events).toHaveLength(1)
+    expect(recording.events).toHaveLength(1);
     expect(recording.events[0]).toMatchObject({
       name: "user-preferences.theme-updated",
       correlation: {
@@ -414,75 +411,75 @@ describe("DF-088 authenticated theme preference router", function() {
       outcome: "success",
       source: "api",
       attributes: { actorRole: "member" },
-    })
+    });
     expect(recording.events[0]?.eventId).toMatch(
-      /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/,
-    )
-    expect(recording.events[0]?.eventId).not.toBe("request-theme-1")
-    expect(JSON.stringify(recording.events[0])).not.toContain("violet")
-    return expect(JSON.stringify(recording.events[0])).not.toContain("dark")
-  })
+      /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/
+    );
+    expect(recording.events[0]?.eventId).not.toBe("request-theme-1");
+    expect(JSON.stringify(recording.events[0])).not.toContain("violet");
+    return expect(JSON.stringify(recording.events[0])).not.toContain("dark");
+  });
 
-  it("emits one sanitized failure event without replaying the update", async function() {
+  it("emits one sanitized failure event without replaying the update", async function () {
     const upsertTheme = vi.fn(async () => {
-      throw new DatabasePersistenceError("private theme values")
-    }
-    )
-    const recording = recordingPort()
+      throw new DatabasePersistenceError("private theme values");
+    });
+    const recording = recordingPort();
 
     await expectError(
       clientFor(
         memberSession,
         themeRepository({ upsertTheme }),
-        recording.port,
+        recording.port
       ).preferences.theme.update({
         themeMode: "light",
         palette: "amber",
         expectedUpdatedAt: null,
       }),
       "STORAGE_ERROR",
-      503,
-    )
-    expect(upsertTheme).toHaveBeenCalledOnce()
-    expect(recording.events).toHaveLength(1)
+      503
+    );
+    expect(upsertTheme).toHaveBeenCalledOnce();
+    expect(recording.events).toHaveLength(1);
     expect(recording.events[0]).toMatchObject({
       name: "user-preferences.theme-updated",
       outcome: "failure",
       errorCategory: "storage_error",
-    })
-    expect(JSON.stringify(recording.events[0])).not.toContain("private theme values")
-    return expect(JSON.stringify(recording.events[0])).not.toContain("amber")
-  })
+    });
+    expect(JSON.stringify(recording.events[0])).not.toContain(
+      "private theme values"
+    );
+    return expect(JSON.stringify(recording.events[0])).not.toContain("amber");
+  });
 
-  return it("does not change a successful update when observability fails", async function() {
+  return it("does not change a successful update when observability fails", async function () {
     const upsertTheme = vi.fn(async (input) => ({
       mode: input.mode,
       colorScheme: input.colorScheme,
       updatedAt: THEME_VERSION,
-    }))
+    }));
     const semanticEvents: SemanticEventPort = {
       emit: vi.fn(async () => {
-        throw new Error("event provider unavailable")
-      }
-      ),
-    }
+        throw new Error("event provider unavailable");
+      }),
+    };
 
     await expect(
       clientFor(
         memberSession,
         themeRepository({ upsertTheme }),
-        semanticEvents,
+        semanticEvents
       ).preferences.theme.update({
         themeMode: "system",
         palette: "green",
         expectedUpdatedAt: null,
-      }),
+      })
     ).resolves.toEqual({
       themeMode: "system",
       palette: "green",
       updatedAt: THEME_VERSION,
-    })
-    expect(upsertTheme).toHaveBeenCalledOnce()
-    return expect(semanticEvents.emit).toHaveBeenCalledOnce()
-  })
-})
+    });
+    expect(upsertTheme).toHaveBeenCalledOnce();
+    return expect(semanticEvents.emit).toHaveBeenCalledOnce();
+  });
+});

@@ -1,21 +1,21 @@
-import { CANONICAL_APP_URL } from "./client.ts"
+import { CANONICAL_APP_URL } from "./client.ts";
 import {
   RequestDatabaseEndpointError,
   validateRequestDatabaseEndpoint,
-} from "./database.ts"
-import { z } from "zod"
+} from "./database.ts";
+import { z } from "zod";
 
 const emptyStringToUndefined = (value: unknown): unknown => {
-  return typeof value === "string" && value.trim() === "" ? undefined : value
-}
+  return typeof value === "string" && value.trim() === "" ? undefined : value;
+};
 
 const optionalString = z.preprocess(
   emptyStringToUndefined,
-  z.string().trim().min(1).optional(),
-)
+  z.string().trim().min(1).optional()
+);
 
 const MAILBOX_PATTERN =
-  /^[A-Za-z0-9.!#$%&'*+/=?^_`{|}~-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)+$/
+  /^[A-Za-z0-9.!#$%&'*+/=?^_`{|}~-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)+$/;
 const optionalContactRecipient = z.preprocess(
   emptyStringToUndefined,
   z
@@ -23,20 +23,24 @@ const optionalContactRecipient = z.preprocess(
     .trim()
     .refine(
       (value) => value.length <= 254 && MAILBOX_PATTERN.test(value),
-      "CONTACT_EMAIL_TO must be a valid email address of at most 254 characters",
+      "CONTACT_EMAIL_TO must be a valid email address of at most 254 characters"
     )
-    .optional(),
-)
+    .optional()
+);
 
 const isHeaderSafeEmailFrom = (value: string): boolean => {
-  if (value.length > 400 || /[\r\n]/.test(value)) return false
-  if (MAILBOX_PATTERN.test(value)) return true
-  const displayMailbox = /^([^<>]+)<([^<>]+)>$/.exec(value)
-  if (displayMailbox === null) return false
-  const displayName = displayMailbox[1]!.trim()
-  const mailbox = displayMailbox[2]!.trim()
-  return displayName.length > 0 && displayName.length <= 100 && MAILBOX_PATTERN.test(mailbox)
-}
+  if (value.length > 400 || /[\r\n]/.test(value)) return false;
+  if (MAILBOX_PATTERN.test(value)) return true;
+  const displayMailbox = /^([^<>]+)<([^<>]+)>$/.exec(value);
+  if (displayMailbox === null) return false;
+  const displayName = displayMailbox[1]!.trim();
+  const mailbox = displayMailbox[2]!.trim();
+  return (
+    displayName.length > 0 &&
+    displayName.length <= 100 &&
+    MAILBOX_PATTERN.test(mailbox)
+  );
+};
 
 const emailFromSchema = z
   .string()
@@ -44,24 +48,23 @@ const emailFromSchema = z
   .min(1)
   .refine(
     isHeaderSafeEmailFrom,
-    "EMAIL_FROM must be a header-safe mailbox or display mailbox",
-  )
+    "EMAIL_FROM must be a header-safe mailbox or display mailbox"
+  );
 
 const parseUrl = (value: string): URL | undefined => {
   try {
-    return new URL(value)
+    return new URL(value);
+  } catch (_error) {
+    return undefined;
   }
-  catch (_error) {
-    return undefined
-  }
-}
+};
 
 const optionalUrl = (name: string) => {
   return z.preprocess(
     emptyStringToUndefined,
-    z.url({ error: `${name} must be a valid URL` }).optional(),
-  )
-}
+    z.url({ error: `${name} must be a valid URL` }).optional()
+  );
+};
 
 const httpsUrl = (name: string) => {
   return z
@@ -74,28 +77,30 @@ const httpsUrl = (name: string) => {
     })
     .refine((value) => parseUrl(value)?.origin === value, {
       message: `${name} must be a clean HTTPS origin`,
-    })
-}
+    });
+};
 const environmentBoolean = (name: string, defaultValue: boolean) => {
-  return z.preprocess((value) => {
-    if (typeof value !== "string") return value
+  return z.preprocess(
+    (value) => {
+      if (typeof value !== "string") return value;
 
-    const normalized = value.trim().toLowerCase()
-    if (normalized === "true") return true
-    if (normalized === "false") return false
-    return value
-  }
-  , z.boolean({ error: `${name} must be true or false` }).default(defaultValue))
-}
+      const normalized = value.trim().toLowerCase();
+      if (normalized === "true") return true;
+      if (normalized === "false") return false;
+      return value;
+    },
+    z.boolean({ error: `${name} must be true or false` }).default(defaultValue)
+  );
+};
 
 const isLocalProductionOrigin = (value: string): boolean => {
-  const parsedUrl = parseUrl(value)
-  if (!parsedUrl) return false
-  const parsedHostname = parsedUrl.hostname.toLowerCase()
+  const parsedUrl = parseUrl(value);
+  if (!parsedUrl) return false;
+  const parsedHostname = parsedUrl.hostname.toLowerCase();
   const withoutTerminalDot = parsedHostname.endsWith(".")
     ? parsedHostname.slice(0, -1)
-    : parsedHostname
-  const hostname = withoutTerminalDot.replace(/^\[|\]$/g, "")
+    : parsedHostname;
+  const hostname = withoutTerminalDot.replace(/^\[|\]$/g, "");
   return (
     hostname === "localhost" ||
     hostname.endsWith(".localhost") ||
@@ -104,31 +109,30 @@ const isLocalProductionOrigin = (value: string): boolean => {
     hostname === "::" ||
     /^127(?:\.\d{1,3}){3}$/.test(hostname) ||
     /^::ffff:7f[0-9a-f]{2}:/.test(hostname)
-  )
-}
+  );
+};
 
 const isPostgresUrl = (value: string): boolean => {
-  const url = parseUrl(value)
+  const url = parseUrl(value);
   return (
     url !== undefined &&
     (url.protocol === "postgres:" || url.protocol === "postgresql:") &&
     url.hostname.length > 0
-  )
-}
-
+  );
+};
 
 const databaseUrlSchema = z
   .string({ error: "DATABASE_URL is required" })
   .trim()
   .min(1, "DATABASE_URL is required")
-  .refine(isPostgresUrl, "DATABASE_URL must be a PostgreSQL URL")
+  .refine(isPostgresUrl, "DATABASE_URL must be a PostgreSQL URL");
 
 const secretSchema = (name: string) => {
   return z
     .string({ error: `${name} is required` })
     .min(1, `${name} is required`)
-    .min(32, `${name} must contain at least 32 characters`)
-}
+    .min(32, `${name} must contain at least 32 characters`);
+};
 
 const baseServerEnvSchema = z.object({
   APP_ENV: z.enum(["development", "test", "production"]).default("development"),
@@ -178,179 +182,177 @@ const baseServerEnvSchema = z.object({
   ERROR_TRACKING_PROVIDER: z.enum(["glitchtip"]).default("glitchtip"),
   ERROR_TRACKING_DSN: optionalUrl("ERROR_TRACKING_DSN"),
   MEMORI_ENABLED: environmentBoolean("MEMORI_ENABLED", false),
-})
+});
 
 const STORAGE_REQUIRED_KEYS = [
   "R2_ACCOUNT_ID",
   "R2_ACCESS_KEY_ID",
   "R2_SECRET_ACCESS_KEY",
   "R2_BUCKET",
-] as const
+] as const;
 
-export const serverEnvSchema = baseServerEnvSchema.superRefine((env, context): void => {
-  if (env.APP_URL !== env.BETTER_AUTH_URL) {
-    context.addIssue({
-      code: "custom",
-      path: ["BETTER_AUTH_URL"],
-      message: "BETTER_AUTH_URL must match APP_URL",
-    })
-  }
-
-  if (env.APP_ENV === "production") {
-    for (const [name, value] of [
-      ["APP_URL", env.APP_URL],
-      ["BETTER_AUTH_URL", env.BETTER_AUTH_URL],
-    ] as const) {
-      if (!isLocalProductionOrigin(value)) continue
+export const serverEnvSchema = baseServerEnvSchema.superRefine(
+  (env, context): void => {
+    if (env.APP_URL !== env.BETTER_AUTH_URL) {
       context.addIssue({
         code: "custom",
-        path: [name],
-        message: `${name} cannot use a local origin in production`,
-      })
+        path: ["BETTER_AUTH_URL"],
+        message: "BETTER_AUTH_URL must match APP_URL",
+      });
     }
-    if (isPostgresUrl(env.DATABASE_URL)) {
-      try {
-        validateRequestDatabaseEndpoint({
-          appEnvironment: env.APP_ENV,
-          provider: env.DATABASE_PROVIDER,
-          connectionString: env.DATABASE_URL,
-        })
-      }
-      catch (error) {
-        if (!(error instanceof RequestDatabaseEndpointError)) throw error
+
+    if (env.APP_ENV === "production") {
+      for (const [name, value] of [
+        ["APP_URL", env.APP_URL],
+        ["BETTER_AUTH_URL", env.BETTER_AUTH_URL],
+      ] as const) {
+        if (!isLocalProductionOrigin(value)) continue;
         context.addIssue({
           code: "custom",
-          path: ["DATABASE_URL"],
-          message: error.diagnostic,
-        })
+          path: [name],
+          message: `${name} cannot use a local origin in production`,
+        });
+      }
+      if (isPostgresUrl(env.DATABASE_URL)) {
+        try {
+          validateRequestDatabaseEndpoint({
+            appEnvironment: env.APP_ENV,
+            provider: env.DATABASE_PROVIDER,
+            connectionString: env.DATABASE_URL,
+          });
+        } catch (error) {
+          if (!(error instanceof RequestDatabaseEndpointError)) throw error;
+          context.addIssue({
+            code: "custom",
+            path: ["DATABASE_URL"],
+            message: error.diagnostic,
+          });
+        }
       }
     }
-  }
 
-  if (
-    (env.EMAIL_PROVIDER === "disabled") !==
-    (env.EMAIL_TRANSPORT === "disabled")
-  ) {
-    context.addIssue({
-      code: "custom",
-      path: ["EMAIL_TRANSPORT"],
-      message: "EMAIL_PROVIDER and EMAIL_TRANSPORT must be disabled together",
-    })
-  }
-
-  if (env.EMAIL_TRANSPORT === "resend" && !env.RESEND_API_KEY) {
-    context.addIssue({
-      code: "custom",
-      path: ["RESEND_API_KEY"],
-      message: "RESEND_API_KEY is required when EMAIL_TRANSPORT is resend",
-    })
-  }
-
-  if (env.APP_ENV === "production" && env.EMAIL_TRANSPORT === "preview") {
-    context.addIssue({
-      code: "custom",
-      path: ["EMAIL_TRANSPORT"],
-      message: "EMAIL_TRANSPORT cannot use preview in production",
-    })
-  }
-
-  if (env.STORAGE_ENABLED) {
-    for (const key of STORAGE_REQUIRED_KEYS) {
-      if (env[key]) continue
+    if (
+      (env.EMAIL_PROVIDER === "disabled") !==
+      (env.EMAIL_TRANSPORT === "disabled")
+    ) {
       context.addIssue({
         code: "custom",
-        path: [key],
-        message: `${key} is required when STORAGE_ENABLED is true`,
-      })
+        path: ["EMAIL_TRANSPORT"],
+        message: "EMAIL_PROVIDER and EMAIL_TRANSPORT must be disabled together",
+      });
     }
-  }
 
-  if (env.DOCS_PUBLIC && !env.DOCS_ENABLED) {
-    context.addIssue({
-      code: "custom",
-      path: ["DOCS_PUBLIC"],
-      message: "DOCS_PUBLIC requires DOCS_ENABLED to be true",
-    })
-  }
+    if (env.EMAIL_TRANSPORT === "resend" && !env.RESEND_API_KEY) {
+      context.addIssue({
+        code: "custom",
+        path: ["RESEND_API_KEY"],
+        message: "RESEND_API_KEY is required when EMAIL_TRANSPORT is resend",
+      });
+    }
 
-  if (env.FLOWER_ENABLED && !env.JOBS_ENABLED) {
-    context.addIssue({
-      code: "custom",
-      path: ["FLOWER_ENABLED"],
-      message: "FLOWER_ENABLED requires JOBS_ENABLED to be true",
-    })
-  }
+    if (env.APP_ENV === "production" && env.EMAIL_TRANSPORT === "preview") {
+      context.addIssue({
+        code: "custom",
+        path: ["EMAIL_TRANSPORT"],
+        message: "EMAIL_TRANSPORT cannot use preview in production",
+      });
+    }
 
-  if (env.ERROR_TRACKING_ENABLED && !env.ERROR_TRACKING_DSN) {
-    context.addIssue({
-      code: "custom",
-      path: ["ERROR_TRACKING_DSN"],
-      message:
-        "ERROR_TRACKING_DSN is required when ERROR_TRACKING_ENABLED is true",
-    })
-  }
-  return undefined
-}
-)
+    if (env.STORAGE_ENABLED) {
+      for (const key of STORAGE_REQUIRED_KEYS) {
+        if (env[key]) continue;
+        context.addIssue({
+          code: "custom",
+          path: [key],
+          message: `${key} is required when STORAGE_ENABLED is true`,
+        });
+      }
+    }
 
-export type ServerEnv = z.infer<typeof serverEnvSchema>
-export type EnvironmentSource = Readonly<Record<string, string | undefined>>
+    if (env.DOCS_PUBLIC && !env.DOCS_ENABLED) {
+      context.addIssue({
+        code: "custom",
+        path: ["DOCS_PUBLIC"],
+        message: "DOCS_PUBLIC requires DOCS_ENABLED to be true",
+      });
+    }
+
+    if (env.FLOWER_ENABLED && !env.JOBS_ENABLED) {
+      context.addIssue({
+        code: "custom",
+        path: ["FLOWER_ENABLED"],
+        message: "FLOWER_ENABLED requires JOBS_ENABLED to be true",
+      });
+    }
+
+    if (env.ERROR_TRACKING_ENABLED && !env.ERROR_TRACKING_DSN) {
+      context.addIssue({
+        code: "custom",
+        path: ["ERROR_TRACKING_DSN"],
+        message:
+          "ERROR_TRACKING_DSN is required when ERROR_TRACKING_ENABLED is true",
+      });
+    }
+    return undefined;
+  }
+);
+
+export type ServerEnv = z.infer<typeof serverEnvSchema>;
+export type EnvironmentSource = Readonly<Record<string, string | undefined>>;
 export type EnvironmentIssue = Readonly<{
-  path: string
-  message: string
-}>
+  path: string;
+  message: string;
+}>;
 
 export class EnvironmentValidationError extends Error {
-  readonly issues: readonly EnvironmentIssue[]
+  readonly issues: readonly EnvironmentIssue[];
 
   constructor(issues: readonly EnvironmentIssue[]) {
     super(
       [
         "Invalid server environment:",
         ...issues.map(({ path, message }) => `- ${path}: ${message}`),
-      ].join("\n"),
-    )
-    this.name = "EnvironmentValidationError"
-    this.issues = issues
+      ].join("\n")
+    );
+    this.name = "EnvironmentValidationError";
+    this.issues = issues;
   }
 }
 
 export const parseServerEnv = (source: EnvironmentSource): ServerEnv => {
-  const result = serverEnvSchema.safeParse(source)
-  if (result.success) return result.data
+  const result = serverEnvSchema.safeParse(source);
+  if (result.success) return result.data;
 
-  const issues = result.error.issues.map((issue): EnvironmentIssue => ({
-    path: issue.path.length > 0 ? issue.path.join(".") : "environment",
-    message: issue.message,
-  }))
-  throw new EnvironmentValidationError(issues)
-}
+  const issues = result.error.issues.map(
+    (issue): EnvironmentIssue => ({
+      path: issue.path.length > 0 ? issue.path.join(".") : "environment",
+      message: issue.message,
+    })
+  );
+  throw new EnvironmentValidationError(issues);
+};
 
 export type ProviderCapabilities = Readonly<{
-  ai: boolean
-  emailDelivery: boolean
-  analytics: boolean
-  telemetryExport: boolean
-  storage: boolean
-  errorTracking: boolean
-}>
+  ai: boolean;
+  emailDelivery: boolean;
+  analytics: boolean;
+  telemetryExport: boolean;
+  storage: boolean;
+  errorTracking: boolean;
+}>;
 
 /** Environment readiness only; capability manifests still own installation and availability. */
 export const getProviderCapabilities = (
-  env: ServerEnv,
+  env: ServerEnv
 ): ProviderCapabilities => ({
   ai: Boolean(env.GROQ_API_KEY && env.GROQ_MODEL),
   emailDelivery: Boolean(
-    env.EMAIL_TRANSPORT === "resend" && env.RESEND_API_KEY && env.EMAIL_FROM,
+    env.EMAIL_TRANSPORT === "resend" && env.RESEND_API_KEY && env.EMAIL_FROM
   ),
   analytics: Boolean(env.POSTHOG_KEY && env.POSTHOG_HOST),
-  telemetryExport: Boolean(
-    env.OTEL_ENABLED && env.OTEL_EXPORTER_OTLP_ENDPOINT,
-  ),
+  telemetryExport: Boolean(env.OTEL_ENABLED && env.OTEL_EXPORTER_OTLP_ENDPOINT),
   storage: Boolean(
-    env.STORAGE_ENABLED && STORAGE_REQUIRED_KEYS.every((key) => env[key]),
+    env.STORAGE_ENABLED && STORAGE_REQUIRED_KEYS.every((key) => env[key])
   ),
-  errorTracking: Boolean(
-    env.ERROR_TRACKING_ENABLED && env.ERROR_TRACKING_DSN,
-  ),
-})
+  errorTracking: Boolean(env.ERROR_TRACKING_ENABLED && env.ERROR_TRACKING_DSN),
+});

@@ -1,37 +1,38 @@
-export const STRICT_SIGN_OUT_ENDPOINT = "/api/auth/strict-sign-out" as const
+export const STRICT_SIGN_OUT_ENDPOINT = "/api/auth/strict-sign-out" as const;
 
 export const SIGN_OUT_FAILED_MESSAGE =
-  "Sign out could not be confirmed. Your session may still be active. Try again."
+  "Sign out could not be confirmed. Your session may still be active. Try again.";
 
 export type CurrentSessionSignOutResult =
   | Readonly<{ ok: true }>
-  | Readonly<{ ok: false; message: string }>
+  | Readonly<{ ok: false; message: string }>;
 
 export interface CurrentSessionGateway {
-  readonly signOut: () => Promise<CurrentSessionSignOutResult>
+  readonly signOut: () => Promise<CurrentSessionSignOutResult>;
 }
 
 export type SignOutFetch = (
   input: string,
-  init: RequestInit,
-) => Promise<Response>
+  init: RequestInit
+) => Promise<Response>;
 
 const isConfirmedSignOut = async (response: Response): Promise<boolean> => {
-  if (!response.ok) return false
+  if (!response.ok) return false;
   try {
-    const data = await response.json() as unknown
-    return typeof data === "object"
-      && data !== null
-      && !Array.isArray(data)
-      && (data as Record<string, unknown>)["success"] === true
+    const data = (await response.json()) as unknown;
+    return (
+      typeof data === "object" &&
+      data !== null &&
+      !Array.isArray(data) &&
+      (data as Record<string, unknown>)["success"] === true
+    );
+  } catch {
+    return false;
   }
-  catch {
-    return false
-  }
-}
+};
 
 export const createCurrentSessionGateway = (
-  fetchSignOut: SignOutFetch,
+  fetchSignOut: SignOutFetch
 ): CurrentSessionGateway => ({
   signOut: async () => {
     try {
@@ -39,17 +40,16 @@ export const createCurrentSessionGateway = (
         credentials: "same-origin",
         headers: { accept: "application/json" },
         method: "POST",
-      })
-      return await isConfirmedSignOut(response)
+      });
+      return (await isConfirmedSignOut(response))
         ? { ok: true }
-        : { ok: false, message: SIGN_OUT_FAILED_MESSAGE }
+        : { ok: false, message: SIGN_OUT_FAILED_MESSAGE };
+    } catch {
+      return { ok: false, message: SIGN_OUT_FAILED_MESSAGE };
     }
-    catch {
-      return { ok: false, message: SIGN_OUT_FAILED_MESSAGE }
-    }
-  }
-})
+  },
+});
 
 export const browserCurrentSessionGateway = createCurrentSessionGateway(
-  (input, init) => globalThis.fetch(input, init),
-)
+  (input, init) => globalThis.fetch(input, init)
+);

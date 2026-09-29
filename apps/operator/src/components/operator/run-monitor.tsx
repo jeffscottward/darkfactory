@@ -1,47 +1,53 @@
-import { Card, CardContent, CardHeader, CardTitle, cn } from "@darkfactory/ui"
-import Link from "next/link"
+import { Card, CardContent, CardHeader, CardTitle, cn } from "@darkfactory/ui";
+import Link from "next/link";
 
 import {
   WORKFLOW_STATES,
   type OperatorRunSummary,
   type WorkflowState,
-} from "./operator-client.ts"
-import { formatOperatorDate, operatorRunTitle } from "./operator-format.ts"
-import { WorkflowStatus, workflowStateLabel } from "./workflow-status.tsx"
+} from "./operator-client.ts";
+import { formatOperatorDate, operatorRunTitle } from "./operator-format.ts";
+import { WorkflowStatus, workflowStateLabel } from "./workflow-status.tsx";
 
 export const runsByWorkflowState = (
-  runs: readonly OperatorRunSummary[],
+  runs: readonly OperatorRunSummary[]
 ): Readonly<Record<WorkflowState, readonly OperatorRunSummary[]>> => {
   const grouped = Object.fromEntries(
-    WORKFLOW_STATES.map((state) => [state, [] as OperatorRunSummary[]]),
-  ) as Record<WorkflowState, OperatorRunSummary[]>
-  for (const run of runs) grouped[run.state].push(run)
+    WORKFLOW_STATES.map((state) => [state, [] as OperatorRunSummary[]])
+  ) as Record<WorkflowState, OperatorRunSummary[]>;
+  for (const run of runs) grouped[run.state].push(run);
   for (const state of WORKFLOW_STATES) {
-    grouped[state].sort((left, right) => right.updatedAt.getTime() - left.updatedAt.getTime())
+    grouped[state].sort(
+      (left, right) => right.updatedAt.getTime() - left.updatedAt.getTime()
+    );
   }
-  return grouped
-}
+  return grouped;
+};
 
-type MonitorStageId = "planning" | "review" | "working" | "attention" | "done"
+type MonitorStageId = "planning" | "review" | "working" | "attention" | "done";
 
 const MONITOR_STAGES: readonly Readonly<{
-  id: MonitorStageId
-  label: string
-  states: readonly WorkflowState[]
+  id: MonitorStageId;
+  label: string;
+  states: readonly WorkflowState[];
 }>[] = Object.freeze([
   { id: "planning", label: "Planning", states: ["draft", "planning"] },
   { id: "review", label: "Review plan", states: ["awaitingApproval"] },
-  { id: "working", label: "Work in progress", states: ["implementing", "verifying"] },
+  {
+    id: "working",
+    label: "Work in progress",
+    states: ["implementing", "verifying"],
+  },
   { id: "attention", label: "Needs attention", states: ["blocked"] },
   { id: "done", label: "Finished", states: ["completed", "cancelled"] },
-])
+]);
 
 const RunLink = ({
   run,
   selected,
 }: {
-  readonly run: OperatorRunSummary
-  readonly selected: boolean
+  readonly run: OperatorRunSummary;
+  readonly selected: boolean;
 }) => (
   <li className="border-t border-border first:border-t-0">
     <Link
@@ -49,7 +55,7 @@ const RunLink = ({
       aria-label={`Open ${operatorRunTitle(run)}, ${workflowStateLabel(run.state)}`}
       className={cn(
         "block min-h-11 min-w-0 px-1 py-3 transition-colors duration-base ease-out hover:bg-accent focus-visible:rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none",
-        selected && "bg-accent",
+        selected && "bg-accent"
       )}
       href={`/operator/runs/${encodeURIComponent(run.id)}`}
     >
@@ -58,55 +64,68 @@ const RunLink = ({
       </span>
       <span className="mt-2 flex flex-wrap items-center gap-2">
         <WorkflowStatus state={run.state} />
-        <time className="text-xs text-muted-foreground" dateTime={run.updatedAt.toISOString()}>
+        <time
+          className="text-xs text-muted-foreground"
+          dateTime={run.updatedAt.toISOString()}
+        >
           {formatOperatorDate(run.updatedAt)}
         </time>
       </span>
       {run.blockedReason === undefined ? null : (
         <span className="mt-3 block border-y border-destructive-border bg-destructive-subtle px-3 py-3">
-          <span className="block text-xs font-semibold text-destructive">Why it needs attention
+          <span className="block text-xs font-semibold text-destructive">
+            Why it needs attention
           </span>
-          <span className="mt-1 block text-xs leading-5 text-destructive">{run.blockedReason}
+          <span className="mt-1 block text-xs leading-5 text-destructive">
+            {run.blockedReason}
           </span>
           <span className="mt-1 block text-xs leading-5 text-muted-foreground">
             Open this run to review the next action.
           </span>
-      </span>
+        </span>
       )}
     </Link>
-</li>
-)
+  </li>
+);
 
 export interface RunMonitorProps {
-  readonly runs: readonly OperatorRunSummary[]
-  readonly selectedRunId?: string | undefined
+  readonly runs: readonly OperatorRunSummary[];
+  readonly selectedRunId?: string | undefined;
 }
 
 export const RunMonitor = ({ runs, selectedRunId }: RunMonitorProps) => {
   const sortedRuns = [...runs].sort(
-    (left, right) => right.updatedAt.getTime() - left.updatedAt.getTime(),
-  )
+    (left, right) => right.updatedAt.getTime() - left.updatedAt.getTime()
+  );
   const populatedStages = MONITOR_STAGES.map((stage) => ({
     ...stage,
     runs: sortedRuns.filter((run) => stage.states.includes(run.state)),
-  })).filter((stage) => stage.runs.length > 0)
+  })).filter((stage) => stage.runs.length > 0);
   return (
     <section aria-labelledby="run-monitor-title" className="space-y-4">
       <div className="border-b border-border pb-4">
-        <h2 className="font-heading text-xl font-semibold tracking-tight text-foreground" id="run-monitor-title">
+        <h2
+          className="font-heading text-xl font-semibold tracking-tight text-foreground"
+          id="run-monitor-title"
+        >
           Work monitor
         </h2>
         <p className="mt-1 max-w-2xl text-sm leading-5 text-muted-foreground">
-          Follow each run through planning, review, active work, and completion. This board reports workflow state; moving a card does not change work.
+          Follow each run through planning, review, active work, and completion.
+          This board reports workflow state; moving a card does not change work.
         </p>
       </div>
       <div className="grid min-w-0 gap-4 md:grid-cols-2 xl:grid-cols-5">
         {populatedStages.map((stage) => (
           <Card className="min-w-0" key={stage.id}>
             <CardHeader className="flex-row items-center justify-between gap-3 p-4">
-              <CardTitle className="text-base" headingLevel={3}>{stage.label}
+              <CardTitle className="text-base" headingLevel={3}>
+                {stage.label}
               </CardTitle>
-              <span className="text-xs tabular-nums text-muted-foreground" aria-label={`${stage.runs.length} runs`}>
+              <span
+                className="text-xs tabular-nums text-muted-foreground"
+                aria-label={`${stage.runs.length} runs`}
+              >
                 {stage.runs.length}
               </span>
             </CardHeader>
@@ -121,9 +140,9 @@ export const RunMonitor = ({ runs, selectedRunId }: RunMonitorProps) => {
                 ))}
               </ul>
             </CardContent>
-        </Card>
+          </Card>
         ))}
       </div>
-  </section>
-  )
-}
+    </section>
+  );
+};

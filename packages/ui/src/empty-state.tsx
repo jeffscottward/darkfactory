@@ -1,17 +1,17 @@
-import type { ComponentPropsWithRef, JSX, ReactNode } from "react"
-import { useId } from "react"
+import type { ComponentPropsWithRef, JSX, ReactNode } from "react";
+import { useId } from "react";
 
-import { cn } from "./utilities.ts"
+import { cn } from "./utilities.ts";
 
-export type EmptyStateHeadingLevel = 2 | 3 | 4 | 5 | 6
+export type EmptyStateHeadingLevel = 2 | 3 | 4 | 5 | 6;
 
 export interface EmptyStateProps
   extends Omit<ComponentPropsWithRef<"section">, "title"> {
-  title: ReactNode
-  description: ReactNode
-  icon?: ReactNode
-  action?: ReactNode
-  headingLevel?: EmptyStateHeadingLevel
+  title: ReactNode;
+  description: ReactNode;
+  icon?: ReactNode;
+  action?: ReactNode;
+  headingLevel?: EmptyStateHeadingLevel;
 }
 
 export const EmptyState = ({
@@ -23,12 +23,12 @@ export const EmptyState = ({
   title,
   ...props
 }: EmptyStateProps) => {
-  const generatedId = useId()
-  const titleId = `${generatedId}-title`
+  const generatedId = useId();
+  const titleId = `${generatedId}-title`;
   const Heading = `h${headingLevel}` as keyof Pick<
     JSX.IntrinsicElements,
     "h2" | "h3" | "h4" | "h5" | "h6"
-  >
+  >;
 
   return (
     <section
@@ -37,13 +37,16 @@ export const EmptyState = ({
       aria-labelledby={titleId}
       className={cn(
         "mx-auto flex max-w-reading flex-col items-start gap-4 border-y border-border py-10 text-left",
-        className,
+        className
       )}
     >
       {icon === undefined ? null : (
-        <span aria-hidden="true" className="text-muted-foreground [&_svg]:size-6">
+        <span
+          aria-hidden="true"
+          className="text-muted-foreground [&_svg]:size-6"
+        >
           {icon}
-      </span>
+        </span>
       )}
       <div className="space-y-2">
         <Heading
@@ -52,13 +55,11 @@ export const EmptyState = ({
         >
           {title}
         </Heading>
-        <p className="max-w-reading text-base leading-6 text-muted-foreground">{description}
+        <p className="max-w-reading text-base leading-6 text-muted-foreground">
+          {description}
         </p>
       </div>
-      {action === undefined ? null : (
-        <div className="pt-2">{action}
-      </div>
-      )}
-  </section>
-  )
-}
+      {action === undefined ? null : <div className="pt-2">{action}</div>}
+    </section>
+  );
+};

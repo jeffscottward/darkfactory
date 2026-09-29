@@ -7,24 +7,24 @@ import {
   trace,
   type Attributes,
   type Counter,
-} from "@opentelemetry/api"
-import { OTLPMetricExporter } from "@opentelemetry/exporter-metrics-otlp-http"
-import { OTLPTraceExporter } from "@opentelemetry/exporter-trace-otlp-http"
+} from "@opentelemetry/api";
+import { OTLPMetricExporter } from "@opentelemetry/exporter-metrics-otlp-http";
+import { OTLPTraceExporter } from "@opentelemetry/exporter-trace-otlp-http";
 import {
   defaultResource,
   resourceFromAttributes,
-} from "@opentelemetry/resources"
+} from "@opentelemetry/resources";
 import {
   AggregationTemporality,
   InMemoryMetricExporter,
   MeterProvider,
   PeriodicExportingMetricReader,
-} from "@opentelemetry/sdk-metrics"
+} from "@opentelemetry/sdk-metrics";
 import {
   BasicTracerProvider,
   InMemorySpanExporter,
   SimpleSpanProcessor,
-} from "@opentelemetry/sdk-trace-base"
+} from "@opentelemetry/sdk-trace-base";
 
 import type {
   CorrelationContext,
@@ -34,93 +34,86 @@ import type {
   SpanInput,
   TelemetryRuntime,
   TelemetryRuntimeState,
-} from "../port.ts"
-import {
-  redact,
-  redactSemanticEvent,
-} from "../redaction.ts"
+} from "../port.ts";
+import { redact, redactSemanticEvent } from "../redaction.ts";
 
-const INSTRUMENTATION_NAME = "@darkfactory/observability"
-const ALLOWED_METRIC_NAMES = new Set(["darkfactory.semantic_event"])
+const INSTRUMENTATION_NAME = "@darkfactory/observability";
+const ALLOWED_METRIC_NAMES = new Set(["darkfactory.semantic_event"]);
 const ALLOWED_SEMANTIC_EVENT_NAMES = new Set([
   "feature-item.archived",
   "feature-item.created",
   "feature-item.updated",
-])
+]);
 const ALLOWED_OTLP_HEADER_NAMES = new Set([
   "authorization",
   "x-api-key",
   "x-honeycomb-dataset",
   "x-honeycomb-team",
   "x-otlp-api-key",
-])
+]);
 
 export type OtlpSignalUrls = Readonly<{
-  traces: string
-  metrics: string
-}>
+  traces: string;
+  metrics: string;
+}>;
 
 export type OtlpEndpointPolicy = Readonly<{
-  allowedHosts: readonly string[]
-  allowInsecureLocalhost?: boolean
-}>
+  allowedHosts: readonly string[];
+  allowInsecureLocalhost?: boolean;
+}>;
 
 export type InitializeTelemetryOptions = Readonly<{
-  enabled: boolean
-  serviceName?: string
-  otlpEndpoint?: string
-  otlpAllowedHosts?: readonly string[]
-  allowInsecureOtlpLocalhost?: boolean
-  otlpHeaders?: Readonly<Record<string, string>>
-  testExport?: boolean
-  now?: () => number
-}>
+  enabled: boolean;
+  serviceName?: string;
+  otlpEndpoint?: string;
+  otlpAllowedHosts?: readonly string[];
+  allowInsecureOtlpLocalhost?: boolean;
+  otlpHeaders?: Readonly<Record<string, string>>;
+  testExport?: boolean;
+  now?: () => number;
+}>;
 
 export type TelemetryTestExports = Readonly<{
-  traces: InMemorySpanExporter
-  metrics: InMemoryMetricExporter
-}>
+  traces: InMemorySpanExporter;
+  metrics: InMemoryMetricExporter;
+}>;
 
 export interface OpenTelemetryRuntime extends TelemetryRuntime {
-  readonly testExports?: TelemetryTestExports
+  readonly testExports?: TelemetryTestExports;
 }
 
 const normalizedHostname = (hostname: string): string => {
-  return hostname.toLowerCase().replace(/^\[|\]$/g, "")
-}
+  return hostname.toLowerCase().replace(/^\[|\]$/g, "");
+};
 
 const ipv4Parts = (hostname: string): number[] | undefined => {
-  const parts = hostname.split(".")
-  if (parts.length !== 4) return undefined
-  const numbers = parts.map((part) => Number(part))
+  const parts = hostname.split(".");
+  if (parts.length !== 4) return undefined;
+  const numbers = parts.map((part) => Number(part));
   for (const value of numbers) {
-    if (
-      !Number.isInteger(value) ||
-      value < 0 ||
-      value > 255
-    ) {
-      return undefined
+    if (!Number.isInteger(value) || value < 0 || value > 255) {
+      return undefined;
     }
   }
-  return numbers
-}
+  return numbers;
+};
 
 const isLoopbackHost = (hostname: string): boolean => {
-  const normalized = normalizedHostname(hostname)
-  const parts = ipv4Parts(normalized)
+  const normalized = normalizedHostname(hostname);
+  const parts = ipv4Parts(normalized);
   return (
     normalized === "localhost" ||
     normalized.endsWith(".localhost") ||
     normalized === "::1" ||
     (parts !== undefined && parts[0] === 127)
-  )
-}
+  );
+};
 
 const isPrivateHost = (hostname: string): boolean => {
-  const normalized = normalizedHostname(hostname)
-  const parts = ipv4Parts(normalized)
+  const normalized = normalizedHostname(hostname);
+  const parts = ipv4Parts(normalized);
   if (parts !== undefined) {
-    const [first = 0, second = 0] = parts
+    const [first = 0, second = 0] = parts;
     return (
       first === 0 ||
       first === 10 ||
@@ -131,7 +124,7 @@ const isPrivateHost = (hostname: string): boolean => {
       (first === 192 && second === 168) ||
       (first === 198 && (second === 18 || second === 19)) ||
       first >= 224
-    )
+    );
   }
   return (
     normalized === "::" ||
@@ -143,12 +136,12 @@ const isPrivateHost = (hostname: string): boolean => {
     normalized.endsWith(".local") ||
     normalized.endsWith(".internal") ||
     !normalized.includes(".")
-  )
-}
+  );
+};
 
 export const resolveOtlpSignalUrls = (
   endpoint: string,
-  policy?: OtlpEndpointPolicy,
+  policy?: OtlpEndpointPolicy
 ): OtlpSignalUrls | undefined => {
   try {
     if (
@@ -156,9 +149,9 @@ export const resolveOtlpSignalUrls = (
       policy.allowedHosts.length === 0 ||
       policy.allowedHosts.length > 16
     ) {
-      return undefined
+      return undefined;
     }
-    const base = new URL(endpoint)
+    const base = new URL(endpoint);
     if (
       base.username.length > 0 ||
       base.password.length > 0 ||
@@ -166,184 +159,178 @@ export const resolveOtlpSignalUrls = (
       base.hash.length > 0 ||
       base.pathname.length > 1_024
     ) {
-      return undefined
+      return undefined;
     }
 
-    const hostname = normalizedHostname(base.hostname)
-    const allowedHosts = new Set(
-      policy.allowedHosts.map(normalizedHostname),
-    )
-    if (!allowedHosts.has(hostname)) return undefined
+    const hostname = normalizedHostname(base.hostname);
+    const allowedHosts = new Set(policy.allowedHosts.map(normalizedHostname));
+    if (!allowedHosts.has(hostname)) return undefined;
 
-    const loopback = isLoopbackHost(hostname)
+    const loopback = isLoopbackHost(hostname);
     if (isPrivateHost(hostname)) {
-      if (!loopback || !policy.allowInsecureLocalhost) return undefined
+      if (!loopback || !policy.allowInsecureLocalhost) return undefined;
     }
     if (
       base.protocol !== "https:" &&
-      !(
-        base.protocol === "http:" &&
-        loopback &&
-        policy.allowInsecureLocalhost
-      )
+      !(base.protocol === "http:" && loopback && policy.allowInsecureLocalhost)
     ) {
-      return undefined
+      return undefined;
     }
 
-    const pathname = base.pathname.replace(/\/+$/, "")
-    base.pathname = `${pathname}/v1/traces`
-    const traces = base.toString()
-    base.pathname = `${pathname}/v1/metrics`
-    const metrics = base.toString()
-    return Object.freeze({ traces, metrics })
+    const pathname = base.pathname.replace(/\/+$/, "");
+    base.pathname = `${pathname}/v1/traces`;
+    const traces = base.toString();
+    base.pathname = `${pathname}/v1/metrics`;
+    const metrics = base.toString();
+    return Object.freeze({ traces, metrics });
+  } catch {
+    return undefined;
   }
-  catch {
-    return undefined
-  }
-}
+};
 
 type OtlpHeaderSnapshot =
   | Readonly<{
-      valid: true
-      headers?: Readonly<Record<string, string>>
+      valid: true;
+      headers?: Readonly<Record<string, string>>;
     }>
-  | Readonly<{ valid: false }>
+  | Readonly<{ valid: false }>;
 
 const snapshotOtlpHeaders = (
-  input: Readonly<Record<string, string>> | undefined,
+  input: Readonly<Record<string, string>> | undefined
 ): OtlpHeaderSnapshot => {
-  if (input === undefined) return Object.freeze({ valid: true })
+  if (input === undefined) return Object.freeze({ valid: true });
   try {
-    const prototype = Object.getPrototypeOf(input)
+    const prototype = Object.getPrototypeOf(input);
     if (prototype !== Object.prototype && prototype !== null) {
-      return Object.freeze({ valid: false })
+      return Object.freeze({ valid: false });
     }
 
-    const headers: Record<string, string> = Object.create(null)
+    const headers: Record<string, string> = Object.create(null);
     for (const rawName in input) {
-      if (!Object.hasOwn(input, rawName)) continue
+      if (!Object.hasOwn(input, rawName)) continue;
 
-      const name = rawName.toLowerCase()
+      const name = rawName.toLowerCase();
       if (
         !ALLOWED_OTLP_HEADER_NAMES.has(name) ||
         Object.hasOwn(headers, name)
       ) {
-        return Object.freeze({ valid: false })
+        return Object.freeze({ valid: false });
       }
-      const descriptor = Object.getOwnPropertyDescriptor(input, rawName)
+      const descriptor = Object.getOwnPropertyDescriptor(input, rawName);
       if (descriptor === undefined || !("value" in descriptor)) {
-        return Object.freeze({ valid: false })
+        return Object.freeze({ valid: false });
       }
-      const value = descriptor.value
+      const value = descriptor.value;
       if (
         typeof value !== "string" ||
         value.length === 0 ||
         value.length > 4_096 ||
         /[\r\n]/.test(value)
       ) {
-        return Object.freeze({ valid: false })
+        return Object.freeze({ valid: false });
       }
-      headers[name] = value
+      headers[name] = value;
     }
     return Object.freeze({
       valid: true,
       headers: Object.freeze(headers),
-    })
+    });
+  } catch {
+    return Object.freeze({ valid: false });
   }
-  catch {
-    return Object.freeze({ valid: false })
-  }
-}
+};
 
 const createInactiveRuntime = (
-  state: TelemetryRuntimeState,
+  state: TelemetryRuntimeState
 ): OpenTelemetryRuntime => {
-  const withSpan = async <T,>(
+  const withSpan = async <T>(
     input: SpanInput,
-    run: (span: SpanHandle) => T | Promise<T>,
+    run: (span: SpanHandle) => T | Promise<T>
   ): Promise<T> => {
     return run(
       Object.freeze({
         correlation: Object.freeze({ ...input.correlation }),
         addEvent: (_event: SemanticEvent) => undefined,
         recordMetric: (_metric: MetricObservation) => undefined,
-      }),
-    )
-  }
+      })
+    );
+  };
 
-  const settled = Promise.resolve()
+  const settled = Promise.resolve();
   return Object.freeze({
     state: Object.freeze(state),
     withSpan,
     forceFlush: () => settled,
     dispose: () => settled,
-  })
-}
+  });
+};
 
 const toAttributes = (input: unknown): Attributes => {
-  const sanitized = redact(input)
-  if (sanitized === null || typeof sanitized !== "object" || Array.isArray(sanitized)) {
-    return {}
+  const sanitized = redact(input);
+  if (
+    sanitized === null ||
+    typeof sanitized !== "object" ||
+    Array.isArray(sanitized)
+  ) {
+    return {};
   }
 
-  const attributes: Attributes = {}
+  const attributes: Attributes = {};
   for (const [key, value] of Object.entries(sanitized)) {
     if (
       typeof value === "string" ||
       typeof value === "number" ||
       typeof value === "boolean"
     ) {
-      attributes[key] = value
+      attributes[key] = value;
     }
   }
-  return attributes
-}
+  return attributes;
+};
 
 const semanticMetricAttributes = (
-  input: MetricObservation["attributes"],
+  input: MetricObservation["attributes"]
 ): Attributes => {
-  if (input === undefined) return {}
+  if (input === undefined) return {};
   try {
     const eventNameDescriptor = Object.getOwnPropertyDescriptor(
       input,
-      "eventName",
-    )
-    const outcomeDescriptor = Object.getOwnPropertyDescriptor(
-      input,
-      "outcome",
-    )
+      "eventName"
+    );
+    const outcomeDescriptor = Object.getOwnPropertyDescriptor(input, "outcome");
     const eventName =
       eventNameDescriptor !== undefined &&
       "value" in eventNameDescriptor &&
       typeof eventNameDescriptor.value === "string" &&
       ALLOWED_SEMANTIC_EVENT_NAMES.has(eventNameDescriptor.value)
         ? eventNameDescriptor.value
-        : undefined
+        : undefined;
     const outcome =
       outcomeDescriptor !== undefined &&
       "value" in outcomeDescriptor &&
       (outcomeDescriptor.value === "success" ||
         outcomeDescriptor.value === "failure")
         ? outcomeDescriptor.value
-        : undefined
+        : undefined;
     return {
       ...(eventName === undefined ? {} : { eventName }),
       ...(outcome === undefined ? {} : { outcome }),
-    }
+    };
+  } catch {
+    return {};
   }
-  catch {
-    return {}
-  }
-}
+};
 
 const eventAttributes = (event: SemanticEvent): Attributes => ({
   "event.id": event.eventId,
   ...(event.action === undefined ? {} : { "event.action": event.action }),
   ...(event.entityId === undefined ? {} : { "entity.id": event.entityId }),
-  ...(event.entityType === undefined ? {} : { "entity.type": event.entityType }),
+  ...(event.entityType === undefined
+    ? {}
+    : { "entity.type": event.entityType }),
   ...(event.outcome === undefined ? {} : { "event.outcome": event.outcome }),
   ...(event.source === undefined ? {} : { "event.source": event.source }),
-})
+});
 
 const createParentContext = (correlation: CorrelationContext) => {
   if (
@@ -352,7 +339,7 @@ const createParentContext = (correlation: CorrelationContext) => {
     !isValidTraceId(correlation.traceId) ||
     !isValidSpanId(correlation.spanId)
   ) {
-    return ROOT_CONTEXT
+    return ROOT_CONTEXT;
   }
 
   return trace.setSpanContext(ROOT_CONTEXT, {
@@ -360,20 +347,23 @@ const createParentContext = (correlation: CorrelationContext) => {
     spanId: correlation.spanId,
     traceFlags: TraceFlags.SAMPLED,
     isRemote: true,
-  })
-}
+  });
+};
 
 export const initializeTelemetry = (
-  options: InitializeTelemetryOptions,
+  options: InitializeTelemetryOptions
 ): OpenTelemetryRuntime => {
-  if (!options.enabled) return createInactiveRuntime({ status: "disabled" })
-  if (options.serviceName === undefined || options.serviceName.trim().length === 0) {
+  if (!options.enabled) return createInactiveRuntime({ status: "disabled" });
+  if (
+    options.serviceName === undefined ||
+    options.serviceName.trim().length === 0
+  ) {
     return createInactiveRuntime({
       status: "unconfigured",
       reason: "service-name-missing",
-    })
+    });
   }
-  const serviceName = options.serviceName.trim()
+  const serviceName = options.serviceName.trim();
 
   const signalUrls =
     options.otlpEndpoint === undefined
@@ -383,71 +373,66 @@ export const initializeTelemetry = (
           ...(options.allowInsecureOtlpLocalhost === undefined
             ? {}
             : {
-                allowInsecureLocalhost:
-                  options.allowInsecureOtlpLocalhost,
+                allowInsecureLocalhost: options.allowInsecureOtlpLocalhost,
               }),
-        })
+        });
   if (options.otlpEndpoint !== undefined && signalUrls === undefined) {
     return createInactiveRuntime({
       status: "unconfigured",
       reason: "endpoint-invalid",
-    })
+    });
   }
-  const headerSnapshot = snapshotOtlpHeaders(options.otlpHeaders)
+  const headerSnapshot = snapshotOtlpHeaders(options.otlpHeaders);
   if (!headerSnapshot.valid) {
     return createInactiveRuntime({
       status: "unconfigured",
       reason: "headers-invalid",
-    })
+    });
   }
   if (!options.testExport && signalUrls === undefined) {
-    return createInactiveRuntime({ status: "no-export" })
+    return createInactiveRuntime({ status: "no-export" });
   }
 
-  const headers = headerSnapshot.headers
+  const headers = headerSnapshot.headers;
   const resource = defaultResource().merge(
     resourceFromAttributes({
       "service.name": serviceName,
-    }),
-  )
+    })
+  );
   const traceExporter = options.testExport
     ? new InMemorySpanExporter()
     : new OTLPTraceExporter({
         url: signalUrls!.traces,
-        ...(headers === undefined
-          ? {}
-          : { headers: { ...headers } }),
-      })
+        ...(headers === undefined ? {} : { headers: { ...headers } }),
+      });
   const metricExporter = options.testExport
     ? new InMemoryMetricExporter(AggregationTemporality.CUMULATIVE)
     : new OTLPMetricExporter({
         url: signalUrls!.metrics,
-        ...(headers === undefined
-          ? {}
-          : { headers: { ...headers } }),
-      })
+        ...(headers === undefined ? {} : { headers: { ...headers } }),
+      });
   const metricReader = new PeriodicExportingMetricReader({
     exporter: metricExporter,
-  })
+  });
   const tracerProvider = new BasicTracerProvider({
     resource,
     spanProcessors: [new SimpleSpanProcessor(traceExporter)],
-  })
+  });
   const meterProvider = new MeterProvider({
     resource,
     readers: [metricReader],
-  })
-  const tracer = tracerProvider.getTracer(INSTRUMENTATION_NAME)
-  const meter = meterProvider.getMeter(INSTRUMENTATION_NAME)
-  const counters = new Map<string, Counter>()
-  const now = options.now ?? Date.now
+  });
+  const tracer = tracerProvider.getTracer(INSTRUMENTATION_NAME);
+  const meter = meterProvider.getMeter(INSTRUMENTATION_NAME);
+  const counters = new Map<string, Counter>();
+  const now = options.now ?? Date.now;
 
-  const withSpan = async <T,>(
+  const withSpan = async <T>(
     input: SpanInput,
-    run: (span: SpanHandle) => T | Promise<T>,
+    run: (span: SpanHandle) => T | Promise<T>
   ): Promise<T> => {
-    const startedAt = now()
-    const parentContext = createParentContext(input.correlation)
+    const startedAt = now();
+    const parentContext = createParentContext(input.correlation);
     const otelSpan = tracer.startSpan(
       input.name,
       {
@@ -466,19 +451,19 @@ export const initializeTelemetry = (
             : { "http.route": input.correlation.route }),
         },
       },
-      parentContext,
-    )
-    const spanContext = otelSpan.spanContext()
+      parentContext
+    );
+    const spanContext = otelSpan.spanContext();
     const correlation: CorrelationContext = Object.freeze({
       ...input.correlation,
       traceId: spanContext.traceId,
       spanId: spanContext.spanId,
-    })
+    });
     const handle: SpanHandle = Object.freeze({
       correlation,
       addEvent: (event: SemanticEvent) => {
-        const sanitized = redactSemanticEvent(event)
-        return otelSpan.addEvent(sanitized.name, eventAttributes(sanitized))
+        const sanitized = redactSemanticEvent(event);
+        return otelSpan.addEvent(sanitized.name, eventAttributes(sanitized));
       },
       recordMetric: (metric: MetricObservation) => {
         if (
@@ -486,76 +471,76 @@ export const initializeTelemetry = (
           !Number.isFinite(metric.value) ||
           metric.value < 0
         ) {
-          return
+          return;
         }
-        let counter = counters.get(metric.name)
+        let counter = counters.get(metric.name);
         if (counter === undefined) {
-          counter = meter.createCounter(metric.name)
-          counters.set(metric.name, counter)
+          counter = meter.createCounter(metric.name);
+          counters.set(metric.name, counter);
         }
         return counter.add(
           metric.value,
-          semanticMetricAttributes(metric.attributes),
-        )
-      }
-    })
+          semanticMetricAttributes(metric.attributes)
+        );
+      },
+    });
 
     try {
-      const result = await run(handle)
-      const durationMs = Math.max(0, now() - startedAt)
+      const result = await run(handle);
+      const durationMs = Math.max(0, now() - startedAt);
       otelSpan.setAttributes({
         "darkfactory.outcome": "success",
         "darkfactory.duration_ms": durationMs,
-      })
-      otelSpan.setStatus({ code: SpanStatusCode.OK })
-      return result
-    }
-    catch (error) {
-      const durationMs = Math.max(0, now() - startedAt)
+      });
+      otelSpan.setStatus({ code: SpanStatusCode.OK });
+      return result;
+    } catch (error) {
+      const durationMs = Math.max(0, now() - startedAt);
       otelSpan.setAttributes({
         "darkfactory.outcome": "failure",
         "darkfactory.duration_ms": durationMs,
         "error.category": "application",
-      })
-      otelSpan.setStatus({ code: SpanStatusCode.ERROR })
-      throw error
+      });
+      otelSpan.setStatus({ code: SpanStatusCode.ERROR });
+      throw error;
+    } finally {
+      otelSpan.end();
     }
-    finally {
-      otelSpan.end()
-    }
-  }
+  };
 
   const testExports = options.testExport
     ? Object.freeze({
         traces: traceExporter as InMemorySpanExporter,
         metrics: metricExporter as InMemoryMetricExporter,
       })
-    : undefined
+    : undefined;
 
-  let disposal: Promise<void> | undefined
+  let disposal: Promise<void> | undefined;
   const dispose = (): Promise<void> => {
-    if (disposal !== undefined) return disposal
+    if (disposal !== undefined) return disposal;
     disposal = Promise.all([
       tracerProvider.shutdown(),
       meterProvider.shutdown(),
-    ]).then(() => undefined)
-    return disposal
-  }
+    ]).then(() => undefined);
+    return disposal;
+  };
   const forceFlush = (): Promise<void> => {
-    if (disposal !== undefined) return disposal
+    if (disposal !== undefined) return disposal;
     return Promise.all([
       tracerProvider.forceFlush(),
       meterProvider.forceFlush(),
-    ]).then(() => undefined)
-  }
+    ]).then(() => undefined);
+  };
 
   return Object.freeze({
     state: Object.freeze({
-      status: options.testExport ? ("in-memory" as const) : ("exporting" as const),
+      status: options.testExport
+        ? ("in-memory" as const)
+        : ("exporting" as const),
     }),
     ...(testExports === undefined ? {} : { testExports }),
     withSpan,
     forceFlush,
     dispose,
-  })
-}
+  });
+};

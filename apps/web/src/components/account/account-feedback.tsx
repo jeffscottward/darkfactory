@@ -1,12 +1,16 @@
-import { cn } from "@darkfactory/ui"
+import { cn } from "@darkfactory/ui";
 
 export type AccountFeedback = Readonly<{
-  tone: "error" | "success" | "info"
-  message: string
-}>
+  tone: "error" | "success" | "info";
+  message: string;
+}>;
 
-export const AccountFeedbackMessage = ({ feedback }: { readonly feedback?: AccountFeedback | null | undefined }) => {
-  if (feedback === undefined || feedback === null) return null
+export const AccountFeedbackMessage = ({
+  feedback,
+}: {
+  readonly feedback?: AccountFeedback | null | undefined;
+}) => {
+  if (feedback === undefined || feedback === null) return null;
   return (
     <p
       aria-live="polite"
@@ -14,11 +18,11 @@ export const AccountFeedbackMessage = ({ feedback }: { readonly feedback?: Accou
         "border-l-2 py-2 pl-3 text-sm",
         feedback.tone === "error" && "border-destructive text-destructive",
         feedback.tone === "success" && "border-primary text-foreground",
-        feedback.tone === "info" && "border-border-strong text-muted-foreground",
+        feedback.tone === "info" && "border-border-strong text-muted-foreground"
       )}
       role={feedback.tone === "error" ? "alert" : "status"}
     >
       {feedback.message}
-  </p>
-  )
-}
+    </p>
+  );
+};

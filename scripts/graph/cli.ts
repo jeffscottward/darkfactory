@@ -1,32 +1,43 @@
-import { runGraphAction, type GraphAction, type GraphDependencies } from "./graph.ts"
+import {
+  runGraphAction,
+  type GraphAction,
+  type GraphDependencies,
+} from "./graph.ts";
 
-const ACTIONS = new Set<GraphAction>(["build", "update", "check", "verify"])
+const ACTIONS = new Set<GraphAction>(["build", "update", "check", "verify"]);
 
 export type GraphCliDependencies = Readonly<{
-  graph: GraphDependencies
-  writeOutput: (value: string) => void
-  writeError: (value: string) => void
-}>
+  graph: GraphDependencies;
+  writeOutput: (value: string) => void;
+  writeError: (value: string) => void;
+}>;
 
 export const runGraphCli = async (
   arguments_: readonly string[],
-  dependencies: GraphCliDependencies,
+  dependencies: GraphCliDependencies
 ): Promise<number> => {
-  const [candidate, ...extra] = arguments_
-  if (candidate === undefined || extra.length > 0 || !ACTIONS.has(candidate as GraphAction)) {
-    dependencies.writeError("Usage: graph <build|update|check|verify>\n")
-    return 2
+  const [candidate, ...extra] = arguments_;
+  if (
+    candidate === undefined ||
+    extra.length > 0 ||
+    !ACTIONS.has(candidate as GraphAction)
+  ) {
+    dependencies.writeError("Usage: graph <build|update|check|verify>\n");
+    return 2;
   }
 
   try {
-    const report = await runGraphAction(candidate as GraphAction, dependencies.graph)
-    const rendered = `${JSON.stringify(report, null, 2)}\n`
-    if (report.ok) { dependencies.writeOutput(rendered)}
-    else dependencies.writeError(rendered)
-    return report.ok ? 0 : 1
+    const report = await runGraphAction(
+      candidate as GraphAction,
+      dependencies.graph
+    );
+    const rendered = `${JSON.stringify(report, null, 2)}\n`;
+    if (report.ok) {
+      dependencies.writeOutput(rendered);
+    } else dependencies.writeError(rendered);
+    return report.ok ? 0 : 1;
+  } catch {
+    dependencies.writeError(`Graph ${candidate} failed unexpectedly\n`);
+    return 1;
   }
-  catch {
-    dependencies.writeError(`Graph ${candidate} failed unexpectedly\n`)
-    return 1
-  }
-}
+};

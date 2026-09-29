@@ -1,8 +1,17 @@
-"use client"
+"use client";
 
-import { Button, Card, CardContent, CardDescription, CardHeader, CardTitle, Label, Textarea } from "@darkfactory/ui"
-import { Send } from "lucide-react"
-import { useEffect, useRef, useState } from "react"
+import {
+  Button,
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+  Label,
+  Textarea,
+} from "@darkfactory/ui";
+import { Send } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
 
 import {
   createOperatorIdempotencyKeySlot,
@@ -11,29 +20,30 @@ import {
   type OperatorMessage,
   type OperatorPlanRevision,
   type OperatorRunDetailOutput,
-} from "./operator-client.ts"
-import { formatOperatorDate } from "./operator-format.ts"
+} from "./operator-client.ts";
+import { formatOperatorDate } from "./operator-format.ts";
 
 const missingPlanMessage = (
-  runState: OperatorRunDetailOutput["run"]["state"],
-): string => runState === "planning"
-  ? "No plan is available yet. Refresh this run to check again."
-  : runState === "draft"
-    ? "Planning has not started."
-    : runState === "blocked"
-      ? "Planning stopped before a plan was available."
-      : "No plan is available for this run."
+  runState: OperatorRunDetailOutput["run"]["state"]
+): string =>
+  runState === "planning"
+    ? "No plan is available yet. Refresh this run to check again."
+    : runState === "draft"
+      ? "Planning has not started."
+      : runState === "blocked"
+        ? "Planning stopped before a plan was available."
+        : "No plan is available for this run.";
 
 export interface ConversationPanelProps {
-  readonly busy: boolean
-  readonly disabled?: boolean | undefined
-  readonly failureMessage?: string | undefined
-  readonly implementationPlan: OperatorImplementationPlan | null
-  readonly messages: readonly OperatorMessage[]
-  readonly planRevisions: readonly OperatorPlanRevision[]
-  readonly onSend: (body: string, idempotencyKey: string) => Promise<boolean>
-  readonly originalRequest: string
-  readonly runState: OperatorRunDetailOutput["run"]["state"]
+  readonly busy: boolean;
+  readonly disabled?: boolean | undefined;
+  readonly failureMessage?: string | undefined;
+  readonly implementationPlan: OperatorImplementationPlan | null;
+  readonly messages: readonly OperatorMessage[];
+  readonly planRevisions: readonly OperatorPlanRevision[];
+  readonly onSend: (body: string, idempotencyKey: string) => Promise<boolean>;
+  readonly originalRequest: string;
+  readonly runState: OperatorRunDetailOutput["run"]["state"];
 }
 
 export const ConversationPanel = ({
@@ -47,133 +57,158 @@ export const ConversationPanel = ({
   originalRequest,
   runState,
 }: ConversationPanelProps) => {
-  const [body, setBody] = useState("")
-  const submissionInFlight = useRef(false)
-  const idempotency = useRef<OperatorIdempotencyKeySlot | null>(null)
-  const mounted = useRef(false)
-  const failureRef = useRef<HTMLParagraphElement>(null)
+  const [body, setBody] = useState("");
+  const submissionInFlight = useRef(false);
+  const idempotency = useRef<OperatorIdempotencyKeySlot | null>(null);
+  const mounted = useRef(false);
+  const failureRef = useRef<HTMLParagraphElement>(null);
 
   useEffect(() => {
-    mounted.current = true
+    mounted.current = true;
     return () => {
-      mounted.current = false
-      return undefined
-    }
-  }
-  , [])
+      mounted.current = false;
+      return undefined;
+    };
+  }, []);
 
   useEffect(() => {
-    if (failureMessage !== undefined) return failureRef.current?.focus();return
-  }
-  , [failureMessage])
+    if (failureMessage !== undefined) return failureRef.current?.focus();
+    return;
+  }, [failureMessage]);
 
   const changeBody = (value: string): void => {
-    idempotency.current?.invalidate()
-    setBody(value)
-  }
+    idempotency.current?.invalidate();
+    setBody(value);
+  };
 
-  const mutationDisabled = disabled || busy
+  const mutationDisabled = disabled || busy;
   const submit = async (event: React.FormEvent<HTMLFormElement>) => {
-    event.preventDefault()
-    const message = body.trim()
-    if (message.length === 0 || mutationDisabled || submissionInFlight.current) return
-    submissionInFlight.current = true
+    event.preventDefault();
+    const message = body.trim();
+    if (message.length === 0 || mutationDisabled || submissionInFlight.current)
+      return;
+    submissionInFlight.current = true;
     try {
-      const keySlot = idempotency.current ?? createOperatorIdempotencyKeySlot()
-      idempotency.current = keySlot
-      const sent = await onSend(message, keySlot.key())
-      if (!mounted.current) return
+      const keySlot = idempotency.current ?? createOperatorIdempotencyKeySlot();
+      idempotency.current = keySlot;
+      const sent = await onSend(message, keySlot.key());
+      if (!mounted.current) return;
       if (sent) {
-        keySlot.invalidate()
-        return setBody("")
-      };return
+        keySlot.invalidate();
+        return setBody("");
+      }
+      return;
+    } finally {
+      submissionInFlight.current = false;
     }
-    finally {
-      submissionInFlight.current = false
-    }
-  }
+  };
 
   return (
     <Card aria-labelledby="conversation-panel-title">
       <CardHeader>
-        <CardTitle headingLevel={2} id="conversation-panel-title">Conversation
+        <CardTitle headingLevel={2} id="conversation-panel-title">
+          Conversation
         </CardTitle>
         <CardDescription>
-          Read the request, requested changes, the latest Wayfinder plan, and operator notes in order.
+          Read the request, requested changes, the latest Wayfinder plan, and
+          operator notes in order.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-6">
-        <ol className="border-y border-border" aria-label="Planning conversation">
+        <ol
+          className="border-y border-border"
+          aria-label="Planning conversation"
+        >
           <li className="py-5">
-            <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Your request
+            <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+              Your request
             </p>
             <p className="mt-2 whitespace-pre-wrap break-words text-sm leading-6 text-foreground">
               {originalRequest}
             </p>
           </li>
           {planRevisions.map((revision, index) => (
-            <li className="border-t border-border py-5" key={`${revision.createdAt.toISOString()}-${index}`}>
+            <li
+              className="border-t border-border py-5"
+              key={`${revision.createdAt.toISOString()}-${index}`}
+            >
               <div className="flex flex-wrap items-baseline justify-between gap-2">
                 <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                   You requested changes
                 </p>
-                <time className="text-xs text-muted-foreground" dateTime={revision.createdAt.toISOString()}>
+                <time
+                  className="text-xs text-muted-foreground"
+                  dateTime={revision.createdAt.toISOString()}
+                >
                   {formatOperatorDate(revision.createdAt)}
                 </time>
               </div>
               <p className="mt-2 whitespace-pre-wrap break-words text-sm leading-6 text-foreground">
                 {revision.message}
               </p>
-          </li>
+            </li>
           ))}
           <li className="border-t border-border py-5">
             <div className="flex flex-wrap items-baseline justify-between gap-2">
-              <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Wayfinder
+              <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                Wayfinder
               </p>
-              <span className="text-xs text-muted-foreground">Latest plan
-              </span>
+              <span className="text-xs text-muted-foreground">Latest plan</span>
             </div>
             {implementationPlan === null ? (
               <p className="mt-2 text-sm leading-6 text-muted-foreground">
                 {missingPlanMessage(runState)}
-            </p>
+              </p>
             ) : (
               <pre className="mt-3 max-h-80 overflow-auto whitespace-pre-wrap break-words bg-muted px-3 py-3 font-body text-sm leading-6 text-foreground">
                 {implementationPlan.summary}
-            </pre>
+              </pre>
             )}
           </li>
           <li className="border-t border-border py-5">
-            <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Operator notes
+            <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+              Operator notes
             </p>
             {messages.length === 0 ? (
-              <p className="mt-2 text-sm leading-6 text-muted-foreground">No notes have been added.
-            </p>
+              <p className="mt-2 text-sm leading-6 text-muted-foreground">
+                No notes have been added.
+              </p>
             ) : (
               <ol aria-live="polite" className="mt-3 divide-y divide-border">
                 {messages.map((message) => (
-                  <li className="min-w-0 py-3 first:pt-0 last:pb-0" key={message.id}>
+                  <li
+                    className="min-w-0 py-3 first:pt-0 last:pb-0"
+                    key={message.id}
+                  >
                     <div className="flex flex-wrap items-baseline justify-between gap-2">
-                      <span className="break-words text-sm font-semibold text-foreground">{message.authorLabel}
+                      <span className="break-words text-sm font-semibold text-foreground">
+                        {message.authorLabel}
                       </span>
-                      <time className="text-xs text-muted-foreground" dateTime={message.createdAt.toISOString()}>
+                      <time
+                        className="text-xs text-muted-foreground"
+                        dateTime={message.createdAt.toISOString()}
+                      >
                         {formatOperatorDate(message.createdAt)}
                       </time>
                     </div>
-                    <p className="mt-2 whitespace-pre-wrap break-words text-sm leading-6 text-foreground">{message.body}
+                    <p className="mt-2 whitespace-pre-wrap break-words text-sm leading-6 text-foreground">
+                      {message.body}
                     </p>
-                </li>
+                  </li>
                 ))}
-            </ol>
+              </ol>
             )}
           </li>
         </ol>
         <form className="space-y-3" onSubmit={submit}>
           <div className="space-y-2">
-            <Label htmlFor="operator-message">Add operator message
-            </Label>
+            <Label htmlFor="operator-message">Add operator message</Label>
             <Textarea
-              aria-describedby={failureMessage === undefined ? "operator-message-hint" : "operator-message-hint operator-message-error"}
+              aria-describedby={
+                failureMessage === undefined
+                  ? "operator-message-hint"
+                  : "operator-message-hint operator-message-error"
+              }
               disabled={mutationDisabled}
               id="operator-message"
               maxLength={2_000}
@@ -183,8 +218,12 @@ export const ConversationPanel = ({
               rows={4}
               value={body}
             />
-            <p className="text-xs leading-5 text-muted-foreground" id="operator-message-hint">
-              Notes add context only. They do not start or change work. Do not paste secrets or raw output.
+            <p
+              className="text-xs leading-5 text-muted-foreground"
+              id="operator-message-hint"
+            >
+              Notes add context only. They do not start or change work. Do not
+              paste secrets or raw output.
             </p>
           </div>
           {failureMessage === undefined ? null : (
@@ -196,7 +235,7 @@ export const ConversationPanel = ({
               tabIndex={-1}
             >
               {failureMessage}
-          </p>
+            </p>
           )}
           <Button
             disabled={body.trim().length === 0 || mutationDisabled}
@@ -204,10 +243,11 @@ export const ConversationPanel = ({
             loadingLabel="Adding operator note"
             type="submit"
           >
-            <Send aria-hidden="true" className="size-4" />Add note
+            <Send aria-hidden="true" className="size-4" />
+            Add note
           </Button>
         </form>
       </CardContent>
-  </Card>
-  )
-}
+    </Card>
+  );
+};

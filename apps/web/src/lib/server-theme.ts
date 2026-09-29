@@ -3,74 +3,87 @@ import {
   parseThemeCookieHeader,
   type AnonymousThemePreference,
   type ThemeCookieParseResult,
-} from "./theme.ts"
+} from "./theme.ts";
 
-export type TrustedThemePreferenceLoader = () => Promise<unknown>
-export const INDETERMINATE_THEME = Symbol("indeterminate-theme")
-
+export type TrustedThemePreferenceLoader = () => Promise<unknown>;
+export const INDETERMINATE_THEME = Symbol("indeterminate-theme");
 
 const parseTrustedPreference = (
-  value: unknown,
+  value: unknown
 ): Readonly<AnonymousThemePreference> | null => {
-  if (typeof value !== "object" || value === null || Array.isArray(value)) return null
-  const record = value as Record<string, unknown>
-  const keys = Object.keys(record)
-  const themeMode = record["themeMode"]
-  const palette = record["palette"]
-  const updatedAt = record["updatedAt"]
+  if (typeof value !== "object" || value === null || Array.isArray(value))
+    return null;
+  const record = value as Record<string, unknown>;
+  const keys = Object.keys(record);
+  const themeMode = record["themeMode"];
+  const palette = record["palette"];
+  const updatedAt = record["updatedAt"];
   if (
-    keys.length !== 3
-    || !keys.every((key) => (
-      key === "themeMode" || key === "palette" || key === "updatedAt"
-    ))
-    || typeof themeMode !== "string"
-    || typeof palette !== "string"
-    || !["light", "dark", "system"].includes(themeMode)
-    || !["neutral", "slate", "blue", "cyan", "green", "amber", "orange", "red", "rose", "violet"].includes(palette)
-    || !(
-      updatedAt === null
-      || (updatedAt instanceof Date && Number.isFinite(updatedAt.getTime()))
+    keys.length !== 3 ||
+    !keys.every(
+      (key) => key === "themeMode" || key === "palette" || key === "updatedAt"
+    ) ||
+    typeof themeMode !== "string" ||
+    typeof palette !== "string" ||
+    !["light", "dark", "system"].includes(themeMode) ||
+    ![
+      "neutral",
+      "slate",
+      "blue",
+      "cyan",
+      "green",
+      "amber",
+      "orange",
+      "red",
+      "rose",
+      "violet",
+    ].includes(palette) ||
+    !(
+      updatedAt === null ||
+      (updatedAt instanceof Date && Number.isFinite(updatedAt.getTime()))
     )
-  ) return null
+  )
+    return null;
   return {
     themeMode: themeMode as AnonymousThemePreference["themeMode"],
     palette: palette as AnonymousThemePreference["palette"],
-  }
-}
+  };
+};
 
 export interface ResolvedRequestTheme {
-  readonly authority: "indeterminate" | "anonymous" | "trusted"
-  readonly cookie: ThemeCookieParseResult
-  readonly preference: Readonly<AnonymousThemePreference>
+  readonly authority: "indeterminate" | "anonymous" | "trusted";
+  readonly cookie: ThemeCookieParseResult;
+  readonly preference: Readonly<AnonymousThemePreference>;
 }
 
 export const resolveRequestTheme = async ({
   cookieHeader,
   loadTrustedPreference = async () => undefined,
 }: {
-  readonly cookieHeader: unknown
-  readonly loadTrustedPreference?: TrustedThemePreferenceLoader
+  readonly cookieHeader: unknown;
+  readonly loadTrustedPreference?: TrustedThemePreferenceLoader;
 }): Promise<ResolvedRequestTheme> => {
-  const trustedPreference = await loadTrustedPreference()
-  const cookie = parseThemeCookieHeader(cookieHeader)
+  const trustedPreference = await loadTrustedPreference();
+  const cookie = parseThemeCookieHeader(cookieHeader);
   if (trustedPreference === INDETERMINATE_THEME) {
     return {
       authority: "indeterminate",
       cookie,
       preference: DEFAULT_ANONYMOUS_THEME,
-    }
+    };
   }
   if (trustedPreference !== undefined) {
     return {
       authority: "trusted",
       cookie,
-      preference: parseTrustedPreference(trustedPreference)
-        ?? DEFAULT_ANONYMOUS_THEME,
-    }
+      preference:
+        parseTrustedPreference(trustedPreference) ?? DEFAULT_ANONYMOUS_THEME,
+    };
   }
   return {
     authority: "anonymous",
     cookie,
-    preference: cookie.status === "valid" ? cookie.preference : DEFAULT_ANONYMOUS_THEME,
-  }
-}
+    preference:
+      cookie.status === "valid" ? cookie.preference : DEFAULT_ANONYMOUS_THEME,
+  };
+};

@@ -1,12 +1,13 @@
-import type { ComponentPropsWithRef } from "react"
+import type { ComponentPropsWithRef } from "react";
 
-import { cn } from "./utilities.ts"
+import { cn } from "./utilities.ts";
 
-export interface AvatarProps extends Omit<ComponentPropsWithRef<"span">, "children"> {
-  name: string
-  fallback: string
-  src?: string
-  imageProps?: Omit<ComponentPropsWithRef<"img">, "src" | "alt">
+export interface AvatarProps
+  extends Omit<ComponentPropsWithRef<"span">, "children"> {
+  name: string;
+  fallback: string;
+  src?: string;
+  imageProps?: Omit<ComponentPropsWithRef<"img">, "src" | "alt">;
 }
 
 export const Avatar = ({
@@ -21,15 +22,19 @@ export const Avatar = ({
     {...props}
     className={cn(
       "relative inline-flex size-10 shrink-0 items-center justify-center overflow-hidden rounded-pill border border-border bg-muted font-body text-sm font-semibold text-foreground",
-      className,
+      className
     )}
     {...(src === undefined ? { role: "img", "aria-label": name } : {})}
   >
     {src === undefined ? (
-      <span aria-hidden="true">{fallback}
-    </span>
+      <span aria-hidden="true">{fallback}</span>
     ) : (
-      <img className="size-full object-cover" src={src} alt={name} {...imageProps} />
+      <img
+        className="size-full object-cover"
+        src={src}
+        alt={name}
+        {...imageProps}
+      />
     )}
-</span>
-)
+  </span>
+);

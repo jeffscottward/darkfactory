@@ -1,255 +1,251 @@
-import { constants } from "node:fs"
-import { lstat, open } from "node:fs/promises"
+import { constants } from "node:fs";
+import { lstat, open } from "node:fs/promises";
 import {
   inspectSensitiveText,
   knownSensitiveTextRanges,
   MINIMUM_PRECISE_KNOWN_VALUE_LENGTH,
-} from "./known-sensitive-values.ts"
+} from "./known-sensitive-values.ts";
 
-const MAX_PLAYWRIGHT_REPORT_BYTES = 16 * 1024 * 1024
-const REDACTION_MARKER = "[REDACTED]"
-const REDACTED_KEY_MARKER = "[REDACTED KEY]"
+const MAX_PLAYWRIGHT_REPORT_BYTES = 16 * 1024 * 1024;
+const REDACTION_MARKER = "[REDACTED]";
+const REDACTED_KEY_MARKER = "[REDACTED KEY]";
 const REDACTED_REPORT_BOUND_MESSAGE =
-  "Redacted Playwright report exceeds its bound"
+  "Redacted Playwright report exceeds its bound";
 
-type JsonValue = null | boolean | number | string | JsonValue[] | JsonObject
-type JsonObject = { [key: string]: JsonValue }
+type JsonValue = null | boolean | number | string | JsonValue[] | JsonObject;
+type JsonObject = { [key: string]: JsonValue };
 
 const isRecord = (value: unknown): value is JsonObject => {
-  return value !== null && typeof value === "object" && !Array.isArray(value)
-}
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+};
 
 const sameIdentity = (
-  left: Readonly<{ dev: number | bigint, ino: number | bigint }>,
-  right: Readonly<{ dev: number | bigint, ino: number | bigint }>,
-): boolean => left.dev === right.dev && left.ino === right.ino
+  left: Readonly<{ dev: number | bigint; ino: number | bigint }>,
+  right: Readonly<{ dev: number | bigint; ino: number | bigint }>
+): boolean => left.dev === right.dev && left.ino === right.ino;
 
 const removeWebServerEnvironment = (config: JsonObject): void => {
-  const webServer = config["webServer"]
-  const entries = Array.isArray(webServer) ? webServer : [webServer]
+  const webServer = config["webServer"];
+  const entries = Array.isArray(webServer) ? webServer : [webServer];
   if (entries.length === 0 || entries.some((entry) => !isRecord(entry))) {
-    throw new Error("Playwright report web server configuration is invalid")
+    throw new Error("Playwright report web server configuration is invalid");
   }
   for (const entry of entries as JsonObject[]) {
-    Reflect.deleteProperty(entry, "env")
+    Reflect.deleteProperty(entry, "env");
   }
-}
+};
 
 const replacementWouldExceedReportBound = (
   value: string,
   sensitiveValue: string,
-  replacement: string,
+  replacement: string
 ): boolean => {
-  const growthPerMatch = replacement.length - sensitiveValue.length
-  if (growthPerMatch <= 0) return false
+  const growthPerMatch = replacement.length - sensitiveValue.length;
+  if (growthPerMatch <= 0) return false;
 
-  let redactedLength = value.length
-  let searchOffset = 0
+  let redactedLength = value.length;
+  let searchOffset = 0;
   while (searchOffset < value.length) {
-    const matchOffset = value.indexOf(sensitiveValue, searchOffset)
-    if (matchOffset < 0) return false
-    redactedLength += growthPerMatch
-    if (redactedLength > MAX_PLAYWRIGHT_REPORT_BYTES) return true
-    searchOffset = matchOffset + sensitiveValue.length
+    const matchOffset = value.indexOf(sensitiveValue, searchOffset);
+    if (matchOffset < 0) return false;
+    redactedLength += growthPerMatch;
+    if (redactedLength > MAX_PLAYWRIGHT_REPORT_BYTES) return true;
+    searchOffset = matchOffset + sensitiveValue.length;
   }
-  return false
-}
+  return false;
+};
 
 type CanonicalSensitiveValues = Readonly<{
-  literal: readonly string[]
-  inspected: readonly string[]
-  marker: string
-}>
+  literal: readonly string[];
+  inspected: readonly string[];
+  marker: string;
+}>;
 
 const containsKnownSensitiveText = (
   value: string,
-  sensitiveValues: CanonicalSensitiveValues,
+  sensitiveValues: CanonicalSensitiveValues
 ): boolean => {
   const ranges = knownSensitiveTextRanges(
     inspectSensitiveText(value),
-    sensitiveValues.inspected,
-  )
-  return ranges === undefined || ranges.length > 0
-}
+    sensitiveValues.inspected
+  );
+  return ranges === undefined || ranges.length > 0;
+};
 
 const redactSensitiveString = (
   value: string,
-  sensitiveValues: CanonicalSensitiveValues,
+  sensitiveValues: CanonicalSensitiveValues
 ): string => {
-  let redacted = value
+  let redacted = value;
   for (const sensitiveValue of sensitiveValues.literal) {
-    if (replacementWouldExceedReportBound(
-      redacted,
-      sensitiveValue,
-      sensitiveValues.marker,
-    )) {
-      throw new Error(REDACTED_REPORT_BOUND_MESSAGE)
+    if (
+      replacementWouldExceedReportBound(
+        redacted,
+        sensitiveValue,
+        sensitiveValues.marker
+      )
+    ) {
+      throw new Error(REDACTED_REPORT_BOUND_MESSAGE);
     }
-    redacted = redacted.replaceAll(sensitiveValue, sensitiveValues.marker)
+    redacted = redacted.replaceAll(sensitiveValue, sensitiveValues.marker);
   }
 
   return containsKnownSensitiveText(redacted, sensitiveValues)
     ? sensitiveValues.marker
-    : redacted
-}
+    : redacted;
+};
 
 const redactSensitiveValues = (
   value: JsonValue,
-  sensitiveValues: CanonicalSensitiveValues,
+  sensitiveValues: CanonicalSensitiveValues
 ): JsonValue => {
   if (Array.isArray(value)) {
     for (let index = 0; index < value.length; index += 1) {
-      value[index] = redactSensitiveValues(value[index]!, sensitiveValues)
+      value[index] = redactSensitiveValues(value[index]!, sensitiveValues);
     }
-    return value
+    return value;
   }
   if (isRecord(value)) {
-    const entries = Object.entries(value)
+    const entries = Object.entries(value);
     const sensitiveKeys = entries.map(([key]) => {
-      return containsKnownSensitiveText(key, sensitiveValues)
-    }
-    )
-    const occupiedKeys = new Set<string>()
+      return containsKnownSensitiveText(key, sensitiveValues);
+    });
+    const occupiedKeys = new Set<string>();
     for (let index = 0; index < entries.length; index += 1) {
-      if (!sensitiveKeys[index]) occupiedKeys.add(entries[index]![0])
+      if (!sensitiveKeys[index]) occupiedKeys.add(entries[index]![0]);
     }
 
-    const redacted = Object.create(null) as JsonObject
-    let redactedKeyOrdinal = 1
+    const redacted = Object.create(null) as JsonObject;
+    let redactedKeyOrdinal = 1;
     const maximumRedactedKeyOrdinal =
-      entries.length + sensitiveValues.inspected.length + 1
+      entries.length + sensitiveValues.inspected.length + 1;
     for (let index = 0; index < entries.length; index += 1) {
-      const [key, entry] = entries[index]!
-      let redactedKey = key
+      const [key, entry] = entries[index]!;
+      let redactedKey = key;
       if (sensitiveKeys[index]) {
-        redactedKey = ""
+        redactedKey = "";
         while (redactedKeyOrdinal <= maximumRedactedKeyOrdinal) {
-          const ordinal = redactedKeyOrdinal
-          redactedKeyOrdinal += 1
-          const candidate = ordinal === 1
-            ? REDACTED_KEY_MARKER
-            : `[REDACTED KEY ${ordinal}]`
+          const ordinal = redactedKeyOrdinal;
+          redactedKeyOrdinal += 1;
+          const candidate =
+            ordinal === 1 ? REDACTED_KEY_MARKER : `[REDACTED KEY ${ordinal}]`;
           if (
-            occupiedKeys.has(candidate)
-            || containsKnownSensitiveText(candidate, sensitiveValues)
-          ) continue
-          redactedKey = candidate
-          break
+            occupiedKeys.has(candidate) ||
+            containsKnownSensitiveText(candidate, sensitiveValues)
+          )
+            continue;
+          redactedKey = candidate;
+          break;
         }
         if (redactedKey.length === 0) {
-          throw new Error("Playwright report key redaction failed safely")
+          throw new Error("Playwright report key redaction failed safely");
         }
       }
-      occupiedKeys.add(redactedKey)
-      redacted[redactedKey] = redactSensitiveValues(entry, sensitiveValues)
+      occupiedKeys.add(redactedKey);
+      redacted[redactedKey] = redactSensitiveValues(entry, sensitiveValues);
     }
-    return redacted
+    return redacted;
   }
 
-  const scalar = String(value)
-  const redacted = redactSensitiveString(scalar, sensitiveValues)
-  return redacted === scalar ? value : redacted
-}
+  const scalar = String(value);
+  const redacted = redactSensitiveString(scalar, sensitiveValues);
+  return redacted === scalar ? value : redacted;
+};
 
 const canonicalSensitiveValues = (
-  values: readonly string[],
+  values: readonly string[]
 ): CanonicalSensitiveValues => {
-  const unique = [...new Set(values.filter((value) => value.length > 0))]
+  const unique = [...new Set(values.filter((value) => value.length > 0))];
   const literal = Object.freeze(
     unique
       .filter((value) => {
-        return value.length >= MINIMUM_PRECISE_KNOWN_VALUE_LENGTH
-      }
-      )
-      .sort((left, right) => right.length - left.length),
-  )
+        return value.length >= MINIMUM_PRECISE_KNOWN_VALUE_LENGTH;
+      })
+      .sort((left, right) => right.length - left.length)
+  );
   const inspected = Object.freeze(
     [...new Set(unique.map(inspectSensitiveText))]
       .filter((value) => value.length > 0)
-      .sort((left, right) => right.length - left.length),
-  )
+      .sort((left, right) => right.length - left.length)
+  );
   const markerRanges = knownSensitiveTextRanges(
     inspectSensitiveText(REDACTION_MARKER),
-    inspected,
-  )
+    inspected
+  );
   return Object.freeze({
     literal,
     inspected,
-    marker: markerRanges === undefined || markerRanges.length > 0
-      ? ""
-      : REDACTION_MARKER,
-  })
-}
-
+    marker:
+      markerRanges === undefined || markerRanges.length > 0
+        ? ""
+        : REDACTION_MARKER,
+  });
+};
 
 export const sanitizePlaywrightJsonReport = async (
   path: string,
-  sensitiveValues: readonly string[],
+  sensitiveValues: readonly string[]
 ): Promise<void> => {
-  const before = await lstat(path)
+  const before = await lstat(path);
   if (
-    !before.isFile()
-    || before.isSymbolicLink()
-    || before.size < 1
-    || before.size > MAX_PLAYWRIGHT_REPORT_BYTES
-  ) throw new Error("Playwright report file is invalid")
+    !before.isFile() ||
+    before.isSymbolicLink() ||
+    before.size < 1 ||
+    before.size > MAX_PLAYWRIGHT_REPORT_BYTES
+  )
+    throw new Error("Playwright report file is invalid");
 
   const handle = await open(
     path,
-    constants.O_RDWR | (constants.O_NOFOLLOW ?? 0),
-  )
+    constants.O_RDWR | (constants.O_NOFOLLOW ?? 0)
+  );
   try {
-    const opened = await handle.stat()
+    const opened = await handle.stat();
     if (!opened.isFile() || !sameIdentity(before, opened)) {
-      throw new Error("Playwright report identity changed before redaction")
+      throw new Error("Playwright report identity changed before redaction");
     }
-    const content = await handle.readFile("utf8")
+    const content = await handle.readFile("utf8");
     if (Buffer.byteLength(content, "utf8") > MAX_PLAYWRIGHT_REPORT_BYTES) {
-      throw new Error("Playwright report exceeds its redaction bound")
+      throw new Error("Playwright report exceeds its redaction bound");
     }
-    let parsed: JsonValue
+    let parsed: JsonValue;
     try {
-      parsed = JSON.parse(content) as JsonValue
-    }
-    catch {
-      throw new Error("Playwright report is malformed")
+      parsed = JSON.parse(content) as JsonValue;
+    } catch {
+      throw new Error("Playwright report is malformed");
     }
     if (!isRecord(parsed) || !isRecord(parsed["config"])) {
-      throw new Error("Playwright report configuration is malformed")
+      throw new Error("Playwright report configuration is malformed");
     }
-    removeWebServerEnvironment(parsed["config"])
+    removeWebServerEnvironment(parsed["config"]);
     parsed = redactSensitiveValues(
       parsed,
-      canonicalSensitiveValues(sensitiveValues),
-    )
-    const rendered = Buffer.from(`${JSON.stringify(parsed)}\n`, "utf8")
+      canonicalSensitiveValues(sensitiveValues)
+    );
+    const rendered = Buffer.from(`${JSON.stringify(parsed)}\n`, "utf8");
     if (rendered.byteLength > MAX_PLAYWRIGHT_REPORT_BYTES) {
-      throw new Error(REDACTED_REPORT_BOUND_MESSAGE)
+      throw new Error(REDACTED_REPORT_BOUND_MESSAGE);
     }
-    let offset = 0
+    let offset = 0;
     while (offset < rendered.byteLength) {
       const result = await handle.write(
         rendered,
         offset,
         rendered.byteLength - offset,
-        offset,
-      )
+        offset
+      );
       if (result.bytesWritten < 1) {
-        throw new Error("Playwright report redaction made no progress")
+        throw new Error("Playwright report redaction made no progress");
       }
-      offset += result.bytesWritten
+      offset += result.bytesWritten;
     }
-    await handle.truncate(rendered.byteLength)
-    await handle.sync()
-  }
-  finally {
-    await handle.close()
+    await handle.truncate(rendered.byteLength);
+    await handle.sync();
+  } finally {
+    await handle.close();
   }
 
-  const after = await lstat(path)
-  if (
-    !after.isFile()
-    || after.isSymbolicLink()
-    || !sameIdentity(before, after)
-  ) throw new Error("Playwright report identity changed during redaction")
-}
+  const after = await lstat(path);
+  if (!after.isFile() || after.isSymbolicLink() || !sameIdentity(before, after))
+    throw new Error("Playwright report identity changed during redaction");
+};

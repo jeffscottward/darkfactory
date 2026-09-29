@@ -4,92 +4,101 @@ import {
   isThemeMode,
   type Palette,
   type ThemeMode,
-} from "@darkfactory/state"
+} from "@darkfactory/state";
 
 export interface AnonymousThemePreference {
-  readonly themeMode: ThemeMode
-  readonly palette: Palette
+  readonly themeMode: ThemeMode;
+  readonly palette: Palette;
 }
-export type ThemeAuthority = "indeterminate" | "anonymous" | "trusted"
+export type ThemeAuthority = "indeterminate" | "anonymous" | "trusted";
 
 export const shouldPersistAnonymousLocalState = (
-  authority: ThemeAuthority,
-): boolean => authority === "anonymous"
+  authority: ThemeAuthority
+): boolean => authority === "anonymous";
 
-export const DEFAULT_ANONYMOUS_THEME: Readonly<AnonymousThemePreference> = Object.freeze({
-  themeMode: DEFAULT_UI_PREFERENCES.themeMode,
-  palette: DEFAULT_UI_PREFERENCES.palette,
-})
+export const DEFAULT_ANONYMOUS_THEME: Readonly<AnonymousThemePreference> =
+  Object.freeze({
+    themeMode: DEFAULT_UI_PREFERENCES.themeMode,
+    palette: DEFAULT_UI_PREFERENCES.palette,
+  });
 
-export const THEME_STORAGE_KEY = "darkfactory.anonymous-ui.v1" as const
-export const MAX_ANONYMOUS_THEME_SNAPSHOT_LENGTH = 128 as const
-export const THEME_COOKIE_NAME = "darkfactory-theme" as const
-export const MAX_COOKIE_HEADER_LENGTH = 32_768 as const
-export const MAX_THEME_COOKIE_VALUE_LENGTH = 64 as const
+export const THEME_STORAGE_KEY = "darkfactory.anonymous-ui.v1" as const;
+export const MAX_ANONYMOUS_THEME_SNAPSHOT_LENGTH = 128 as const;
+export const THEME_COOKIE_NAME = "darkfactory-theme" as const;
+export const MAX_COOKIE_HEADER_LENGTH = 32_768 as const;
+export const MAX_THEME_COOKIE_VALUE_LENGTH = 64 as const;
 
 export type ThemeCookieParseResult =
   | Readonly<{ status: "missing" }>
   | Readonly<{ status: "invalid" }>
   | Readonly<{
-      status: "valid"
-      preference: Readonly<AnonymousThemePreference>
-    }>
-export type ThemeCookieStatus = ThemeCookieParseResult["status"]
+      status: "valid";
+      preference: Readonly<AnonymousThemePreference>;
+    }>;
+export type ThemeCookieStatus = ThemeCookieParseResult["status"];
 
 export const parseThemeCookieHeader = (
-  cookieHeader: unknown,
+  cookieHeader: unknown
 ): ThemeCookieParseResult => {
-  if (cookieHeader === undefined || cookieHeader === null || cookieHeader === "") {
-    return { status: "missing" }
+  if (
+    cookieHeader === undefined ||
+    cookieHeader === null ||
+    cookieHeader === ""
+  ) {
+    return { status: "missing" };
   }
-  if (typeof cookieHeader !== "string" || cookieHeader.length > MAX_COOKIE_HEADER_LENGTH) {
-    return { status: "invalid" }
+  if (
+    typeof cookieHeader !== "string" ||
+    cookieHeader.length > MAX_COOKIE_HEADER_LENGTH
+  ) {
+    return { status: "invalid" };
   }
 
   const values = cookieHeader
     .split(";")
     .map((segment) => segment.trim())
     .filter((segment) => {
-      const separatorIndex = segment.indexOf("=")
-      const name = separatorIndex === -1 ? segment : segment.slice(0, separatorIndex).trim()
-      return name === THEME_COOKIE_NAME
-    }
-    )
+      const separatorIndex = segment.indexOf("=");
+      const name =
+        separatorIndex === -1
+          ? segment
+          : segment.slice(0, separatorIndex).trim();
+      return name === THEME_COOKIE_NAME;
+    });
 
-  if (values.length === 0) return { status: "missing" }
-  if (values.length !== 1) return { status: "invalid" }
+  if (values.length === 0) return { status: "missing" };
+  if (values.length !== 1) return { status: "invalid" };
 
-  const cookie = values[0]!
-  const separatorIndex = cookie.indexOf("=")
-  if (separatorIndex === -1) return { status: "invalid" }
-  const encodedValue = cookie.slice(separatorIndex + 1)
+  const cookie = values[0]!;
+  const separatorIndex = cookie.indexOf("=");
+  if (separatorIndex === -1) return { status: "invalid" };
+  const encodedValue = cookie.slice(separatorIndex + 1);
   if (
-    encodedValue.length === 0
-    || encodedValue.length > MAX_THEME_COOKIE_VALUE_LENGTH
-  ) return { status: "invalid" }
+    encodedValue.length === 0 ||
+    encodedValue.length > MAX_THEME_COOKIE_VALUE_LENGTH
+  )
+    return { status: "invalid" };
 
   try {
-    const [themeMode, palette, extra] = decodeURIComponent(encodedValue).split(":")
-    if (
-      extra !== undefined
-      || !isThemeMode(themeMode)
-      || !isPalette(palette)
-    ) return { status: "invalid" }
+    const [themeMode, palette, extra] =
+      decodeURIComponent(encodedValue).split(":");
+    if (extra !== undefined || !isThemeMode(themeMode) || !isPalette(palette))
+      return { status: "invalid" };
     return {
       status: "valid",
       preference: { themeMode, palette },
-    }
+    };
+  } catch {
+    return { status: "invalid" };
   }
-  catch {
-    return { status: "invalid" }
-  }
-}
+};
 
-export const THEME_MODE_LABELS: Readonly<Record<ThemeMode, string>> = Object.freeze({
-  light: "Light",
-  dark: "Dark",
-  system: "System",
-})
+export const THEME_MODE_LABELS: Readonly<Record<ThemeMode, string>> =
+  Object.freeze({
+    light: "Light",
+    dark: "Dark",
+    system: "System",
+  });
 
 export const PALETTE_LABELS: Readonly<Record<Palette, string>> = Object.freeze({
   neutral: "Neutral",
@@ -102,22 +111,24 @@ export const PALETTE_LABELS: Readonly<Record<Palette, string>> = Object.freeze({
   red: "Red",
   rose: "Rose",
   violet: "Violet",
-})
+});
 
 export const themeDomAttributes = (
-  preference: Readonly<AnonymousThemePreference>,
-) => ({
-  "data-mode": preference.themeMode,
-  "data-palette": preference.palette,
-  colorScheme: preference.themeMode === "system" ? "light dark" : preference.themeMode,
-}) as const
+  preference: Readonly<AnonymousThemePreference>
+) =>
+  ({
+    "data-mode": preference.themeMode,
+    "data-palette": preference.palette,
+    colorScheme:
+      preference.themeMode === "system" ? "light dark" : preference.themeMode,
+  }) as const;
 
 export const serializeThemeCookie = (
-  preference: Readonly<AnonymousThemePreference>,
-): string => `${THEME_COOKIE_NAME}=${encodeURIComponent(`${preference.themeMode}:${preference.palette}`)}; Path=/; Max-Age=31536000; SameSite=Lax; Secure`
+  preference: Readonly<AnonymousThemePreference>
+): string =>
+  `${THEME_COOKIE_NAME}=${encodeURIComponent(`${preference.themeMode}:${preference.palette}`)}; Path=/; Max-Age=31536000; SameSite=Lax; Secure`;
 
-
-export const THEME_BOOTSTRAP_PATH = "/theme-bootstrap.js" as const
+export const THEME_BOOTSTRAP_PATH = "/theme-bootstrap.js" as const;
 
 export const THEME_BOOTSTRAP_SCRIPT = `(() => {
   const root = document.documentElement;
@@ -150,4 +161,4 @@ export const THEME_BOOTSTRAP_SCRIPT = `(() => {
   root.dataset.mode = preference.themeMode;
   root.dataset.palette = preference.palette;
   window.__DARKFACTORY_THEME__ = Object.freeze({ ...preference, source });
-})();`
+})();`;

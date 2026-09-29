@@ -1,26 +1,28 @@
-import type { ApiClient, FeatureItemOutput } from "@darkfactory/api"
-import type { ReactElement } from "react"
-import { renderToStaticMarkup } from "react-dom/server"
-import { describe, expect, it, vi } from "vitest"
+import type { ApiClient, FeatureItemOutput } from "@darkfactory/api";
+import type { ReactElement } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
+import { describe, expect, it, vi } from "vitest";
 
 import {
   classifyFeatureFailure,
   createFeatureItemGateway,
   restorePortalFocus,
   synchronizeRetainedFeatureItem,
-} from "./feature-items-client.ts"
-import { FeatureRecoveryAction } from "./feature-recovery-action.tsx"
-import { FeatureItemsCollection } from "./feature-items-collection.tsx"
-import { CreateWorkflowStep } from "./feature-item-create-workflow.tsx"
+} from "./feature-items-client.ts";
+import { FeatureRecoveryAction } from "./feature-recovery-action.tsx";
+import { FeatureItemsCollection } from "./feature-items-collection.tsx";
+import { CreateWorkflowStep } from "./feature-item-create-workflow.tsx";
 import {
   ArchivedFeatureItemDetails,
   ArchivedFeatureItemNotice,
   EditorNameField,
   createEditorMutationGuard,
   isEditorMutationLocked,
-} from "./feature-item-editor.tsx"
+} from "./feature-item-editor.tsx";
 
-const item = (overrides: Partial<FeatureItemOutput> = {}): FeatureItemOutput => ({
+const item = (
+  overrides: Partial<FeatureItemOutput> = {}
+): FeatureItemOutput => ({
   id: "item-1",
   name: "Original name",
   description: "Original description",
@@ -30,94 +32,110 @@ const item = (overrides: Partial<FeatureItemOutput> = {}): FeatureItemOutput => 
   createdAt: new Date("2026-01-01T00:00:00.000Z"),
   updatedAt: new Date("2026-01-02T00:00:00.000Z"),
   ...overrides,
-})
+});
 
-type ElementRecord = Readonly<{ props: Record<string, unknown>; type: unknown }>
+type ElementRecord = Readonly<{
+  props: Record<string, unknown>;
+  type: unknown;
+}>;
 
 const textOf = (node: unknown): string => {
-  if (typeof node === "string" || typeof node === "number") return String(node)
-  if (Array.isArray(node)) return node.map(textOf).join("")
-  if (typeof node !== "object" || node === null) return ""
-  const props = Reflect.get(node, "props")
-  if (typeof props !== "object" || props === null) return ""
-  return textOf(Reflect.get(props, "children"))
-}
+  if (typeof node === "string" || typeof node === "number") return String(node);
+  if (Array.isArray(node)) return node.map(textOf).join("");
+  if (typeof node !== "object" || node === null) return "";
+  const props = Reflect.get(node, "props");
+  if (typeof props !== "object" || props === null) return "";
+  return textOf(Reflect.get(props, "children"));
+};
 
 const findElement = (
   tree: unknown,
-  predicate: (element: ElementRecord) => boolean,
+  predicate: (element: ElementRecord) => boolean
 ): ElementRecord | undefined => {
-  const seen = new WeakSet<object>()
+  const seen = new WeakSet<object>();
   const visit = (node: unknown): ElementRecord | undefined => {
     if (Array.isArray(node)) {
       for (const child of node) {
-        const found = visit(child)
-        if (found !== undefined) return found
+        const found = visit(child);
+        if (found !== undefined) return found;
       }
-      return undefined
+      return undefined;
     }
-    if (typeof node !== "object" || node === null || seen.has(node)) return undefined
-    seen.add(node)
-    const props = Reflect.get(node, "props")
-    if (typeof props !== "object" || props === null) return undefined
-    const element = node as ElementRecord
-    if (predicate(element)) return element
+    if (typeof node !== "object" || node === null || seen.has(node))
+      return undefined;
+    seen.add(node);
+    const props = Reflect.get(node, "props");
+    if (typeof props !== "object" || props === null) return undefined;
+    const element = node as ElementRecord;
+    if (predicate(element)) return element;
     for (const value of Object.values(element.props)) {
-      const found = visit(value)
-      if (found !== undefined) return found
+      const found = visit(value);
+      if (found !== undefined) return found;
     }
-    return undefined
-  }
-  return visit(tree)
-}
+    return undefined;
+  };
+  return visit(tree);
+};
 
-describe("partial create recovery", function() {
-  it("updates a retained durable draft with current edits before activation retry", async function() {
-    const update = vi.fn(async function(input) { return item({
-      name: input.name,
-      description: input.description,
-    }) })
+describe("partial create recovery", function () {
+  it("updates a retained durable draft with current edits before activation retry", async function () {
+    const update = vi.fn(async function (input) {
+      return item({
+        name: input.name,
+        description: input.description,
+      });
+    });
     const gateway = createFeatureItemGateway({
       featureItems: {
-        list: vi.fn(), get: vi.fn(), create: vi.fn(), update,
-        changeStatus: vi.fn(), archive: vi.fn(),
+        list: vi.fn(),
+        get: vi.fn(),
+        create: vi.fn(),
+        update,
+        changeStatus: vi.fn(),
+        archive: vi.fn(),
       },
-    } as unknown as ApiClient)
+    } as unknown as ApiClient);
 
-    await expect(synchronizeRetainedFeatureItem(
-      gateway,
-      item(),
-      { name: "Edited name", description: "Edited description" },
-    )).resolves.toMatchObject({
+    await expect(
+      synchronizeRetainedFeatureItem(gateway, item(), {
+        name: "Edited name",
+        description: "Edited description",
+      })
+    ).resolves.toMatchObject({
       name: "Edited name",
       description: "Edited description",
-    })
+    });
     return expect(update).toHaveBeenCalledWith({
       id: "item-1",
       name: "Edited name",
       description: "Edited description",
-    })
-  })
+    });
+  });
 
-  it("reuses an unchanged retained draft without issuing an update", async function() {
-    const update = vi.fn()
+  it("reuses an unchanged retained draft without issuing an update", async function () {
+    const update = vi.fn();
     const gateway = createFeatureItemGateway({
       featureItems: {
-        list: vi.fn(), get: vi.fn(), create: vi.fn(), update,
-        changeStatus: vi.fn(), archive: vi.fn(),
+        list: vi.fn(),
+        get: vi.fn(),
+        create: vi.fn(),
+        update,
+        changeStatus: vi.fn(),
+        archive: vi.fn(),
       },
-    } as unknown as ApiClient)
-    const retained = item()
+    } as unknown as ApiClient);
+    const retained = item();
 
-    await expect(synchronizeRetainedFeatureItem(
-      gateway,
-      retained,
-      { name: "  Original name  ", description: "Original description" },
-    )).resolves.toBe(retained)
-    return expect(update).not.toHaveBeenCalled()
-  })
-  
-  it("labels activation failure as a persisted draft and an unknown create outcome as non-retryable", function() {
+    await expect(
+      synchronizeRetainedFeatureItem(gateway, retained, {
+        name: "  Original name  ",
+        description: "Original description",
+      })
+    ).resolves.toBe(retained);
+    return expect(update).not.toHaveBeenCalled();
+  });
+
+  it("labels activation failure as a persisted draft and an unknown create outcome as non-retryable", function () {
     const partial = renderToStaticMarkup(
       <CreateWorkflowStep
         description="Current description"
@@ -126,10 +144,10 @@ describe("partial create recovery", function() {
         partialCreated
         state="failure"
         status="active"
-      />,
-    )
-    expect(partial).toContain("Draft created; activation failed")
-    expect(partial).toContain("Current description")
+      />
+    );
+    expect(partial).toContain("Draft created; activation failed");
+    expect(partial).toContain("Current description");
 
     const unknown = renderToStaticMarkup(
       <CreateWorkflowStep
@@ -139,12 +157,14 @@ describe("partial create recovery", function() {
         name="Current name"
         state="failure"
         status="draft"
-      />,
-    )
-    return expect(unknown).toContain("Check the feature item list before trying again")
-  })
+      />
+    );
+    return expect(unknown).toContain(
+      "Check the feature item list before trying again"
+    );
+  });
 
-  return it("uses safe fallback copy for a retained draft with no description or transport message", function() {
+  return it("uses safe fallback copy for a retained draft with no description or transport message", function () {
     const html = renderToStaticMarkup(
       <CreateWorkflowStep
         description=""
@@ -152,16 +172,16 @@ describe("partial create recovery", function() {
         partialCreated
         state="failure"
         status="active"
-      />,
-    )
-    expect(html).toContain("Draft created; activation failed")
-    expect(html).toContain("The request could not be completed.")
-    return expect(html).toContain("None provided")
-  })
-})
+      />
+    );
+    expect(html).toContain("Draft created; activation failed");
+    expect(html).toContain("The request could not be completed.");
+    return expect(html).toContain("None provided");
+  });
+});
 
-describe("archive serialization", function() {
-  it("keeps the pending row visible and disables every archive action", function() {
+describe("archive serialization", function () {
+  it("keeps the pending row visible and disables every archive action", function () {
     const html = renderToStaticMarkup(
       <FeatureItemsCollection
         archiveBusy
@@ -170,180 +190,224 @@ describe("archive serialization", function() {
           type: "ready",
           items: [item(), item({ id: "item-2", name: "Second item" })],
         }}
-      />,
-    )
-    expect(html).toContain("Original name")
-    expect(html).toContain("Second item")
-    expect(html).toContain("Archiving Original name")
-    return expect((html.match(/disabled=""/g) ?? [])).toHaveLength(2)
-  })
+      />
+    );
+    expect(html).toContain("Original name");
+    expect(html).toContain("Second item");
+    expect(html).toContain("Archiving Original name");
+    return expect(html.match(/disabled=""/g) ?? []).toHaveLength(2);
+  });
 
-  return it("invokes reset and archive actions while preserving optional no-op handlers", function() {
-    const resetFilters = vi.fn()
+  return it("invokes reset and archive actions while preserving optional no-op handlers", function () {
+    const resetFilters = vi.fn();
     const filteredTree = FeatureItemsCollection({
       isFiltered: true,
       onResetFilters: resetFilters,
       state: { type: "ready", items: [] },
-    })
-    const reset = findElement(filteredTree, (candidate) => (
-      typeof candidate.props["onClick"] === "function"
-      && textOf(candidate).replace(/\s+/gu, " ").trim() === "Reset filters"
-    ))
-    expect(reset).toBeDefined()
-    ;(reset!.props["onClick"] as () => void)()
-    expect(resetFilters).toHaveBeenCalledOnce()
+    });
+    const reset = findElement(
+      filteredTree,
+      (candidate) =>
+        typeof candidate.props["onClick"] === "function" &&
+        textOf(candidate).replace(/\s+/gu, " ").trim() === "Reset filters"
+    );
+    expect(reset).toBeDefined();
+    (reset!.props["onClick"] as () => void)();
+    expect(resetFilters).toHaveBeenCalledOnce();
 
-    const active = item({ description: "", status: "active" })
-    const onArchive = vi.fn()
+    const active = item({ description: "", status: "active" });
+    const onArchive = vi.fn();
     const collectionTree = FeatureItemsCollection({
       onArchive,
       state: { type: "ready", items: [active] },
-    })
-    const collectionHtml = renderToStaticMarkup(collectionTree as ReactElement)
-    expect(collectionHtml).toContain("Active")
-    expect(collectionHtml).toContain("No description provided.")
-    const archive = findElement(collectionTree, (candidate) => (
-      candidate.props["aria-label"] === "Archive Original name"
-    ))
-    expect(archive).toBeDefined()
-    const trigger = { focus: vi.fn() } as unknown as HTMLButtonElement
-    ;(archive!.props["onClick"] as (
-      event: { currentTarget: HTMLButtonElement },
-    ) => void)({ currentTarget: trigger })
-    expect(onArchive).toHaveBeenCalledWith(active, trigger)
+    });
+    const collectionHtml = renderToStaticMarkup(collectionTree as ReactElement);
+    expect(collectionHtml).toContain("Active");
+    expect(collectionHtml).toContain("No description provided.");
+    const archive = findElement(
+      collectionTree,
+      (candidate) => candidate.props["aria-label"] === "Archive Original name"
+    );
+    expect(archive).toBeDefined();
+    const trigger = { focus: vi.fn() } as unknown as HTMLButtonElement;
+    (
+      archive!.props["onClick"] as (event: {
+        currentTarget: HTMLButtonElement;
+      }) => void
+    )({ currentTarget: trigger });
+    expect(onArchive).toHaveBeenCalledWith(active, trigger);
 
     const noHandlerTree = FeatureItemsCollection({
       state: { type: "ready", items: [active] },
-    })
-    const noHandlerArchive = findElement(noHandlerTree, (candidate) => (
-      candidate.props["aria-label"] === "Archive Original name"
-    ))
+    });
+    const noHandlerArchive = findElement(
+      noHandlerTree,
+      (candidate) => candidate.props["aria-label"] === "Archive Original name"
+    );
     return expect(() => {
-      ;return (noHandlerArchive!.props["onClick"] as (
-        event: { currentTarget: HTMLButtonElement },
-      ) => void)({ currentTarget: trigger })
-    }
-    ).not.toThrow()
-  })
-})
+      return (
+        noHandlerArchive!.props["onClick"] as (event: {
+          currentTarget: HTMLButtonElement;
+        }) => void
+      )({ currentTarget: trigger });
+    }).not.toThrow();
+  });
+});
 
-describe("single editor mutation lock", function() {
-  it("locks every editor surface while any mutation is pending", function() {
-    expect(isEditorMutationLocked({ saving: true, changingStatus: false, archiving: false })).toBe(true)
-    expect(isEditorMutationLocked({ saving: false, changingStatus: true, archiving: false })).toBe(true)
-    expect(isEditorMutationLocked({ saving: false, changingStatus: false, archiving: true })).toBe(true)
-    return expect(isEditorMutationLocked({ saving: false, changingStatus: false, archiving: false })).toBe(false)
-  })
+describe("single editor mutation lock", function () {
+  it("locks every editor surface while any mutation is pending", function () {
+    expect(
+      isEditorMutationLocked({
+        saving: true,
+        changingStatus: false,
+        archiving: false,
+      })
+    ).toBe(true);
+    expect(
+      isEditorMutationLocked({
+        saving: false,
+        changingStatus: true,
+        archiving: false,
+      })
+    ).toBe(true);
+    expect(
+      isEditorMutationLocked({
+        saving: false,
+        changingStatus: false,
+        archiving: true,
+      })
+    ).toBe(true);
+    return expect(
+      isEditorMutationLocked({
+        saving: false,
+        changingStatus: false,
+        archiving: false,
+      })
+    ).toBe(false);
+  });
 
-  it("rejects a second mutation while a delayed save owns the lock", async function() {
-    const guard = createEditorMutationGuard()
-    let releaseSave: (() => void) | undefined
+  it("rejects a second mutation while a delayed save owns the lock", async function () {
+    const guard = createEditorMutationGuard();
+    let releaseSave: (() => void) | undefined;
     const delayedSave = new Promise<void>((resolve) => {
-      return releaseSave = resolve
-    }
-    )
+      return (releaseSave = resolve);
+    });
 
-    expect(guard.isLocked()).toBe(false)
-    expect(guard.acquire()).toBe(true)
-    expect(guard.isLocked()).toBe(true)
-    const first = delayedSave.finally(guard.release)
-    expect(guard.acquire()).toBe(false)
-    releaseSave?.()
-    await first
-    expect(guard.acquire()).toBe(true)
-    guard.release()
-    return expect(guard.isLocked()).toBe(false)
-  })
-  
-  return it("associates the empty-name error with the field and exposes invalid state", function() {
+    expect(guard.isLocked()).toBe(false);
+    expect(guard.acquire()).toBe(true);
+    expect(guard.isLocked()).toBe(true);
+    const first = delayedSave.finally(guard.release);
+    expect(guard.acquire()).toBe(false);
+    releaseSave?.();
+    await first;
+    expect(guard.acquire()).toBe(true);
+    guard.release();
+    return expect(guard.isLocked()).toBe(false);
+  });
+
+  return it("associates the empty-name error with the field and exposes invalid state", function () {
     const html = renderToStaticMarkup(
       <EditorNameField
         disabled={false}
         error="Enter a name before saving."
         value=""
-      />,
-    )
-    expect(html).toContain("aria-invalid=\"true\"")
-    expect(html).toContain("aria-errormessage=\"edit-feature-name-error\"")
-    return expect(html).toContain("Enter a name before saving")
-  })
-})
+      />
+    );
+    expect(html).toContain('aria-invalid="true"');
+    expect(html).toContain('aria-errormessage="edit-feature-name-error"');
+    return expect(html).toContain("Enter a name before saving");
+  });
+});
 
-describe("typed recovery actions", function() {
-  it("preserves unauthorized, forbidden, not-found, and transient recovery kinds", function() {
-    expect(classifyFeatureFailure({ code: "UNAUTHORIZED" }).kind).toBe("unauthorized")
-    expect(classifyFeatureFailure({ code: "FORBIDDEN" }).kind).toBe("forbidden")
-    expect(classifyFeatureFailure({ code: "NOT_FOUND" }).kind).toBe("not-found")
-    expect(classifyFeatureFailure(new Error("private transport detail")).kind).toBe("unknown")
-    expect(classifyFeatureFailure("transport failed").kind).toBe("unknown")
-    expect(classifyFeatureFailure(null).kind).toBe("unknown")
-    expect(classifyFeatureFailure({ data: null }).kind).toBe("unknown")
-    expect(classifyFeatureFailure({ data: { code: 42 } }).kind).toBe("unknown")
-    expect(classifyFeatureFailure({
-      code: 42,
-      data: { code: "BAD_REQUEST" },
-    }).kind).toBe("validation")
-    expect(classifyFeatureFailure({ code: "BAD_REQUEST" }).kind).toBe("validation")
+describe("typed recovery actions", function () {
+  it("preserves unauthorized, forbidden, not-found, and transient recovery kinds", function () {
+    expect(classifyFeatureFailure({ code: "UNAUTHORIZED" }).kind).toBe(
+      "unauthorized"
+    );
+    expect(classifyFeatureFailure({ code: "FORBIDDEN" }).kind).toBe(
+      "forbidden"
+    );
+    expect(classifyFeatureFailure({ code: "NOT_FOUND" }).kind).toBe(
+      "not-found"
+    );
+    expect(
+      classifyFeatureFailure(new Error("private transport detail")).kind
+    ).toBe("unknown");
+    expect(classifyFeatureFailure("transport failed").kind).toBe("unknown");
+    expect(classifyFeatureFailure(null).kind).toBe("unknown");
+    expect(classifyFeatureFailure({ data: null }).kind).toBe("unknown");
+    expect(classifyFeatureFailure({ data: { code: 42 } }).kind).toBe("unknown");
+    expect(
+      classifyFeatureFailure({
+        code: 42,
+        data: { code: "BAD_REQUEST" },
+      }).kind
+    ).toBe("validation");
+    expect(classifyFeatureFailure({ code: "BAD_REQUEST" }).kind).toBe(
+      "validation"
+    );
 
     const unauthorized = renderToStaticMarkup(
-      <FeatureRecoveryAction kind="unauthorized" returnHref="/feature-items" />,
-    )
-    expect(unauthorized).toContain("/sign-in?callbackURL=%2Ffeature-items")
-    expect(unauthorized).toContain("Sign in again")
+      <FeatureRecoveryAction kind="unauthorized" returnHref="/feature-items" />
+    );
+    expect(unauthorized).toContain("/sign-in?callbackURL=%2Ffeature-items");
+    expect(unauthorized).toContain("Sign in again");
 
     const notFound = renderToStaticMarkup(
-      <FeatureRecoveryAction kind="not-found" returnHref="/feature-items" />,
-    )
-    expect(notFound).toContain("Return to feature items")
-    expect(notFound).not.toContain("Try again")
+      <FeatureRecoveryAction kind="not-found" returnHref="/feature-items" />
+    );
+    expect(notFound).toContain("Return to feature items");
+    expect(notFound).not.toContain("Try again");
 
     const transient = renderToStaticMarkup(
-      <FeatureRecoveryAction kind="transient" returnHref="/feature-items" />,
-    )
-    expect(transient).toContain("Try again")
+      <FeatureRecoveryAction kind="transient" returnHref="/feature-items" />
+    );
+    expect(transient).toContain("Try again");
 
     const dashboardReturn = renderToStaticMarkup(
-      <FeatureRecoveryAction kind="forbidden" returnHref="/dashboard" />,
-    )
-    expect(dashboardReturn).toContain("Return to dashboard")
-    return expect(dashboardReturn).toContain("href=\"/dashboard\"")
-  })
-  
-  return it("restores focus to the initiating control after inline confirmation closes", async function() {
-    const focus = vi.fn()
-    restorePortalFocus({ focus })
-    await Promise.resolve()
-    expect(focus).toHaveBeenCalledOnce()
-    restorePortalFocus(null)
-    await Promise.resolve()
-    return expect(focus).toHaveBeenCalledOnce()
-  })
-})
+      <FeatureRecoveryAction kind="forbidden" returnHref="/dashboard" />
+    );
+    expect(dashboardReturn).toContain("Return to dashboard");
+    return expect(dashboardReturn).toContain('href="/dashboard"');
+  });
 
-describe("archived and session recovery states", function() {
-  it("renders archived records as read-only views without a redundant archive action", function() {
-    const archived = item({ name: "Archived record", status: "archived" })
+  return it("restores focus to the initiating control after inline confirmation closes", async function () {
+    const focus = vi.fn();
+    restorePortalFocus({ focus });
+    await Promise.resolve();
+    expect(focus).toHaveBeenCalledOnce();
+    restorePortalFocus(null);
+    await Promise.resolve();
+    return expect(focus).toHaveBeenCalledOnce();
+  });
+});
+
+describe("archived and session recovery states", function () {
+  it("renders archived records as read-only views without a redundant archive action", function () {
+    const archived = item({ name: "Archived record", status: "archived" });
     const collection = renderToStaticMarkup(
-      <FeatureItemsCollection state={{ type: "ready", items: [archived] }} />,
-    )
-    expect(collection).toContain("View Archived record")
-    expect(collection).not.toContain("Archive Archived record")
+      <FeatureItemsCollection state={{ type: "ready", items: [archived] }} />
+    );
+    expect(collection).toContain("View Archived record");
+    expect(collection).not.toContain("Archive Archived record");
 
-    const notice = renderToStaticMarkup(<ArchivedFeatureItemNotice />)
-    expect(notice).toContain("read-only")
-    expect(notice).toContain("Archived records cannot be edited")
-    const detail = renderToStaticMarkup(<ArchivedFeatureItemDetails item={archived} />)
-    expect(detail).toContain("<dl")
-    expect(detail).not.toMatch(/<div><dt/u)
-    expect(detail).toContain("Archived record")
-    expect(detail).toContain("Original description")
-    expect(detail).toContain("whitespace-pre-wrap")
-    expect(detail).not.toContain("<input")
-    expect(detail).not.toContain("<select")
-    return expect(detail).not.toContain("Archive feature item")
-  })
+    const notice = renderToStaticMarkup(<ArchivedFeatureItemNotice />);
+    expect(notice).toContain("read-only");
+    expect(notice).toContain("Archived records cannot be edited");
+    const detail = renderToStaticMarkup(
+      <ArchivedFeatureItemDetails item={archived} />
+    );
+    expect(detail).toContain("<dl");
+    expect(detail).not.toMatch(/<div><dt/u);
+    expect(detail).toContain("Archived record");
+    expect(detail).toContain("Original description");
+    expect(detail).toContain("whitespace-pre-wrap");
+    expect(detail).not.toContain("<input");
+    expect(detail).not.toContain("<select");
+    return expect(detail).not.toContain("Archive feature item");
+  });
 
-  return it("returns an expired list session to the fixed feature-items callback", function() {
+  return it("returns an expired list session to the fixed feature-items callback", function () {
     const html = renderToStaticMarkup(
       <FeatureItemsCollection
         state={{
@@ -351,25 +415,35 @@ describe("archived and session recovery states", function() {
           kind: "unauthorized",
           message: "Your session ended.",
         }}
-      />,
-    )
-    return expect(html).toContain("/sign-in?callbackURL=%2Ffeature-items")
-  })
-})
+      />
+    );
+    return expect(html).toContain("/sign-in?callbackURL=%2Ffeature-items");
+  });
+});
 
-describe("mobile content resilience", function() {
-  return it("wraps long user content and includes description in final review", function() {
-    const unbroken = "x".repeat(200)
+describe("mobile content resilience", function () {
+  return it("wraps long user content and includes description in final review", function () {
+    const unbroken = "x".repeat(200);
     const collection = renderToStaticMarkup(
-      <FeatureItemsCollection state={{ type: "ready", items: [item({ name: unbroken, description: unbroken })] }} />,
-    )
-    expect(collection).toContain("overflow-wrap:anywhere")
+      <FeatureItemsCollection
+        state={{
+          type: "ready",
+          items: [item({ name: unbroken, description: unbroken })],
+        }}
+      />
+    );
+    expect(collection).toContain("overflow-wrap:anywhere");
 
     const review = renderToStaticMarkup(
-      <CreateWorkflowStep description="" name={unbroken} state="review" status="draft" />,
-    )
-    expect(review).toContain("Description")
-    expect(review).toContain("None provided")
-    return expect(review).toContain("overflow-wrap:anywhere")
-  })
-})
+      <CreateWorkflowStep
+        description=""
+        name={unbroken}
+        state="review"
+        status="draft"
+      />
+    );
+    expect(review).toContain("Description");
+    expect(review).toContain("None provided");
+    return expect(review).toContain("overflow-wrap:anywhere");
+  });
+});

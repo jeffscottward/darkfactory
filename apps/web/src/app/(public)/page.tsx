@@ -1,23 +1,27 @@
-import { PublicLink } from "./_components/public-content.tsx"
+import { PublicLink } from "./_components/public-content.tsx";
 
 const requestPath = [
   {
     label: "Interface",
-    detail: "A neutral Feature Item flow demonstrates useful states without prescribing a product domain.",
+    detail:
+      "A neutral Feature Item flow demonstrates useful states without prescribing a product domain.",
   },
   {
     label: "Contract",
-    detail: "Typed oRPC procedures and schemas define the browser-to-server boundary once.",
+    detail:
+      "Typed oRPC procedures and schemas define the browser-to-server boundary once.",
   },
   {
     label: "Application",
-    detail: "Services coordinate authorization, persistence, and provider ports without framework business logic.",
+    detail:
+      "Services coordinate authorization, persistence, and provider ports without framework business logic.",
   },
   {
     label: "Evidence",
-    detail: "PostgreSQL state, semantic events, traces, analytics, and tests leave an inspectable trail.",
+    detail:
+      "PostgreSQL state, semantic events, traces, analytics, and tests leave an inspectable trail.",
   },
-] as const
+] as const;
 
 const foundationLayers = [
   {
@@ -38,12 +42,13 @@ const foundationLayers = [
     href: "/solutions",
     link: "See adaptation examples",
   },
-] as const
+] as const;
 
 export const metadata = {
   title: "Application foundation",
-  description: "A candid, domain-neutral foundation for production applications and inspectable AI workflows.",
-}
+  description:
+    "A candid, domain-neutral foundation for production applications and inspectable AI workflows.",
+};
 
 export default function HomePage() {
   return (
@@ -63,14 +68,13 @@ export default function HomePage() {
             Build the product. Keep the foundation legible.
           </h1>
           <p className="max-w-reading text-lg leading-8 text-muted-foreground">
-            DarkFactory connects a refined public surface, an authenticated portal,
-            typed contracts, PostgreSQL persistence, and observable operations. The
-            seams stay explicit so a team can adapt the system without first removing
-            someone else’s business model.
+            DarkFactory connects a refined public surface, an authenticated
+            portal, typed contracts, PostgreSQL persistence, and observable
+            operations. The seams stay explicit so a team can adapt the system
+            without first removing someone else’s business model.
           </p>
           <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap">
-            <PublicLink href="/features">Explore the foundation
-            </PublicLink>
+            <PublicLink href="/features">Explore the foundation</PublicLink>
             <PublicLink href="#foundation-capabilities" variant="secondary">
               Read the foundation
             </PublicLink>
@@ -84,8 +88,8 @@ export default function HomePage() {
             Opinionated about structure. Quiet about your domain.
           </p>
           <p className="mt-4 text-base leading-7 text-muted-foreground">
-            Core choices are documented. Optional infrastructure is declared. Example
-            product language is kept neutral and labeled for what it is.
+            Core choices are documented. Optional infrastructure is declared.
+            Example product language is kept neutral and labeled for what it is.
           </p>
           <a
             className="mt-6 inline-flex min-h-11 items-center font-semibold text-primary underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
@@ -114,8 +118,8 @@ export default function HomePage() {
               A small core with visible extension points.
             </h2>
             <p className="mt-5 text-base leading-7 text-muted-foreground">
-              The architecture distinguishes what every project needs from what a
-              particular deployment may enable.
+              The architecture distinguishes what every project needs from what
+              a particular deployment may enable.
             </p>
             <PublicLink className="mt-4" href="#request-path" variant="link">
               Trace one request
@@ -123,7 +127,10 @@ export default function HomePage() {
           </div>
           <dl className="divide-y divide-border border-y border-border md:col-span-7 md:col-start-6">
             {foundationLayers.map((layer, index) => (
-              <div className="grid gap-4 py-8 sm:grid-cols-12" key={layer.title}>
+              <div
+                className="grid gap-4 py-8 sm:grid-cols-12"
+                key={layer.title}
+              >
                 <dt className="sm:col-span-5">
                   <span
                     aria-hidden="true"
@@ -146,7 +153,7 @@ export default function HomePage() {
                     {layer.link}
                   </a>
                 </dd>
-            </div>
+              </div>
             ))}
           </dl>
         </div>
@@ -170,8 +177,8 @@ export default function HomePage() {
               Follow behavior instead of guessing at wiring.
             </h2>
             <p className="mt-5 max-w-reading text-base leading-7 text-muted-foreground">
-              The neutral slice is not a product recommendation. It is working evidence
-              of the boundaries a real feature will cross.
+              The neutral slice is not a product recommendation. It is working
+              evidence of the boundaries a real feature will cross.
             </p>
           </div>
           <ol className="grid gap-8 md:col-span-6 md:col-start-7">
@@ -191,13 +198,16 @@ export default function HomePage() {
                     {step.detail}
                   </p>
                 </div>
-            </li>
+              </li>
             ))}
           </ol>
         </div>
       </section>
 
-      <section aria-labelledby="home-next-title" className="border-t border-border bg-muted">
+      <section
+        aria-labelledby="home-next-title"
+        className="border-t border-border bg-muted"
+      >
         <div className="df-container grid gap-8 py-16 md:grid-cols-12 md:items-end md:py-20">
           <div className="md:col-span-7">
             <p className="text-sm font-semibold tracking-wide text-primary">
@@ -214,11 +224,10 @@ export default function HomePage() {
             <PublicLink href="/resources" variant="secondary">
               Open the source index
             </PublicLink>
-            <PublicLink href="/sign-in">Sign in to the portal
-            </PublicLink>
+            <PublicLink href="/sign-in">Sign in to the portal</PublicLink>
           </div>
         </div>
       </section>
-  </>
-  )
+    </>
+  );
 }

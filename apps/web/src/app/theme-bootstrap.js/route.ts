@@ -1,4 +1,4 @@
-import { THEME_BOOTSTRAP_SCRIPT } from "../../lib/theme.ts"
+import { THEME_BOOTSTRAP_SCRIPT } from "../../lib/theme.ts";
 
 export function GET() {
   return new Response(THEME_BOOTSTRAP_SCRIPT, {
@@ -7,5 +7,5 @@ export function GET() {
       "Content-Type": "text/javascript; charset=utf-8",
       "X-Content-Type-Options": "nosniff",
     },
-  })
+  });
 }

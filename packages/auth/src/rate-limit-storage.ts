@@ -1,40 +1,40 @@
-import { eq, sql } from "drizzle-orm"
+import { eq, sql } from "drizzle-orm";
 
-import { rateLimit as rateLimitRows } from "@darkfactory/db/schema"
-import type { DatabaseExecutor } from "@darkfactory/db/server"
+import { rateLimit as rateLimitRows } from "@darkfactory/db/schema";
+import type { DatabaseExecutor } from "@darkfactory/db/server";
 
-const MAX_RATE_LIMIT_WINDOW_MILLISECONDS = 60_000
-const CLEANUP_BATCH_SIZE = 100
+const MAX_RATE_LIMIT_WINDOW_MILLISECONDS = 60_000;
+const CLEANUP_BATCH_SIZE = 100;
 
 export type AuthRateLimitValue = Readonly<{
-  key: string
-  count: number
-  lastRequest: number
-}>
+  key: string;
+  count: number;
+  lastRequest: number;
+}>;
 
 export type AuthRateLimitDecision = Readonly<{
-  allowed: boolean
-  retryAfter: number | null
-}>
+  allowed: boolean;
+  retryAfter: number | null;
+}>;
 
 export interface AtomicAuthRateLimitStorage {
-  readonly get: (key: string) => Promise<AuthRateLimitValue | null>
+  readonly get: (key: string) => Promise<AuthRateLimitValue | null>;
   readonly set: (
     key: string,
     value: AuthRateLimitValue,
-    update?: boolean | undefined,
-  ) => Promise<void>
+    update?: boolean | undefined
+  ) => Promise<void>;
   readonly consume: (
     key: string,
-    rule: Readonly<{ window: number; max: number }>,
-  ) => Promise<AuthRateLimitDecision>
+    rule: Readonly<{ window: number; max: number }>
+  ) => Promise<AuthRateLimitDecision>;
 }
 
-type QueryRows<Row> = Readonly<{ rows: Row[] }>
+type QueryRows<Row> = Readonly<{ rows: Row[] }>;
 type DecisionRow = Readonly<{
-  allowed: boolean
-  retry_after_seconds: number | null
-}>
+  allowed: boolean;
+  retry_after_seconds: number | null;
+}>;
 
 const assertRule = (rule: Readonly<{ window: number; max: number }>): void => {
   if (
@@ -44,43 +44,46 @@ const assertRule = (rule: Readonly<{ window: number; max: number }>): void => {
     !Number.isSafeInteger(rule.max) ||
     rule.max <= 0
   ) {
-    throw new RangeError("Auth rate limit rule is outside the supported bounds")
+    throw new RangeError(
+      "Auth rate limit rule is outside the supported bounds"
+    );
   }
-}
+};
 
 export const createAtomicAuthRateLimitStorage = (
-  database: DatabaseExecutor,
-): AtomicAuthRateLimitStorage => Object.freeze({
-  get: async (key: string): Promise<AuthRateLimitValue | null> => {
-    const [row] = await database
-      .select({
-        key: rateLimitRows.key,
-        count: rateLimitRows.count,
-        lastRequest: rateLimitRows.lastRequest,
-      })
-      .from(rateLimitRows)
-      .where(eq(rateLimitRows.key, key))
-      .limit(1)
-    return row ?? null
-  },
-  set: async (key: string, value: AuthRateLimitValue): Promise<void> => {
-    await database.execute(sql`
+  database: DatabaseExecutor
+): AtomicAuthRateLimitStorage =>
+  Object.freeze({
+    get: async (key: string): Promise<AuthRateLimitValue | null> => {
+      const [row] = await database
+        .select({
+          key: rateLimitRows.key,
+          count: rateLimitRows.count,
+          lastRequest: rateLimitRows.lastRequest,
+        })
+        .from(rateLimitRows)
+        .where(eq(rateLimitRows.key, key))
+        .limit(1);
+      return row ?? null;
+    },
+    set: async (key: string, value: AuthRateLimitValue): Promise<void> => {
+      await database.execute(sql`
       insert into rate_limit (id, key, count, last_request)
       values (${globalThis.crypto.randomUUID()}, ${key}, ${value.count}, ${value.lastRequest})
       on conflict (key) do update set
         count = excluded.count,
         last_request = excluded.last_request
-    `)
-  },
-  consume: async (
-    key: string,
-    rule: Readonly<{ window: number; max: number }>,
-  ): Promise<AuthRateLimitDecision> => {
-    assertRule(rule)
-    const now = Date.now()
-    const windowMilliseconds = rule.window * 1_000
-    const consumeOnce = async (): Promise<DecisionRow | undefined> => {
-      const decisionResult = await database.execute(sql`
+    `);
+    },
+    consume: async (
+      key: string,
+      rule: Readonly<{ window: number; max: number }>
+    ): Promise<AuthRateLimitDecision> => {
+      assertRule(rule);
+      const now = Date.now();
+      const windowMilliseconds = rule.window * 1_000;
+      const consumeOnce = async (): Promise<DecisionRow | undefined> => {
+        const decisionResult = await database.execute(sql`
         with attempted as (
           insert into rate_limit (id, key, count, last_request)
           values (${globalThis.crypto.randomUUID()}, ${key}, 1, ${now})
@@ -109,20 +112,18 @@ export const createAtomicAuthRateLimitStorage = (
         where key = ${key}
           and not exists (select 1 from attempted)
         limit 1
-      `)
-      return (
-        decisionResult as unknown as QueryRows<DecisionRow>
-      ).rows[0]
-    }
-    let decision = await consumeOnce()
-    if (decision === undefined) {
-      decision = await consumeOnce()
-    }
-    if (decision === undefined) {
-      throw new Error("Auth rate limiter did not return a decision")
-    }
+      `);
+        return (decisionResult as unknown as QueryRows<DecisionRow>).rows[0];
+      };
+      let decision = await consumeOnce();
+      if (decision === undefined) {
+        decision = await consumeOnce();
+      }
+      if (decision === undefined) {
+        throw new Error("Auth rate limiter did not return a decision");
+      }
 
-    await database.execute(sql`
+      await database.execute(sql`
       delete from rate_limit
       where id in (
         select id
@@ -132,11 +133,11 @@ export const createAtomicAuthRateLimitStorage = (
         limit ${CLEANUP_BATCH_SIZE}
         for update skip locked
       )
-    `)
+    `);
 
-    return {
-      allowed: decision.allowed,
-      retryAfter: decision.retry_after_seconds,
-    }
-  }
-})
+      return {
+        allowed: decision.allowed,
+        retryAfter: decision.retry_after_seconds,
+      };
+    },
+  });

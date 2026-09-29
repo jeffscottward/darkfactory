@@ -1,14 +1,11 @@
-import { describe, expect, it } from "vitest"
+import { describe, expect, it } from "vitest";
 
-import {
-  createDisabledAnalyticsPort,
-  type AnalyticsCapture,
-} from "./index.ts"
+import { createDisabledAnalyticsPort, type AnalyticsCapture } from "./index.ts";
 import {
   createAnalyticsCapture,
   createRecordingAnalyticsPort,
-} from "./test.ts"
-import { snapshotAnalyticsCapture } from "./validation.ts"
+} from "./test.ts";
+import { snapshotAnalyticsCapture } from "./validation.ts";
 
 const plainCapture = (): AnalyticsCapture => ({
   consent: "granted",
@@ -21,196 +18,237 @@ const plainCapture = (): AnalyticsCapture => ({
     outcome: "success",
     source: "api",
   },
-})
+});
 
 const malformedCaptureCases: ReadonlyArray<
   readonly [string, () => AnalyticsCapture]
 > = [
-  ["getter", () => ({
-    ...plainCapture(),
-    get event() {
-      return "member@domain.test"
-    }
-  })],
-  ["proxy", () => new Proxy(plainCapture(), {
-    getOwnPropertyDescriptor: () => {
-      throw new Error("private proxy failure")
-    }
-  })],
-  ["throwing accessor", () => ({
-    ...plainCapture(),
-    get consent(): "granted" {
-      throw new Error("private accessor failure")
-    }
-  })],
-  ["non-enumerable field", () => {
-    const capture = plainCapture()
-    Object.defineProperty(capture, "email", {
-      enumerable: false,
-      value: "member@domain.test",
-    })
-    return capture
-  }
+  [
+    "getter",
+    () => ({
+      ...plainCapture(),
+      get event() {
+        return "member@domain.test";
+      },
+    }),
   ],
-  ["symbol field", () => ({
-    ...plainCapture(),
-    [Symbol("email")]: "member@domain.test",
-  })],
-  ["inherited field", () => {
-    const capture = plainCapture() as Record<string, unknown>
-    const { consent, ...ownFields } = capture
-    return Object.assign(Object.create({ consent }), ownFields) as AnalyticsCapture
-  }
+  [
+    "proxy",
+    () =>
+      new Proxy(plainCapture(), {
+        getOwnPropertyDescriptor: () => {
+          throw new Error("private proxy failure");
+        },
+      }),
   ],
-  ["array properties", () => ({
-    ...plainCapture(),
-    properties: [],
-  }) as never],
-  ["custom prototype", () => {
-    return Object.setPrototypeOf(plainCapture(), { privateField: true })
-  }],
-  ["nested property", () => ({
-    ...plainCapture(),
-    properties: { action: { email: "member@domain.test" } },
-  }) as never],
-  ["cyclic property", () => {
-    const value: Record<string, unknown> = {}
-    value["action"] = value
-    return { ...plainCapture(), properties: value } as never
-  }
+  [
+    "throwing accessor",
+    () => ({
+      ...plainCapture(),
+      get consent(): "granted" {
+        throw new Error("private accessor failure");
+      },
+    }),
   ],
-  ["BigInt property", () => ({
-    ...plainCapture(),
-    properties: { action: 1n },
-  }) as never],
-  ["excess fields", () => {
-    const capture = plainCapture() as Record<string, unknown>
-    for (let index = 0; index < 1_000; index += 1) {
-      capture[`extra-${index}`] = index
-    }
-    return capture as AnalyticsCapture
-  }
+  [
+    "non-enumerable field",
+    () => {
+      const capture = plainCapture();
+      Object.defineProperty(capture, "email", {
+        enumerable: false,
+        value: "member@domain.test",
+      });
+      return capture;
+    },
   ],
-  ["oversized timestamp", () => ({
-    ...plainCapture(),
-    timestamp: "0".repeat(100_000),
-  })],
-  ["unknown top-level field", () => ({
-    ...plainCapture(),
-    email: "member@domain.test",
-  })],
-]
+  [
+    "symbol field",
+    () => ({
+      ...plainCapture(),
+      [Symbol("email")]: "member@domain.test",
+    }),
+  ],
+  [
+    "inherited field",
+    () => {
+      const capture = plainCapture() as Record<string, unknown>;
+      const { consent, ...ownFields } = capture;
+      return Object.assign(
+        Object.create({ consent }),
+        ownFields
+      ) as AnalyticsCapture;
+    },
+  ],
+  [
+    "array properties",
+    () =>
+      ({
+        ...plainCapture(),
+        properties: [],
+      }) as never,
+  ],
+  [
+    "custom prototype",
+    () => {
+      return Object.setPrototypeOf(plainCapture(), { privateField: true });
+    },
+  ],
+  [
+    "nested property",
+    () =>
+      ({
+        ...plainCapture(),
+        properties: { action: { email: "member@domain.test" } },
+      }) as never,
+  ],
+  [
+    "cyclic property",
+    () => {
+      const value: Record<string, unknown> = {};
+      value["action"] = value;
+      return { ...plainCapture(), properties: value } as never;
+    },
+  ],
+  [
+    "BigInt property",
+    () =>
+      ({
+        ...plainCapture(),
+        properties: { action: 1n },
+      }) as never,
+  ],
+  [
+    "excess fields",
+    () => {
+      const capture = plainCapture() as Record<string, unknown>;
+      for (let index = 0; index < 1_000; index += 1) {
+        capture[`extra-${index}`] = index;
+      }
+      return capture as AnalyticsCapture;
+    },
+  ],
+  [
+    "oversized timestamp",
+    () => ({
+      ...plainCapture(),
+      timestamp: "0".repeat(100_000),
+    }),
+  ],
+  [
+    "unknown top-level field",
+    () => ({
+      ...plainCapture(),
+      email: "member@domain.test",
+    }),
+  ],
+];
 
 describe("AnalyticsPort contract", () => {
   it.each([
     ["denied", "consent-denied"],
     ["unknown", "consent-unknown"],
   ] as const)("skips %s consent without recording", async (consent, reason) => {
-    const analytics = createRecordingAnalyticsPort()
+    const analytics = createRecordingAnalyticsPort();
 
-    const result = await analytics.capture(createAnalyticsCapture({ consent }))
+    const result = await analytics.capture(createAnalyticsCapture({ consent }));
 
-    expect(result).toEqual({ status: "skipped", reason })
-    return expect(analytics.captures).toEqual([])
-  }
-  )
+    expect(result).toEqual({ status: "skipped", reason });
+    return expect(analytics.captures).toEqual([]);
+  });
 
   it("records an immutable snapshot and returns the event correlation", async () => {
-    const analytics = createRecordingAnalyticsPort()
+    const analytics = createRecordingAnalyticsPort();
     const input = createAnalyticsCapture({
       eventId: "event-002",
       properties: { action: "created", entityType: "feature-item" },
-    })
+    });
 
-    const result = await analytics.capture(input)
+    const result = await analytics.capture(input);
 
-    expect(result).toEqual({ status: "captured", eventId: "event-002" })
-    expect(analytics.captures).toEqual([input])
-    expect(Object.isFrozen(analytics.captures[0])).toBe(true)
-    return expect(Object.isFrozen(analytics.captures[0]?.properties)).toBe(true)
-  }
-  )
+    expect(result).toEqual({ status: "captured", eventId: "event-002" });
+    expect(analytics.captures).toEqual([input]);
+    expect(Object.isFrozen(analytics.captures[0])).toBe(true);
+    return expect(Object.isFrozen(analytics.captures[0]?.properties)).toBe(
+      true
+    );
+  });
 
   it("isolates recorded snapshots from later caller mutation", async () => {
-    const analytics = createRecordingAnalyticsPort()
+    const analytics = createRecordingAnalyticsPort();
     const properties = {
       action: "created",
       entityType: "feature-item",
       outcome: "success" as const,
       source: "api" as const,
-    }
+    };
     const input = {
       consent: "granted" as const,
       distinctId: "actor-001",
       event: "feature-item.created",
       eventId: "event-001",
       properties,
-    }
+    };
 
-    await analytics.capture(input)
-    input.eventId = "event-mutated"
-    properties.action = "deleted"
+    await analytics.capture(input);
+    input.eventId = "event-mutated";
+    properties.action = "deleted";
 
     return expect(analytics.captures[0]).toMatchObject({
       eventId: "event-001",
       properties: { action: "created" },
-    })
-  }
-  )
+    });
+  });
 
   it("preserves deterministic invocation order for concurrent captures", async () => {
-    const analytics = createRecordingAnalyticsPort()
+    const analytics = createRecordingAnalyticsPort();
 
     await Promise.all([
       analytics.capture(createAnalyticsCapture({ eventId: "event-001" })),
       analytics.capture(createAnalyticsCapture({ eventId: "event-002" })),
       analytics.capture(createAnalyticsCapture({ eventId: "event-003" })),
-    ])
+    ]);
 
     expect(analytics.captures.map(({ eventId }) => eventId)).toEqual([
       "event-001",
       "event-002",
       "event-003",
-    ])
-    analytics.clear()
-    return expect(analytics.captures).toEqual([])
-  }
-  )
+    ]);
+    analytics.clear();
+    return expect(analytics.captures).toEqual([]);
+  });
 
   it("rejects unknown or PII property keys before recording", async () => {
-    const analytics = createRecordingAnalyticsPort()
+    const analytics = createRecordingAnalyticsPort();
     const invalid = createAnalyticsCapture({
       properties: {
         action: "created",
         email: "member@domain.test",
       } as never,
-    })
+    });
 
     expect(await analytics.capture(invalid)).toEqual({
       status: "failed",
       category: "invalid-capture",
       retryable: false,
-    })
-    return expect(analytics.captures).toEqual([])
-  }
-  )
+    });
+    return expect(analytics.captures).toEqual([]);
+  });
 
-  it.each(malformedCaptureCases)(
-    "rejects malformed %s captures across local ports",
-    async (_name, buildCapture) => {
-      const recording = createRecordingAnalyticsPort()
-      const ports = [recording, createDisabledAnalyticsPort()]
+  it.each(
+    malformedCaptureCases
+  )("rejects malformed %s captures across local ports", async (_name, buildCapture) => {
+    const recording = createRecordingAnalyticsPort();
+    const ports = [recording, createDisabledAnalyticsPort()];
 
-      for (const analytics of ports) {
-        await expect(analytics.capture(buildCapture())).resolves.toEqual({
-          status: "failed",
-          category: "invalid-capture",
-          retryable: false,
-        })
-      }
-      return expect(recording.captures).toEqual([])
+    for (const analytics of ports) {
+      await expect(analytics.capture(buildCapture())).resolves.toEqual({
+        status: "failed",
+        category: "invalid-capture",
+        retryable: false,
+      });
     }
-  )
+    return expect(recording.captures).toEqual([]);
+  });
 
   it.each([
     { distinctId: "member@domain.test" },
@@ -219,39 +257,36 @@ describe("AnalyticsPort contract", () => {
     { properties: { action: "contains private text" } },
     { properties: { outcome: "maybe" } },
     { properties: { requestId: "request with spaces" } },
-  ] as Array<Partial<AnalyticsCapture>>)(
-    "rejects unsafe capture values %#",
-    async (overrides) => {
-      const analytics = createRecordingAnalyticsPort()
-      const result = await analytics.capture(createAnalyticsCapture(overrides))
+  ] as Array<
+    Partial<AnalyticsCapture>
+  >)("rejects unsafe capture values %#", async (overrides) => {
+    const analytics = createRecordingAnalyticsPort();
+    const result = await analytics.capture(createAnalyticsCapture(overrides));
 
-      expect(result).toEqual({
-        status: "failed",
-        category: "invalid-capture",
-        retryable: false,
-      })
-      return expect(analytics.captures).toEqual([])
-    }
-  )
+    expect(result).toEqual({
+      status: "failed",
+      category: "invalid-capture",
+      retryable: false,
+    });
+    return expect(analytics.captures).toEqual([]);
+  });
 
   it("returns an explicit disabled result without retaining input", async () => {
-    const analytics = createDisabledAnalyticsPort()
+    const analytics = createDisabledAnalyticsPort();
 
     return expect(await analytics.capture(createAnalyticsCapture())).toEqual({
       status: "skipped",
       reason: "disabled",
-    })
-  }
-  )
+    });
+  });
 
   it("gives consent refusal precedence over disabled configuration", async () => {
-    const analytics = createDisabledAnalyticsPort()
+    const analytics = createDisabledAnalyticsPort();
 
     return expect(
-      await analytics.capture(createAnalyticsCapture({ consent: "unknown" })),
-    ).toEqual({ status: "skipped", reason: "consent-unknown" })
-  }
-  )
+      await analytics.capture(createAnalyticsCapture({ consent: "unknown" }))
+    ).toEqual({ status: "skipped", reason: "consent-unknown" });
+  });
   it.each([
     null,
     "capture",
@@ -259,46 +294,55 @@ describe("AnalyticsPort contract", () => {
     true,
     [],
   ])("rejects non-record top-level captures %#", (input) => {
-    return expect(snapshotAnalyticsCapture(input)).toBeUndefined()
-  }
-  )
+    return expect(snapshotAnalyticsCapture(input)).toBeUndefined();
+  });
 
-  it("accepts only canonical ISO timestamps", function() {
-    const canonical = "2026-07-23T12:34:56.000Z"
+  it("accepts only canonical ISO timestamps", function () {
+    const canonical = "2026-07-23T12:34:56.000Z";
 
-    expect(snapshotAnalyticsCapture({
-      ...plainCapture(),
-      timestamp: canonical,
-    })?.timestamp).toBe(canonical)
-    expect(snapshotAnalyticsCapture({
-      ...plainCapture(),
-      timestamp: "2026-07-23",
-    })).toBeUndefined()
-    return expect(snapshotAnalyticsCapture({
-      ...plainCapture(),
-      timestamp: 1,
-    })).toBeUndefined()
-  })
+    expect(
+      snapshotAnalyticsCapture({
+        ...plainCapture(),
+        timestamp: canonical,
+      })?.timestamp
+    ).toBe(canonical);
+    expect(
+      snapshotAnalyticsCapture({
+        ...plainCapture(),
+        timestamp: "2026-07-23",
+      })
+    ).toBeUndefined();
+    return expect(
+      snapshotAnalyticsCapture({
+        ...plainCapture(),
+        timestamp: 1,
+      })
+    ).toBeUndefined();
+  });
 
-  it("rejects unknown consent before snapshotting", function() {
-    return expect(snapshotAnalyticsCapture({
-      ...plainCapture(),
-      consent: "maybe",
-    })).toBeUndefined()
-  })
+  it("rejects unknown consent before snapshotting", function () {
+    return expect(
+      snapshotAnalyticsCapture({
+        ...plainCapture(),
+        consent: "maybe",
+      })
+    ).toBeUndefined();
+  });
 
-  it("rejects unsafe event identifiers before snapshotting", function() {
-    return expect(snapshotAnalyticsCapture({
-      ...plainCapture(),
-      eventId: "event id",
-    })).toBeUndefined()
-  })
+  it("rejects unsafe event identifiers before snapshotting", function () {
+    return expect(
+      snapshotAnalyticsCapture({
+        ...plainCapture(),
+        eventId: "event id",
+      })
+    ).toBeUndefined();
+  });
 
-  it("omits absent optional properties from the canonical snapshot", function() {
+  it("omits absent optional properties from the canonical snapshot", function () {
     const snapshot = snapshotAnalyticsCapture({
       ...plainCapture(),
       properties: {},
-    })
+    });
 
     expect(snapshot).toEqual({
       consent: "granted",
@@ -306,10 +350,10 @@ describe("AnalyticsPort contract", () => {
       event: "feature-item.created",
       eventId: "event-001",
       properties: {},
-    })
-    expect(Object.isFrozen(snapshot)).toBe(true)
-    return expect(Object.isFrozen(snapshot?.properties)).toBe(true)
-  })
+    });
+    expect(Object.isFrozen(snapshot)).toBe(true);
+    return expect(Object.isFrozen(snapshot?.properties)).toBe(true);
+  });
 
   it.each([
     { entityId: "entity with spaces" },
@@ -318,37 +362,36 @@ describe("AnalyticsPort contract", () => {
     { source: "browser" },
     { source: 1 },
   ])("rejects unsafe optional property values %#", async (properties) => {
-    const analytics = createRecordingAnalyticsPort()
+    const analytics = createRecordingAnalyticsPort();
 
     await expect(
-      analytics.capture(createAnalyticsCapture({ properties: properties as never })),
+      analytics.capture(
+        createAnalyticsCapture({ properties: properties as never })
+      )
     ).resolves.toEqual({
       status: "failed",
       category: "invalid-capture",
       retryable: false,
-    })
-    return expect(analytics.captures).toEqual([])
-  }
-  )
+    });
+    return expect(analytics.captures).toEqual([]);
+  });
 
-  return it("rejects disappearing and non-enumerable data fields without reading them", function() {
+  return it("rejects disappearing and non-enumerable data fields without reading them", function () {
     const disappearing = new Proxy(plainCapture(), {
       getOwnPropertyDescriptor: (target, key) => {
-        if (key === "event") return undefined
-        return Reflect.getOwnPropertyDescriptor(target, key)
-      }
-    })
-    const hidden = plainCapture()
+        if (key === "event") return undefined;
+        return Reflect.getOwnPropertyDescriptor(target, key);
+      },
+    });
+    const hidden = plainCapture();
     Object.defineProperty(hidden, "event", {
       configurable: true,
       enumerable: false,
       value: "feature-item.created",
       writable: true,
-    })
+    });
 
-    expect(snapshotAnalyticsCapture(disappearing)).toBeUndefined()
-    return expect(snapshotAnalyticsCapture(hidden)).toBeUndefined()
-  })
-}
-
-)
+    expect(snapshotAnalyticsCapture(disappearing)).toBeUndefined();
+    return expect(snapshotAnalyticsCapture(hidden)).toBeUndefined();
+  });
+});

@@ -1,10 +1,9 @@
-import { Skeleton } from "@darkfactory/ui"
+import { Skeleton } from "@darkfactory/ui";
 
 export default function FeatureItemsLoading() {
   return (
     <div aria-busy="true" className="space-y-10" role="status">
-      <span className="sr-only">Loading feature items page
-      </span>
+      <span className="sr-only">Loading feature items page</span>
       <div className="space-y-3 border-b border-border pb-6">
         <Skeleton className="h-4 w-24" />
         <Skeleton className="h-8 w-56" />
@@ -15,6 +14,6 @@ export default function FeatureItemsLoading() {
         <Skeleton className="h-20 w-full" />
         <Skeleton className="h-20 w-full" />
       </div>
-  </div>
-  )
+    </div>
+  );
 }

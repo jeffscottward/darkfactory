@@ -1,198 +1,209 @@
-import type { ReactElement } from "react"
-import { renderToStaticMarkup } from "react-dom/server"
-import { afterEach, describe, expect, it, vi } from "vitest"
+import type { ReactElement } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 const reactHarness = vi.hoisted(() => {
-  type Effect = () => void | (() => void)
-  type Setter = (next: unknown) => void
-  type StatePair = readonly [unknown, Setter]
+  type Effect = () => void | (() => void);
+  type Setter = (next: unknown) => void;
+  type StatePair = readonly [unknown, Setter];
 
-  let cursor = 0
-  let effects: Effect[] = []
-  let pairs: StatePair[] = []
+  let cursor = 0;
+  let effects: Effect[] = [];
+  let pairs: StatePair[] = [];
 
   return {
     begin: (nextPairs: readonly StatePair[]): void => {
-      cursor = 0
-      effects = []
-      pairs = [...nextPairs]
+      cursor = 0;
+      effects = [];
+      pairs = [...nextPairs];
     },
     reset: (): void => {
-      cursor = 0
-      effects = []
-      pairs = []
+      cursor = 0;
+      effects = [];
+      pairs = [];
     },
     runEffect: (index = 0): (() => void) | undefined => {
-      const cleanup = effects[index]?.()
-      return typeof cleanup === "function" ? cleanup : undefined
+      const cleanup = effects[index]?.();
+      return typeof cleanup === "function" ? cleanup : undefined;
     },
     useEffect: (effect: Effect, _deps?: readonly unknown[]): void => {
-      effects.push(effect)
+      effects.push(effect);
     },
-    useState: <Value,>(
-      initializer: Value | (() => Value),
-    ): readonly [Value, (next: Value | ((current: Value) => Value)) => void] => {
-      const injected = pairs[cursor++]
+    useState: <Value>(
+      initializer: Value | (() => Value)
+    ): readonly [
+      Value,
+      (next: Value | ((current: Value) => Value)) => void,
+    ] => {
+      const injected = pairs[cursor++];
       if (injected !== undefined) {
         return injected as unknown as readonly [
           Value,
           (next: Value | ((current: Value) => Value)) => void,
-        ]
+        ];
       }
-      let current = typeof initializer === "function"
-        ? (initializer as () => Value)()
-        : initializer
+      let current =
+        typeof initializer === "function"
+          ? (initializer as () => Value)()
+          : initializer;
       return [
         current,
         (next) => {
-          return current = typeof next === "function"
-            ? (next as (value: Value) => Value)(current)
-            : next
-        }
-      ]
-    }
-  }
-}
-)
+          return (current =
+            typeof next === "function"
+              ? (next as (value: Value) => Value)(current)
+              : next);
+        },
+      ];
+    },
+  };
+});
 
 const formHarness = vi.hoisted(() => {
-  type Values = Record<string, string>
+  type Values = Record<string, string>;
   type State = {
-    values: Values
-    isValid: boolean
-    canSubmit: boolean
-    isSubmitting: boolean
-  }
+    values: Values;
+    isValid: boolean;
+    canSubmit: boolean;
+    isSubmitting: boolean;
+  };
   type Setup = Partial<Omit<State, "values">> & {
-    values?: Values
-    handleSubmit?: () => Promise<void>
-  }
+    values?: Values;
+    handleSubmit?: () => Promise<void>;
+  };
   type Options = {
-    defaultValues: Values
-    onSubmit: (input: { value: Values }) => Promise<void> | void
-  }
+    defaultValues: Values;
+    onSubmit: (input: { value: Values }) => Promise<void> | void;
+  };
 
-  const Field = (_props: unknown): null => null
-  const Subscribe = (_props: unknown): null => null
-  let currentOptions: Options | undefined
-  let handleSubmit = async (): Promise<void> => { undefined}
+  const Field = (_props: unknown): null => null;
+  const Subscribe = (_props: unknown): null => null;
+  let currentOptions: Options | undefined;
+  let handleSubmit = async (): Promise<void> => {
+    undefined;
+  };
   let state: State = {
     values: {},
     isValid: true,
     canSubmit: true,
     isSubmitting: false,
-  }
+  };
 
   const begin = (setup: Setup = {}): void => {
-    currentOptions = undefined
-    handleSubmit = setup.handleSubmit ?? (async () => undefined)
+    currentOptions = undefined;
+    handleSubmit = setup.handleSubmit ?? (async () => undefined);
     state = {
       values: setup.values ?? {},
       isValid: setup.isValid ?? true,
       canSubmit: setup.canSubmit ?? true,
       isSubmitting: setup.isSubmitting ?? false,
-    }
-  }
+    };
+  };
 
   return {
     Field,
     Subscribe,
     begin,
     options: (): Options => {
-      if (currentOptions === undefined) throw new Error("Expected useForm to be called")
-      return currentOptions
+      if (currentOptions === undefined)
+        throw new Error("Expected useForm to be called");
+      return currentOptions;
     },
-    reset: (): void => { begin()},
+    reset: (): void => {
+      begin();
+    },
     state: (): State => state,
     useForm: (options: Options) => {
-      currentOptions = options
-      state.values = { ...options.defaultValues, ...state.values }
+      currentOptions = options;
+      state.values = { ...options.defaultValues, ...state.values };
       return {
         Field,
         Subscribe,
         state,
         handleSubmit: () => handleSubmit(),
-      }
-    }
-  }
-}
-)
+      };
+    },
+  };
+});
 
-const navigationHarness = vi.hoisted(() => ({ replace: vi.fn() }))
+const navigationHarness = vi.hoisted(() => ({ replace: vi.fn() }));
 
 vi.mock("react", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("react")>()
+  const actual = await importOriginal<typeof import("react")>();
   return {
     ...actual,
     useEffect: reactHarness.useEffect,
     useState: reactHarness.useState,
-  }
-}
-)
-vi.mock("@tanstack/react-form", () => ({ useForm: formHarness.useForm }))
-vi.mock("next/navigation", () => ({ useRouter: () => navigationHarness }))
-vi.mock("next/link", () => ({ default: "a" }))
+  };
+});
+vi.mock("@tanstack/react-form", () => ({ useForm: formHarness.useForm }));
+vi.mock("next/navigation", () => ({ useRouter: () => navigationHarness }));
+vi.mock("next/link", () => ({ default: "a" }));
 
 import {
   SAFE_ACCOUNT_EMAIL_MESSAGE,
   type AuthFlowClient,
   type AuthFlowResult,
-} from "./auth-flow.ts"
-import { FormStatus } from "./form-status.tsx"
-import { EmailActionForm } from "./email-action-form.tsx"
-import { PasswordField } from "./password-field.tsx"
-import { ResetPasswordEntry } from "./reset-password-entry.tsx"
-import { ResetPasswordForm } from "./reset-password-form.tsx"
-import { SignUpForm } from "./sign-up-form.tsx"
-import { SignInForm } from "./sign-in-form.tsx"
+} from "./auth-flow.ts";
+import { FormStatus } from "./form-status.tsx";
+import { EmailActionForm } from "./email-action-form.tsx";
+import { PasswordField } from "./password-field.tsx";
+import { ResetPasswordEntry } from "./reset-password-entry.tsx";
+import { ResetPasswordForm } from "./reset-password-form.tsx";
+import { SignUpForm } from "./sign-up-form.tsx";
+import { SignInForm } from "./sign-in-form.tsx";
 
 type ElementRecord = Readonly<{
-  type: unknown
-  props: Record<string, unknown>
-}>
+  type: unknown;
+  props: Record<string, unknown>;
+}>;
 
 type TextChangeEvent = Readonly<{
-  target: Readonly<{ value: string }>
-}>
+  target: Readonly<{ value: string }>;
+}>;
 
 type FieldRenderInput = Readonly<{
-  handleBlur: () => void
-  handleChange: (value: string) => void
-  name: string
+  handleBlur: () => void;
+  handleChange: (value: string) => void;
+  name: string;
   state: Readonly<{
     meta: Readonly<{
-      errors: readonly unknown[]
-      isTouched: boolean
-    }>
-    value: string
-  }>
-}>
+      errors: readonly unknown[];
+      isTouched: boolean;
+    }>;
+    value: string;
+  }>;
+}>;
 
-type StringValidator = (input: Readonly<{ value: string }>) => string | undefined
+type StringValidator = (
+  input: Readonly<{ value: string }>
+) => string | undefined;
 
 type FieldValidators = Readonly<{
-  onBlur?: StringValidator
-  onChange?: StringValidator
-  onSubmit?: StringValidator
-}>
+  onBlur?: StringValidator;
+  onChange?: StringValidator;
+  onSubmit?: StringValidator;
+}>;
 
-type FocusTarget = Readonly<{ focus: () => void }>
-type QuerySelector = (selector: string) => FocusTarget | null
+type FocusTarget = Readonly<{ focus: () => void }>;
+type QuerySelector = (selector: string) => FocusTarget | null;
 
 type FormSubmitEvent = Readonly<{
-  currentTarget: Readonly<{ querySelector: QuerySelector }>
-  preventDefault: () => void
-}>
+  currentTarget: Readonly<{ querySelector: QuerySelector }>;
+  preventDefault: () => void;
+}>;
 
-type SubmissionSelection = boolean | readonly [boolean, boolean]
+type SubmissionSelection = boolean | readonly [boolean, boolean];
 type SubmissionSelector = (
-  state: ReturnType<typeof formHarness.state>,
-) => SubmissionSelection
-type SubmissionRender = (selected: SubmissionSelection) => unknown
+  state: ReturnType<typeof formHarness.state>
+) => SubmissionSelection;
+type SubmissionRender = (selected: SubmissionSelection) => unknown;
 
-type FormSetup = Parameters<typeof formHarness.begin>[0]
+type FormSetup = Parameters<typeof formHarness.begin>[0];
 
-const authClient = (overrides: Partial<AuthFlowClient> = {}): AuthFlowClient => ({
+const authClient = (
+  overrides: Partial<AuthFlowClient> = {}
+): AuthFlowClient => ({
   signInEmail: vi.fn().mockResolvedValue({ data: {}, error: null }),
   signUpEmail: vi.fn().mockResolvedValue({ data: {}, error: null }),
   requestPasswordReset: vi.fn().mockResolvedValue({ data: {}, error: null }),
@@ -200,132 +211,136 @@ const authClient = (overrides: Partial<AuthFlowClient> = {}): AuthFlowClient => 
   sendVerificationEmail: vi.fn().mockResolvedValue({ data: {}, error: null }),
   getSession: vi.fn().mockResolvedValue({ data: null, error: null }),
   ...overrides,
-})
+});
 
-const deferred = <Value,>() => {
+const deferred = <Value>() => {
   let resolvePromise = (_value: Value): void => {
-    throw new Error("Deferred promise was not initialized")
-  }
+    throw new Error("Deferred promise was not initialized");
+  };
   const promise = new Promise<Value>((resolve) => {
-    return resolvePromise = resolve
-  }
-  )
-  return { promise, resolve: resolvePromise }
-}
+    return (resolvePromise = resolve);
+  });
+  return { promise, resolve: resolvePromise };
+};
 
 const textOf = (node: unknown): string => {
-  if (typeof node === "string" || typeof node === "number") return String(node)
-  if (Array.isArray(node)) return node.map(textOf).join("")
-  if (typeof node !== "object" || node === null) return ""
-  const props = Reflect.get(node, "props")
-  if (typeof props !== "object" || props === null) return ""
-  return textOf(Reflect.get(props, "children"))
-}
+  if (typeof node === "string" || typeof node === "number") return String(node);
+  if (Array.isArray(node)) return node.map(textOf).join("");
+  if (typeof node !== "object" || node === null) return "";
+  const props = Reflect.get(node, "props");
+  if (typeof props !== "object" || props === null) return "";
+  return textOf(Reflect.get(props, "children"));
+};
 
 const findElement = (
   tree: unknown,
-  predicate: (element: ElementRecord) => boolean,
+  predicate: (element: ElementRecord) => boolean
 ): ElementRecord | undefined => {
-  const seen = new WeakSet<object>()
+  const seen = new WeakSet<object>();
   const visit = (node: unknown): ElementRecord | undefined => {
     if (Array.isArray(node)) {
       for (const child of node) {
-        const found = visit(child)
-        if (found !== undefined) return found
+        const found = visit(child);
+        if (found !== undefined) return found;
       }
-      return undefined
+      return undefined;
     }
-    if (typeof node !== "object" || node === null || seen.has(node)) return undefined
-    seen.add(node)
-    const props = Reflect.get(node, "props")
-    if (typeof props !== "object" || props === null) return undefined
-    const element = node as ElementRecord
-    if (predicate(element)) return element
-    const selector = element.props["selector"]
-    const render = element.props["children"]
+    if (typeof node !== "object" || node === null || seen.has(node))
+      return undefined;
+    seen.add(node);
+    const props = Reflect.get(node, "props");
+    if (typeof props !== "object" || props === null) return undefined;
+    const element = node as ElementRecord;
+    if (predicate(element)) return element;
+    const selector = element.props["selector"];
+    const render = element.props["children"];
     if (
-      element.type === formHarness.Subscribe
-      && typeof selector === "function"
-      && typeof render === "function"
+      element.type === formHarness.Subscribe &&
+      typeof selector === "function" &&
+      typeof render === "function"
     ) {
-      const selected = (selector as SubmissionSelector)(formHarness.state())
-      const found = visit((render as SubmissionRender)(selected))
-      if (found !== undefined) return found
+      const selected = (selector as SubmissionSelector)(formHarness.state());
+      const found = visit((render as SubmissionRender)(selected));
+      if (found !== undefined) return found;
     }
     for (const value of Object.values(element.props)) {
-      const found = visit(value)
-      if (found !== undefined) return found
+      const found = visit(value);
+      if (found !== undefined) return found;
     }
-    return undefined
-  }
-  return visit(tree)
-}
+    return undefined;
+  };
+  return visit(tree);
+};
 
 const requiredElement = (
   tree: unknown,
   predicate: (element: ElementRecord) => boolean,
-  description: string,
+  description: string
 ): ElementRecord => {
-  const element = findElement(tree, predicate)
-  expect(element, `Expected ${description}`).toBeDefined()
-  return element!
-}
+  const element = findElement(tree, predicate);
+  expect(element, `Expected ${description}`).toBeDefined();
+  return element!;
+};
 
-const fieldElement = (tree: unknown, name: string): ElementRecord => (
+const fieldElement = (tree: unknown, name: string): ElementRecord =>
   requiredElement(
     tree,
-    (element) => element.type === formHarness.Field && element.props["name"] === name,
-    `field ${name}`,
-  )
-)
+    (element) =>
+      element.type === formHarness.Field && element.props["name"] === name,
+    `field ${name}`
+  );
 
 const fieldView = (
   tree: unknown,
   name: string,
   value: string,
   errors: readonly unknown[] = [],
-  isTouched = false,
+  isTouched = false
 ) => {
-  const field = fieldElement(tree, name)
-  const render = field.props["children"]
-  expect(render).toBeTypeOf("function")
-  const handleBlur = vi.fn()
-  const handleChange = vi.fn()
+  const field = fieldElement(tree, name);
+  const render = field.props["children"];
+  expect(render).toBeTypeOf("function");
+  const handleBlur = vi.fn();
+  const handleChange = vi.fn();
   const view = (render as (field: FieldRenderInput) => unknown)({
     name,
     state: { value, meta: { errors, isTouched } },
     handleBlur,
     handleChange,
-  })
-  return { handleBlur, handleChange, view }
-}
+  });
+  return { handleBlur, handleChange, view };
+};
 
-const controlById = (tree: unknown, id: string): ElementRecord => (
-  requiredElement(tree, (element) => element.props["id"] === id, `control #${id}`)
-)
+const controlById = (tree: unknown, id: string): ElementRecord =>
+  requiredElement(
+    tree,
+    (element) => element.props["id"] === id,
+    `control #${id}`
+  );
 
 const buttonView = (tree: unknown): ElementRecord => {
   const subscription = requiredElement(
     tree,
     (element) => element.type === formHarness.Subscribe,
-    "form submission state",
-  )
-  const selector = subscription.props["selector"] as SubmissionSelector
-  const render = subscription.props["children"] as SubmissionRender
-  const selected = selector(formHarness.state())
+    "form submission state"
+  );
+  const selector = subscription.props["selector"] as SubmissionSelector;
+  const render = subscription.props["children"] as SubmissionRender;
+  const selected = selector(formHarness.state());
   return requiredElement(
     render(selected),
     (element) => element.props["type"] === "submit",
-    "submit button",
-  )
-}
+    "submit button"
+  );
+};
 
-const markup = (tree: unknown): string => renderToStaticMarkup(tree as ReactElement)
+const markup = (tree: unknown): string =>
+  renderToStaticMarkup(tree as ReactElement);
 
-const flushMicrotasks = async function(): Promise<void> {
-  await Promise.resolve()
-  await Promise.resolve()
-}
+const flushMicrotasks = async function (): Promise<void> {
+  await Promise.resolve();
+  await Promise.resolve();
+};
 
 const mountSignUp = ({
   auth = authClient(),
@@ -333,24 +348,24 @@ const mountSignUp = ({
   isPending = false,
   form = {},
 }: {
-  auth?: AuthFlowClient
-  result?: AuthFlowResult | null
-  isPending?: boolean
-  form?: FormSetup
+  auth?: AuthFlowClient;
+  result?: AuthFlowResult | null;
+  isPending?: boolean;
+  form?: FormSetup;
 } = {}) => {
-  const setResult = vi.fn()
-  const setIsPending = vi.fn()
+  const setResult = vi.fn();
+  const setIsPending = vi.fn();
   reactHarness.begin([
     [result, setResult],
     [isPending, setIsPending],
-  ])
-  formHarness.begin(form)
+  ]);
+  formHarness.begin(form);
   return {
     setIsPending,
     setResult,
     tree: SignUpForm({ auth }),
-  }
-}
+  };
+};
 
 const mountReset = ({
   auth = authClient(),
@@ -359,25 +374,25 @@ const mountReset = ({
   form = {},
   token = "one-time-reset-token",
 }: {
-  auth?: AuthFlowClient
-  result?: AuthFlowResult | null
-  isPending?: boolean
-  form?: FormSetup
-  token?: string | undefined
+  auth?: AuthFlowClient;
+  result?: AuthFlowResult | null;
+  isPending?: boolean;
+  form?: FormSetup;
+  token?: string | undefined;
 } = {}) => {
-  const setResult = vi.fn()
-  const setIsPending = vi.fn()
+  const setResult = vi.fn();
+  const setIsPending = vi.fn();
   reactHarness.begin([
     [result, setResult],
     [isPending, setIsPending],
-  ])
-  formHarness.begin(form)
+  ]);
+  formHarness.begin(form);
   return {
     setIsPending,
     setResult,
     tree: ResetPasswordForm({ auth, token }),
-  }
-}
+  };
+};
 
 const mountSignIn = ({
   auth = authClient(),
@@ -387,29 +402,30 @@ const mountSignIn = ({
   replace,
   result = null,
 }: {
-  auth?: AuthFlowClient
-  callbackURL?: unknown
-  form?: FormSetup
-  isPending?: boolean
-  replace?: ((destination: string) => void) | undefined
-  result?: AuthFlowResult | null
+  auth?: AuthFlowClient;
+  callbackURL?: unknown;
+  form?: FormSetup;
+  isPending?: boolean;
+  replace?: ((destination: string) => void) | undefined;
+  result?: AuthFlowResult | null;
 } = {}) => {
-  const setResult = vi.fn()
-  const setIsPending = vi.fn()
+  const setResult = vi.fn();
+  const setIsPending = vi.fn();
   reactHarness.begin([
     [result, setResult],
     [isPending, setIsPending],
-  ])
-  formHarness.begin(form)
-  const props = { auth, callbackURL }
+  ]);
+  formHarness.begin(form);
+  const props = { auth, callbackURL };
   return {
     setIsPending,
     setResult,
-    tree: replace === undefined
-      ? SignInForm(props)
-      : SignInForm({ ...props, replace }),
-  }
-}
+    tree:
+      replace === undefined
+        ? SignInForm(props)
+        : SignInForm({ ...props, replace }),
+  };
+};
 
 const mountEmailAction = ({
   auth = authClient(),
@@ -417,132 +433,156 @@ const mountEmailAction = ({
   operation = "password-reset",
   result = null,
 }: {
-  auth?: AuthFlowClient
-  form?: FormSetup
-  operation?: "password-reset" | "email-verification"
-  result?: AuthFlowResult | null
+  auth?: AuthFlowClient;
+  form?: FormSetup;
+  operation?: "password-reset" | "email-verification";
+  result?: AuthFlowResult | null;
 } = {}) => {
-  const setResult = vi.fn()
-  reactHarness.begin([[result, setResult]])
-  formHarness.begin(form)
+  const setResult = vi.fn();
+  reactHarness.begin([[result, setResult]]);
+  formHarness.begin(form);
   return {
     setResult,
     tree: EmailActionForm({ auth, operation }),
-  }
-}
+  };
+};
 
 const submitRootForm = async (
   tree: unknown,
-  querySelector: QuerySelector,
+  querySelector: QuerySelector
 ): Promise<() => void> => {
-  const form = requiredElement(tree, (element) => element.type === "form", "form")
-  const preventDefault = vi.fn()
-  const onSubmit = form.props["onSubmit"] as (event: FormSubmitEvent) => void
-  onSubmit({ currentTarget: { querySelector }, preventDefault })
-  await flushMicrotasks()
-  expect(preventDefault).toHaveBeenCalledOnce()
-  return preventDefault
-}
+  const form = requiredElement(
+    tree,
+    (element) => element.type === "form",
+    "form"
+  );
+  const preventDefault = vi.fn();
+  const onSubmit = form.props["onSubmit"] as (event: FormSubmitEvent) => void;
+  onSubmit({ currentTarget: { querySelector }, preventDefault });
+  await flushMicrotasks();
+  expect(preventDefault).toHaveBeenCalledOnce();
+  return preventDefault;
+};
 
-afterEach(function() {
-  reactHarness.reset()
-  formHarness.reset()
-  vi.clearAllMocks()
-  return vi.unstubAllGlobals()
-})
+afterEach(function () {
+  reactHarness.reset();
+  formHarness.reset();
+  vi.clearAllMocks();
+  return vi.unstubAllGlobals();
+});
 
-describe("SignUpForm", function() {
-  it("exposes accessible errors, delegates every validator, and clears stale server feedback on edits", function() {
+describe("SignUpForm", function () {
+  it("exposes accessible errors, delegates every validator, and clears stale server feedback on edits", function () {
     const serverError: AuthFlowResult = {
       status: "error",
       message: "We could not complete the request.",
-    }
+    };
     const { setResult, tree } = mountSignUp({
       result: serverError,
       form: { values: { password: "a".repeat(12) } },
-    })
+    });
     const status = requiredElement(
       tree,
       (element) => element.type === FormStatus,
-      "form status",
-    )
-    expect(status.props["result"]).toBe(serverError)
+      "form status"
+    );
+    expect(status.props["result"]).toBe(serverError);
 
     const cases = [
       ["name", "sign-up-name", "Enter your name."],
       ["email", "sign-up-email", "Enter a valid email address."],
       ["password", "sign-up-password", "Use at least 12 characters."],
-      ["confirmPassword", "sign-up-confirm-password", "Passwords do not match."],
-    ] as const
+      [
+        "confirmPassword",
+        "sign-up-confirm-password",
+        "Passwords do not match.",
+      ],
+    ] as const;
     for (const [name, id, message] of cases) {
-      const untouched = fieldView(tree, name, "", [new Error("ignored"), message])
-      expect(markup(untouched.view)).not.toContain(message)
+      const untouched = fieldView(tree, name, "", [
+        new Error("ignored"),
+        message,
+      ]);
+      expect(markup(untouched.view)).not.toContain(message);
 
-      const touched = fieldView(tree, name, "", [new Error("ignored"), message], true)
-      const html = markup(touched.view)
-      expect(html).toContain(message)
-      expect(html).toContain('aria-invalid="true"')
-      expect(html).toContain('role="alert"')
+      const touched = fieldView(
+        tree,
+        name,
+        "",
+        [new Error("ignored"), message],
+        true
+      );
+      const html = markup(touched.view);
+      expect(html).toContain(message);
+      expect(html).toContain('aria-invalid="true"');
+      expect(html).toContain('role="alert"');
 
-      const control = controlById(touched.view, id)
-      ;(control.props["onChange"] as (event: TextChangeEvent) => void)({
+      const control = controlById(touched.view, id);
+      (control.props["onChange"] as (event: TextChangeEvent) => void)({
         target: { value: `${name}-value` },
-      })
-      ;(control.props["onBlur"] as () => void)()
-      expect(touched.handleChange).toHaveBeenCalledWith(`${name}-value`)
-      expect(touched.handleBlur).toHaveBeenCalledOnce()
+      });
+      (control.props["onBlur"] as () => void)();
+      expect(touched.handleChange).toHaveBeenCalledWith(`${name}-value`);
+      expect(touched.handleBlur).toHaveBeenCalledOnce();
     }
-    expect(setResult).toHaveBeenCalledTimes(cases.length)
-    expect(setResult).toHaveBeenCalledWith(null)
+    expect(setResult).toHaveBeenCalledTimes(cases.length);
+    expect(setResult).toHaveBeenCalledWith(null);
 
-    const validators = (name: string): FieldValidators => (
-      fieldElement(tree, name).props["validators"] as FieldValidators
-    )
-    expect(validators("name")["onBlur"]?.({ value: " " })).toBe("Enter your name.")
-    expect(validators("name")["onSubmit"]?.({ value: "Ada" })).toBeUndefined()
+    const validators = (name: string): FieldValidators =>
+      fieldElement(tree, name).props["validators"] as FieldValidators;
+    expect(validators("name")["onBlur"]?.({ value: " " })).toBe(
+      "Enter your name."
+    );
+    expect(validators("name")["onSubmit"]?.({ value: "Ada" })).toBeUndefined();
     expect(validators("email")["onBlur"]?.({ value: "invalid" })).toBe(
-      "Enter a valid email address.",
-    )
-    expect(validators("email")["onSubmit"]?.({ value: "member@domain.test" })).toBeUndefined()
+      "Enter a valid email address."
+    );
+    expect(
+      validators("email")["onSubmit"]?.({ value: "member@domain.test" })
+    ).toBeUndefined();
     expect(validators("password")["onBlur"]?.({ value: "short" })).toBe(
-      "Use at least 12 characters.",
-    )
-    expect(validators("password")["onSubmit"]?.({ value: "a".repeat(12) })).toBeUndefined()
-    expect(validators("confirmPassword")["onChange"]?.({ value: "different-value" })).toBe(
-      "Passwords do not match.",
-    )
-    return expect(validators("confirmPassword")["onSubmit"]?.({ value: "a".repeat(12) })).toBeUndefined()
-  })
+      "Use at least 12 characters."
+    );
+    expect(
+      validators("password")["onSubmit"]?.({ value: "a".repeat(12) })
+    ).toBeUndefined();
+    expect(
+      validators("confirmPassword")["onChange"]?.({ value: "different-value" })
+    ).toBe("Passwords do not match.");
+    return expect(
+      validators("confirmPassword")["onSubmit"]?.({ value: "a".repeat(12) })
+    ).toBeUndefined();
+  });
 
-  it("focuses the first invalid control after submission and tolerates a missing focus target", async function() {
-    const focus = vi.fn()
-    const querySelector: QuerySelector = vi.fn(() => ({ focus }))
+  it("focuses the first invalid control after submission and tolerates a missing focus target", async function () {
+    const focus = vi.fn();
+    const querySelector: QuerySelector = vi.fn(() => ({ focus }));
     await submitRootForm(
       mountSignUp({ form: { isValid: false } }).tree,
-      querySelector,
-    )
-    expect(querySelector).toHaveBeenCalledWith('[aria-invalid="true"]')
-    expect(focus).toHaveBeenCalledOnce()
+      querySelector
+    );
+    expect(querySelector).toHaveBeenCalledWith('[aria-invalid="true"]');
+    expect(focus).toHaveBeenCalledOnce();
 
-    const missingControl: QuerySelector = vi.fn(() => null)
+    const missingControl: QuerySelector = vi.fn(() => null);
     await submitRootForm(
       mountSignUp({ form: { isValid: false } }).tree,
-      missingControl,
-    )
-    expect(missingControl).toHaveBeenCalledOnce()
+      missingControl
+    );
+    expect(missingControl).toHaveBeenCalledOnce();
 
-    const validQuery: QuerySelector = vi.fn()
+    const validQuery: QuerySelector = vi.fn();
     await submitRootForm(
       mountSignUp({ form: { isValid: true } }).tree,
-      validQuery,
-    )
-    return expect(validQuery).not.toHaveBeenCalled()
-  })
+      validQuery
+    );
+    return expect(validQuery).not.toHaveBeenCalled();
+  });
 
-  it("moves from pending to safe success or denial feedback without leaking provider details", async function() {
-    const gate = deferred<Readonly<{ data: unknown; error: null }>>()
-    const signUpEmail = vi.fn(() => gate.promise)
-    const success = mountSignUp({ auth: authClient({ signUpEmail }) })
+  it("moves from pending to safe success or denial feedback without leaking provider details", async function () {
+    const gate = deferred<Readonly<{ data: unknown; error: null }>>();
+    const signUpEmail = vi.fn(() => gate.promise);
+    const success = mountSignUp({ auth: authClient({ signUpEmail }) });
     const successSubmission = formHarness.options().onSubmit({
       value: {
         name: "  Member Example  ",
@@ -550,22 +590,22 @@ describe("SignUpForm", function() {
         password: "CorrectHorseBatteryStaple!42",
         confirmPassword: "CorrectHorseBatteryStaple!42",
       },
-    })
-    expect(success.setResult).toHaveBeenCalledWith(null)
-    expect(success.setIsPending).toHaveBeenCalledWith(true)
-    gate.resolve({ data: { user: { id: "user-1" } }, error: null })
-    await successSubmission
+    });
+    expect(success.setResult).toHaveBeenCalledWith(null);
+    expect(success.setIsPending).toHaveBeenCalledWith(true);
+    gate.resolve({ data: { user: { id: "user-1" } }, error: null });
+    await successSubmission;
     expect(signUpEmail).toHaveBeenCalledWith({
       name: "Member Example",
       email: "member@domain.test",
       password: "CorrectHorseBatteryStaple!42",
       callbackURL: "/verify-email?verified=1",
-    })
+    });
     expect(success.setResult).toHaveBeenLastCalledWith({
       status: "success",
       message: SAFE_ACCOUNT_EMAIL_MESSAGE,
-    })
-    expect(success.setIsPending).toHaveBeenLastCalledWith(false)
+    });
+    expect(success.setIsPending).toHaveBeenLastCalledWith(false);
 
     const denial = mountSignUp({
       auth: authClient({
@@ -574,7 +614,7 @@ describe("SignUpForm", function() {
           error: { code: "EMAIL_TAKEN", message: "private provider detail" },
         }),
       }),
-    })
+    });
     await formHarness.options().onSubmit({
       value: {
         name: "Member Example",
@@ -582,138 +622,151 @@ describe("SignUpForm", function() {
         password: "CorrectHorseBatteryStaple!42",
         confirmPassword: "CorrectHorseBatteryStaple!42",
       },
-    })
+    });
     expect(denial.setResult).toHaveBeenLastCalledWith({
       status: "error",
-      message: "We could not complete the request. Check your connection and try again.",
-    })
-    return expect(denial.setIsPending).toHaveBeenLastCalledWith(false)
-  })
+      message:
+        "We could not complete the request. Check your connection and try again.",
+    });
+    return expect(denial.setIsPending).toHaveBeenLastCalledWith(false);
+  });
 
-  return it("disables controls and names every idle, submitting, and pending state truthfully", function() {
-    const idle = mountSignUp()
-    expect(buttonView(idle.tree).props["disabled"]).toBe(false)
-    expect(textOf(buttonView(idle.tree))).toBe("Create account")
+  return it("disables controls and names every idle, submitting, and pending state truthfully", function () {
+    const idle = mountSignUp();
+    expect(buttonView(idle.tree).props["disabled"]).toBe(false);
+    expect(textOf(buttonView(idle.tree))).toBe("Create account");
 
-    const submitting = mountSignUp({ form: { isSubmitting: true } })
-    expect(buttonView(submitting.tree).props["disabled"]).toBe(true)
-    expect(textOf(buttonView(submitting.tree))).toBe("Creating account…")
+    const submitting = mountSignUp({ form: { isSubmitting: true } });
+    expect(buttonView(submitting.tree).props["disabled"]).toBe(true);
+    expect(textOf(buttonView(submitting.tree))).toBe("Creating account…");
 
-    const pending = mountSignUp({ isPending: true })
-    expect(buttonView(pending.tree).props["disabled"]).toBe(true)
-    expect(textOf(buttonView(pending.tree))).toBe("Creating account…")
-    return expect(controlById(fieldView(pending.tree, "name", "").view, "sign-up-name").props["disabled"]).toBe(true)
-  })
-})
+    const pending = mountSignUp({ isPending: true });
+    expect(buttonView(pending.tree).props["disabled"]).toBe(true);
+    expect(textOf(buttonView(pending.tree))).toBe("Creating account…");
+    return expect(
+      controlById(fieldView(pending.tree, "name", "").view, "sign-up-name")
+        .props["disabled"]
+    ).toBe(true);
+  });
+});
 
-describe("ResetPasswordForm", function() {
-  it("renders malformed or missing tokens only as an alert with a recovery action", function() {
-    reactHarness.begin([])
-    formHarness.begin()
-    const html = markup(ResetPasswordForm({ auth: authClient(), token: undefined }))
-    expect(html).toContain('role="alert"')
-    expect(html).toContain("This password reset link is invalid or has expired.")
-    expect(html).toContain('href="/forgot-password"')
-    return expect(html).not.toContain('name="newPassword"')
-  })
+describe("ResetPasswordForm", function () {
+  it("renders malformed or missing tokens only as an alert with a recovery action", function () {
+    reactHarness.begin([]);
+    formHarness.begin();
+    const html = markup(
+      ResetPasswordForm({ auth: authClient(), token: undefined })
+    );
+    expect(html).toContain('role="alert"');
+    expect(html).toContain(
+      "This password reset link is invalid or has expired."
+    );
+    expect(html).toContain('href="/forgot-password"');
+    return expect(html).not.toContain('name="newPassword"');
+  });
 
-  it("validates both password fields accessibly and clears stale server feedback on edits", function() {
+  it("validates both password fields accessibly and clears stale server feedback on edits", function () {
     const { setResult, tree } = mountReset({
       result: {
         status: "error",
         message: "This password reset link is invalid or has expired.",
       },
       form: { values: { newPassword: "a".repeat(12) } },
-    })
+    });
     const cases = [
       ["newPassword", "reset-new-password", "Use at least 12 characters."],
       ["confirmPassword", "reset-confirm-password", "Passwords do not match."],
-    ] as const
+    ] as const;
     for (const [name, id, message] of cases) {
-      expect(markup(fieldView(tree, name, "", [null, message]).view)).not.toContain(message)
-      const touched = fieldView(tree, name, "", [null, message], true)
-      const html = markup(touched.view)
-      expect(html).toContain(message)
-      expect(html).toContain('aria-invalid="true"')
-      expect(html).toContain('role="alert"')
-      const control = controlById(touched.view, id)
-      ;(control.props["onChange"] as (event: TextChangeEvent) => void)({
+      expect(
+        markup(fieldView(tree, name, "", [null, message]).view)
+      ).not.toContain(message);
+      const touched = fieldView(tree, name, "", [null, message], true);
+      const html = markup(touched.view);
+      expect(html).toContain(message);
+      expect(html).toContain('aria-invalid="true"');
+      expect(html).toContain('role="alert"');
+      const control = controlById(touched.view, id);
+      (control.props["onChange"] as (event: TextChangeEvent) => void)({
         target: { value: `${name}-value` },
-      })
-      ;(control.props["onBlur"] as () => void)()
-      expect(touched.handleChange).toHaveBeenCalledWith(`${name}-value`)
-      expect(touched.handleBlur).toHaveBeenCalledOnce()
+      });
+      (control.props["onBlur"] as () => void)();
+      expect(touched.handleChange).toHaveBeenCalledWith(`${name}-value`);
+      expect(touched.handleBlur).toHaveBeenCalledOnce();
     }
-    expect(setResult).toHaveBeenCalledTimes(cases.length)
-    expect(setResult).toHaveBeenCalledWith(null)
+    expect(setResult).toHaveBeenCalledTimes(cases.length);
+    expect(setResult).toHaveBeenCalledWith(null);
 
-    const validators = (name: string): FieldValidators => (
-      fieldElement(tree, name).props["validators"] as FieldValidators
-    )
+    const validators = (name: string): FieldValidators =>
+      fieldElement(tree, name).props["validators"] as FieldValidators;
     expect(validators("newPassword")["onChange"]?.({ value: "short" })).toBe(
-      "Use at least 12 characters.",
-    )
-    expect(validators("newPassword")["onBlur"]?.({ value: "a".repeat(12) })).toBeUndefined()
-    expect(validators("newPassword")["onSubmit"]?.({ value: "a".repeat(129) })).toBe(
-      "Use no more than 128 characters.",
-    )
-    expect(validators("confirmPassword")["onChange"]?.({ value: "different" })).toBe(
-      "Passwords do not match.",
-    )
-    expect(validators("confirmPassword")["onBlur"]?.({ value: "a".repeat(12) })).toBeUndefined()
-    return expect(validators("confirmPassword")["onSubmit"]?.({ value: "" })).toBe(
-      "Confirm your password.",
-    )
-  })
+      "Use at least 12 characters."
+    );
+    expect(
+      validators("newPassword")["onBlur"]?.({ value: "a".repeat(12) })
+    ).toBeUndefined();
+    expect(
+      validators("newPassword")["onSubmit"]?.({ value: "a".repeat(129) })
+    ).toBe("Use no more than 128 characters.");
+    expect(
+      validators("confirmPassword")["onChange"]?.({ value: "different" })
+    ).toBe("Passwords do not match.");
+    expect(
+      validators("confirmPassword")["onBlur"]?.({ value: "a".repeat(12) })
+    ).toBeUndefined();
+    return expect(
+      validators("confirmPassword")["onSubmit"]?.({ value: "" })
+    ).toBe("Confirm your password.");
+  });
 
-  it("focuses invalid reset input after submission and skips focus work for a valid form", async function() {
-    const focus = vi.fn()
-    const invalidQuery: QuerySelector = vi.fn(() => ({ focus }))
+  it("focuses invalid reset input after submission and skips focus work for a valid form", async function () {
+    const focus = vi.fn();
+    const invalidQuery: QuerySelector = vi.fn(() => ({ focus }));
     await submitRootForm(
       mountReset({ form: { isValid: false } }).tree,
-      invalidQuery,
-    )
-    expect(invalidQuery).toHaveBeenCalledWith('[aria-invalid="true"]')
-    expect(focus).toHaveBeenCalledOnce()
+      invalidQuery
+    );
+    expect(invalidQuery).toHaveBeenCalledWith('[aria-invalid="true"]');
+    expect(focus).toHaveBeenCalledOnce();
 
-    const missingControl: QuerySelector = vi.fn(() => null)
+    const missingControl: QuerySelector = vi.fn(() => null);
     await submitRootForm(
       mountReset({ form: { isValid: false } }).tree,
-      missingControl,
-    )
-    expect(missingControl).toHaveBeenCalledOnce()
+      missingControl
+    );
+    expect(missingControl).toHaveBeenCalledOnce();
 
-    const validQuery: QuerySelector = vi.fn()
+    const validQuery: QuerySelector = vi.fn();
     await submitRootForm(
       mountReset({ form: { isValid: true } }).tree,
-      validQuery,
-    )
-    return expect(validQuery).not.toHaveBeenCalled()
-  })
+      validQuery
+    );
+    return expect(validQuery).not.toHaveBeenCalled();
+  });
 
-  it("redirects only after a successful reset and renders a denied token as recovery", async function() {
-    const resetPassword = vi.fn().mockResolvedValue({ data: {}, error: null })
-    const success = mountReset({ auth: authClient({ resetPassword }) })
+  it("redirects only after a successful reset and renders a denied token as recovery", async function () {
+    const resetPassword = vi.fn().mockResolvedValue({ data: {}, error: null });
+    const success = mountReset({ auth: authClient({ resetPassword }) });
     await formHarness.options().onSubmit({
       value: {
         newPassword: "NewCorrectHorseBatteryStaple!84",
         confirmPassword: "NewCorrectHorseBatteryStaple!84",
       },
-    })
-    expect(success.setResult).toHaveBeenNthCalledWith(1, null)
-    expect(success.setIsPending).toHaveBeenNthCalledWith(1, true)
+    });
+    expect(success.setResult).toHaveBeenNthCalledWith(1, null);
+    expect(success.setIsPending).toHaveBeenNthCalledWith(1, true);
     expect(resetPassword).toHaveBeenCalledWith({
       token: "one-time-reset-token",
       newPassword: "NewCorrectHorseBatteryStaple!84",
-    })
+    });
     expect(success.setResult).toHaveBeenLastCalledWith({
       status: "success",
       destination: "/sign-in?reset=1",
-    })
-    expect(navigationHarness.replace).toHaveBeenCalledWith("/sign-in?reset=1")
-    expect(success.setIsPending).toHaveBeenLastCalledWith(false)
+    });
+    expect(navigationHarness.replace).toHaveBeenCalledWith("/sign-in?reset=1");
+    expect(success.setIsPending).toHaveBeenLastCalledWith(false);
 
-    navigationHarness.replace.mockClear()
+    navigationHarness.replace.mockClear();
     const denied = mountReset({
       auth: authClient({
         resetPassword: vi.fn().mockResolvedValue({
@@ -721,506 +774,536 @@ describe("ResetPasswordForm", function() {
           error: { code: "INVALID_TOKEN", message: "private provider detail" },
         }),
       }),
-    })
+    });
     await formHarness.options().onSubmit({
       value: {
         newPassword: "NewCorrectHorseBatteryStaple!84",
         confirmPassword: "NewCorrectHorseBatteryStaple!84",
       },
-    })
+    });
     expect(denied.setResult).toHaveBeenLastCalledWith({
       status: "error",
       message: "This password reset link is invalid or has expired.",
       actionHref: "/forgot-password",
       actionLabel: "Request a new link",
-    })
-    expect(navigationHarness.replace).not.toHaveBeenCalled()
-    return expect(denied.setIsPending).toHaveBeenLastCalledWith(false)
-  })
+    });
+    expect(navigationHarness.replace).not.toHaveBeenCalled();
+    return expect(denied.setIsPending).toHaveBeenLastCalledWith(false);
+  });
 
-  it("suppresses redirect and state commits when an in-flight reset form unmounts", async function() {
-    const gate = deferred<Readonly<{ data: unknown; error: null }>>()
+  it("suppresses redirect and state commits when an in-flight reset form unmounts", async function () {
+    const gate = deferred<Readonly<{ data: unknown; error: null }>>();
     const mounted = mountReset({
       auth: authClient({ resetPassword: vi.fn(() => gate.promise) }),
-    })
-    const cleanup = reactHarness.runEffect()
-    expect(cleanup).toBeTypeOf("function")
+    });
+    const cleanup = reactHarness.runEffect();
+    expect(cleanup).toBeTypeOf("function");
     const submission = formHarness.options().onSubmit({
       value: {
         newPassword: "NewCorrectHorseBatteryStaple!84",
         confirmPassword: "NewCorrectHorseBatteryStaple!84",
       },
-    })
-    cleanup?.()
-    gate.resolve({ data: {}, error: null })
-    await submission
+    });
+    cleanup?.();
+    gate.resolve({ data: {}, error: null });
+    await submission;
 
-    expect(mounted.setResult).toHaveBeenCalledOnce()
-    expect(mounted.setResult).toHaveBeenCalledWith(null)
-    expect(mounted.setIsPending).toHaveBeenCalledOnce()
-    expect(mounted.setIsPending).toHaveBeenCalledWith(true)
-    return expect(navigationHarness.replace).not.toHaveBeenCalled()
-  })
+    expect(mounted.setResult).toHaveBeenCalledOnce();
+    expect(mounted.setResult).toHaveBeenCalledWith(null);
+    expect(mounted.setIsPending).toHaveBeenCalledOnce();
+    expect(mounted.setIsPending).toHaveBeenCalledWith(true);
+    return expect(navigationHarness.replace).not.toHaveBeenCalled();
+  });
 
-  return it("disables reset controls for invalid, submitting, and pending states", function() {
-    const ready = mountReset()
-    expect(buttonView(ready.tree).props["disabled"]).toBe(false)
-    expect(textOf(buttonView(ready.tree))).toBe("Update password")
+  return it("disables reset controls for invalid, submitting, and pending states", function () {
+    const ready = mountReset();
+    expect(buttonView(ready.tree).props["disabled"]).toBe(false);
+    expect(textOf(buttonView(ready.tree))).toBe("Update password");
 
-    const invalid = mountReset({ form: { canSubmit: false } })
-    expect(buttonView(invalid.tree).props["disabled"]).toBe(true)
-    expect(textOf(buttonView(invalid.tree))).toBe("Update password")
+    const invalid = mountReset({ form: { canSubmit: false } });
+    expect(buttonView(invalid.tree).props["disabled"]).toBe(true);
+    expect(textOf(buttonView(invalid.tree))).toBe("Update password");
 
-    const submitting = mountReset({ form: { isSubmitting: true } })
-    expect(buttonView(submitting.tree).props["disabled"]).toBe(true)
-    expect(textOf(buttonView(submitting.tree))).toBe("Updating password…")
+    const submitting = mountReset({ form: { isSubmitting: true } });
+    expect(buttonView(submitting.tree).props["disabled"]).toBe(true);
+    expect(textOf(buttonView(submitting.tree))).toBe("Updating password…");
 
-    const pending = mountReset({ isPending: true })
-    expect(buttonView(pending.tree).props["disabled"]).toBe(true)
-    expect(textOf(buttonView(pending.tree))).toBe("Updating password…")
-    return expect(controlById(fieldView(pending.tree, "newPassword", "").view, "reset-new-password").props["disabled"]).toBe(true)
-  })
-})
+    const pending = mountReset({ isPending: true });
+    expect(buttonView(pending.tree).props["disabled"]).toBe(true);
+    expect(textOf(buttonView(pending.tree))).toBe("Updating password…");
+    return expect(
+      controlById(
+        fieldView(pending.tree, "newPassword", "").view,
+        "reset-new-password"
+      ).props["disabled"]
+    ).toBe(true);
+  });
+});
 
-describe("SignInForm", function() {
-  it("exposes touched validation, delegates validators, and clears stale feedback on edits", function() {
+describe("SignInForm", function () {
+  it("exposes touched validation, delegates validators, and clears stale feedback on edits", function () {
     const serverError: AuthFlowResult = {
       status: "error",
       message: "The email or password was not accepted.",
-    }
-    const { setResult, tree } = mountSignIn({ result: serverError })
+    };
+    const { setResult, tree } = mountSignIn({ result: serverError });
     const status = requiredElement(
       tree,
       (element) => element.type === FormStatus,
-      "sign-in status",
-    )
-    expect(status.props["result"]).toBe(serverError)
+      "sign-in status"
+    );
+    expect(status.props["result"]).toBe(serverError);
 
-    const emailUntouched = fieldView(
-      tree,
-      "email",
-      "invalid",
-      [new Error("ignored"), "Enter a valid email address."],
-    )
-    expect(markup(emailUntouched.view)).not.toContain("Enter a valid email address.")
+    const emailUntouched = fieldView(tree, "email", "invalid", [
+      new Error("ignored"),
+      "Enter a valid email address.",
+    ]);
+    expect(markup(emailUntouched.view)).not.toContain(
+      "Enter a valid email address."
+    );
     const emailTouched = fieldView(
       tree,
       "email",
       "invalid",
       [new Error("ignored"), "Enter a valid email address."],
-      true,
-    )
-    const emailHtml = markup(emailTouched.view)
-    expect(emailHtml).toContain("Enter a valid email address.")
-    expect(emailHtml).toContain('aria-describedby="sign-in-email-error"')
-    expect(emailHtml).toContain('aria-invalid="true"')
-    expect(emailHtml).toContain('role="alert"')
-    const email = controlById(emailTouched.view, "sign-in-email")
-    ;(email.props["onChange"] as (event: TextChangeEvent) => void)({
+      true
+    );
+    const emailHtml = markup(emailTouched.view);
+    expect(emailHtml).toContain("Enter a valid email address.");
+    expect(emailHtml).toContain('aria-describedby="sign-in-email-error"');
+    expect(emailHtml).toContain('aria-invalid="true"');
+    expect(emailHtml).toContain('role="alert"');
+    const email = controlById(emailTouched.view, "sign-in-email");
+    (email.props["onChange"] as (event: TextChangeEvent) => void)({
       target: { value: "member@domain.test" },
-    })
-    ;(email.props["onBlur"] as () => void)()
-    expect(emailTouched.handleChange).toHaveBeenCalledWith("member@domain.test")
-    expect(emailTouched.handleBlur).toHaveBeenCalledOnce()
+    });
+    (email.props["onBlur"] as () => void)();
+    expect(emailTouched.handleChange).toHaveBeenCalledWith(
+      "member@domain.test"
+    );
+    expect(emailTouched.handleBlur).toHaveBeenCalledOnce();
 
-    const passwordUntouched = fieldView(
-      tree,
-      "password",
-      "",
-      [null, "Enter your password."],
-    )
-    expect(markup(passwordUntouched.view)).not.toContain("Enter your password.")
+    const passwordUntouched = fieldView(tree, "password", "", [
+      null,
+      "Enter your password.",
+    ]);
+    expect(markup(passwordUntouched.view)).not.toContain(
+      "Enter your password."
+    );
     const passwordTouched = fieldView(
       tree,
       "password",
       "",
       [null, "Enter your password."],
-      true,
-    )
-    const passwordHtml = markup(passwordTouched.view)
-    expect(passwordHtml).toContain("Enter your password.")
-    expect(passwordHtml).toContain('aria-describedby="sign-in-password-error"')
-    expect(passwordHtml).toContain('aria-invalid="true"')
-    const password = controlById(passwordTouched.view, "sign-in-password")
-    ;(password.props["onChange"] as (event: TextChangeEvent) => void)({
+      true
+    );
+    const passwordHtml = markup(passwordTouched.view);
+    expect(passwordHtml).toContain("Enter your password.");
+    expect(passwordHtml).toContain('aria-describedby="sign-in-password-error"');
+    expect(passwordHtml).toContain('aria-invalid="true"');
+    const password = controlById(passwordTouched.view, "sign-in-password");
+    (password.props["onChange"] as (event: TextChangeEvent) => void)({
       target: { value: "correct-password" },
-    })
-    ;(password.props["onBlur"] as () => void)()
-    expect(passwordTouched.handleChange).toHaveBeenCalledWith("correct-password")
-    expect(passwordTouched.handleBlur).toHaveBeenCalledOnce()
-    expect(setResult).toHaveBeenCalledTimes(2)
-    expect(setResult).toHaveBeenCalledWith(null)
+    });
+    (password.props["onBlur"] as () => void)();
+    expect(passwordTouched.handleChange).toHaveBeenCalledWith(
+      "correct-password"
+    );
+    expect(passwordTouched.handleBlur).toHaveBeenCalledOnce();
+    expect(setResult).toHaveBeenCalledTimes(2);
+    expect(setResult).toHaveBeenCalledWith(null);
 
-    const emailValidators = fieldElement(tree, "email").props["validators"] as FieldValidators
+    const emailValidators = fieldElement(tree, "email").props[
+      "validators"
+    ] as FieldValidators;
     expect(emailValidators["onChange"]?.({ value: "invalid" })).toBe(
-      "Enter a valid email address.",
-    )
+      "Enter a valid email address."
+    );
     expect(
-      emailValidators["onSubmit"]?.({ value: "member@domain.test" }),
-    ).toBeUndefined()
-    const passwordValidators = fieldElement(
-      tree,
-      "password",
-    ).props["validators"] as FieldValidators
-    expect(passwordValidators["onBlur"]?.({ value: "" })).toBe("Enter your password.")
+      emailValidators["onSubmit"]?.({ value: "member@domain.test" })
+    ).toBeUndefined();
+    const passwordValidators = fieldElement(tree, "password").props[
+      "validators"
+    ] as FieldValidators;
+    expect(passwordValidators["onBlur"]?.({ value: "" })).toBe(
+      "Enter your password."
+    );
     return expect(
-      passwordValidators["onSubmit"]?.({ value: "present" }),
-    ).toBeUndefined()
-  })
+      passwordValidators["onSubmit"]?.({ value: "present" })
+    ).toBeUndefined();
+  });
 
-  it("focuses the first invalid sign-in field and skips focus for valid or missing targets", async function() {
-    const focus = vi.fn()
-    const invalidQuery: QuerySelector = vi.fn(() => ({ focus }))
+  it("focuses the first invalid sign-in field and skips focus for valid or missing targets", async function () {
+    const focus = vi.fn();
+    const invalidQuery: QuerySelector = vi.fn(() => ({ focus }));
     await submitRootForm(
       mountSignIn({ form: { isValid: false } }).tree,
-      invalidQuery,
-    )
-    expect(invalidQuery).toHaveBeenCalledWith('[aria-invalid="true"]')
-    expect(focus).toHaveBeenCalledOnce()
+      invalidQuery
+    );
+    expect(invalidQuery).toHaveBeenCalledWith('[aria-invalid="true"]');
+    expect(focus).toHaveBeenCalledOnce();
 
-    const missingControl: QuerySelector = vi.fn(() => null)
+    const missingControl: QuerySelector = vi.fn(() => null);
     await submitRootForm(
       mountSignIn({ form: { isValid: false } }).tree,
-      missingControl,
-    )
-    expect(missingControl).toHaveBeenCalledOnce()
+      missingControl
+    );
+    expect(missingControl).toHaveBeenCalledOnce();
 
-    const validQuery: QuerySelector = vi.fn()
+    const validQuery: QuerySelector = vi.fn();
     await submitRootForm(
       mountSignIn({ form: { isValid: true } }).tree,
-      validQuery,
-    )
-    return expect(validQuery).not.toHaveBeenCalled()
-  })
+      validQuery
+    );
+    return expect(validQuery).not.toHaveBeenCalled();
+  });
 
-  it("submits normalized credentials and replaces browser history only after success", async function() {
-    const replace = vi.fn()
-    vi.stubGlobal("window", { location: { replace } })
+  it("submits normalized credentials and replaces browser history only after success", async function () {
+    const replace = vi.fn();
+    vi.stubGlobal("window", { location: { replace } });
     const signInEmail = vi.fn().mockResolvedValue({
       data: { session: { id: "session-1" } },
       error: null,
-    })
+    });
     const mounted = mountSignIn({
       auth: authClient({ signInEmail }),
       callbackURL: "/feature-items?status=active",
-    })
+    });
 
     await formHarness.options().onSubmit({
       value: {
         email: "  MEMBER@DOMAIN.TEST  ",
         password: "CorrectHorseBatteryStaple!42",
       },
-    })
+    });
 
-    expect(mounted.setResult).toHaveBeenNthCalledWith(1, null)
-    expect(mounted.setIsPending).toHaveBeenNthCalledWith(1, true)
+    expect(mounted.setResult).toHaveBeenNthCalledWith(1, null);
+    expect(mounted.setIsPending).toHaveBeenNthCalledWith(1, true);
     expect(signInEmail).toHaveBeenCalledWith({
       email: "member@domain.test",
       password: "CorrectHorseBatteryStaple!42",
       callbackURL: "/feature-items?status=active",
-    })
+    });
     expect(mounted.setResult).toHaveBeenLastCalledWith({
       status: "success",
       destination: "/feature-items?status=active",
-    })
-    expect(replace).toHaveBeenCalledWith("/feature-items?status=active")
-    return expect(mounted.setIsPending).toHaveBeenLastCalledWith(false)
-  })
+    });
+    expect(replace).toHaveBeenCalledWith("/feature-items?status=active");
+    return expect(mounted.setIsPending).toHaveBeenLastCalledWith(false);
+  });
 
-  it("renders actionable server denial and recoverable transport failure without redirecting", async function() {
-    const deniedReplace = vi.fn()
+  it("renders actionable server denial and recoverable transport failure without redirecting", async function () {
+    const deniedReplace = vi.fn();
     const denied = mountSignIn({
       auth: authClient({
         signInEmail: vi.fn().mockResolvedValue({
           data: null,
-          error: { code: "EMAIL_NOT_VERIFIED", message: "private provider detail" },
+          error: {
+            code: "EMAIL_NOT_VERIFIED",
+            message: "private provider detail",
+          },
         }),
       }),
       replace: deniedReplace,
-    })
+    });
     await formHarness.options().onSubmit({
       value: {
         email: "member@domain.test",
         password: "CorrectHorseBatteryStaple!42",
       },
-    })
+    });
     expect(denied.setResult).toHaveBeenLastCalledWith({
       status: "error",
       message: "Verify your email before signing in.",
       actionHref: "/verify-email",
       actionLabel: "Send another verification email",
-    })
-    expect(deniedReplace).not.toHaveBeenCalled()
-    expect(denied.setIsPending).toHaveBeenLastCalledWith(false)
+    });
+    expect(deniedReplace).not.toHaveBeenCalled();
+    expect(denied.setIsPending).toHaveBeenLastCalledWith(false);
 
-    const offlineReplace = vi.fn()
+    const offlineReplace = vi.fn();
     const offline = mountSignIn({
       auth: authClient({
         signInEmail: vi.fn().mockRejectedValue(new Error("offline")),
       }),
       replace: offlineReplace,
-    })
+    });
     await formHarness.options().onSubmit({
       value: {
         email: "member@domain.test",
         password: "CorrectHorseBatteryStaple!42",
       },
-    })
+    });
     expect(offline.setResult).toHaveBeenLastCalledWith({
       status: "error",
-      message: "We could not complete the request. Check your connection and try again.",
-    })
-    expect(offlineReplace).not.toHaveBeenCalled()
-    return expect(offline.setIsPending).toHaveBeenLastCalledWith(false)
-  })
+      message:
+        "We could not complete the request. Check your connection and try again.",
+    });
+    expect(offlineReplace).not.toHaveBeenCalled();
+    return expect(offline.setIsPending).toHaveBeenLastCalledWith(false);
+  });
 
-  it("suppresses redirect, result, and pending-state commits after unmount", async function() {
-    const gate = deferred<Readonly<{ data: unknown; error: null }>>()
-    const replace = vi.fn()
+  it("suppresses redirect, result, and pending-state commits after unmount", async function () {
+    const gate = deferred<Readonly<{ data: unknown; error: null }>>();
+    const replace = vi.fn();
     const mounted = mountSignIn({
       auth: authClient({ signInEmail: vi.fn(() => gate.promise) }),
       replace,
-    })
-    const cleanup = reactHarness.runEffect()
-    expect(cleanup).toBeTypeOf("function")
+    });
+    const cleanup = reactHarness.runEffect();
+    expect(cleanup).toBeTypeOf("function");
     const submission = formHarness.options().onSubmit({
       value: {
         email: "member@domain.test",
         password: "CorrectHorseBatteryStaple!42",
       },
-    })
-    cleanup?.()
-    gate.resolve({ data: {}, error: null })
-    await submission
+    });
+    cleanup?.();
+    gate.resolve({ data: {}, error: null });
+    await submission;
 
-    expect(mounted.setResult).toHaveBeenCalledOnce()
-    expect(mounted.setResult).toHaveBeenCalledWith(null)
-    expect(mounted.setIsPending).toHaveBeenCalledOnce()
-    expect(mounted.setIsPending).toHaveBeenCalledWith(true)
-    return expect(replace).not.toHaveBeenCalled()
-  })
+    expect(mounted.setResult).toHaveBeenCalledOnce();
+    expect(mounted.setResult).toHaveBeenCalledWith(null);
+    expect(mounted.setIsPending).toHaveBeenCalledOnce();
+    expect(mounted.setIsPending).toHaveBeenCalledWith(true);
+    return expect(replace).not.toHaveBeenCalled();
+  });
 
-  it("renders an idle form with the default browser client", function() {
+  it("renders an idle form with the default browser client", function () {
     reactHarness.begin([
       [null, vi.fn()],
       [false, vi.fn()],
-    ])
-    formHarness.begin()
-    const tree = SignInForm({ callbackURL: "/dashboard" })
+    ]);
+    formHarness.begin();
+    const tree = SignInForm({ callbackURL: "/dashboard" });
 
-    expect(buttonView(tree).props["disabled"]).toBe(false)
-    return expect(textOf(buttonView(tree))).toBe("Sign in")
-  })
+    expect(buttonView(tree).props["disabled"]).toBe(false);
+    return expect(textOf(buttonView(tree))).toBe("Sign in");
+  });
 
-  return it("disables controls and identifies invalid, submitting, and guarded pending states", function() {
-    const idle = mountSignIn()
-    expect(buttonView(idle.tree).props["disabled"]).toBe(false)
-    expect(textOf(buttonView(idle.tree))).toBe("Sign in")
+  return it("disables controls and identifies invalid, submitting, and guarded pending states", function () {
+    const idle = mountSignIn();
+    expect(buttonView(idle.tree).props["disabled"]).toBe(false);
+    expect(textOf(buttonView(idle.tree))).toBe("Sign in");
 
-    const invalid = mountSignIn({ form: { canSubmit: false } })
-    expect(buttonView(invalid.tree).props["disabled"]).toBe(true)
-    expect(textOf(buttonView(invalid.tree))).toBe("Sign in")
+    const invalid = mountSignIn({ form: { canSubmit: false } });
+    expect(buttonView(invalid.tree).props["disabled"]).toBe(true);
+    expect(textOf(buttonView(invalid.tree))).toBe("Sign in");
 
-    const submitting = mountSignIn({ form: { isSubmitting: true } })
-    expect(buttonView(submitting.tree).props["disabled"]).toBe(true)
-    expect(textOf(buttonView(submitting.tree))).toBe("Signing in…")
+    const submitting = mountSignIn({ form: { isSubmitting: true } });
+    expect(buttonView(submitting.tree).props["disabled"]).toBe(true);
+    expect(textOf(buttonView(submitting.tree))).toBe("Signing in…");
 
-    const pending = mountSignIn({ isPending: true })
-    expect(buttonView(pending.tree).props["disabled"]).toBe(true)
-    expect(textOf(buttonView(pending.tree))).toBe("Signing in…")
+    const pending = mountSignIn({ isPending: true });
+    expect(buttonView(pending.tree).props["disabled"]).toBe(true);
+    expect(textOf(buttonView(pending.tree))).toBe("Signing in…");
     expect(
       controlById(fieldView(pending.tree, "email", "").view, "sign-in-email")
-        .props["disabled"],
-    ).toBe(true)
+        .props["disabled"]
+    ).toBe(true);
     return expect(
       controlById(
         fieldView(pending.tree, "password", "").view,
-        "sign-in-password",
-      ).props["disabled"],
-    ).toBe(true)
-  })
-})
+        "sign-in-password"
+      ).props["disabled"]
+    ).toBe(true);
+  });
+});
 
-describe("EmailActionForm", function() {
-  it("renders touched email errors, delegates validation, and clears stale feedback", function() {
+describe("EmailActionForm", function () {
+  it("renders touched email errors, delegates validation, and clears stale feedback", function () {
     const serverError: AuthFlowResult = {
       status: "error",
       message: "We could not complete the request.",
-    }
-    const { setResult, tree } = mountEmailAction({ result: serverError })
+    };
+    const { setResult, tree } = mountEmailAction({ result: serverError });
     const status = requiredElement(
       tree,
       (element) => element.type === FormStatus,
-      "email action status",
-    )
-    expect(status.props["result"]).toBe(serverError)
+      "email action status"
+    );
+    expect(status.props["result"]).toBe(serverError);
 
-    const untouched = fieldView(
-      tree,
-      "email",
-      "invalid",
-      [null, "Enter a valid email address."],
-    )
-    expect(markup(untouched.view)).not.toContain("Enter a valid email address.")
+    const untouched = fieldView(tree, "email", "invalid", [
+      null,
+      "Enter a valid email address.",
+    ]);
+    expect(markup(untouched.view)).not.toContain(
+      "Enter a valid email address."
+    );
     const touched = fieldView(
       tree,
       "email",
       "invalid",
       [null, "Enter a valid email address."],
-      true,
-    )
-    const html = markup(touched.view)
-    expect(html).toContain("Enter a valid email address.")
-    expect(html).toContain('aria-describedby="password-reset-email-error"')
-    expect(html).toContain('aria-invalid="true"')
-    expect(html).toContain('role="alert"')
-    const email = controlById(touched.view, "password-reset-email")
-    ;(email.props["onChange"] as (event: TextChangeEvent) => void)({
+      true
+    );
+    const html = markup(touched.view);
+    expect(html).toContain("Enter a valid email address.");
+    expect(html).toContain('aria-describedby="password-reset-email-error"');
+    expect(html).toContain('aria-invalid="true"');
+    expect(html).toContain('role="alert"');
+    const email = controlById(touched.view, "password-reset-email");
+    (email.props["onChange"] as (event: TextChangeEvent) => void)({
       target: { value: "member@domain.test" },
-    })
-    ;(email.props["onBlur"] as () => void)()
-    expect(touched.handleChange).toHaveBeenCalledWith("member@domain.test")
-    expect(touched.handleBlur).toHaveBeenCalledOnce()
-    expect(setResult).toHaveBeenCalledWith(null)
+    });
+    (email.props["onBlur"] as () => void)();
+    expect(touched.handleChange).toHaveBeenCalledWith("member@domain.test");
+    expect(touched.handleBlur).toHaveBeenCalledOnce();
+    expect(setResult).toHaveBeenCalledWith(null);
 
-    const validators = fieldElement(tree, "email").props["validators"] as FieldValidators
-    expect(validators["onBlur"]?.({ value: "" })).toBe("Enter your email address.")
+    const validators = fieldElement(tree, "email").props[
+      "validators"
+    ] as FieldValidators;
+    expect(validators["onBlur"]?.({ value: "" })).toBe(
+      "Enter your email address."
+    );
     return expect(
-      validators["onSubmit"]?.({ value: "member@domain.test" }),
-    ).toBeUndefined()
-  })
+      validators["onSubmit"]?.({ value: "member@domain.test" })
+    ).toBeUndefined();
+  });
 
-  it("focuses invalid email actions and tolerates valid forms or absent focus targets", async function() {
-    const focus = vi.fn()
-    const invalidQuery: QuerySelector = vi.fn(() => ({ focus }))
+  it("focuses invalid email actions and tolerates valid forms or absent focus targets", async function () {
+    const focus = vi.fn();
+    const invalidQuery: QuerySelector = vi.fn(() => ({ focus }));
     await submitRootForm(
       mountEmailAction({ form: { isValid: false } }).tree,
-      invalidQuery,
-    )
-    expect(invalidQuery).toHaveBeenCalledWith('[aria-invalid="true"]')
-    expect(focus).toHaveBeenCalledOnce()
+      invalidQuery
+    );
+    expect(invalidQuery).toHaveBeenCalledWith('[aria-invalid="true"]');
+    expect(focus).toHaveBeenCalledOnce();
 
-    const missingControl: QuerySelector = vi.fn(() => null)
+    const missingControl: QuerySelector = vi.fn(() => null);
     await submitRootForm(
       mountEmailAction({ form: { isValid: false } }).tree,
-      missingControl,
-    )
-    expect(missingControl).toHaveBeenCalledOnce()
+      missingControl
+    );
+    expect(missingControl).toHaveBeenCalledOnce();
 
-    const validQuery: QuerySelector = vi.fn()
+    const validQuery: QuerySelector = vi.fn();
     await submitRootForm(
       mountEmailAction({ form: { isValid: true } }).tree,
-      validQuery,
-    )
-    return expect(validQuery).not.toHaveBeenCalled()
-  })
+      validQuery
+    );
+    return expect(validQuery).not.toHaveBeenCalled();
+  });
 
-  it("runs both enumeration-safe email operations and reports their success", async function() {
-    const requestPasswordReset = vi.fn().mockResolvedValue({ data: {}, error: null })
+  it("runs both enumeration-safe email operations and reports their success", async function () {
+    const requestPasswordReset = vi
+      .fn()
+      .mockResolvedValue({ data: {}, error: null });
     const reset = mountEmailAction({
       auth: authClient({ requestPasswordReset }),
       operation: "password-reset",
-    })
+    });
     await formHarness.options().onSubmit({
       value: { email: "  MEMBER@DOMAIN.TEST  " },
-    })
+    });
     expect(requestPasswordReset).toHaveBeenCalledWith({
       email: "member@domain.test",
       redirectTo: "/reset-password",
-    })
-    expect(reset.setResult).toHaveBeenNthCalledWith(1, null)
+    });
+    expect(reset.setResult).toHaveBeenNthCalledWith(1, null);
     expect(reset.setResult).toHaveBeenLastCalledWith({
       status: "success",
       message: SAFE_ACCOUNT_EMAIL_MESSAGE,
-    })
+    });
 
-    const sendVerificationEmail = vi.fn().mockResolvedValue({ data: {}, error: null })
+    const sendVerificationEmail = vi
+      .fn()
+      .mockResolvedValue({ data: {}, error: null });
     const verification = mountEmailAction({
       auth: authClient({ sendVerificationEmail }),
       operation: "email-verification",
-    })
+    });
     await formHarness.options().onSubmit({
       value: { email: "  MEMBER@DOMAIN.TEST  " },
-    })
+    });
     expect(sendVerificationEmail).toHaveBeenCalledWith({
       email: "member@domain.test",
       callbackURL: "/verify-email?verified=1",
-    })
-    expect(verification.setResult).toHaveBeenNthCalledWith(1, null)
+    });
+    expect(verification.setResult).toHaveBeenNthCalledWith(1, null);
     return expect(verification.setResult).toHaveBeenLastCalledWith({
       status: "success",
       message: SAFE_ACCOUNT_EMAIL_MESSAGE,
-    })
-  })
+    });
+  });
 
-  it("recovers from provider denial and thrown transport failures with generic feedback", async function() {
+  it("recovers from provider denial and thrown transport failures with generic feedback", async function () {
     const genericFailure: AuthFlowResult = {
       status: "error",
-      message: "We could not complete the request. Check your connection and try again.",
-    }
+      message:
+        "We could not complete the request. Check your connection and try again.",
+    };
     const denied = mountEmailAction({
       auth: authClient({
         requestPasswordReset: vi.fn().mockResolvedValue({
           data: null,
-          error: { code: "PROVIDER_FAILURE", message: "private provider detail" },
+          error: {
+            code: "PROVIDER_FAILURE",
+            message: "private provider detail",
+          },
         }),
       }),
-    })
+    });
     await formHarness.options().onSubmit({
       value: { email: "member@domain.test" },
-    })
-    expect(denied.setResult).toHaveBeenLastCalledWith(genericFailure)
+    });
+    expect(denied.setResult).toHaveBeenLastCalledWith(genericFailure);
 
     const offline = mountEmailAction({
       auth: authClient({
         sendVerificationEmail: vi.fn().mockRejectedValue(new Error("offline")),
       }),
       operation: "email-verification",
-    })
+    });
     await formHarness.options().onSubmit({
       value: { email: "member@domain.test" },
-    })
-    return expect(offline.setResult).toHaveBeenLastCalledWith(genericFailure)
-  })
+    });
+    return expect(offline.setResult).toHaveBeenLastCalledWith(genericFailure);
+  });
 
-  it("renders an idle email action with the default browser client", function() {
-    reactHarness.begin([[null, vi.fn()]])
-    formHarness.begin()
-    const tree = EmailActionForm({ operation: "password-reset" })
+  it("renders an idle email action with the default browser client", function () {
+    reactHarness.begin([[null, vi.fn()]]);
+    formHarness.begin();
+    const tree = EmailActionForm({ operation: "password-reset" });
 
-    expect(buttonView(tree).props["disabled"]).toBe(false)
-    return expect(textOf(buttonView(tree))).toBe("Send reset link")
-  })
+    expect(buttonView(tree).props["disabled"]).toBe(false);
+    return expect(textOf(buttonView(tree))).toBe("Send reset link");
+  });
 
-  return it("uses truthful idle and loading labels while disabling invalid or submitting actions", function() {
-    const reset = mountEmailAction({ operation: "password-reset" })
-    expect(buttonView(reset.tree).props["disabled"]).toBe(false)
-    expect(textOf(buttonView(reset.tree))).toBe("Send reset link")
+  return it("uses truthful idle and loading labels while disabling invalid or submitting actions", function () {
+    const reset = mountEmailAction({ operation: "password-reset" });
+    expect(buttonView(reset.tree).props["disabled"]).toBe(false);
+    expect(textOf(buttonView(reset.tree))).toBe("Send reset link");
 
-    const verification = mountEmailAction({ operation: "email-verification" })
-    expect(buttonView(verification.tree).props["disabled"]).toBe(false)
-    expect(textOf(buttonView(verification.tree))).toBe("Send verification email")
+    const verification = mountEmailAction({ operation: "email-verification" });
+    expect(buttonView(verification.tree).props["disabled"]).toBe(false);
+    expect(textOf(buttonView(verification.tree))).toBe(
+      "Send verification email"
+    );
 
-    const invalid = mountEmailAction({ form: { canSubmit: false } })
-    expect(buttonView(invalid.tree).props["disabled"]).toBe(true)
-    expect(textOf(buttonView(invalid.tree))).toBe("Send reset link")
+    const invalid = mountEmailAction({ form: { canSubmit: false } });
+    expect(buttonView(invalid.tree).props["disabled"]).toBe(true);
+    expect(textOf(buttonView(invalid.tree))).toBe("Send reset link");
 
-    const submitting = mountEmailAction({ form: { isSubmitting: true } })
-    expect(buttonView(submitting.tree).props["disabled"]).toBe(true)
-    expect(textOf(buttonView(submitting.tree))).toBe("Submitting…")
+    const submitting = mountEmailAction({ form: { isSubmitting: true } });
+    expect(buttonView(submitting.tree).props["disabled"]).toBe(true);
+    expect(textOf(buttonView(submitting.tree))).toBe("Submitting…");
     return expect(
       controlById(
         fieldView(submitting.tree, "email", "").view,
-        "password-reset-email",
-      ).props["disabled"],
-    ).toBe(true)
-  })
-})
+        "password-reset-email"
+      ).props["disabled"]
+    ).toBe(true);
+  });
+});
 
-describe("PasswordField state", function() {
-  return it("toggles visibility and preserves default and explicit accessibility metadata", function() {
-    const hiddenSetter = vi.fn()
-    reactHarness.begin([[false, hiddenSetter]])
+describe("PasswordField state", function () {
+  return it("toggles visibility and preserves default and explicit accessibility metadata", function () {
+    const hiddenSetter = vi.fn();
+    reactHarness.begin([[false, hiddenSetter]]);
     const hidden = PasswordField({
       id: "account-password",
       label: "Password",
@@ -1228,29 +1311,29 @@ describe("PasswordField state", function() {
       value: "secret",
       onBlur: vi.fn(),
       onChange: vi.fn(),
-    })
-    const hiddenInput = controlById(hidden, "account-password")
-    expect(hiddenInput.props["type"]).toBe("password")
-    expect(hiddenInput.props["autoComplete"]).toBe("current-password")
-    expect(hiddenInput.props["aria-describedby"]).toBeUndefined()
-    expect(hiddenInput.props["aria-invalid"]).toBeUndefined()
-    expect(hiddenInput.props["aria-required"]).toBe(true)
-    expect(hiddenInput.props["required"]).toBe(true)
-    expect(hiddenInput.props["disabled"]).toBe(false)
+    });
+    const hiddenInput = controlById(hidden, "account-password");
+    expect(hiddenInput.props["type"]).toBe("password");
+    expect(hiddenInput.props["autoComplete"]).toBe("current-password");
+    expect(hiddenInput.props["aria-describedby"]).toBeUndefined();
+    expect(hiddenInput.props["aria-invalid"]).toBeUndefined();
+    expect(hiddenInput.props["aria-required"]).toBe(true);
+    expect(hiddenInput.props["required"]).toBe(true);
+    expect(hiddenInput.props["disabled"]).toBe(false);
     const show = requiredElement(
       hidden,
       (element) => element.props["type"] === "button",
-      "show password button",
-    )
-    expect(show.props["aria-label"]).toBe("Show password")
-    expect(show.props["aria-pressed"]).toBe(false)
-    ;(show.props["onClick"] as () => void)()
-    const showUpdate = hiddenSetter.mock.calls[0]?.[0]
-    expect(showUpdate).toBeTypeOf("function")
-    expect((showUpdate as (visible: boolean) => boolean)(false)).toBe(true)
+      "show password button"
+    );
+    expect(show.props["aria-label"]).toBe("Show password");
+    expect(show.props["aria-pressed"]).toBe(false);
+    (show.props["onClick"] as () => void)();
+    const showUpdate = hiddenSetter.mock.calls[0]?.[0];
+    expect(showUpdate).toBeTypeOf("function");
+    expect((showUpdate as (visible: boolean) => boolean)(false)).toBe(true);
 
-    const visibleSetter = vi.fn()
-    reactHarness.begin([[true, visibleSetter]])
+    const visibleSetter = vi.fn();
+    reactHarness.begin([[true, visibleSetter]]);
     const visible = PasswordField({
       id: "new-password",
       label: "New password",
@@ -1263,114 +1346,116 @@ describe("PasswordField state", function() {
       error: "Use at least 12 characters.",
       disabled: true,
       required: false,
-    })
-    const visibleInput = controlById(visible, "new-password")
-    expect(visibleInput.props["type"]).toBe("text")
-    expect(visibleInput.props["autoComplete"]).toBe("new-password")
+    });
+    const visibleInput = controlById(visible, "new-password");
+    expect(visibleInput.props["type"]).toBe("text");
+    expect(visibleInput.props["autoComplete"]).toBe("new-password");
     expect(visibleInput.props["aria-describedby"]).toBe(
-      "new-password-description new-password-error",
-    )
-    expect(visibleInput.props["aria-invalid"]).toBe(true)
-    expect(visibleInput.props["aria-required"]).toBe(false)
-    expect(visibleInput.props["required"]).toBe(false)
-    expect(visibleInput.props["disabled"]).toBe(true)
-    const visibleHtml = markup(visible)
-    expect(visibleHtml).toContain('id="new-password-description"')
-    expect(visibleHtml).toContain('id="new-password-error"')
-    expect(visibleHtml).toContain('role="alert"')
+      "new-password-description new-password-error"
+    );
+    expect(visibleInput.props["aria-invalid"]).toBe(true);
+    expect(visibleInput.props["aria-required"]).toBe(false);
+    expect(visibleInput.props["required"]).toBe(false);
+    expect(visibleInput.props["disabled"]).toBe(true);
+    const visibleHtml = markup(visible);
+    expect(visibleHtml).toContain('id="new-password-description"');
+    expect(visibleHtml).toContain('id="new-password-error"');
+    expect(visibleHtml).toContain('role="alert"');
     const hide = requiredElement(
       visible,
       (element) => element.props["type"] === "button",
-      "hide password button",
-    )
-    expect(hide.props["aria-label"]).toBe("Hide password")
-    expect(hide.props["aria-pressed"]).toBe(true)
-    expect(hide.props["disabled"]).toBe(true)
-    ;(hide.props["onClick"] as () => void)()
-    const hideUpdate = visibleSetter.mock.calls[0]?.[0]
-    expect(hideUpdate).toBeTypeOf("function")
-    return expect((hideUpdate as (current: boolean) => boolean)(true)).toBe(false)
-  })
-})
+      "hide password button"
+    );
+    expect(hide.props["aria-label"]).toBe("Hide password");
+    expect(hide.props["aria-pressed"]).toBe(true);
+    expect(hide.props["disabled"]).toBe(true);
+    (hide.props["onClick"] as () => void)();
+    const hideUpdate = visibleSetter.mock.calls[0]?.[0];
+    expect(hideUpdate).toBeTypeOf("function");
+    return expect((hideUpdate as (current: boolean) => boolean)(true)).toBe(
+      false
+    );
+  });
+});
 
-describe("ResetPasswordEntry", function() {
-  it("starts with safe loading UI then captures, scrubs, and stores the reset token", function() {
-    const token = "one-time-reset-token"
-    const replaceState = vi.fn()
+describe("ResetPasswordEntry", function () {
+  it("starts with safe loading UI then captures, scrubs, and stores the reset token", function () {
+    const token = "one-time-reset-token";
+    const replaceState = vi.fn();
     const sensitiveScript = {
       textContent: `bootstrap("${token}")`,
       remove: vi.fn(),
-    }
-    const safeScript = { textContent: "bootstrap()", remove: vi.fn() }
-    const emptyScript = { textContent: null, remove: vi.fn() }
+    };
+    const safeScript = { textContent: "bootstrap()", remove: vi.fn() };
+    const emptyScript = { textContent: null, remove: vi.fn() };
     const querySelectorAll = vi.fn(() => [
       sensitiveScript,
       safeScript,
       emptyScript,
-    ])
+    ]);
     vi.stubGlobal("window", {
       location: { search: `?token=${token}` },
       history: { state: { key: "value" }, replaceState },
-    })
-    vi.stubGlobal("document", { querySelectorAll })
-    const setReady = vi.fn()
-    const setToken = vi.fn()
+    });
+    vi.stubGlobal("document", { querySelectorAll });
+    const setReady = vi.fn();
+    const setToken = vi.fn();
     reactHarness.begin([
       [false, setReady],
       [undefined, setToken],
-    ])
+    ]);
 
-    const loading = ResetPasswordEntry()
-    const loadingHtml = markup(loading)
-    expect(loadingHtml).toContain('role="status"')
-    expect(loadingHtml).toContain('aria-live="polite"')
-    expect(loadingHtml).toContain("Opening the reset link…")
-    reactHarness.runEffect()
+    const loading = ResetPasswordEntry();
+    const loadingHtml = markup(loading);
+    expect(loadingHtml).toContain('role="status"');
+    expect(loadingHtml).toContain('aria-live="polite"');
+    expect(loadingHtml).toContain("Opening the reset link…");
+    reactHarness.runEffect();
 
     expect(replaceState).toHaveBeenCalledWith(
       { key: "value" },
       "",
-      "/reset-password",
-    )
-    expect(querySelectorAll).toHaveBeenCalledWith("script")
-    expect(sensitiveScript.remove).toHaveBeenCalledOnce()
-    expect(safeScript.remove).not.toHaveBeenCalled()
-    expect(emptyScript.remove).not.toHaveBeenCalled()
-    expect(setToken).toHaveBeenCalledWith(token)
-    return expect(setReady).toHaveBeenCalledWith(true)
-  })
+      "/reset-password"
+    );
+    expect(querySelectorAll).toHaveBeenCalledWith("script");
+    expect(sensitiveScript.remove).toHaveBeenCalledOnce();
+    expect(safeScript.remove).not.toHaveBeenCalled();
+    expect(emptyScript.remove).not.toHaveBeenCalled();
+    expect(setToken).toHaveBeenCalledWith(token);
+    return expect(setReady).toHaveBeenCalledWith(true);
+  });
 
-  return it("renders token and recovery branches with truthful panel copy and form input", function() {
+  return it("renders token and recovery branches with truthful panel copy and form input", function () {
     reactHarness.begin([
       [true, vi.fn()],
       ["one-time-reset-token", vi.fn()],
-    ])
-    const valid = ResetPasswordEntry() as ElementRecord
-    expect(valid.props["title"]).toBe("Set a new password.")
+    ]);
+    const valid = ResetPasswordEntry() as ElementRecord;
+    expect(valid.props["title"]).toBe("Set a new password.");
     expect(valid.props["description"]).toBe(
-      "Choose a new password for this account.",
-    )
+      "Choose a new password for this account."
+    );
     const validForm = requiredElement(
       valid,
       (element) => element.type === ResetPasswordForm,
-      "valid reset form",
-    )
-    expect(validForm.props["token"]).toBe("one-time-reset-token")
+      "valid reset form"
+    );
+    expect(validForm.props["token"]).toBe("one-time-reset-token");
 
     reactHarness.begin([
       [true, vi.fn()],
       [undefined, vi.fn()],
-    ])
-    const invalid = ResetPasswordEntry() as ElementRecord
-    expect(invalid.props["title"]).toBe("Request a new reset link.")
+    ]);
+    const invalid = ResetPasswordEntry() as ElementRecord;
+    expect(invalid.props["title"]).toBe("Request a new reset link.");
     expect(invalid.props["description"]).toBe(
-      "The reset link is invalid or expired. Request another link to continue.",
-    )
+      "The reset link is invalid or expired. Request another link to continue."
+    );
     const recoveryForm = requiredElement(
       invalid,
       (element) => element.type === ResetPasswordForm,
-      "reset recovery form",
-    )
-    return expect(recoveryForm.props["token"]).toBeUndefined()
-  })
-})
+      "reset recovery form"
+    );
+    return expect(recoveryForm.props["token"]).toBeUndefined();
+  });
+});

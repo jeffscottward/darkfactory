@@ -1,54 +1,59 @@
-import type { SafePrincipal } from "@darkfactory/auth/types"
+import type { SafePrincipal } from "@darkfactory/auth/types";
 import {
   DashboardPersistenceError,
   type DashboardRepository,
-} from "@darkfactory/db/server"
-import type { FeatureItem } from "@darkfactory/db/schema"
+} from "@darkfactory/db/server";
+import type { FeatureItem } from "@darkfactory/db/schema";
 
-import type { CapabilityProjection } from "../contract.ts"
+import type { CapabilityProjection } from "../contract.ts";
 
 export type DashboardSummaryOutput = Readonly<{
   featureItems: Readonly<{
-    total: number
-    draft: number
-    active: number
-    archived: number
-    recent: FeatureItem[]
-  }>
-  capabilities: CapabilityProjection
-}>
+    total: number;
+    draft: number;
+    active: number;
+    archived: number;
+    recent: FeatureItem[];
+  }>;
+  capabilities: CapabilityProjection;
+}>;
 
-export type DashboardServiceErrorCode = "STORAGE_ERROR"
+export type DashboardServiceErrorCode = "STORAGE_ERROR";
 
 export class DashboardServiceError extends Error {
-  readonly code: DashboardServiceErrorCode
+  readonly code: DashboardServiceErrorCode;
   constructor(code: DashboardServiceErrorCode, message: string) {
-    super(message)
-    this.name = "DashboardServiceError"
-    this.code = code
+    super(message);
+    this.name = "DashboardServiceError";
+    this.code = code;
   }
 }
 
 export type DashboardService = Readonly<{
-  summary: (principal: SafePrincipal) => Promise<DashboardSummaryOutput>
-}>
+  summary: (principal: SafePrincipal) => Promise<DashboardSummaryOutput>;
+}>;
 
 export const createDashboardService = (
   repository: DashboardRepository,
-  capabilities: CapabilityProjection,
+  capabilities: CapabilityProjection
 ): DashboardService => ({
   summary: async (principal) => {
     try {
       return {
         featureItems: await repository.getFeatureSummary(principal.userId, 5),
         capabilities,
-      }
-    }
-    catch (error) {
+      };
+    } catch (error) {
       if (error instanceof DashboardPersistenceError) {
-        throw new DashboardServiceError("STORAGE_ERROR", "Dashboard storage is unavailable")
+        throw new DashboardServiceError(
+          "STORAGE_ERROR",
+          "Dashboard storage is unavailable"
+        );
       }
-      throw new DashboardServiceError("STORAGE_ERROR", "Dashboard storage is unavailable")
+      throw new DashboardServiceError(
+        "STORAGE_ERROR",
+        "Dashboard storage is unavailable"
+      );
     }
-  }
-})
+  },
+});

@@ -1,8 +1,8 @@
-"use client"
+"use client";
 
-import { useState } from "react"
-import { useForm } from "@tanstack/react-form"
-import { Button, Input, Label } from "@darkfactory/ui"
+import { useState } from "react";
+import { useForm } from "@tanstack/react-form";
+import { Button, Input, Label } from "@darkfactory/ui";
 
 import {
   browserAuthClient,
@@ -11,50 +11,53 @@ import {
   validateEmail,
   type AuthFlowClient,
   type AuthFlowResult,
-} from "./auth-flow.ts"
-import { FormStatus } from "./form-status.tsx"
+} from "./auth-flow.ts";
+import { FormStatus } from "./form-status.tsx";
 
 const firstError = (errors: readonly unknown[]): string | undefined => {
-  return errors.find((error): error is string => typeof error === "string")
-}
+  return errors.find((error): error is string => typeof error === "string");
+};
 
 export const EmailActionForm = ({
   operation,
   auth = browserAuthClient,
 }: Readonly<{
-  operation: "password-reset" | "email-verification"
-  auth?: AuthFlowClient
+  operation: "password-reset" | "email-verification";
+  auth?: AuthFlowClient;
 }>) => {
-  const [result, setResult] = useState<AuthFlowResult | null>(null)
-  const isPasswordReset = operation === "password-reset"
+  const [result, setResult] = useState<AuthFlowResult | null>(null);
+  const isPasswordReset = operation === "password-reset";
   const form = useForm({
     defaultValues: { email: "" },
     onSubmit: async ({ value }) => {
-      setResult(null)
+      setResult(null);
       const nextResult = isPasswordReset
         ? await submitForgotPassword(auth, value.email)
-        : await submitVerificationEmail(auth, value.email)
-      return setResult(nextResult)
-    }
-  })
+        : await submitVerificationEmail(auth, value.email);
+      return setResult(nextResult);
+    },
+  });
 
   return (
     <form
       className="grid gap-6"
       noValidate
       onSubmit={(event) => {
-        event.preventDefault()
-        const formElement = event.currentTarget
+        event.preventDefault();
+        const formElement = event.currentTarget;
         return void form.handleSubmit().then(() => {
           if (!form.state.isValid) {
-            return formElement.querySelector<HTMLElement>('[aria-invalid="true"]')?.focus()
-          };return
-        }
-        )
-  }
-      }
+            return formElement
+              .querySelector<HTMLElement>('[aria-invalid="true"]')
+              ?.focus();
+          }
+          return;
+        });
+      }}
     >
-      <form.Subscribe selector={(state) => [state.canSubmit, state.isSubmitting] as const}>
+      <form.Subscribe
+        selector={(state) => [state.canSubmit, state.isSubmitting] as const}
+      >
         {([canSubmit, isSubmitting]) => (
           <>
             <form.Field
@@ -67,12 +70,11 @@ export const EmailActionForm = ({
               {(field) => {
                 const error = field.state.meta.isTouched
                   ? firstError(field.state.meta.errors)
-                  : undefined
-                const errorId = error ? `${operation}-email-error` : undefined
+                  : undefined;
+                const errorId = error ? `${operation}-email-error` : undefined;
                 return (
                   <div className="grid gap-2">
-                    <Label htmlFor={`${operation}-email`}>Email address
-                    </Label>
+                    <Label htmlFor={`${operation}-email`}>Email address</Label>
                     <Input
                       aria-describedby={errorId}
                       aria-invalid={error ? true : undefined}
@@ -85,23 +87,25 @@ export const EmailActionForm = ({
                       name={field.name}
                       onBlur={field.handleBlur}
                       onChange={(event) => {
-                        setResult(null)
-                        return field.handleChange(event.target.value)
-                    }
-                      }
+                        setResult(null);
+                        return field.handleChange(event.target.value);
+                      }}
                       type="email"
                       required
                       value={field.state.value}
                     />
                     {error ? (
-                      <p className="text-sm font-medium text-destructive" id={errorId} role="alert">
+                      <p
+                        className="text-sm font-medium text-destructive"
+                        id={errorId}
+                        role="alert"
+                      >
                         {error}
-                    </p>
+                      </p>
                     ) : null}
-                </div>
-                )
-              }
-              }
+                  </div>
+                );
+              }}
             </form.Field>
 
             <p className="text-sm leading-6 text-muted-foreground">
@@ -122,9 +126,9 @@ export const EmailActionForm = ({
                   ? "Send reset link"
                   : "Send verification email"}
             </Button>
-        </>
+          </>
         )}
       </form.Subscribe>
-  </form>
-  )
-}
+    </form>
+  );
+};

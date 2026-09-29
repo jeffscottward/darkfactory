@@ -1,200 +1,228 @@
-import type { SQL } from "drizzle-orm"
-import { PgDialect } from "drizzle-orm/pg-core"
-import { afterEach, describe, expect, it, vi } from "vitest"
+import type { SQL } from "drizzle-orm";
+import { PgDialect } from "drizzle-orm/pg-core";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   createAtomicAuthRateLimitStorage,
   type AuthRateLimitDecision,
-} from "./rate-limit-storage.ts"
+} from "./rate-limit-storage.ts";
 
-const dialect = new PgDialect()
-const queryFor = (statement: unknown) => dialect.sqlToQuery(statement as never)
+const dialect = new PgDialect();
+const queryFor = (statement: unknown) => dialect.sqlToQuery(statement as never);
 
 const decisionRows = (decision?: AuthRateLimitDecision) => ({
-  rows: decision === undefined
-    ? []
-    : [{
-        allowed: decision.allowed,
-        retry_after_seconds: decision.retryAfter,
-      }],
-})
+  rows:
+    decision === undefined
+      ? []
+      : [
+          {
+            allowed: decision.allowed,
+            retry_after_seconds: decision.retryAfter,
+          },
+        ],
+});
 
-const cleanupRows = { rows: [] }
+const cleanupRows = { rows: [] };
 
 afterEach(() => {
-  return vi.restoreAllMocks()
-}
-)
+  return vi.restoreAllMocks();
+});
 
-describe("atomic auth rate-limit storage get/set adapter", function() {
+describe("atomic auth rate-limit storage get/set adapter", function () {
   it.each([
-    ["an existing row", [{ key: "signin:member", count: 3, lastRequest: 1_700_000_000_000 }], {
-      key: "signin:member",
-      count: 3,
-      lastRequest: 1_700_000_000_000,
-    }],
+    [
+      "an existing row",
+      [{ key: "signin:member", count: 3, lastRequest: 1_700_000_000_000 }],
+      {
+        key: "signin:member",
+        count: 3,
+        lastRequest: 1_700_000_000_000,
+      },
+    ],
     ["a missing row", [], null],
   ] as const)("returns %s through the Better Auth storage contract", async (_case, rows, expected) => {
-    const limit = vi.fn().mockResolvedValue(rows)
-    const where = vi.fn<(predicate: SQL) => { limit: typeof limit }>(() => ({ limit }))
-    const from = vi.fn(() => ({ where }))
-    const select = vi.fn(() => ({ from }))
-    const storage = createAtomicAuthRateLimitStorage({ select } as never)
+    const limit = vi.fn().mockResolvedValue(rows);
+    const where = vi.fn<(predicate: SQL) => { limit: typeof limit }>(() => ({
+      limit,
+    }));
+    const from = vi.fn(() => ({ where }));
+    const select = vi.fn(() => ({ from }));
+    const storage = createAtomicAuthRateLimitStorage({ select } as never);
 
-    await expect(storage.get("signin:member")).resolves.toEqual(expected)
-    expect(select).toHaveBeenCalledOnce()
-    expect(limit).toHaveBeenCalledWith(1)
+    await expect(storage.get("signin:member")).resolves.toEqual(expected);
+    expect(select).toHaveBeenCalledOnce();
+    expect(limit).toHaveBeenCalledWith(1);
 
-    const predicate = where.mock.calls[0]?.[0]
-    const query = queryFor(predicate)
-    expect(query.sql).toContain('"rate_limit"."key"')
-    return expect(query.params).toEqual(["signin:member"])
-  }
-  )
+    const predicate = where.mock.calls[0]?.[0];
+    const query = queryFor(predicate);
+    expect(query.sql).toContain('"rate_limit"."key"');
+    return expect(query.params).toEqual(["signin:member"]);
+  });
 
   it("upserts the caller value regardless of Better Auth's update hint", async () => {
-    const execute = vi.fn().mockResolvedValue(cleanupRows)
-    const storage = createAtomicAuthRateLimitStorage({ execute } as never)
+    const execute = vi.fn().mockResolvedValue(cleanupRows);
+    const storage = createAtomicAuthRateLimitStorage({ execute } as never);
 
-    await expect(storage.set("reset:address", {
-      key: "ignored-value-key",
-      count: 4,
-      lastRequest: 1_700_000_000_500,
-    }, true)).resolves.toBeUndefined()
+    await expect(
+      storage.set(
+        "reset:address",
+        {
+          key: "ignored-value-key",
+          count: 4,
+          lastRequest: 1_700_000_000_500,
+        },
+        true
+      )
+    ).resolves.toBeUndefined();
 
-    expect(execute).toHaveBeenCalledOnce()
-    const query = queryFor(execute.mock.calls[0]?.[0])
-    expect(query.sql).toContain("insert into rate_limit")
-    expect(query.sql).toContain("on conflict (key) do update set")
-    expect(query.sql).toContain("count = excluded.count")
-    expect(query.sql).toContain("last_request = excluded.last_request")
+    expect(execute).toHaveBeenCalledOnce();
+    const query = queryFor(execute.mock.calls[0]?.[0]);
+    expect(query.sql).toContain("insert into rate_limit");
+    expect(query.sql).toContain("on conflict (key) do update set");
+    expect(query.sql).toContain("count = excluded.count");
+    expect(query.sql).toContain("last_request = excluded.last_request");
     return expect(query.params).toEqual([
       expect.any(String),
       "reset:address",
       4,
       1_700_000_000_500,
-    ])
-  }
-  )
+    ]);
+  });
 
   it("propagates a get adapter failure", async () => {
-    const failure = new Error("rate-limit select unavailable")
-    const limit = vi.fn().mockRejectedValue(failure)
+    const failure = new Error("rate-limit select unavailable");
+    const limit = vi.fn().mockRejectedValue(failure);
     const database = {
       select: vi.fn(() => ({
         from: vi.fn(() => ({
           where: vi.fn(() => ({ limit })),
         })),
       })),
-    }
+    };
 
     return await expect(
-      createAtomicAuthRateLimitStorage(database as never).get("signin:member"),
-    ).rejects.toBe(failure)
-  }
-  )
+      createAtomicAuthRateLimitStorage(database as never).get("signin:member")
+    ).rejects.toBe(failure);
+  });
 
   return it("propagates a set adapter failure", async () => {
-    const failure = new Error("rate-limit upsert unavailable")
-    const execute = vi.fn().mockRejectedValue(failure)
+    const failure = new Error("rate-limit upsert unavailable");
+    const execute = vi.fn().mockRejectedValue(failure);
 
-    await expect(createAtomicAuthRateLimitStorage({ execute } as never).set(
-      "signin:member",
-      { key: "signin:member", count: 1, lastRequest: 1000 },
-    )).rejects.toBe(failure)
-    return expect(execute).toHaveBeenCalledOnce()
-  }
-  )
-})
+    await expect(
+      createAtomicAuthRateLimitStorage({ execute } as never).set(
+        "signin:member",
+        { key: "signin:member", count: 1, lastRequest: 1000 }
+      )
+    ).rejects.toBe(failure);
+    return expect(execute).toHaveBeenCalledOnce();
+  });
+});
 
-describe("atomic auth rate-limit decisions", function() {
+describe("atomic auth rate-limit decisions", function () {
   it.each([
     ["first request", { allowed: true, retryAfter: null }],
     ["exhausted window", { allowed: false, retryAfter: 17 }],
   ] as const)("returns the database's %s decision", async (_case, expected) => {
-    vi.spyOn(Date, "now").mockReturnValue(1_700_000_000_000)
-    const execute = vi.fn()
+    vi.spyOn(Date, "now").mockReturnValue(1_700_000_000_000);
+    const execute = vi
+      .fn()
       .mockResolvedValueOnce(decisionRows(expected))
-      .mockResolvedValueOnce(cleanupRows)
-    const storage = createAtomicAuthRateLimitStorage({ execute } as never)
+      .mockResolvedValueOnce(cleanupRows);
+    const storage = createAtomicAuthRateLimitStorage({ execute } as never);
 
-    await expect(storage.consume("signin:address", {
-      window: 60,
-      max: 5,
-    })).resolves.toEqual(expected)
+    await expect(
+      storage.consume("signin:address", {
+        window: 60,
+        max: 5,
+      })
+    ).resolves.toEqual(expected);
 
-    expect(execute).toHaveBeenCalledTimes(2)
-    const decisionQuery = queryFor(execute.mock.calls[0]?.[0])
-    expect(decisionQuery.sql).toContain("with attempted as")
-    expect(decisionQuery.sql).toContain("on conflict (key) do update set")
-    expect(decisionQuery.sql).toContain("rate_limit.count <")
-    expect(decisionQuery.sql).toContain("not exists (select 1 from attempted)")
-    expect(decisionQuery.params).toContain("signin:address")
-    expect(decisionQuery.params).toContain(60_000)
-    expect(decisionQuery.params).toContain(5)
+    expect(execute).toHaveBeenCalledTimes(2);
+    const decisionQuery = queryFor(execute.mock.calls[0]?.[0]);
+    expect(decisionQuery.sql).toContain("with attempted as");
+    expect(decisionQuery.sql).toContain("on conflict (key) do update set");
+    expect(decisionQuery.sql).toContain("rate_limit.count <");
+    expect(decisionQuery.sql).toContain("not exists (select 1 from attempted)");
+    expect(decisionQuery.params).toContain("signin:address");
+    expect(decisionQuery.params).toContain(60_000);
+    expect(decisionQuery.params).toContain(5);
 
-    const cleanupQuery = queryFor(execute.mock.calls[1]?.[0])
-    expect(cleanupQuery.sql).toContain("delete from rate_limit")
-    expect(cleanupQuery.sql).toContain("for update skip locked")
+    const cleanupQuery = queryFor(execute.mock.calls[1]?.[0]);
+    expect(cleanupQuery.sql).toContain("delete from rate_limit");
+    expect(cleanupQuery.sql).toContain("for update skip locked");
     return expect(cleanupQuery.params).toEqual([
       1_700_000_000_000 - 60_000,
       100,
-    ])
-  }
-  )
+    ]);
+  });
 
   it("retries once when a concurrent delete removes the decision row", async () => {
-    const execute = vi.fn()
+    const execute = vi
+      .fn()
       .mockResolvedValueOnce(decisionRows())
       .mockResolvedValueOnce(decisionRows({ allowed: true, retryAfter: null }))
-      .mockResolvedValueOnce(cleanupRows)
-    const storage = createAtomicAuthRateLimitStorage({ execute } as never)
+      .mockResolvedValueOnce(cleanupRows);
+    const storage = createAtomicAuthRateLimitStorage({ execute } as never);
 
-    await expect(storage.consume("verification:address", {
-      window: 30,
-      max: 2,
-    })).resolves.toEqual({ allowed: true, retryAfter: null })
-    expect(execute).toHaveBeenCalledTimes(3)
-    expect(queryFor(execute.mock.calls[0]?.[0]).sql).toContain("with attempted as")
-    expect(queryFor(execute.mock.calls[1]?.[0]).sql).toContain("with attempted as")
-    return expect(queryFor(execute.mock.calls[2]?.[0]).sql).toContain("delete from rate_limit")
-  }
-  )
+    await expect(
+      storage.consume("verification:address", {
+        window: 30,
+        max: 2,
+      })
+    ).resolves.toEqual({ allowed: true, retryAfter: null });
+    expect(execute).toHaveBeenCalledTimes(3);
+    expect(queryFor(execute.mock.calls[0]?.[0]).sql).toContain(
+      "with attempted as"
+    );
+    expect(queryFor(execute.mock.calls[1]?.[0]).sql).toContain(
+      "with attempted as"
+    );
+    return expect(queryFor(execute.mock.calls[2]?.[0]).sql).toContain(
+      "delete from rate_limit"
+    );
+  });
 
   it("fails deterministically when contention yields no decision twice", async () => {
-    const execute = vi.fn()
+    const execute = vi
+      .fn()
       .mockResolvedValueOnce(decisionRows())
-      .mockResolvedValueOnce(decisionRows())
-    const storage = createAtomicAuthRateLimitStorage({ execute } as never)
+      .mockResolvedValueOnce(decisionRows());
+    const storage = createAtomicAuthRateLimitStorage({ execute } as never);
 
-    await expect(storage.consume("verification:address", {
-      window: 30,
-      max: 2,
-    })).rejects.toThrowError("Auth rate limiter did not return a decision")
-    expect(execute).toHaveBeenCalledTimes(2)
-    return expect(execute.mock.calls.every(([statement]) => {
-      return queryFor(statement).sql.includes("with attempted as")
-    }
-    )).toBe(true)
-  }
-  )
+    await expect(
+      storage.consume("verification:address", {
+        window: 30,
+        max: 2,
+      })
+    ).rejects.toThrowError("Auth rate limiter did not return a decision");
+    expect(execute).toHaveBeenCalledTimes(2);
+    return expect(
+      execute.mock.calls.every(([statement]) => {
+        return queryFor(statement).sql.includes("with attempted as");
+      })
+    ).toBe(true);
+  });
 
   it.each([
     ["minimum window and max", { window: 1, max: 1 }],
-    ["maximum window and safe max", { window: 60, max: Number.MAX_SAFE_INTEGER }],
+    [
+      "maximum window and safe max",
+      { window: 60, max: Number.MAX_SAFE_INTEGER },
+    ],
   ] as const)("accepts the %s boundary", async (_case, rule) => {
-    const execute = vi.fn()
+    const execute = vi
+      .fn()
       .mockResolvedValueOnce(decisionRows({ allowed: true, retryAfter: null }))
-      .mockResolvedValueOnce(cleanupRows)
-    const storage = createAtomicAuthRateLimitStorage({ execute } as never)
+      .mockResolvedValueOnce(cleanupRows);
+    const storage = createAtomicAuthRateLimitStorage({ execute } as never);
 
     await expect(storage.consume("boundary", rule)).resolves.toEqual({
       allowed: true,
       retryAfter: null,
-    })
-    return expect(execute).toHaveBeenCalledTimes(2)
-  }
-  )
+    });
+    return expect(execute).toHaveBeenCalledTimes(2);
+  });
 
   it.each([
     ["zero window", { window: 0, max: 1 }],
@@ -207,93 +235,97 @@ describe("atomic auth rate-limit decisions", function() {
     ["fractional max", { window: 1, max: 1.5 }],
     ["unsafe max", { window: 1, max: Number.MAX_SAFE_INTEGER + 1 }],
   ] as const)("rejects a rule with %s before accessing the adapter", async (_case, rule) => {
-    const execute = vi.fn()
-    const storage = createAtomicAuthRateLimitStorage({ execute } as never)
+    const execute = vi.fn();
+    const storage = createAtomicAuthRateLimitStorage({ execute } as never);
 
     await expect(storage.consume("invalid-rule", rule)).rejects.toThrowError(
-      "Auth rate limit rule is outside the supported bounds",
-    )
-    return expect(execute).not.toHaveBeenCalled()
-  }
-  )
+      "Auth rate limit rule is outside the supported bounds"
+    );
+    return expect(execute).not.toHaveBeenCalled();
+  });
 
   it("preserves exactly max admissions from a serialized adapter fake", async () => {
-    vi.spyOn(Date, "now").mockReturnValue(1_700_000_000_000)
-    const rows = new Map<string, { count: number; lastRequest: number }>()
+    vi.spyOn(Date, "now").mockReturnValue(1_700_000_000_000);
+    const rows = new Map<string, { count: number; lastRequest: number }>();
     const execute = vi.fn(async (statement: unknown) => {
-      const query = queryFor(statement)
-      if (!query.sql.includes("with attempted as")) return cleanupRows
+      const query = queryFor(statement);
+      if (!query.sql.includes("with attempted as")) return cleanupRows;
 
-      const key = String(query.params[1])
-      const now = Number(query.params[2])
-      const windowMilliseconds = Number(query.params[3])
-      const max = Number(query.params[5])
-      await Promise.resolve()
-      const current = rows.get(key)
+      const key = String(query.params[1]);
+      const now = Number(query.params[2]);
+      const windowMilliseconds = Number(query.params[3]);
+      const max = Number(query.params[5]);
+      await Promise.resolve();
+      const current = rows.get(key);
       if (
         current === undefined ||
         current.lastRequest < now - windowMilliseconds
       ) {
-        rows.set(key, { count: 1, lastRequest: now })
-        return decisionRows({ allowed: true, retryAfter: null })
+        rows.set(key, { count: 1, lastRequest: now });
+        return decisionRows({ allowed: true, retryAfter: null });
       }
       if (current.count < max) {
-        rows.set(key, { count: current.count + 1, lastRequest: now })
-        return decisionRows({ allowed: true, retryAfter: null })
+        rows.set(key, { count: current.count + 1, lastRequest: now });
+        return decisionRows({ allowed: true, retryAfter: null });
       }
       return decisionRows({
         allowed: false,
         retryAfter: Math.max(
           1,
-          Math.ceil((current.lastRequest + windowMilliseconds - now) / 1000),
+          Math.ceil((current.lastRequest + windowMilliseconds - now) / 1000)
         ),
-      })
-    }
-    )
-    const storage = createAtomicAuthRateLimitStorage({ execute } as never)
+      });
+    });
+    const storage = createAtomicAuthRateLimitStorage({ execute } as never);
 
     const decisions = await Promise.all(
       Array.from({ length: 12 }, async () => {
-        return await storage.consume("shared-signin-window", { window: 60, max: 3 })
-      }
-      ),
-    )
+        return await storage.consume("shared-signin-window", {
+          window: 60,
+          max: 3,
+        });
+      })
+    );
 
-    expect(decisions.filter((decision) => decision.allowed)).toHaveLength(3)
-    expect(decisions.filter((decision) => !decision.allowed)).toHaveLength(9)
-    expect(decisions.filter((decision) => !decision.allowed).every(
-      (decision) => decision.retryAfter === 60,
-    )).toBe(true)
-    expect(rows.get("shared-signin-window")?.count).toBe(3)
-    return expect(execute).toHaveBeenCalledTimes(24)
-  }
-  )
+    expect(decisions.filter((decision) => decision.allowed)).toHaveLength(3);
+    expect(decisions.filter((decision) => !decision.allowed)).toHaveLength(9);
+    expect(
+      decisions
+        .filter((decision) => !decision.allowed)
+        .every((decision) => decision.retryAfter === 60)
+    ).toBe(true);
+    expect(rows.get("shared-signin-window")?.count).toBe(3);
+    return expect(execute).toHaveBeenCalledTimes(24);
+  });
 
   it("propagates a decision adapter failure without attempting cleanup", async () => {
-    const failure = new Error("atomic decision unavailable")
-    const execute = vi.fn().mockRejectedValue(failure)
-    const storage = createAtomicAuthRateLimitStorage({ execute } as never)
+    const failure = new Error("atomic decision unavailable");
+    const execute = vi.fn().mockRejectedValue(failure);
+    const storage = createAtomicAuthRateLimitStorage({ execute } as never);
 
-    await expect(storage.consume("signin:address", {
-      window: 60,
-      max: 5,
-    })).rejects.toBe(failure)
-    return expect(execute).toHaveBeenCalledOnce()
-  }
-  )
+    await expect(
+      storage.consume("signin:address", {
+        window: 60,
+        max: 5,
+      })
+    ).rejects.toBe(failure);
+    return expect(execute).toHaveBeenCalledOnce();
+  });
 
   return it("propagates cleanup failure after an otherwise allowed decision", async () => {
-    const failure = new Error("rate-limit cleanup unavailable")
-    const execute = vi.fn()
+    const failure = new Error("rate-limit cleanup unavailable");
+    const execute = vi
+      .fn()
       .mockResolvedValueOnce(decisionRows({ allowed: true, retryAfter: null }))
-      .mockRejectedValueOnce(failure)
-    const storage = createAtomicAuthRateLimitStorage({ execute } as never)
+      .mockRejectedValueOnce(failure);
+    const storage = createAtomicAuthRateLimitStorage({ execute } as never);
 
-    await expect(storage.consume("signin:address", {
-      window: 60,
-      max: 5,
-    })).rejects.toBe(failure)
-    return expect(execute).toHaveBeenCalledTimes(2)
-  }
-  )
-})
+    await expect(
+      storage.consume("signin:address", {
+        window: 60,
+        max: 5,
+      })
+    ).rejects.toBe(failure);
+    return expect(execute).toHaveBeenCalledTimes(2);
+  });
+});

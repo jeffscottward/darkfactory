@@ -1,6 +1,6 @@
-import { execFile } from "node:child_process"
-import { createHash, randomBytes, randomUUID } from "node:crypto"
-import { isUtf8 } from "node:buffer"
+import { execFile } from "node:child_process";
+import { createHash, randomBytes, randomUUID } from "node:crypto";
+import { isUtf8 } from "node:buffer";
 import {
   access,
   lstat,
@@ -11,29 +11,32 @@ import {
   realpath,
   rename,
   rm,
-} from "node:fs/promises"
-import { constants } from "node:fs"
-import { join, relative, resolve, sep } from "node:path"
-import { tmpdir } from "node:os"
-import { inflateSync } from "node:zlib"
+} from "node:fs/promises";
+import { constants } from "node:fs";
+import { join, relative, resolve, sep } from "node:path";
+import { tmpdir } from "node:os";
+import { inflateSync } from "node:zlib";
 
-import { assertStableOwnedLifecycleRoot, requireFileFlag } from "./owned-marker.js"
+import {
+  assertStableOwnedLifecycleRoot,
+  requireFileFlag,
+} from "./owned-marker.js";
 
 import {
   ArtifactScannerCleanupError,
   playwrightReportHasExecutedResult,
   type ArtifactEntry,
   type ArtifactScannerDependencies,
-} from "./scanner.ts"
+} from "./scanner.ts";
 
 export type ArtifactScanLimits = Readonly<{
-  maxEntries: number
-  maxEntryBytes: number
-  maxTotalBytes: number
-  maxArchives: number
-  maxExpandedBytes: number
-  deadlineMs: number
-}>
+  maxEntries: number;
+  maxEntryBytes: number;
+  maxTotalBytes: number;
+  maxArchives: number;
+  maxExpandedBytes: number;
+  deadlineMs: number;
+}>;
 const DEFAULT_LIMITS: ArtifactScanLimits = Object.freeze({
   maxEntries: 20_000,
   maxEntryBytes: 16 * 1024 * 1024,
@@ -41,16 +44,16 @@ const DEFAULT_LIMITS: ArtifactScanLimits = Object.freeze({
   maxArchives: 100,
   maxExpandedBytes: 256 * 1024 * 1024,
   deadlineMs: 30_000,
-})
-const MAX_ARCHIVE_ENTRIES = 100
-const ARCHIVE_ENTRY = /\.(?:zip|tar|tar\.gz|tgz)$/i
-const GZIP_ENTRY = /\.gz$/i
-const RUN_ID = /^[A-Za-z0-9_-]{1,128}$/
-const OWNER_FILE = ".darkfactory-e2e-owner.json"
-const LIFECYCLE_STATE_FILE = "lifecycle-state.json"
-const LIFECYCLE_STATE_MAX_BYTES = 512
-const PLAYWRIGHT_REPORT_FILE = "playwright-report.json"
-const PLAYWRIGHT_REPORT_MAX_BYTES = 16 * 1024 * 1024
+});
+const MAX_ARCHIVE_ENTRIES = 100;
+const ARCHIVE_ENTRY = /\.(?:zip|tar|tar\.gz|tgz)$/i;
+const GZIP_ENTRY = /\.gz$/i;
+const RUN_ID = /^[A-Za-z0-9_-]{1,128}$/;
+const OWNER_FILE = ".darkfactory-e2e-owner.json";
+const LIFECYCLE_STATE_FILE = "lifecycle-state.json";
+const LIFECYCLE_STATE_MAX_BYTES = 512;
+const PLAYWRIGHT_REPORT_FILE = "playwright-report.json";
+const PLAYWRIGHT_REPORT_MAX_BYTES = 16 * 1024 * 1024;
 const LIFECYCLE_STAGES = new Set([
   "artifact-isolation",
   "module-loading",
@@ -61,7 +64,7 @@ const LIFECYCLE_STAGES = new Set([
   "server-spawn",
   "server-probed",
   "server-ready",
-])
+]);
 const LIFECYCLE_STATUSES = new Set([
   "starting",
   "ready",
@@ -69,81 +72,92 @@ const LIFECYCLE_STATUSES = new Set([
   "runtime-failed",
   "cleanup-failed",
   "stopped",
-])
+]);
 
 export type OwnedPathIdentity = Readonly<{
-  dev: number
-  ino: number
-}>
-export type ArtifactProfile = "no-binary" | "anonymous-public-visual"
+  dev: number;
+  ino: number;
+}>;
+export type ArtifactProfile = "no-binary" | "anonymous-public-visual";
 
 export type OwnedRunProof = Readonly<{
-  version: 1
-  runId: string
-  nonce: string
-  artifactProfile: ArtifactProfile
-  e2e: Readonly<{ root: OwnedPathIdentity; marker: OwnedPathIdentity }>
-  evidence: Readonly<{ root: OwnedPathIdentity; marker: OwnedPathIdentity }>
-}>
+  version: 1;
+  runId: string;
+  nonce: string;
+  artifactProfile: ArtifactProfile;
+  e2e: Readonly<{ root: OwnedPathIdentity; marker: OwnedPathIdentity }>;
+  evidence: Readonly<{ root: OwnedPathIdentity; marker: OwnedPathIdentity }>;
+}>;
 export type OwnedRunAdoption = Readonly<{
-  version: 1
-  runId: string
-  artifactProfile: ArtifactProfile
-  nonceDigest: string
-  e2e: OwnedRunProof["e2e"]
-  evidence: OwnedRunProof["evidence"]
-}>
+  version: 1;
+  runId: string;
+  artifactProfile: ArtifactProfile;
+  nonceDigest: string;
+  e2e: OwnedRunProof["e2e"];
+  evidence: OwnedRunProof["evidence"];
+}>;
 export type OwnedLifecyclePaths = Readonly<{
-  repository: string
-  e2e: string
-  evidence: string
-}>
+  repository: string;
+  e2e: string;
+  evidence: string;
+}>;
 export type OwnedLifecycleState = Readonly<{
-  version: 1
-  status: string
-  stage: string
-}>
+  version: 1;
+  status: string;
+  stage: string;
+}>;
 
-const adoptionForProof = (proof: OwnedRunProof): OwnedRunAdoption => Object.freeze({
-  version: 1 as const,
-  runId: proof.runId,
-  artifactProfile: proof.artifactProfile,
-  nonceDigest: createHash("sha256").update(proof.nonce, "utf8").digest("hex"),
-  e2e: proof.e2e,
-  evidence: proof.evidence,
-})
+const adoptionForProof = (proof: OwnedRunProof): OwnedRunAdoption =>
+  Object.freeze({
+    version: 1 as const,
+    runId: proof.runId,
+    artifactProfile: proof.artifactProfile,
+    nonceDigest: createHash("sha256").update(proof.nonce, "utf8").digest("hex"),
+    e2e: proof.e2e,
+    evidence: proof.evidence,
+  });
 
 export const encodeOwnedRunAdoption = (proof: OwnedRunProof): string => {
-  return Buffer.from(JSON.stringify(adoptionForProof(proof)), "utf8").toString("base64url")
-}
+  return Buffer.from(JSON.stringify(adoptionForProof(proof)), "utf8").toString(
+    "base64url"
+  );
+};
 
 export const encodeOwnedRunProof = (proof: OwnedRunProof): string => {
-  return Buffer.from(JSON.stringify(proof), "utf8").toString("base64url")
-}
+  return Buffer.from(JSON.stringify(proof), "utf8").toString("base64url");
+};
 
 export const decodeOwnedRunProof = (encoded: string): OwnedRunProof => {
-  if (!/^[A-Za-z0-9_-]{1,2048}$/u.test(encoded)) throw new Error("Invalid owned proof encoding")
-  const parsed = JSON.parse(Buffer.from(encoded, "base64url").toString("utf8")) as Partial<OwnedRunProof>
+  if (!/^[A-Za-z0-9_-]{1,2048}$/u.test(encoded))
+    throw new Error("Invalid owned proof encoding");
+  const parsed = JSON.parse(
+    Buffer.from(encoded, "base64url").toString("utf8")
+  ) as Partial<OwnedRunProof>;
   const validIdentity = (value: unknown): value is OwnedPathIdentity => {
-    return value !== null &&
-    typeof value === "object" &&
-    Number.isSafeInteger((value as { dev?: unknown }).dev) &&
-    Number.isSafeInteger((value as { ino?: unknown }).ino)
-  }
+    return (
+      value !== null &&
+      typeof value === "object" &&
+      Number.isSafeInteger((value as { dev?: unknown }).dev) &&
+      Number.isSafeInteger((value as { ino?: unknown }).ino)
+    );
+  };
   if (
     parsed.version !== 1 ||
     typeof parsed.runId !== "string" ||
     !RUN_ID.test(parsed.runId) ||
     typeof parsed.nonce !== "string" ||
     !/^[A-Za-z0-9_-]{43}$/u.test(parsed.nonce) ||
-    !["no-binary", "anonymous-public-visual"].includes(String(parsed.artifactProfile)) ||
+    !["no-binary", "anonymous-public-visual"].includes(
+      String(parsed.artifactProfile)
+    ) ||
     parsed.e2e === undefined ||
     parsed.evidence === undefined ||
     !validIdentity(parsed.e2e.root) ||
     !validIdentity(parsed.e2e.marker) ||
     !validIdentity(parsed.evidence.root) ||
     !validIdentity(parsed.evidence.marker)
-  ) throw new Error("Invalid owned E2E proof")
+  )
+    throw new Error("Invalid owned E2E proof");
   return Object.freeze({
     version: 1 as const,
     runId: parsed.runId,
@@ -157,35 +171,37 @@ export const decodeOwnedRunProof = (encoded: string): OwnedRunProof => {
       root: identity(parsed.evidence.root),
       marker: identity(parsed.evidence.marker),
     }),
-  })
-}
+  });
+};
 export const decodeOwnedRunAdoption = (
   encoded: string,
-  expectedRunId: string,
+  expectedRunId: string
 ): OwnedRunAdoption => {
   if (!/^[A-Za-z0-9_-]{1,2048}$/u.test(encoded)) {
-    throw new Error("Invalid owned adoption encoding")
+    throw new Error("Invalid owned adoption encoding");
   }
-  const decoded = Buffer.from(encoded, "base64url")
+  const decoded = Buffer.from(encoded, "base64url");
   if (decoded.toString("base64url") !== encoded) {
-    throw new Error("Owned adoption encoding is noncanonical")
+    throw new Error("Owned adoption encoding is noncanonical");
   }
-  const canonical = decoded.toString("utf8")
-  const parsed = JSON.parse(canonical) as Partial<OwnedRunAdoption>
+  const canonical = decoded.toString("utf8");
+  const parsed = JSON.parse(canonical) as Partial<OwnedRunAdoption>;
   const validIdentity = (value: unknown): value is OwnedPathIdentity => {
-    return value !== null &&
-    typeof value === "object" &&
-    Number.isSafeInteger((value as { dev?: unknown }).dev) &&
-    Number((value as { dev?: unknown }).dev) >= 0 &&
-    Number.isSafeInteger((value as { ino?: unknown }).ino) &&
-    Number((value as { ino?: unknown }).ino) >= 0
-  }
+    return (
+      value !== null &&
+      typeof value === "object" &&
+      Number.isSafeInteger((value as { dev?: unknown }).dev) &&
+      Number((value as { dev?: unknown }).dev) >= 0 &&
+      Number.isSafeInteger((value as { ino?: unknown }).ino) &&
+      Number((value as { ino?: unknown }).ino) >= 0
+    );
+  };
   if (
     parsed.version !== 1 ||
     parsed.runId !== expectedRunId ||
     !RUN_ID.test(expectedRunId) ||
     !["no-binary", "anonymous-public-visual"].includes(
-      String(parsed.artifactProfile),
+      String(parsed.artifactProfile)
     ) ||
     typeof parsed.nonceDigest !== "string" ||
     !/^[a-f0-9]{64}$/u.test(parsed.nonceDigest) ||
@@ -195,7 +211,8 @@ export const decodeOwnedRunAdoption = (
     !validIdentity(parsed.e2e.marker) ||
     !validIdentity(parsed.evidence.root) ||
     !validIdentity(parsed.evidence.marker)
-  ) throw new Error("Invalid owned E2E adoption")
+  )
+    throw new Error("Invalid owned E2E adoption");
   const adoption = Object.freeze({
     version: 1 as const,
     runId: expectedRunId,
@@ -209,101 +226,125 @@ export const decodeOwnedRunAdoption = (
       root: identity(parsed.evidence.root),
       marker: identity(parsed.evidence.marker),
     }),
-  })
+  });
   if (JSON.stringify(adoption) !== canonical) {
-    throw new Error("Owned adoption capability is noncanonical")
+    throw new Error("Owned adoption capability is noncanonical");
   }
-  return adoption
-}
+  return adoption;
+};
 
-type CommandResult = Readonly<{ stdout: Buffer }>
-type ArchiveExecutable = "gzip" | "tar" | "unzip"
+type CommandResult = Readonly<{ stdout: Buffer }>;
+type ArchiveExecutable = "gzip" | "tar" | "unzip";
 type RunFile = (
   file: ArchiveExecutable,
   arguments_: readonly string[],
   maxBuffer: number,
   timeoutMs: number,
-  signal: AbortSignal,
-) => Promise<CommandResult>
+  signal: AbortSignal
+) => Promise<CommandResult>;
 type ArchiveCommand = (
   file: ArchiveExecutable,
   arguments_: readonly string[],
-  maxBuffer: number,
-) => Promise<CommandResult>
+  maxBuffer: number
+) => Promise<CommandResult>;
 
-const trustedArchiveExecutables = new Map<ArchiveExecutable, Promise<string>>()
-const trustedArchiveExecutable = async (name: ArchiveExecutable): Promise<string> => {
-  const existing = trustedArchiveExecutables.get(name)
-  if (existing !== undefined) return await existing
+const trustedArchiveExecutables = new Map<ArchiveExecutable, Promise<string>>();
+const trustedArchiveExecutable = async (
+  name: ArchiveExecutable
+): Promise<string> => {
+  const existing = trustedArchiveExecutables.get(name);
+  if (existing !== undefined) return await existing;
   const resolution = (async () => {
     for (const candidate of [`/usr/bin/${name}`, `/bin/${name}`]) {
       try {
-        const canonical = await realpath(candidate)
-        await access(canonical, constants.X_OK)
-        return canonical
-      }
-      catch {
-        continue
+        const canonical = await realpath(candidate);
+        await access(canonical, constants.X_OK);
+        return canonical;
+      } catch {
+        continue;
       }
     }
-    throw new Error(`Trusted ${name} executable is unavailable`)
-  }
-  )()
-  trustedArchiveExecutables.set(name, resolution)
-  return await resolution
-}
+    throw new Error(`Trusted ${name} executable is unavailable`);
+  })();
+  trustedArchiveExecutables.set(name, resolution);
+  return await resolution;
+};
 
-const runFile: RunFile = async (file, arguments_, maxBuffer, timeoutMs, signal) => {
-  const executable = await trustedArchiveExecutable(file)
+const runFile: RunFile = async (
+  file,
+  arguments_,
+  maxBuffer,
+  timeoutMs,
+  signal
+) => {
+  const executable = await trustedArchiveExecutable(file);
   return await new Promise((resolvePromise, reject) => {
-    return execFile(executable, [...arguments_], {
-      encoding: "buffer",
-      env: { NODE_ENV: "test" },
-      maxBuffer,
-      timeout: Math.max(1, Math.min(30_000, timeoutMs)),
-      signal,
-      windowsHide: true,
-    }, (error, stdout) => {
-      if (error) { return reject(error)}
-      else return resolvePromise({ stdout: Buffer.from(stdout) })
-    }
-    )
-  }
-  )
-}
+    return execFile(
+      executable,
+      [...arguments_],
+      {
+        encoding: "buffer",
+        env: { NODE_ENV: "test" },
+        maxBuffer,
+        timeout: Math.max(1, Math.min(30_000, timeoutMs)),
+        signal,
+        windowsHide: true,
+      },
+      (error, stdout) => {
+        if (error) {
+          return reject(error);
+        } else return resolvePromise({ stdout: Buffer.from(stdout) });
+      }
+    );
+  });
+};
 
 const contained = (root: string, path: string): string => {
-  const target = resolve(root, path)
-  const relation = relative(root, target)
-  if (relation === ".." || relation.startsWith(`..${sep}`) || resolve(target) === root) {
-    throw new Error("Artifact path escapes or replaces the repository root")
+  const target = resolve(root, path);
+  const relation = relative(root, target);
+  if (
+    relation === ".." ||
+    relation.startsWith(`..${sep}`) ||
+    resolve(target) === root
+  ) {
+    throw new Error("Artifact path escapes or replaces the repository root");
   }
-  return target
-}
+  return target;
+};
 
-type ArchiveKind = "gzip" | "tar" | "zip"
+type ArchiveKind = "gzip" | "tar" | "zip";
 
-const detectedArchiveKind = (path: string, content: Buffer): ArchiveKind | undefined => {
-  const zip = content.length >= 4 &&
+const detectedArchiveKind = (
+  path: string,
+  content: Buffer
+): ArchiveKind | undefined => {
+  const zip =
+    content.length >= 4 &&
     content[0] === 0x50 &&
     content[1] === 0x4b &&
-    [0x03, 0x05, 0x07].includes(content.readUInt8(2))
-  const gzip = content[0] === 0x1f && content[1] === 0x8b
-  const tar = content.length >= 262 &&
-    content.subarray(257, 262).toString("ascii") === "ustar"
-  if (zip) return "zip"
-  if (gzip) return /\.(?:tar\.gz|tgz)$/iu.test(path) ? "tar" : "gzip"
-  if (tar) return "tar"
+    [0x03, 0x05, 0x07].includes(content.readUInt8(2));
+  const gzip = content[0] === 0x1f && content[1] === 0x8b;
+  const tar =
+    content.length >= 262 &&
+    content.subarray(257, 262).toString("ascii") === "ustar";
+  if (zip) return "zip";
+  if (gzip) return /\.(?:tar\.gz|tgz)$/iu.test(path) ? "tar" : "gzip";
+  if (tar) return "tar";
   if (
-    content.subarray(0, 6).equals(Buffer.from([0xfd, 0x37, 0x7a, 0x58, 0x5a, 0x00])) ||
+    content
+      .subarray(0, 6)
+      .equals(Buffer.from([0xfd, 0x37, 0x7a, 0x58, 0x5a, 0x00])) ||
     content.subarray(0, 3).toString("ascii") === "BZh" ||
-    content.subarray(0, 6).equals(Buffer.from([0x37, 0x7a, 0xbc, 0xaf, 0x27, 0x1c]))
-  ) throw new Error("Unsupported compressed artifact format")
+    content
+      .subarray(0, 6)
+      .equals(Buffer.from([0x37, 0x7a, 0xbc, 0xaf, 0x27, 0x1c]))
+  )
+    throw new Error("Unsupported compressed artifact format");
   if (ARCHIVE_ENTRY.test(path) || GZIP_ENTRY.test(path)) {
-    throw new Error("Artifact extension does not match archive magic")
+    throw new Error("Artifact extension does not match archive magic");
   }
-  return undefined
-}
+  return undefined;
+};
 const COMPRESSED_MAGICS = Object.freeze([
   Buffer.from([0x50, 0x4b, 0x03, 0x04]),
   Buffer.from([0x50, 0x4b, 0x05, 0x06]),
@@ -312,68 +353,85 @@ const COMPRESSED_MAGICS = Object.freeze([
   Buffer.from([0xfd, 0x37, 0x7a, 0x58, 0x5a, 0x00]),
   Buffer.from("BZh", "ascii"),
   Buffer.from([0x37, 0x7a, 0xbc, 0xaf, 0x27, 0x1c]),
-])
+]);
 
 const isArchivePayload = (content: Buffer): boolean => {
-  return COMPRESSED_MAGICS.some((magic) => content.subarray(0, magic.byteLength).equals(magic)) ||
-  (content.length >= 262 && content.subarray(257, 262).toString("ascii") === "ustar")
-}
-const PNG_SIGNATURE = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])
-const MAX_PNG_BYTES = 10 * 1024 * 1024
-const MAX_PNG_DIMENSION = 8_192
-const MAX_PNG_PIXELS = 8_000_000
-const PNG_CHUNKS = new Set(["IHDR", "PLTE", "IDAT", "IEND"])
+  return (
+    COMPRESSED_MAGICS.some((magic) =>
+      content.subarray(0, magic.byteLength).equals(magic)
+    ) ||
+    (content.length >= 262 &&
+      content.subarray(257, 262).toString("ascii") === "ustar")
+  );
+};
+const PNG_SIGNATURE = Buffer.from([
+  0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a,
+]);
+const MAX_PNG_BYTES = 10 * 1024 * 1024;
+const MAX_PNG_DIMENSION = 8_192;
+const MAX_PNG_PIXELS = 8_000_000;
+const PNG_CHUNKS = new Set(["IHDR", "PLTE", "IDAT", "IEND"]);
 const PNG_CRC_TABLE = Uint32Array.from({ length: 256 }, (_unused, index) => {
-  let value = index
+  let value = index;
   for (let bit = 0; bit < 8; bit += 1) {
-    value = (value & 1) === 1 ? 0xedb88320 ^ (value >>> 1) : value >>> 1
+    value = (value & 1) === 1 ? 0xedb88320 ^ (value >>> 1) : value >>> 1;
   }
-  return value >>> 0
-}
-)
+  return value >>> 0;
+});
 
 const pngCrc32 = (content: Buffer): number => {
-  let crc = 0xffffffff
+  let crc = 0xffffffff;
   for (const byte of content) {
-    crc = (PNG_CRC_TABLE[(crc ^ byte) & 0xff] ?? 0) ^ (crc >>> 8)
+    crc = (PNG_CRC_TABLE[(crc ^ byte) & 0xff] ?? 0) ^ (crc >>> 8);
   }
-  return (crc ^ 0xffffffff) >>> 0
-}
+  return (crc ^ 0xffffffff) >>> 0;
+};
 
 const assertStrictPng = (content: Buffer): void => {
   if (content.byteLength > MAX_PNG_BYTES) {
-    throw new Error("Binary artifact is not a permitted PNG")
+    throw new Error("Binary artifact is not a permitted PNG");
   }
-  let offset = 8
-  let index = 0
-  let width = 0
-  let height = 0
-  let channels = 0
-  let sawIdat = false
-  let sawIend = false
-  const imageData: Buffer[] = []
+  let offset = 8;
+  let index = 0;
+  let width = 0;
+  let height = 0;
+  let channels = 0;
+  let sawIdat = false;
+  let sawIend = false;
+  const imageData: Buffer[] = [];
   while (offset < content.byteLength) {
-    if (content.byteLength - offset < 12) throw new Error("PNG chunk is truncated")
-    const length = content.readUInt32BE(offset)
-    const end = offset + 12 + length
+    if (content.byteLength - offset < 12)
+      throw new Error("PNG chunk is truncated");
+    const length = content.readUInt32BE(offset);
+    const end = offset + 12 + length;
     if (!Number.isSafeInteger(end) || end > content.byteLength) {
-      throw new Error("PNG chunk length is unsafe")
+      throw new Error("PNG chunk length is unsafe");
     }
-    const chunk = content.subarray(offset + 4, offset + 8).toString("ascii")
+    const chunk = content.subarray(offset + 4, offset + 8).toString("ascii");
     if (!/^[A-Za-z]{4}$/u.test(chunk) || !PNG_CHUNKS.has(chunk)) {
-      throw new Error("PNG metadata or unknown chunks are rejected")
+      throw new Error("PNG metadata or unknown chunks are rejected");
     }
-    const chunkBytes = content.subarray(offset + 4, offset + 8 + length)
+    const chunkBytes = content.subarray(offset + 4, offset + 8 + length);
     if (pngCrc32(chunkBytes) !== content.readUInt32BE(offset + 8 + length)) {
-      throw new Error("PNG chunk checksum is invalid")
+      throw new Error("PNG chunk checksum is invalid");
     }
     if (index === 0) {
-      if (chunk !== "IHDR" || length !== 13) throw new Error("PNG header is invalid")
-      width = content.readUInt32BE(offset + 8)
-      height = content.readUInt32BE(offset + 12)
-      const bitDepth = content[offset + 16]
-      const colorType = content[offset + 17]
-      channels = colorType === 0 ? 1 : colorType === 2 ? 3 : colorType === 4 ? 2 : colorType === 6 ? 4 : 0
+      if (chunk !== "IHDR" || length !== 13)
+        throw new Error("PNG header is invalid");
+      width = content.readUInt32BE(offset + 8);
+      height = content.readUInt32BE(offset + 12);
+      const bitDepth = content[offset + 16];
+      const colorType = content[offset + 17];
+      channels =
+        colorType === 0
+          ? 1
+          : colorType === 2
+            ? 3
+            : colorType === 4
+              ? 2
+              : colorType === 6
+                ? 4
+                : 0;
       if (
         width === 0 ||
         height === 0 ||
@@ -385,100 +443,110 @@ const assertStrictPng = (content: Buffer): void => {
         content[offset + 18] !== 0 ||
         content[offset + 19] !== 0 ||
         content[offset + 20] !== 0
-      ) throw new Error("PNG header is unsafe")
+      )
+        throw new Error("PNG header is unsafe");
+    } else if (chunk === "IHDR") {
+      throw new Error("PNG contains duplicate headers");
     }
-    else if (chunk === "IHDR") {
-      throw new Error("PNG contains duplicate headers")
-    }
-    if (chunk === "PLTE" && (sawIdat || length === 0 || length > 768 || length % 3 !== 0)) {
-      throw new Error("PNG palette is invalid")
+    if (
+      chunk === "PLTE" &&
+      (sawIdat || length === 0 || length > 768 || length % 3 !== 0)
+    ) {
+      throw new Error("PNG palette is invalid");
     }
     if (chunk === "IDAT") {
-      if (length === 0) throw new Error("PNG image chunks are invalid")
-      sawIdat = true
-      imageData.push(content.subarray(offset + 8, offset + 8 + length))
+      if (length === 0) throw new Error("PNG image chunks are invalid");
+      sawIdat = true;
+      imageData.push(content.subarray(offset + 8, offset + 8 + length));
     }
     if (chunk === "IEND") {
       if (!sawIdat || length !== 0 || end !== content.byteLength) {
-        throw new Error("PNG terminator is invalid")
+        throw new Error("PNG terminator is invalid");
       }
-      sawIend = true
+      sawIend = true;
     }
-    offset = end
-    index += 1
+    offset = end;
+    index += 1;
   }
-  if (!sawIend) throw new Error("PNG terminator is missing")
-  const expectedBytes = height * (1 + width * channels)
-  let pixels: Buffer
+  if (!sawIend) throw new Error("PNG terminator is missing");
+  const expectedBytes = height * (1 + width * channels);
+  let pixels: Buffer;
   try {
-    pixels = inflateSync(Buffer.concat(imageData), { maxOutputLength: expectedBytes + 1 })
+    pixels = inflateSync(Buffer.concat(imageData), {
+      maxOutputLength: expectedBytes + 1,
+    });
+  } catch (error) {
+    throw new Error("PNG image data is invalid", { cause: error });
   }
-  catch (error) {
-    throw new Error("PNG image data is invalid", { cause: error })
-  }
-  if (pixels.byteLength !== expectedBytes) throw new Error("PNG pixel data size is invalid")
-}
+  if (pixels.byteLength !== expectedBytes)
+    throw new Error("PNG pixel data size is invalid");
+};
 
 const artifactEntry = (path: string, content: Buffer): ArtifactEntry => {
-  let text = ""
-  let binary: ArtifactEntry["binary"]
+  let text = "";
+  let binary: ArtifactEntry["binary"];
   if (isUtf8(content)) {
-    text = content.toString("utf8")
+    text = content.toString("utf8");
     if (/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/u.test(text)) {
-      binary = "unsupported"
-      text = content.toString("latin1")
+      binary = "unsupported";
+      text = content.toString("latin1");
     }
+  } else {
+    binary = content.subarray(0, 8).equals(PNG_SIGNATURE)
+      ? "png"
+      : "unsupported";
+    text = content.toString("latin1");
   }
-  else {
-    binary = content.subarray(0, 8).equals(PNG_SIGNATURE) ? "png" : "unsupported"
-    text = content.toString("latin1")
-  }
-  if (binary === "png") assertStrictPng(content)
+  if (binary === "png") assertStrictPng(content);
   return Object.freeze({
     path,
     content: text,
     sha256: createHash("sha256").update(content).digest("hex"),
     ...(binary === undefined ? {} : { binary }),
-  })
-}
+  });
+};
 
 const readStableFile = async (
   path: string,
   maxBytes: number,
-  expected: Readonly<{ dev: number; ino: number }>,
+  expected: Readonly<{ dev: number; ino: number }>
 ): Promise<Buffer> => {
-  const handle = await open(path, constants.O_RDONLY | requireFileFlag(constants.O_NOFOLLOW))
+  const handle = await open(
+    path,
+    constants.O_RDONLY | requireFileFlag(constants.O_NOFOLLOW)
+  );
   try {
-    const before = await handle.stat()
+    const before = await handle.stat();
     if (
       !before.isFile() ||
       before.dev !== expected.dev ||
       before.ino !== expected.ino ||
       before.size > maxBytes
-    ) throw new Error("Artifact identity or size is unsafe")
-    const content = await handle.readFile()
-    const after = await handle.stat()
+    )
+      throw new Error("Artifact identity or size is unsafe");
+    const content = await handle.readFile();
+    const after = await handle.stat();
     if (
       before.dev !== after.dev ||
       before.ino !== after.ino ||
       before.size !== after.size ||
       content.byteLength !== after.size
-    ) throw new Error("Artifact identity changed while reading")
-    return content
+    )
+      throw new Error("Artifact identity changed while reading");
+    return content;
+  } finally {
+    await handle.close();
   }
-  finally {
-    await handle.close()
-  }
-}
+};
 
 const createArchiveSnapshot = async (
   content: Buffer,
-  kind: ArchiveKind,
+  kind: ArchiveKind
 ): Promise<Readonly<{ directory: string; path: string }>> => {
-  const directory = await mkdtemp(join(tmpdir(), "darkfactory-artifact-scan-"))
-  const suffix = kind === "zip" ? ".zip" : kind === "tar" ? ".tar" : ".gz"
-  const path = join(directory, `artifact${suffix}`)
-  let handle: Awaited<ReturnType<typeof open>> | undefined
+  const directory = await mkdtemp(join(tmpdir(), "darkfactory-artifact-scan-"));
+  const suffix = kind === "zip" ? ".zip" : kind === "tar" ? ".tar" : ".gz";
+  const path = join(directory, `artifact${suffix}`);
+  let handle: Awaited<ReturnType<typeof open>> | undefined;
   try {
     handle = await open(
       path,
@@ -486,28 +554,26 @@ const createArchiveSnapshot = async (
         constants.O_EXCL |
         constants.O_WRONLY |
         requireFileFlag(constants.O_NOFOLLOW),
-      0o600,
-    )
-    await handle.writeFile(content)
-    await handle.sync()
-    await handle.close()
-    handle = undefined
-    return Object.freeze({ directory, path })
-  }
-  catch (error) {
-    if (handle !== undefined) await handle.close().catch(() => undefined)
+      0o600
+    );
+    await handle.writeFile(content);
+    await handle.sync();
+    await handle.close();
+    handle = undefined;
+    return Object.freeze({ directory, path });
+  } catch (error) {
+    if (handle !== undefined) await handle.close().catch(() => undefined);
     try {
-      await rm(directory, { force: true, recursive: true })
+      await rm(directory, { force: true, recursive: true });
+    } catch {
+      throw new ArtifactScannerCleanupError();
     }
-    catch {
-      throw new ArtifactScannerCleanupError()
-    }
-    throw error
+    throw error;
   }
-}
+};
 
 const assertSafeArchiveName = (name: string): void => {
-  const normalized = name.replaceAll("\\", "/")
+  const normalized = name.replaceAll("\\", "/");
   if (
     name.length === 0 ||
     name.startsWith("-") ||
@@ -515,38 +581,47 @@ const assertSafeArchiveName = (name: string): void => {
     /^[A-Za-z]:\//u.test(normalized) ||
     normalized.split("/").includes("..") ||
     /[\u0000-\u001f\u007f]/u.test(name)
-  ) throw new Error("Unsafe archive entry name")
-}
+  )
+    throw new Error("Unsafe archive entry name");
+};
 
-const commandForArchive = (path: string): Readonly<{
-  list: readonly string[]
-  metadata: readonly string[]
-  extract: readonly string[]
-  parseSizes: (value: string) => readonly number[]
-  executable: ArchiveExecutable
+const commandForArchive = (
+  path: string
+): Readonly<{
+  list: readonly string[];
+  metadata: readonly string[];
+  extract: readonly string[];
+  parseSizes: (value: string) => readonly number[];
+  executable: ArchiveExecutable;
 }> => {
-  if (/\.zip$/i.test(path)) return {
-    executable: "unzip",
-    list: ["-Z1", path],
-    metadata: ["-Z", "-v", path],
-    extract: ["-p", path],
-    parseSizes: (value) => [...value.matchAll(/uncompressed size:\s+(\d+) bytes/giu)]
-      .map((matched) => Number(matched[1])),
-  }
+  if (/\.zip$/i.test(path))
+    return {
+      executable: "unzip",
+      list: ["-Z1", path],
+      metadata: ["-Z", "-v", path],
+      extract: ["-p", path],
+      parseSizes: (value) =>
+        [...value.matchAll(/uncompressed size:\s+(\d+) bytes/giu)].map(
+          (matched) => Number(matched[1])
+        ),
+    };
   return {
     executable: "tar",
     list: ["-tf", path],
     metadata: ["-tvf", path],
     extract: ["-xOf", path],
-    parseSizes: (value) => value.split(/\r?\n/u).filter(Boolean).map((line) => {
-      const gnu = /^[^\s]+\s+\S+\s+(\d+)\s+\d{4}-/u.exec(line)
-      const bsd = /^[^\s]+\s+\d+\s+\S+\s+\S+\s+(\d+)\s+/u.exec(line)
-      const encoded = gnu?.[1] ?? bsd?.[1]
-      return encoded === undefined ? Number.NaN : Number(encoded)
-    }
-    ),
-  }
-}
+    parseSizes: (value) =>
+      value
+        .split(/\r?\n/u)
+        .filter(Boolean)
+        .map((line) => {
+          const gnu = /^[^\s]+\s+\S+\s+(\d+)\s+\d{4}-/u.exec(line);
+          const bsd = /^[^\s]+\s+\d+\s+\S+\s+\S+\s+(\d+)\s+/u.exec(line);
+          const encoded = gnu?.[1] ?? bsd?.[1];
+          return encoded === undefined ? Number.NaN : Number(encoded);
+        }),
+  };
+};
 
 const readArchive = async (
   displayPath: string,
@@ -554,183 +629,207 @@ const readArchive = async (
   kind: ArchiveKind,
   execute: ArchiveCommand,
   limits: ArtifactScanLimits,
-  reserve: (bytes: number, expanded: boolean) => void,
+  reserve: (bytes: number, expanded: boolean) => void
 ): Promise<readonly ArtifactEntry[]> => {
   if (kind === "gzip") {
-    const metadata = await execute("gzip", ["-l", path], limits.maxEntryBytes)
-    const rows = metadata.stdout.toString("utf8").trim().split(/\r?\n/u)
-    const columns = rows.at(-1)?.trim().split(/\s+/u)
-    const expectedBytes = Number(columns?.[1])
+    const metadata = await execute("gzip", ["-l", path], limits.maxEntryBytes);
+    const rows = metadata.stdout.toString("utf8").trim().split(/\r?\n/u);
+    const columns = rows.at(-1)?.trim().split(/\s+/u);
+    const expectedBytes = Number(columns?.[1]);
     if (!Number.isSafeInteger(expectedBytes) || expectedBytes < 0) {
-      throw new Error("Gzip entry size is unknown")
+      throw new Error("Gzip entry size is unknown");
     }
-    reserve(expectedBytes, true)
-    const result = await execute("gzip", ["-cd", path], expectedBytes + 1)
-    if (result.stdout.byteLength !== expectedBytes) throw new Error("Gzip size changed")
+    reserve(expectedBytes, true);
+    const result = await execute("gzip", ["-cd", path], expectedBytes + 1);
+    if (result.stdout.byteLength !== expectedBytes)
+      throw new Error("Gzip size changed");
     if (isArchivePayload(result.stdout)) {
-      throw new Error("Nested compressed artifacts are rejected")
+      throw new Error("Nested compressed artifacts are rejected");
     }
-    return [artifactEntry(`${displayPath}#uncompressed`, result.stdout)]
+    return [artifactEntry(`${displayPath}#uncompressed`, result.stdout)];
   }
 
-  const command = commandForArchive(path)
-  const listed = await execute(command.executable, command.list, limits.maxEntryBytes)
-  const names = listed.stdout.toString("utf8").split(/\r?\n/u).filter(Boolean)
+  const command = commandForArchive(path);
+  const listed = await execute(
+    command.executable,
+    command.list,
+    limits.maxEntryBytes
+  );
+  const names = listed.stdout.toString("utf8").split(/\r?\n/u).filter(Boolean);
   if (names.length > MAX_ARCHIVE_ENTRIES) {
-    throw new Error("Archive member count exceeds scan bound")
+    throw new Error("Archive member count exceeds scan bound");
   }
   for (const name of names) {
-    assertSafeArchiveName(name)
+    assertSafeArchiveName(name);
     if (ARCHIVE_ENTRY.test(name) || GZIP_ENTRY.test(name)) {
-      throw new Error("Nested archives are rejected")
+      throw new Error("Nested archives are rejected");
     }
   }
   const metadata = await execute(
     command.executable,
     command.metadata,
-    limits.maxEntryBytes,
-  )
-  const sizes = command.parseSizes(metadata.stdout.toString("utf8"))
+    limits.maxEntryBytes
+  );
+  const sizes = command.parseSizes(metadata.stdout.toString("utf8"));
   if (
     sizes.length !== names.length ||
     sizes.some((size) => !Number.isSafeInteger(size) || size < 0)
-  ) throw new Error("Archive entry size is unknown")
-  for (const size of sizes) reserve(size, true)
-  const expectedBytes = sizes.reduce((total, size) => total + size, 0)
+  )
+    throw new Error("Archive entry size is unknown");
+  for (const size of sizes) reserve(size, true);
+  const expectedBytes = sizes.reduce((total, size) => total + size, 0);
   const result = await execute(
     command.executable,
     command.extract,
-    Math.min(limits.maxTotalBytes, expectedBytes + 1),
-  )
-  if (result.stdout.byteLength !== expectedBytes) throw new Error("Archive size changed")
-  let memberOffset = 0
+    Math.min(limits.maxTotalBytes, expectedBytes + 1)
+  );
+  if (result.stdout.byteLength !== expectedBytes)
+    throw new Error("Archive size changed");
+  let memberOffset = 0;
   const nestedArchive = sizes.some((size) => {
-    const member = result.stdout.subarray(memberOffset, memberOffset + size)
-    memberOffset += size
-    return isArchivePayload(member)
-  }
-  )
+    const member = result.stdout.subarray(memberOffset, memberOffset + size);
+    memberOffset += size;
+    return isArchivePayload(member);
+  });
   if (nestedArchive) {
-    throw new Error("Nested compressed artifacts are rejected")
+    throw new Error("Nested compressed artifacts are rejected");
   }
-  return [artifactEntry(
-    `${displayPath}#contents`,
-    Buffer.concat([Buffer.from(`${names.join("\n")}\n`, "utf8"), result.stdout]),
-  )]
-}
+  return [
+    artifactEntry(
+      `${displayPath}#contents`,
+      Buffer.concat([
+        Buffer.from(`${names.join("\n")}\n`, "utf8"),
+        result.stdout,
+      ])
+    ),
+  ];
+};
 
-const identity = (stats: Readonly<{ dev: number; ino: number }>): OwnedPathIdentity => {
-  return Object.freeze({ dev: stats.dev, ino: stats.ino })
-}
+const identity = (
+  stats: Readonly<{ dev: number; ino: number }>
+): OwnedPathIdentity => {
+  return Object.freeze({ dev: stats.dev, ino: stats.ino });
+};
 
 const sameIdentity = (
   expected: OwnedPathIdentity,
-  actual: Readonly<{ dev: number; ino: number }>,
-): boolean => expected.dev === actual.dev && expected.ino === actual.ino
+  actual: Readonly<{ dev: number; ino: number }>
+): boolean => expected.dev === actual.dev && expected.ino === actual.ino;
 
 const assertDirectory = async (path: string): Promise<void> => {
-  const stats = await lstat(path)
+  const stats = await lstat(path);
   if (stats.isSymbolicLink() || !stats.isDirectory()) {
-    throw new Error("Owned E2E directory ancestry is unsafe")
+    throw new Error("Owned E2E directory ancestry is unsafe");
   }
-  if (await realpath(path) !== path) throw new Error("Owned E2E directory ancestry changed")
-}
+  if ((await realpath(path)) !== path)
+    throw new Error("Owned E2E directory ancestry changed");
+};
 
 const ensureBaseDirectory = async (
   root: string,
-  category: "e2e-runs" | "evidence",
+  category: "e2e-runs" | "evidence"
 ): Promise<string> => {
-  let current = root
+  let current = root;
   for (const segment of ["test-results", category]) {
-    current = join(current, segment)
+    current = join(current, segment);
     try {
-      await mkdir(current, { mode: 0o700 })
+      await mkdir(current, { mode: 0o700 });
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
     }
-    catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error
-    }
-    await assertDirectory(current)
+    await assertDirectory(current);
   }
-  return current
-}
+  return current;
+};
 
 const createOwnedRoot = async (
   root: string,
   category: "e2e-runs" | "evidence",
-  runId: string,
-): Promise<Readonly<{ root: OwnedPathIdentity; marker: OwnedPathIdentity }>> => {
-  const base = await ensureBaseDirectory(root, category)
-  const runRoot = join(base, runId)
-  await mkdir(runRoot, { mode: 0o700 })
-  await assertDirectory(runRoot)
-  const rootStats = await lstat(runRoot)
+  runId: string
+): Promise<
+  Readonly<{ root: OwnedPathIdentity; marker: OwnedPathIdentity }>
+> => {
+  const base = await ensureBaseDirectory(root, category);
+  const runRoot = join(base, runId);
+  await mkdir(runRoot, { mode: 0o700 });
+  await assertDirectory(runRoot);
+  const rootStats = await lstat(runRoot);
   const marker = await open(
     join(runRoot, OWNER_FILE),
     constants.O_CREAT |
       constants.O_EXCL |
       constants.O_WRONLY |
       requireFileFlag(constants.O_NOFOLLOW),
-    0o600,
-  )
+    0o600
+  );
   try {
-    await marker.sync()
+    await marker.sync();
     return Object.freeze({
       root: identity(rootStats),
       marker: identity(await marker.stat()),
-    })
+    });
+  } finally {
+    await marker.close();
   }
-  finally {
-    await marker.close()
-  }
-}
+};
 
 const writeAdoptionMarkers = async (
   root: string,
-  proof: OwnedRunProof,
+  proof: OwnedRunProof
 ): Promise<void> => {
   const targets = [
-    { path: join(root, "test-results/e2e-runs", proof.runId, OWNER_FILE), expected: proof.e2e.marker },
-    { path: join(root, "test-results/evidence", proof.runId, OWNER_FILE), expected: proof.evidence.marker },
-  ]
-  const handles: Awaited<ReturnType<typeof open>>[] = []
+    {
+      path: join(root, "test-results/e2e-runs", proof.runId, OWNER_FILE),
+      expected: proof.e2e.marker,
+    },
+    {
+      path: join(root, "test-results/evidence", proof.runId, OWNER_FILE),
+      expected: proof.evidence.marker,
+    },
+  ];
+  const handles: Awaited<ReturnType<typeof open>>[] = [];
   try {
     for (const target of targets) {
       const handle = await open(
         target.path,
-        constants.O_WRONLY | requireFileFlag(constants.O_NOFOLLOW),
-      )
-      const stats = await handle.stat()
-      if (!sameIdentity(target.expected, stats) || (stats.mode & 0o777) !== 0o600) {
-        await handle.close()
-        throw new Error("Owned E2E marker identity changed during adoption")
+        constants.O_WRONLY | requireFileFlag(constants.O_NOFOLLOW)
+      );
+      const stats = await handle.stat();
+      if (
+        !sameIdentity(target.expected, stats) ||
+        (stats.mode & 0o777) !== 0o600
+      ) {
+        await handle.close();
+        throw new Error("Owned E2E marker identity changed during adoption");
       }
-      handles.push(handle)
+      handles.push(handle);
     }
-    const content = JSON.stringify(adoptionForProof(proof))
+    const content = JSON.stringify(adoptionForProof(proof));
     for (const handle of handles) {
-      await handle.writeFile(content, "utf8")
-      await handle.sync()
+      await handle.writeFile(content, "utf8");
+      await handle.sync();
     }
+  } finally {
+    await Promise.all(
+      handles.map(async (handle) => handle.close().catch(() => undefined))
+    );
   }
-  finally {
-    await Promise.all(handles.map(async (handle) => handle.close().catch(() => undefined)))
-  }
-}
+};
 
 export const prepareOwnedRun = async (
   repositoryPath: string,
   runId: string,
-  artifactProfile: ArtifactProfile,
+  artifactProfile: ArtifactProfile
 ): Promise<OwnedRunProof> => {
-  if (!RUN_ID.test(runId)) throw new Error("Invalid E2E run identifier")
+  if (!RUN_ID.test(runId)) throw new Error("Invalid E2E run identifier");
   if (!["no-binary", "anonymous-public-visual"].includes(artifactProfile)) {
-    throw new Error("Invalid E2E artifact profile")
+    throw new Error("Invalid E2E artifact profile");
   }
-  const root = await realpath(repositoryPath)
-  const nonce = randomBytes(32).toString("base64url")
-  const e2e = await createOwnedRoot(root, "e2e-runs", runId)
+  const root = await realpath(repositoryPath);
+  const nonce = randomBytes(32).toString("base64url");
+  const e2e = await createOwnedRoot(root, "e2e-runs", runId);
   try {
-    const evidence = await createOwnedRoot(root, "evidence", runId)
+    const evidence = await createOwnedRoot(root, "evidence", runId);
     const proof = Object.freeze({
       version: 1 as const,
       runId,
@@ -738,144 +837,154 @@ export const prepareOwnedRun = async (
       artifactProfile,
       e2e,
       evidence,
-    })
-    await writeAdoptionMarkers(root, proof)
-    return proof
-  }
-  catch (error) {
+    });
+    await writeAdoptionMarkers(root, proof);
+    return proof;
+  } catch (error) {
     await Promise.all([
-      rm(join(root, "test-results", "e2e-runs", runId), { force: true, recursive: true }),
-      rm(join(root, "test-results", "evidence", runId), { force: true, recursive: true }),
-    ]).catch(() => undefined)
-    throw error
+      rm(join(root, "test-results", "e2e-runs", runId), {
+        force: true,
+        recursive: true,
+      }),
+      rm(join(root, "test-results", "evidence", runId), {
+        force: true,
+        recursive: true,
+      }),
+    ]).catch(() => undefined);
+    throw error;
   }
-}
+};
 
 const assertOwnedRoot = async (
   root: string,
   category: "e2e-runs" | "evidence",
-  proof: OwnedRunProof,
+  proof: OwnedRunProof
 ): Promise<void> => {
-  const expected = category === "e2e-runs" ? proof.e2e : proof.evidence
-  const base = join(root, "test-results", category)
-  await assertDirectory(join(root, "test-results"))
-  await assertDirectory(base)
-  const runRoot = join(base, proof.runId)
-  await assertDirectory(runRoot)
-  const rootStats = await lstat(runRoot)
-  if (!sameIdentity(expected.root, rootStats)) throw new Error("Owned E2E root identity changed")
+  const expected = category === "e2e-runs" ? proof.e2e : proof.evidence;
+  const base = join(root, "test-results", category);
+  await assertDirectory(join(root, "test-results"));
+  await assertDirectory(base);
+  const runRoot = join(base, proof.runId);
+  await assertDirectory(runRoot);
+  const rootStats = await lstat(runRoot);
+  if (!sameIdentity(expected.root, rootStats))
+    throw new Error("Owned E2E root identity changed");
   const marker = await open(
     join(runRoot, OWNER_FILE),
-    constants.O_RDONLY | requireFileFlag(constants.O_NOFOLLOW),
-  )
+    constants.O_RDONLY | requireFileFlag(constants.O_NOFOLLOW)
+  );
   try {
-    const before = await marker.stat()
+    const before = await marker.stat();
     if (
       !sameIdentity(expected.marker, before) ||
       before.size > 512 ||
       (before.mode & 0o777) !== 0o600
-    ) throw new Error("Owned E2E marker identity changed")
-    const content = await marker.readFile({ encoding: "utf8" })
-    const after = await marker.stat()
-    if (!sameIdentity(expected.marker, after)) throw new Error("Owned E2E marker changed")
+    )
+      throw new Error("Owned E2E marker identity changed");
+    const content = await marker.readFile({ encoding: "utf8" });
+    const after = await marker.stat();
+    if (!sameIdentity(expected.marker, after))
+      throw new Error("Owned E2E marker changed");
     if (content !== JSON.stringify(adoptionForProof(proof))) {
-      throw new Error("Owned E2E marker capability mismatch")
+      throw new Error("Owned E2E marker capability mismatch");
     }
+  } finally {
+    await marker.close();
   }
-  finally {
-    await marker.close()
-  }
-}
+};
 
-const assertOwnedRun = async (root: string, proof: OwnedRunProof): Promise<void> => {
+const assertOwnedRun = async (
+  root: string,
+  proof: OwnedRunProof
+): Promise<void> => {
   await Promise.all([
     assertOwnedRoot(root, "e2e-runs", proof),
     assertOwnedRoot(root, "evidence", proof),
-  ])
-}
+  ]);
+};
 
 export const createOwnedLifecyclePaths = async (
   repositoryPath: string,
-  runId: string,
+  runId: string
 ): Promise<OwnedLifecyclePaths> => {
-  if (!RUN_ID.test(runId)) throw new Error("Owned lifecycle run identity is invalid")
-  const repository = await realpath(repositoryPath)
-  await assertDirectory(join(repository, "test-results"))
-  await assertDirectory(join(repository, "test-results", "e2e-runs"))
-  await assertDirectory(join(repository, "test-results", "evidence"))
+  if (!RUN_ID.test(runId))
+    throw new Error("Owned lifecycle run identity is invalid");
+  const repository = await realpath(repositoryPath);
+  await assertDirectory(join(repository, "test-results"));
+  await assertDirectory(join(repository, "test-results", "e2e-runs"));
+  await assertDirectory(join(repository, "test-results", "evidence"));
   return Object.freeze({
     repository,
     e2e: join(repository, "test-results", "e2e-runs", runId),
     evidence: join(repository, "test-results", "evidence", runId),
-  })
-}
+  });
+};
 
 const assertAdoptedLifecycleRoot = (
   path: string,
   expected: OwnedRunAdoption["e2e"],
-  adoption: OwnedRunAdoption,
-): Promise<void> => assertStableOwnedLifecycleRoot(
-  path,
-  OWNER_FILE,
-  expected,
-  JSON.stringify(adoption),
-  assertDirectory,
-)
+  adoption: OwnedRunAdoption
+): Promise<void> =>
+  assertStableOwnedLifecycleRoot(
+    path,
+    OWNER_FILE,
+    expected,
+    JSON.stringify(adoption),
+    assertDirectory
+  );
 
 export const assertOwnedLifecycleRoots = async (
   paths: OwnedLifecyclePaths,
-  adoption: OwnedRunAdoption,
+  adoption: OwnedRunAdoption
 ): Promise<void> => {
   if (
     paths.e2e !==
       join(paths.repository, "test-results", "e2e-runs", adoption.runId) ||
     paths.evidence !==
-
       join(paths.repository, "test-results", "evidence", adoption.runId)
-  ) throw new Error("Owned lifecycle paths are invalid")
-  await assertAdoptedLifecycleRoot(paths.e2e, adoption.e2e, adoption)
-  await assertAdoptedLifecycleRoot(paths.evidence, adoption.evidence, adoption)
-}
+  )
+    throw new Error("Owned lifecycle paths are invalid");
+  await assertAdoptedLifecycleRoot(paths.e2e, adoption.e2e, adoption);
+  await assertAdoptedLifecycleRoot(paths.evidence, adoption.evidence, adoption);
+};
 
 const playwrightReportExecuted = async (
-  paths: OwnedLifecyclePaths,
+  paths: OwnedLifecyclePaths
 ): Promise<boolean> => {
-  let handle: Awaited<ReturnType<typeof open>>
+  let handle: Awaited<ReturnType<typeof open>>;
   try {
     handle = await open(
       join(paths.e2e, PLAYWRIGHT_REPORT_FILE),
-      constants.O_RDONLY | requireFileFlag(constants.O_NOFOLLOW),
-    )
-  }
-  catch (error) {
+      constants.O_RDONLY | requireFileFlag(constants.O_NOFOLLOW)
+    );
+  } catch (error) {
     if (
       error !== null &&
       typeof error === "object" &&
       (error as { code?: unknown }).code === "ENOENT"
-    ) return false
-    throw error
+    )
+      return false;
+    throw error;
   }
   try {
-    const before = await handle.stat()
-    if (
-      !before.isFile() ||
-      before.size > PLAYWRIGHT_REPORT_MAX_BYTES
-    ) throw new Error("Owned Playwright report is unsafe")
-    const content = await handle.readFile({ encoding: "utf8" })
-    const after = await handle.stat()
+    const before = await handle.stat();
+    if (!before.isFile() || before.size > PLAYWRIGHT_REPORT_MAX_BYTES)
+      throw new Error("Owned Playwright report is unsafe");
+    const content = await handle.readFile({ encoding: "utf8" });
+    const after = await handle.stat();
     if (
       before.dev !== after.dev ||
       before.ino !== after.ino ||
       before.size !== after.size ||
       Buffer.byteLength(content, "utf8") !== after.size
-    ) throw new Error("Owned Playwright report changed while reading")
-    const parsed = JSON.parse(content) as unknown
-    return playwrightReportHasExecutedResult(parsed)
+    )
+      throw new Error("Owned Playwright report changed while reading");
+    const parsed = JSON.parse(content) as unknown;
+    return playwrightReportHasExecutedResult(parsed);
+  } finally {
+    await handle.close();
   }
-  finally {
-    await handle.close()
-  }
-}
+};
 
 export const finalizeOwnedLifecycleAfterPlaywright = async ({
   encodedAdoption,
@@ -884,43 +993,46 @@ export const finalizeOwnedLifecycleAfterPlaywright = async ({
   runId,
   treeTerminated,
 }: Readonly<{
-  encodedAdoption: string
-  exitCode: number
-  repositoryPath: string
-  runId: string
-  treeTerminated: boolean
+  encodedAdoption: string;
+  exitCode: number;
+  repositoryPath: string;
+  runId: string;
+  treeTerminated: boolean;
 }>): Promise<OwnedLifecycleState | undefined> => {
   if (!Number.isSafeInteger(exitCode) || typeof treeTerminated !== "boolean") {
-    throw new Error("Playwright lifecycle finalization input is invalid")
+    throw new Error("Playwright lifecycle finalization input is invalid");
   }
-  const paths = await createOwnedLifecyclePaths(repositoryPath, runId)
-  const adoption = decodeOwnedRunAdoption(encodedAdoption, runId)
-  await assertOwnedLifecycleRoots(paths, adoption)
-  const current = await readOwnedLifecycleState(paths, adoption)
-  if (!treeTerminated || !await playwrightReportExecuted(paths)) return current
-  if (current?.status !== "stopped") return current
+  const paths = await createOwnedLifecyclePaths(repositoryPath, runId);
+  const adoption = decodeOwnedRunAdoption(encodedAdoption, runId);
+  await assertOwnedLifecycleRoots(paths, adoption);
+  const current = await readOwnedLifecycleState(paths, adoption);
+  if (!treeTerminated || !(await playwrightReportExecuted(paths)))
+    return current;
+  if (current?.status !== "stopped") return current;
   if (
     current.stage !== "server-spawn" &&
     current.stage !== "server-probed" &&
     current.stage !== "server-ready"
-  ) return current
-  if (exitCode === 0 && current.stage === "server-ready") return current
-  const finalState = exitCode === 0
-    ? Object.freeze({
-        version: 1 as const,
-        status: "stopped",
-        stage: "server-ready",
-      })
-    : Object.freeze({
-        version: 1 as const,
-        status: "runtime-failed",
-        stage: current.stage,
-      })
+  )
+    return current;
+  if (exitCode === 0 && current.stage === "server-ready") return current;
+  const finalState =
+    exitCode === 0
+      ? Object.freeze({
+          version: 1 as const,
+          status: "stopped",
+          stage: "server-ready",
+        })
+      : Object.freeze({
+          version: 1 as const,
+          status: "runtime-failed",
+          stage: current.stage,
+        });
   const temporaryPath = join(
     paths.e2e,
-    `.${LIFECYCLE_STATE_FILE}.parent-${randomUUID()}.tmp`,
-  )
-  let temporary: Awaited<ReturnType<typeof open>> | undefined
+    `.${LIFECYCLE_STATE_FILE}.parent-${randomUUID()}.tmp`
+  );
+  let temporary: Awaited<ReturnType<typeof open>> | undefined;
   try {
     temporary = await open(
       temporaryPath,
@@ -928,229 +1040,246 @@ export const finalizeOwnedLifecycleAfterPlaywright = async ({
         constants.O_EXCL |
         constants.O_WRONLY |
         requireFileFlag(constants.O_NOFOLLOW),
-      0o600,
-    )
-    await temporary.writeFile(`${JSON.stringify(finalState)}\n`, "utf8")
-    await temporary.sync()
-    await temporary.close()
-    temporary = undefined
-    await assertOwnedLifecycleRoots(paths, adoption)
-    await rename(temporaryPath, join(paths.e2e, LIFECYCLE_STATE_FILE))
+      0o600
+    );
+    await temporary.writeFile(`${JSON.stringify(finalState)}\n`, "utf8");
+    await temporary.sync();
+    await temporary.close();
+    temporary = undefined;
+    await assertOwnedLifecycleRoots(paths, adoption);
+    await rename(temporaryPath, join(paths.e2e, LIFECYCLE_STATE_FILE));
     const directory = await open(
       paths.e2e,
-      constants.O_RDONLY | requireFileFlag(constants.O_NOFOLLOW),
-    )
+      constants.O_RDONLY | requireFileFlag(constants.O_NOFOLLOW)
+    );
     try {
-      await directory.sync()
+      await directory.sync();
+    } finally {
+      await directory.close();
     }
-    finally {
-      await directory.close()
-    }
-    const persisted = await readOwnedLifecycleState(paths, adoption)
+    const persisted = await readOwnedLifecycleState(paths, adoption);
     if (
       persisted?.status !== finalState.status ||
       persisted.stage !== finalState.stage
-    ) throw new Error("Playwright lifecycle finalization was not durable")
-    return persisted
+    )
+      throw new Error("Playwright lifecycle finalization was not durable");
+    return persisted;
+  } finally {
+    await temporary?.close().catch(() => undefined);
+    await rm(temporaryPath, { force: true }).catch(() => undefined);
   }
-  finally {
-    await temporary?.close().catch(() => undefined)
-    await rm(temporaryPath, { force: true }).catch(() => undefined)
-  }
-}
+};
 
 export const readOwnedLifecycleState = async (
   paths: OwnedLifecyclePaths,
-  adoption: OwnedRunAdoption,
+  adoption: OwnedRunAdoption
 ): Promise<OwnedLifecycleState | undefined> => {
-  await assertOwnedLifecycleRoots(paths, adoption)
-  let handle: Awaited<ReturnType<typeof open>>
+  await assertOwnedLifecycleRoots(paths, adoption);
+  let handle: Awaited<ReturnType<typeof open>>;
   try {
     handle = await open(
       join(paths.e2e, LIFECYCLE_STATE_FILE),
-      constants.O_RDONLY | requireFileFlag(constants.O_NOFOLLOW),
-    )
-  }
-  catch (error) {
+      constants.O_RDONLY | requireFileFlag(constants.O_NOFOLLOW)
+    );
+  } catch (error) {
     if (
       error !== null &&
       typeof error === "object" &&
       (error as { code?: unknown }).code === "ENOENT"
-    ) return undefined
-    throw error
+    )
+      return undefined;
+    throw error;
   }
   try {
-    const before = await handle.stat()
+    const before = await handle.stat();
     if (
       !before.isFile() ||
       before.size > LIFECYCLE_STATE_MAX_BYTES ||
       (before.mode & 0o777) !== 0o600
-    ) throw new Error("Owned lifecycle state file is unsafe")
-    const content = await handle.readFile({ encoding: "utf8" })
-    const after = await handle.stat()
+    )
+      throw new Error("Owned lifecycle state file is unsafe");
+    const content = await handle.readFile({ encoding: "utf8" });
+    const after = await handle.stat();
     if (
       before.dev !== after.dev ||
       before.ino !== after.ino ||
       before.size !== after.size ||
       Buffer.byteLength(content, "utf8") !== after.size
-    ) throw new Error("Owned lifecycle state changed while reading")
-    const parsed = JSON.parse(content) as Partial<OwnedLifecycleState>
+    )
+      throw new Error("Owned lifecycle state changed while reading");
+    const parsed = JSON.parse(content) as Partial<OwnedLifecycleState>;
     if (
       parsed.version !== 1 ||
       typeof parsed.status !== "string" ||
       !LIFECYCLE_STATUSES.has(parsed.status) ||
       typeof parsed.stage !== "string" ||
       !LIFECYCLE_STAGES.has(parsed.stage)
-    ) throw new Error("Owned lifecycle state schema is invalid")
+    )
+      throw new Error("Owned lifecycle state schema is invalid");
     const stageStatusInvalid =
       (parsed.status === "starting" && parsed.stage === "server-ready") ||
       (parsed.status === "ready" && parsed.stage !== "server-ready") ||
       (parsed.status === "runtime-failed" &&
-        !["server-spawn", "server-probed", "server-ready"].includes(parsed.stage))
+        !["server-spawn", "server-probed", "server-ready"].includes(
+          parsed.stage
+        ));
     if (stageStatusInvalid) {
-      throw new Error("Owned lifecycle state status and stage are invalid")
+      throw new Error("Owned lifecycle state status and stage are invalid");
     }
     const state = Object.freeze({
       version: 1 as const,
       status: parsed.status,
       stage: parsed.stage,
-    })
+    });
     if (`${JSON.stringify(state)}\n` !== content) {
-      throw new Error("Owned lifecycle state schema is noncanonical")
+      throw new Error("Owned lifecycle state schema is noncanonical");
     }
-    await assertOwnedLifecycleRoots(paths, adoption)
-    return state
+    await assertOwnedLifecycleRoots(paths, adoption);
+    return state;
+  } finally {
+    await handle.close();
   }
-  finally {
-    await handle.close()
-  }
-}
+};
 
 type QuarantinedOwnedRoot = Readonly<{
-  runRoot: string
-  quarantine: string
-  expected: OwnedPathIdentity
-}>
+  runRoot: string;
+  quarantine: string;
+  expected: OwnedPathIdentity;
+}>;
 
 const quarantineOwnedRoot = async (
   root: string,
   category: "e2e-runs" | "evidence",
-  proof: OwnedRunProof,
+  proof: OwnedRunProof
 ): Promise<QuarantinedOwnedRoot> => {
-  await assertOwnedRoot(root, category, proof)
-  const expected = category === "e2e-runs" ? proof.e2e.root : proof.evidence.root
-  const base = join(root, "test-results", category)
-  const runRoot = join(base, proof.runId)
-  const quarantine = join(base, `.purge-${proof.runId}-${randomUUID()}`)
-  await rename(runRoot, quarantine)
-  const moved = await lstat(quarantine)
+  await assertOwnedRoot(root, category, proof);
+  const expected =
+    category === "e2e-runs" ? proof.e2e.root : proof.evidence.root;
+  const base = join(root, "test-results", category);
+  const runRoot = join(base, proof.runId);
+  const quarantine = join(base, `.purge-${proof.runId}-${randomUUID()}`);
+  await rename(runRoot, quarantine);
+  const moved = await lstat(quarantine);
   if (!sameIdentity(expected, moved) || moved.isSymbolicLink()) {
-    await rename(quarantine, runRoot).catch(() => undefined)
-    throw new Error("Owned E2E root changed during purge")
+    await rename(quarantine, runRoot).catch(() => undefined);
+    throw new Error("Owned E2E root changed during purge");
   }
-  return Object.freeze({ runRoot, quarantine, expected })
-}
+  return Object.freeze({ runRoot, quarantine, expected });
+};
 
-const restoreQuarantinedRoot = async (owned: QuarantinedOwnedRoot): Promise<void> => {
-  const stats = await lstat(owned.quarantine)
+const restoreQuarantinedRoot = async (
+  owned: QuarantinedOwnedRoot
+): Promise<void> => {
+  const stats = await lstat(owned.quarantine);
   if (!sameIdentity(owned.expected, stats) || stats.isSymbolicLink()) {
-    throw new Error("Owned E2E quarantine identity changed")
+    throw new Error("Owned E2E quarantine identity changed");
   }
-  await rename(owned.quarantine, owned.runRoot)
-}
+  await rename(owned.quarantine, owned.runRoot);
+};
 
-const removeQuarantinedRoot = async (owned: QuarantinedOwnedRoot): Promise<void> => {
-  const stats = await lstat(owned.quarantine)
+const removeQuarantinedRoot = async (
+  owned: QuarantinedOwnedRoot
+): Promise<void> => {
+  const stats = await lstat(owned.quarantine);
   if (!sameIdentity(owned.expected, stats) || stats.isSymbolicLink()) {
-    throw new Error("Owned E2E quarantine identity changed")
+    throw new Error("Owned E2E quarantine identity changed");
   }
-  await rm(owned.quarantine, { force: true, recursive: true })
-}
+  await rm(owned.quarantine, { force: true, recursive: true });
+};
 
 export const createArtifactScannerDependencies = async (
   repositoryPath: string,
   proof: OwnedRunProof,
   execute: RunFile = runFile,
-  limits: ArtifactScanLimits = DEFAULT_LIMITS,
+  limits: ArtifactScanLimits = DEFAULT_LIMITS
 ): Promise<ArtifactScannerDependencies> => {
-  if (!RUN_ID.test(proof.runId)) throw new Error("Invalid owned E2E proof")
+  if (!RUN_ID.test(proof.runId)) throw new Error("Invalid owned E2E proof");
   const boundedPositive = [
     limits.maxEntries,
     limits.maxEntryBytes,
     limits.maxTotalBytes,
     limits.maxArchives,
     limits.maxExpandedBytes,
-  ]
+  ];
   if (
-    boundedPositive.some((value) => !Number.isSafeInteger(value) || value <= 0) ||
+    boundedPositive.some(
+      (value) => !Number.isSafeInteger(value) || value <= 0
+    ) ||
     !Number.isSafeInteger(limits.deadlineMs) ||
     limits.deadlineMs < 0 ||
     limits.deadlineMs > 30_000
-  ) throw new Error("Artifact scan limits are invalid")
-  const root = await realpath(repositoryPath)
-  let count = 0
-  let totalBytes = 0
-  let archiveCount = 0
-  let expandedBytes = 0
-  let deadline = 0
+  )
+    throw new Error("Artifact scan limits are invalid");
+  const root = await realpath(repositoryPath);
+  let count = 0;
+  let totalBytes = 0;
+  let archiveCount = 0;
+  let expandedBytes = 0;
+  let deadline = 0;
 
   const reserve = (bytes: number, expanded: boolean): void => {
-    if (Date.now() >= deadline) throw new Error("Artifact scan deadline exceeded")
-    count += 1
-    if (count > limits.maxEntries) throw new Error("Artifact entry count exceeds scan bound")
-    if (bytes > limits.maxEntryBytes) throw new Error("Artifact exceeds scan size bound")
-    totalBytes += bytes
-    if (totalBytes > limits.maxTotalBytes) throw new Error("Artifacts exceed aggregate scan bound")
+    if (Date.now() >= deadline)
+      throw new Error("Artifact scan deadline exceeded");
+    count += 1;
+    if (count > limits.maxEntries)
+      throw new Error("Artifact entry count exceeds scan bound");
+    if (bytes > limits.maxEntryBytes)
+      throw new Error("Artifact exceeds scan size bound");
+    totalBytes += bytes;
+    if (totalBytes > limits.maxTotalBytes)
+      throw new Error("Artifacts exceed aggregate scan bound");
     if (expanded) {
-      expandedBytes += bytes
+      expandedBytes += bytes;
       if (expandedBytes > limits.maxExpandedBytes) {
-        throw new Error("Expanded artifacts exceed aggregate scan bound")
+        throw new Error("Expanded artifacts exceed aggregate scan bound");
       }
     }
-  }
+  };
 
-  const executeWithinDeadline: ArchiveCommand = async (file, arguments_, maxBuffer) => {
-    const remaining = deadline - Date.now()
-    if (remaining <= 0) throw new Error("Artifact scan deadline exceeded")
-    const controller = new AbortController()
-    const timer = setTimeout(() => controller.abort(), remaining)
+  const executeWithinDeadline: ArchiveCommand = async (
+    file,
+    arguments_,
+    maxBuffer
+  ) => {
+    const remaining = deadline - Date.now();
+    if (remaining <= 0) throw new Error("Artifact scan deadline exceeded");
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), remaining);
     try {
       const result = await execute(
         file,
         arguments_,
         maxBuffer,
         remaining,
-        controller.signal,
-      )
+        controller.signal
+      );
       if (controller.signal.aborted || Date.now() >= deadline) {
-        throw new Error("Artifact scan deadline exceeded")
+        throw new Error("Artifact scan deadline exceeded");
       }
-      return result
-    }
-    catch (error) {
+      return result;
+    } catch (error) {
       if (controller.signal.aborted) {
-        throw new Error("Artifact scan deadline exceeded", { cause: error })
+        throw new Error("Artifact scan deadline exceeded", { cause: error });
       }
-      throw error
+      throw error;
+    } finally {
+      clearTimeout(timer);
     }
-    finally {
-      clearTimeout(timer)
-    }
-  }
+  };
 
   const collectFile = async (
     path: string,
-    expected: Readonly<{ dev: number; ino: number }>,
+    expected: Readonly<{ dev: number; ino: number }>
   ): Promise<readonly ArtifactEntry[]> => {
-    const content = await readStableFile(path, limits.maxEntryBytes, expected)
-    reserve(content.byteLength, false)
-    const kind = detectedArchiveKind(path, content)
+    const content = await readStableFile(path, limits.maxEntryBytes, expected);
+    reserve(content.byteLength, false);
+    const kind = detectedArchiveKind(path, content);
     if (kind !== undefined) {
-      archiveCount += 1
+      archiveCount += 1;
       if (archiveCount > limits.maxArchives) {
-        throw new Error("Global archive count exceeds scan bound")
+        throw new Error("Global archive count exceeds scan bound");
       }
-      const snapshot = await createArchiveSnapshot(content, kind)
+      const snapshot = await createArchiveSnapshot(content, kind);
       try {
         return await readArchive(
           relative(root, path),
@@ -1158,55 +1287,54 @@ export const createArtifactScannerDependencies = async (
           kind,
           executeWithinDeadline,
           limits,
-          reserve,
-        )
-      }
-      finally {
+          reserve
+        );
+      } finally {
         try {
-          await rm(snapshot.directory, { force: true, recursive: true })
-        }
-        catch {
-          throw new ArtifactScannerCleanupError()
+          await rm(snapshot.directory, { force: true, recursive: true });
+        } catch {
+          throw new ArtifactScannerCleanupError();
         }
       }
     }
-    return [artifactEntry(relative(root, path), content)]
-  }
+    return [artifactEntry(relative(root, path), content)];
+  };
 
   const walk = async (path: string): Promise<readonly ArtifactEntry[]> => {
-    if (Date.now() >= deadline) throw new Error("Artifact scan deadline exceeded")
-    let stats
+    if (Date.now() >= deadline)
+      throw new Error("Artifact scan deadline exceeded");
+    let stats;
     try {
-      stats = await lstat(path)
+      stats = await lstat(path);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") return [];
+      throw error;
     }
-    catch (error) {
-      if ((error as NodeJS.ErrnoException).code === "ENOENT") return []
-      throw error
+    if (stats.isSymbolicLink() || (await realpath(path)) !== path) {
+      throw new Error("Artifact symlinks or redirected ancestry are unsafe");
     }
-    if (stats.isSymbolicLink() || await realpath(path) !== path) {
-      throw new Error("Artifact symlinks or redirected ancestry are unsafe")
-    }
-    if (stats.isFile()) return await collectFile(path, stats)
+    if (stats.isFile()) return await collectFile(path, stats);
     if (!stats.isDirectory()) {
-      reserve(0, false)
-      return []
+      reserve(0, false);
+      return [];
     }
-    reserve(0, false)
-    const entries: ArtifactEntry[] = []
-    const directory = await opendir(path)
+    reserve(0, false);
+    const entries: ArtifactEntry[] = [];
+    const directory = await opendir(path);
     for await (const directoryEntry of directory) {
-      entries.push(...await walk(resolve(path, directoryEntry.name)))
+      entries.push(...(await walk(resolve(path, directoryEntry.name))));
     }
-    const after = await lstat(path)
+    const after = await lstat(path);
     if (
       after.isSymbolicLink() ||
       !after.isDirectory() ||
       after.dev !== stats.dev ||
       after.ino !== stats.ino ||
-      await realpath(path) !== path
-    ) throw new Error("Artifact directory identity changed while scanning")
-    return entries
-  }
+      (await realpath(path)) !== path
+    )
+      throw new Error("Artifact directory identity changed while scanning");
+    return entries;
+  };
 
   return Object.freeze({
     artifactProfile: proof.artifactProfile,
@@ -1215,47 +1343,52 @@ export const createArtifactScannerDependencies = async (
       const expectedPaths = [
         `test-results/e2e-runs/${proof.runId}`,
         `test-results/evidence/${proof.runId}`,
-      ]
+      ];
       if (
         paths.length !== expectedPaths.length ||
         paths.some((path, index) => path !== expectedPaths[index])
-      ) throw new Error("Scanner paths do not match owned E2E proof")
-      deadline = Date.now() + limits.deadlineMs
-      count = 0
-      totalBytes = 0
-      expandedBytes = 0
-      archiveCount = 0
-      await assertOwnedRun(root, proof)
-      if (Date.now() >= deadline) throw new Error("Artifact scan deadline exceeded")
-      const entries: ArtifactEntry[] = []
-      for (const path of paths) entries.push(...await walk(contained(root, path)))
-      await assertOwnedRun(root, proof)
-      if (Date.now() >= deadline) throw new Error("Artifact scan deadline exceeded")
-      return Object.freeze(entries)
+      )
+        throw new Error("Scanner paths do not match owned E2E proof");
+      deadline = Date.now() + limits.deadlineMs;
+      count = 0;
+      totalBytes = 0;
+      expandedBytes = 0;
+      archiveCount = 0;
+      await assertOwnedRun(root, proof);
+      if (Date.now() >= deadline)
+        throw new Error("Artifact scan deadline exceeded");
+      const entries: ArtifactEntry[] = [];
+      for (const path of paths)
+        entries.push(...(await walk(contained(root, path))));
+      await assertOwnedRun(root, proof);
+      if (Date.now() >= deadline)
+        throw new Error("Artifact scan deadline exceeded");
+      return Object.freeze(entries);
     },
     purgeOwnedRun: async (runId): Promise<void> => {
-      if (runId !== proof.runId) throw new Error("Owned E2E proof does not match run")
-      await assertOwnedRun(root, proof)
-      const quarantined: QuarantinedOwnedRoot[] = []
+      if (runId !== proof.runId)
+        throw new Error("Owned E2E proof does not match run");
+      await assertOwnedRun(root, proof);
+      const quarantined: QuarantinedOwnedRoot[] = [];
       try {
-        quarantined.push(await quarantineOwnedRoot(root, "e2e-runs", proof))
-        quarantined.push(await quarantineOwnedRoot(root, "evidence", proof))
-      }
-      catch (error) {
-        let restoreFailed = false
+        quarantined.push(await quarantineOwnedRoot(root, "e2e-runs", proof));
+        quarantined.push(await quarantineOwnedRoot(root, "evidence", proof));
+      } catch (error) {
+        let restoreFailed = false;
         for (const owned of [...quarantined].reverse()) {
           const restored = await Promise.resolve()
             .then(() => restoreQuarantinedRoot(owned))
             .then(
               () => true,
-              () => false,
-            )
-          if (!restored) restoreFailed = true
+              () => false
+            );
+          if (!restored) restoreFailed = true;
         }
-        if (restoreFailed) throw new Error("Owned E2E purge rollback failed", { cause: error })
-        throw error
+        if (restoreFailed)
+          throw new Error("Owned E2E purge rollback failed", { cause: error });
+        throw error;
       }
-      await Promise.all(quarantined.map(removeQuarantinedRoot))
-    }
-  })
-}
+      await Promise.all(quarantined.map(removeQuarantinedRoot));
+    },
+  });
+};

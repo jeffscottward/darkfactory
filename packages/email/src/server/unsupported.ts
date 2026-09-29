@@ -1,3 +1,3 @@
-throw new Error("@darkfactory/email/server is unavailable in browser bundles")
+throw new Error("@darkfactory/email/server is unavailable in browser bundles");
 
-export {}
+export {};

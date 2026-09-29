@@ -1,51 +1,55 @@
-import type { SafeAuthSession } from "@darkfactory/auth/types"
+import type { SafeAuthSession } from "@darkfactory/auth/types";
 
-import type { OperatorWorkflowPort } from "./operator-service.ts"
-import type { OperatorWayfinderPort } from "./wayfinder-service.ts"
+import type { OperatorWorkflowPort } from "./operator-service.ts";
+import type { OperatorWayfinderPort } from "./wayfinder-service.ts";
 
 export type OperatorContext = Readonly<{
-  requestId: string
-  requireSession: () => Promise<SafeAuthSession>
-  workflowOperator?: OperatorWorkflowPort
-  wayfinder?: OperatorWayfinderPort
-}>
+  requestId: string;
+  requireSession: () => Promise<SafeAuthSession>;
+  workflowOperator?: OperatorWorkflowPort;
+  wayfinder?: OperatorWayfinderPort;
+}>;
 
 export type OperatorRequestIdOptions = Readonly<{
-  requestId?: string
-  generateRequestId?: () => string
-}>
+  requestId?: string;
+  generateRequestId?: () => string;
+}>;
 
 export type OperatorContextDependencies = Readonly<{
-  requireSession: (headers: Headers) => Promise<SafeAuthSession>
-  workflowOperator?: OperatorWorkflowPort
-  wayfinder?: OperatorWayfinderPort
-  requestId?: string
-  generateRequestId?: () => string
-}>
+  requireSession: (headers: Headers) => Promise<SafeAuthSession>;
+  workflowOperator?: OperatorWorkflowPort;
+  wayfinder?: OperatorWayfinderPort;
+  requestId?: string;
+  generateRequestId?: () => string;
+}>;
 
-const REQUEST_ID_PATTERN = /^[A-Za-z0-9._:-]{1,128}$/
+const REQUEST_ID_PATTERN = /^[A-Za-z0-9._:-]{1,128}$/;
 
 export const resolveOperatorRequestId = (
   _request: Request,
-  options: OperatorRequestIdOptions = {},
+  options: OperatorRequestIdOptions = {}
 ): string => {
   if (options.requestId !== undefined) {
     if (!REQUEST_ID_PATTERN.test(options.requestId)) {
-      throw new TypeError("requestId must be 1-128 safe correlation characters")
+      throw new TypeError(
+        "requestId must be 1-128 safe correlation characters"
+      );
     }
-    return options.requestId
+    return options.requestId;
   }
 
-  const generated = options.generateRequestId?.() ?? crypto.randomUUID()
+  const generated = options.generateRequestId?.() ?? crypto.randomUUID();
   if (!REQUEST_ID_PATTERN.test(generated)) {
-    throw new TypeError("generated requestId must be 1-128 safe correlation characters")
+    throw new TypeError(
+      "generated requestId must be 1-128 safe correlation characters"
+    );
   }
-  return generated
-}
+  return generated;
+};
 
 export const createOperatorContext = (
   request: Request,
-  dependencies: OperatorContextDependencies,
+  dependencies: OperatorContextDependencies
 ): OperatorContext => ({
   requestId: resolveOperatorRequestId(request, dependencies),
   requireSession: () => dependencies.requireSession(request.headers),
@@ -55,4 +59,4 @@ export const createOperatorContext = (
   ...(dependencies.wayfinder === undefined
     ? {}
     : { wayfinder: dependencies.wayfinder }),
-})
+});

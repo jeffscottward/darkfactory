@@ -16,5 +16,5 @@ export default function robots() {
         "/sign-up",
       ],
     },
-  }
+  };
 }

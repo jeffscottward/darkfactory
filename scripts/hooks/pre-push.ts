@@ -1,3 +1,3 @@
-import { runPrePush } from "./index.ts"
+import { runPrePush } from "./index.ts";
 
-process.exitCode = runPrePush(process.argv.slice(2))
+process.exitCode = runPrePush(process.argv.slice(2));

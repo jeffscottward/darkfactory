@@ -6,41 +6,41 @@ import type {
   EmailPort,
   EmailVerificationEmailInput,
   PasswordResetEmailInput,
-} from "../index.ts"
-import type { PreviewEmailBinding } from "./preview.ts"
+} from "../index.ts";
+import type { PreviewEmailBinding } from "./preview.ts";
 
-const CAPTURE_PATH = "/v1/capture"
-const CAPTURE_TIMEOUT_MS = 5_000
-const HMAC_KEY_PATTERN = /^[A-Za-z0-9_-]{43}$/
-const RUN_ID_PATTERN = /^[A-Za-z0-9_-]{1,128}$/
+const CAPTURE_PATH = "/v1/capture";
+const CAPTURE_TIMEOUT_MS = 5_000;
+const HMAC_KEY_PATTERN = /^[A-Za-z0-9_-]{43}$/;
+const RUN_ID_PATTERN = /^[A-Za-z0-9_-]{1,128}$/;
 
 export type PreviewCaptureFetch = (
   input: string | URL | Request,
-  init?: RequestInit,
-) => Promise<Response>
+  init?: RequestInit
+) => Promise<Response>;
 
 export type RemotePreviewPortOptions = Readonly<{
-  environment: "development" | "test" | "production"
-  endpoint: string
-  binding: PreviewEmailBinding
-  fetcher?: PreviewCaptureFetch | undefined
-}>
+  environment: "development" | "test" | "production";
+  endpoint: string;
+  binding: PreviewEmailBinding;
+  fetcher?: PreviewCaptureFetch | undefined;
+}>;
 
-type CaptureOperation = "contact" | "reset-password" | "verify-email"
+type CaptureOperation = "contact" | "reset-password" | "verify-email";
 
 const assertCaptureOptions = (options: RemotePreviewPortOptions): URL => {
   if (options.environment !== "test") {
-    throw new Error("Remote preview transport is available only in tests")
+    throw new Error("Remote preview transport is available only in tests");
   }
   if (
     !RUN_ID_PATTERN.test(options.binding.runId) ||
     !HMAC_KEY_PATTERN.test(options.binding.hmacKey) ||
     Buffer.from(options.binding.hmacKey, "base64url").length !== 32
   ) {
-    throw new Error("Remote preview binding is invalid")
+    throw new Error("Remote preview binding is invalid");
   }
 
-  const endpoint = new URL(options.endpoint)
+  const endpoint = new URL(options.endpoint);
   if (
     endpoint.protocol !== "http:" ||
     endpoint.hostname !== "127.0.0.1" ||
@@ -51,18 +51,23 @@ const assertCaptureOptions = (options: RemotePreviewPortOptions): URL => {
     endpoint.search !== "" ||
     endpoint.hash !== ""
   ) {
-    throw new Error("Remote preview endpoint must be an exact loopback capture URL")
+    throw new Error(
+      "Remote preview endpoint must be an exact loopback capture URL"
+    );
   }
-  return endpoint
-}
+  return endpoint;
+};
 
 const capture = async (
   options: RemotePreviewPortOptions,
   endpoint: URL,
   operation: CaptureOperation,
-  input: ContactEmailInput | EmailVerificationEmailInput | PasswordResetEmailInput,
+  input:
+    | ContactEmailInput
+    | EmailVerificationEmailInput
+    | PasswordResetEmailInput
 ): Promise<boolean> => {
-  const fetcher = options.fetcher ?? globalThis.fetch
+  const fetcher = options.fetcher ?? globalThis.fetch;
   try {
     const response = await fetcher(endpoint, {
       method: "POST",
@@ -78,72 +83,71 @@ const capture = async (
         operation,
         input,
       }),
-    })
-    return response.status === 201
+    });
+    return response.status === 201;
+  } catch {
+    return false;
   }
-  catch {
-    return false
-  }
-}
+};
 
 export const createRemotePreviewEmailPort = (
-  options: RemotePreviewPortOptions,
+  options: RemotePreviewPortOptions
 ): EmailPort => {
-  const endpoint = assertCaptureOptions(options)
+  const endpoint = assertCaptureOptions(options);
   const deliver = async (
     operation: "reset-password" | "verify-email",
-    input: PasswordResetEmailInput | EmailVerificationEmailInput,
+    input: PasswordResetEmailInput | EmailVerificationEmailInput
   ): Promise<EmailDeliveryResult> => {
     if (await capture(options, endpoint, operation, input)) {
       return {
         status: "previewed",
         provider: "preview",
         artifactPath: "e2e-preview-capture",
-      }
+      };
     }
     return {
       status: "failed",
       provider: "preview",
       code: "EMAIL_PREVIEW_WRITE_FAILED",
       retryable: false,
-    }
-  }
+    };
+  };
 
   return Object.freeze({
     sendPasswordReset: async (
-      input: PasswordResetEmailInput,
+      input: PasswordResetEmailInput
     ): Promise<EmailDeliveryResult> => {
-      return await deliver("reset-password", input)
+      return await deliver("reset-password", input);
     },
     sendEmailVerification: async (
-      input: EmailVerificationEmailInput,
+      input: EmailVerificationEmailInput
     ): Promise<EmailDeliveryResult> => {
-      return await deliver("verify-email", input)
-    }
-  })
-}
+      return await deliver("verify-email", input);
+    },
+  });
+};
 
 export const createRemotePreviewContactEmailPort = (
-  options: RemotePreviewPortOptions,
+  options: RemotePreviewPortOptions
 ): ContactEmailPort => {
-  const endpoint = assertCaptureOptions(options)
+  const endpoint = assertCaptureOptions(options);
   return Object.freeze({
     sendContact: async (
-      input: ContactEmailInput,
+      input: ContactEmailInput
     ): Promise<ContactEmailDeliveryResult> => {
       if (await capture(options, endpoint, "contact", input)) {
         return {
           status: "previewed",
           provider: "preview",
           artifactPath: "e2e-preview-capture",
-        }
+        };
       }
       return {
         status: "not-delivered",
         provider: "preview",
         code: "CONTACT_PREVIEW_WRITE_FAILED",
         retryable: false,
-      }
-    }
-  })
-}
+      };
+    },
+  });
+};

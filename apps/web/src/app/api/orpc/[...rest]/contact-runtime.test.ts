@@ -1,205 +1,235 @@
-import { describe, expect, it, vi } from "vitest"
+import { describe, expect, it, vi } from "vitest";
 
 import {
   CONTACT_REQUEST_MAX_BYTES,
   bufferContactRequest,
   createContactThrottleKey,
-} from "./contact-runtime.ts"
+} from "./contact-runtime.ts";
 
-const secret = "test-only-contact-hmac-secret-32-characters"
+const secret = "test-only-contact-hmac-secret-32-characters";
 
-const requestWith = (ip?: string) => new Request(
-  "https://darkfactory.localhost/api/orpc/contact/submit",
-  ip === undefined ? {} : { headers: { "cf-connecting-ip": ip } },
-)
+const requestWith = (ip?: string) =>
+  new Request(
+    "https://darkfactory.localhost/api/orpc/contact/submit",
+    ip === undefined ? {} : { headers: { "cf-connecting-ip": ip } }
+  );
 
-describe("DF-076 contact throttle hashing", function() {
-  it("uses Web Crypto HMAC and never returns the raw trusted Cloudflare IP", async function() {
-    const key = await createContactThrottleKey(requestWith("203.0.113.42"), secret)
+describe("DF-076 contact throttle hashing", function () {
+  it("uses Web Crypto HMAC and never returns the raw trusted Cloudflare IP", async function () {
+    const key = await createContactThrottleKey(
+      requestWith("203.0.113.42"),
+      secret
+    );
 
-    expect(key).toMatch(/^[a-f0-9]{64}$/)
-    expect(key).not.toContain("203.0.113.42")
-    expect(await createContactThrottleKey(requestWith("203.0.113.42"), secret)).toBe(key)
-    expect(await createContactThrottleKey(requestWith("203.0.113.43"), secret)).not.toBe(key)
+    expect(key).toMatch(/^[a-f0-9]{64}$/);
+    expect(key).not.toContain("203.0.113.42");
+    expect(
+      await createContactThrottleKey(requestWith("203.0.113.42"), secret)
+    ).toBe(key);
+    expect(
+      await createContactThrottleKey(requestWith("203.0.113.43"), secret)
+    ).not.toBe(key);
     return expect(
-      await createContactThrottleKey(requestWith("203.0.113.42"), secret, "edge"),
-    ).not.toBe(key)
-  })
+      await createContactThrottleKey(
+        requestWith("203.0.113.42"),
+        secret,
+        "edge"
+      )
+    ).not.toBe(key);
+  });
 
-  it("uses one fixed unknown bucket for absent or malformed values", async function() {
-    const unknown = await createContactThrottleKey(requestWith(), secret)
+  it("uses one fixed unknown bucket for absent or malformed values", async function () {
+    const unknown = await createContactThrottleKey(requestWith(), secret);
 
-    expect(await createContactThrottleKey(requestWith("attacker-controlled-value"), secret)).toBe(unknown)
-    expect(await createContactThrottleKey(requestWith(" "), secret)).toBe(unknown)
-    expect(await createContactThrottleKey(requestWith(":::"), secret)).toBe(unknown)
-    return expect(await createContactThrottleKey(requestWith("[2001:db8::1]"), secret)).toBe(unknown)
-  })
+    expect(
+      await createContactThrottleKey(
+        requestWith("attacker-controlled-value"),
+        secret
+      )
+    ).toBe(unknown);
+    expect(await createContactThrottleKey(requestWith(" "), secret)).toBe(
+      unknown
+    );
+    expect(await createContactThrottleKey(requestWith(":::"), secret)).toBe(
+      unknown
+    );
+    return expect(
+      await createContactThrottleKey(requestWith("[2001:db8::1]"), secret)
+    ).toBe(unknown);
+  });
 
-  it("accepts bounded IPv6 text without exposing it", async function() {
-    const address = "2001:db8::1"
-    const key = await createContactThrottleKey(requestWith(address), secret)
+  it("accepts bounded IPv6 text without exposing it", async function () {
+    const address = "2001:db8::1";
+    const key = await createContactThrottleKey(requestWith(address), secret);
 
-    expect(key).toMatch(/^[a-f0-9]{64}$/)
-    expect(key).not.toContain(address)
+    expect(key).toMatch(/^[a-f0-9]{64}$/);
+    expect(key).not.toContain(address);
 
     return expect(
-      await createContactThrottleKey(requestWith("2001:0db8:0:0:0:0:0:1"), secret),
-    ).toBe(key)
-  })
+      await createContactThrottleKey(
+        requestWith("2001:0db8:0:0:0:0:0:1"),
+        secret
+      )
+    ).toBe(key);
+  });
 
-  return it("fails closed when the runtime URL adapter returns a non-bracketed IPv6 hostname", async function() {
-    const candidate = requestWith("2001:db8::1")
-    const absent = requestWith()
-    vi.stubGlobal("URL", class {
-      readonly hostname = "2001:db8::1"
-    }
-    )
+  return it("fails closed when the runtime URL adapter returns a non-bracketed IPv6 hostname", async function () {
+    const candidate = requestWith("2001:db8::1");
+    const absent = requestWith();
+    vi.stubGlobal(
+      "URL",
+      class {
+        readonly hostname = "2001:db8::1";
+      }
+    );
 
     try {
       return expect(await createContactThrottleKey(candidate, secret)).toBe(
-        await createContactThrottleKey(absent, secret),
-      )
+        await createContactThrottleKey(absent, secret)
+      );
+    } finally {
+      vi.unstubAllGlobals();
     }
-    finally {
-      vi.unstubAllGlobals()
-    }
-  })
-})
+  });
+});
 
-describe("DF-076 bounded contact request body", function() {
-  it("rebuilds a bounded request when Content-Length is absent", async function() {
+describe("DF-076 bounded contact request body", function () {
+  it("rebuilds a bounded request when Content-Length is absent", async function () {
     const request = new Request(
       "https://darkfactory.localhost/api/orpc/contact/submit",
       {
         method: "POST",
         body: JSON.stringify({ message: "bounded" }),
-      },
-    )
-    request.headers.delete("content-length")
+      }
+    );
+    request.headers.delete("content-length");
 
-    const result = await bufferContactRequest(request)
+    const result = await bufferContactRequest(request);
 
-    expect(result.tooLarge).toBe(false)
+    expect(result.tooLarge).toBe(false);
     const maximumValidPayload = JSON.stringify({
       name: "😀".repeat(100),
       email: `${"a".repeat(240)}@example.test`,
       subject: "😀".repeat(200),
       message: "😀".repeat(5_000),
       website: "",
-    })
-    expect(new TextEncoder().encode(maximumValidPayload).byteLength).toBeLessThan(
-      CONTACT_REQUEST_MAX_BYTES,
-    )
-    return expect(await result.request.text()).toBe('{"message":"bounded"}')
-  })
+    });
+    expect(
+      new TextEncoder().encode(maximumValidPayload).byteLength
+    ).toBeLessThan(CONTACT_REQUEST_MAX_BYTES);
+    return expect(await result.request.text()).toBe('{"message":"bounded"}');
+  });
 
-  it("rebuilds structurally compatible Worker requests from their URL", async function() {
+  it("rebuilds structurally compatible Worker requests from their URL", async function () {
     const source = new Request(
       "https://darkfactory.localhost/api/orpc/contact/submit",
-      { method: "POST", body: '{"message":"worker"}' },
-    )
-    source.headers.delete("content-length")
+      { method: "POST", body: '{"message":"worker"}' }
+    );
+    source.headers.delete("content-length");
     const workerRequest = {
       body: source.body,
       headers: source.headers,
       method: source.method,
       url: source.url,
-    } as Request
+    } as Request;
 
-    const result = await bufferContactRequest(workerRequest)
+    const result = await bufferContactRequest(workerRequest);
 
-    expect(result.tooLarge).toBe(false)
-    expect(result.request.url).toBe(source.url)
-    expect(result.request.method).toBe("POST")
-    return expect(await result.request.text()).toBe('{"message":"worker"}')
-  })
+    expect(result.tooLarge).toBe(false);
+    expect(result.request.url).toBe(source.url);
+    expect(result.request.method).toBe("POST");
+    return expect(await result.request.text()).toBe('{"message":"worker"}');
+  });
 
-  it("stops an oversized chunked stream before handing it to oRPC", async function() {
-    const chunk = new Uint8Array(CONTACT_REQUEST_MAX_BYTES)
+  it("stops an oversized chunked stream before handing it to oRPC", async function () {
+    const chunk = new Uint8Array(CONTACT_REQUEST_MAX_BYTES);
     const stream = new ReadableStream<Uint8Array>({
       start(controller) {
-        controller.enqueue(chunk)
-        controller.enqueue(new Uint8Array([1]))
-        return controller.close()
-      }
-    })
+        controller.enqueue(chunk);
+        controller.enqueue(new Uint8Array([1]));
+        return controller.close();
+      },
+    });
     const request = new Request(
       "https://darkfactory.localhost/api/orpc/contact/submit",
       {
         method: "POST",
         body: stream,
         duplex: "half",
-      } as RequestInit,
-    )
+      } as RequestInit
+    );
 
     return await expect(bufferContactRequest(request)).resolves.toMatchObject({
       tooLarge: true,
-    })
-  })
+    });
+  });
 
-  it("rejects a declared oversized body without consuming it", async function() {
+  it("rejects a declared oversized body without consuming it", async function () {
     const request = new Request(
       "https://darkfactory.localhost/api/orpc/contact/submit",
       {
         method: "POST",
         headers: { "content-length": String(CONTACT_REQUEST_MAX_BYTES + 1) },
         body: "small",
-      },
-    )
+      }
+    );
 
     return await expect(bufferContactRequest(request)).resolves.toMatchObject({
       tooLarge: true,
-    })
-  })
+    });
+  });
 
-  it("rejects throttle secrets that cannot provide the required entropy", async function() {
+  it("rejects throttle secrets that cannot provide the required entropy", async function () {
     return await expect(
-      createContactThrottleKey(requestWith("203.0.113.42"), "too-short"),
+      createContactThrottleKey(requestWith("203.0.113.42"), "too-short")
     ).rejects.toThrow(
-      "contact throttle secret must contain at least 32 characters",
-    )
-  })
+      "contact throttle secret must contain at least 32 characters"
+    );
+  });
 
-  it("canonicalizes IPv4 and fails closed for malformed IP address shapes", async function() {
+  it("canonicalizes IPv4 and fails closed for malformed IP address shapes", async function () {
     const canonical = await createContactThrottleKey(
       requestWith("203.000.113.042"),
-      secret,
-    )
+      secret
+    );
     expect(canonical).toBe(
-      await createContactThrottleKey(requestWith("203.0.113.42"), secret),
-    )
+      await createContactThrottleKey(requestWith("203.0.113.42"), secret)
+    );
 
-    const unknown = await createContactThrottleKey(requestWith(), secret)
-    const results=[];for (const candidate of [
+    const unknown = await createContactThrottleKey(requestWith(), secret);
+    const results = [];
+    for (const candidate of [
       "203.0.113",
       "203.0.113.256",
       "203.0.x.42",
       "2001:db8::1%en0",
       "x".repeat(46) + ":",
     ]) {
-      results.push(expect(
-        await createContactThrottleKey(requestWith(candidate), secret),
-      ).toBe(unknown))
-    };return results;
-  })
+      results.push(
+        expect(
+          await createContactThrottleKey(requestWith(candidate), secret)
+        ).toBe(unknown)
+      );
+    }
+    return results;
+  });
 
-  it("passes through bodyless requests without manufacturing a payload", async function() {
-    const request = requestWith("203.0.113.42")
+  it("passes through bodyless requests without manufacturing a payload", async function () {
+    const request = requestWith("203.0.113.42");
 
     return await expect(bufferContactRequest(request)).resolves.toEqual({
       request,
       tooLarge: false,
-    })
-  })
+    });
+  });
 
-  it("fails closed even when oversized stream cancellation rejects", async function() {
+  it("fails closed even when oversized stream cancellation rejects", async function () {
     const declaredCancel = vi.fn(async () => {
-      throw new Error("declared cancellation unavailable")
-    }
-    )
+      throw new Error("declared cancellation unavailable");
+    });
     const declaredStream = new ReadableStream<Uint8Array>({
       cancel: declaredCancel,
-    })
+    });
     const declaredRequest = new Request(
       "https://darkfactory.localhost/api/orpc/contact/submit",
       {
@@ -209,70 +239,75 @@ describe("DF-076 bounded contact request body", function() {
         },
         body: declaredStream,
         duplex: "half",
-      } as RequestInit,
-    )
+      } as RequestInit
+    );
 
     await expect(bufferContactRequest(declaredRequest)).resolves.toMatchObject({
       tooLarge: true,
-    })
-    expect(declaredCancel).toHaveBeenCalledOnce()
+    });
+    expect(declaredCancel).toHaveBeenCalledOnce();
 
     const chunkedCancel = vi.fn(async () => {
-      throw new Error("chunked cancellation unavailable")
-    }
-    )
+      throw new Error("chunked cancellation unavailable");
+    });
     const chunkedStream = new ReadableStream<Uint8Array>({
       start(controller) {
-        return controller.enqueue(new Uint8Array(CONTACT_REQUEST_MAX_BYTES + 1))
+        return controller.enqueue(
+          new Uint8Array(CONTACT_REQUEST_MAX_BYTES + 1)
+        );
       },
       cancel: chunkedCancel,
-    })
+    });
     const chunkedRequest = new Request(
       "https://darkfactory.localhost/api/orpc/contact/submit",
       {
         method: "POST",
         body: chunkedStream,
         duplex: "half",
-      } as RequestInit,
-    )
+      } as RequestInit
+    );
 
     await expect(bufferContactRequest(chunkedRequest)).resolves.toMatchObject({
       tooLarge: true,
-    })
-    return expect(chunkedCancel).toHaveBeenCalledOnce()
-  })
+    });
+    return expect(chunkedCancel).toHaveBeenCalledOnce();
+  });
 
-  it("streams bodies with bounded or non-numeric declared lengths", async function() {
-    const results1=[];for (const declaredLength of ["7", "not-declared"]) {
+  it("streams bodies with bounded or non-numeric declared lengths", async function () {
+    const results1 = [];
+    for (const declaredLength of ["7", "not-declared"]) {
       const request = new Request(
         "https://darkfactory.localhost/api/orpc/contact/submit",
         {
           method: "POST",
           headers: { "content-length": declaredLength },
           body: "bounded",
-        },
-      )
+        }
+      );
 
-      const result = await bufferContactRequest(request)
-      expect(result.tooLarge).toBe(false)
-      expect(await result.request.text()).toBe("bounded")
-      results1.push(expect(result.request.headers.get("content-length")).toBe("7"))
-    };return results1;
-  })
+      const result = await bufferContactRequest(request);
+      expect(result.tooLarge).toBe(false);
+      expect(await result.request.text()).toBe("bounded");
+      results1.push(
+        expect(result.request.headers.get("content-length")).toBe("7")
+      );
+    }
+    return results1;
+  });
 
-  return it("rejects a declared oversized request even when it has no body", async function() {
+  return it("rejects a declared oversized request even when it has no body", async function () {
     const request = new Request(
       "https://darkfactory.localhost/api/orpc/contact/submit",
       {
         headers: {
           "content-length": String(CONTACT_REQUEST_MAX_BYTES + 1),
         },
-      },
-    )
+      }
+    );
 
     return await expect(bufferContactRequest(request)).resolves.toEqual({
       request,
       tooLarge: true,
-    })
-  })
-})
+    });
+  });
+});

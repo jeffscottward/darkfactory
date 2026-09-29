@@ -1,4 +1,4 @@
-"use client"
+"use client";
 
 import {
   Button,
@@ -13,9 +13,9 @@ import {
   Skeleton,
   SkeletonGroup,
   Textarea,
-} from "@darkfactory/ui"
-import { GitBranch, Play, RefreshCw } from "lucide-react"
-import { useCallback, useEffect, useRef, useState } from "react"
+} from "@darkfactory/ui";
+import { GitBranch, Play, RefreshCw } from "lucide-react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import {
   classifyOperatorFailure,
@@ -30,26 +30,26 @@ import {
   type OperatorSubmissionOutcome,
   type OperatorSubmissionValues,
   type OperatorWorkspaceOutput,
-} from "./operator-client.ts"
-import { operatorRunTitle } from "./operator-format.ts"
-import { OperatorRunDetail } from "./operator-run-detail.tsx"
-import { RunMonitor } from "./run-monitor.tsx"
-import { WayfinderPanel } from "./wayfinder-panel.tsx"
+} from "./operator-client.ts";
+import { operatorRunTitle } from "./operator-format.ts";
+import { OperatorRunDetail } from "./operator-run-detail.tsx";
+import { RunMonitor } from "./run-monitor.tsx";
+import { WayfinderPanel } from "./wayfinder-panel.tsx";
 
 export interface OperatorSubmitFeedback {
-  readonly tone: "error" | "success" | "warning"
-  readonly message: string
+  readonly tone: "error" | "success" | "warning";
+  readonly message: string;
 }
 
 export interface OperatorSubmitFormViewProps {
-  readonly feedback: OperatorSubmitFeedback | null
+  readonly feedback: OperatorSubmitFeedback | null;
   readonly onChange: (
     field: keyof OperatorSubmissionValues,
-    value: string,
-  ) => void
-  readonly onSubmit: (event: React.FormEvent<HTMLFormElement>) => void
-  readonly pending: boolean
-  readonly values: OperatorSubmissionValues
+    value: string
+  ) => void;
+  readonly onSubmit: (event: React.FormEvent<HTMLFormElement>) => void;
+  readonly pending: boolean;
+  readonly values: OperatorSubmissionValues;
 }
 
 export const OperatorSubmitFormView = ({
@@ -59,24 +59,31 @@ export const OperatorSubmitFormView = ({
   pending,
   values,
 }: OperatorSubmitFormViewProps) => {
-  const feedbackClassName = feedback?.tone === "error"
-    ? "border-destructive-border bg-destructive-subtle text-destructive"
-    : feedback?.tone === "warning"
-      ? "border-warning-border bg-warning-subtle text-warning-foreground"
-      : "border-success-border bg-success-subtle text-success-foreground"
+  const feedbackClassName =
+    feedback?.tone === "error"
+      ? "border-destructive-border bg-destructive-subtle text-destructive"
+      : feedback?.tone === "warning"
+        ? "border-warning-border bg-warning-subtle text-warning-foreground"
+        : "border-success-border bg-success-subtle text-success-foreground";
   return (
     <details className="group border-y border-border">
       <summary className="flex min-h-11 cursor-pointer list-none items-center justify-between gap-4 py-3 font-semibold text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
         Advanced
-        <span aria-hidden="true" className="text-sm font-normal text-muted-foreground">Bounded run form
+        <span
+          aria-hidden="true"
+          className="text-sm font-normal text-muted-foreground"
+        >
+          Bounded run form
         </span>
       </summary>
       <Card aria-labelledby="operator-submit-title" className="mb-5 mt-2">
         <CardHeader>
-          <CardTitle headingLevel={2} id="operator-submit-title">Submit a bounded run
+          <CardTitle headingLevel={2} id="operator-submit-title">
+            Submit a bounded run
           </CardTitle>
           <CardDescription>
-            Use this technical form only when you already know the repository scope. For guided planning, use Start planning above.
+            Use this technical form only when you already know the repository
+            scope. For guided planning, use Start planning above.
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -89,8 +96,7 @@ export const OperatorSubmitFormView = ({
           >
             <div className="grid gap-4 sm:grid-cols-2">
               <div className="space-y-2">
-                <Label htmlFor="operator-run-title">Run title
-                </Label>
+                <Label htmlFor="operator-run-title">Run title</Label>
                 <Input
                   aria-describedby="operator-run-title-hint"
                   aria-required="true"
@@ -98,17 +104,21 @@ export const OperatorSubmitFormView = ({
                   disabled={pending}
                   id="operator-run-title"
                   name="title"
-                  onChange={(event) => onChange("title", event.currentTarget.value)}
+                  onChange={(event) =>
+                    onChange("title", event.currentTarget.value)
+                  }
                   required
                   value={values.title}
                 />
-                <p className="text-xs leading-5 text-muted-foreground" id="operator-run-title-hint">
+                <p
+                  className="text-xs leading-5 text-muted-foreground"
+                  id="operator-run-title-hint"
+                >
                   Use a concise title for the operator journal.
                 </p>
               </div>
               <div className="space-y-2">
-                <Label htmlFor="operator-repository-id">Repository ID
-                </Label>
+                <Label htmlFor="operator-repository-id">Repository ID</Label>
                 <Input
                   aria-describedby="operator-repository-id-hint"
                   aria-required="true"
@@ -117,17 +127,24 @@ export const OperatorSubmitFormView = ({
                   disabled={pending}
                   id="operator-repository-id"
                   name="repositoryId"
-                  onChange={(event) => onChange("repositoryId", event.currentTarget.value)}
+                  onChange={(event) =>
+                    onChange("repositoryId", event.currentTarget.value)
+                  }
                   required
                   spellCheck={false}
                   value={values.repositoryId}
                 />
-                <p className="text-xs leading-5 text-muted-foreground" id="operator-repository-id-hint">
-                  Enter the repository slug; it is normalized to lowercase before submission.
+                <p
+                  className="text-xs leading-5 text-muted-foreground"
+                  id="operator-repository-id-hint"
+                >
+                  Enter the repository slug; it is normalized to lowercase
+                  before submission.
                 </p>
               </div>
               <div className="space-y-2 sm:col-span-2">
-                <Label htmlFor="operator-scope-paths">Relative scope paths, one per line
+                <Label htmlFor="operator-scope-paths">
+                  Relative scope paths, one per line
                 </Label>
                 <Textarea
                   aria-describedby="operator-scope-paths-hint"
@@ -135,15 +152,21 @@ export const OperatorSubmitFormView = ({
                   disabled={pending}
                   id="operator-scope-paths"
                   name="scopePaths"
-                  onChange={(event) => onChange("scopePaths", event.currentTarget.value)}
+                  onChange={(event) =>
+                    onChange("scopePaths", event.currentTarget.value)
+                  }
                   placeholder="packages/state"
                   required
                   rows={5}
                   spellCheck={false}
                   value={values.scopePaths}
                 />
-                <p className="text-xs leading-5 text-muted-foreground" id="operator-scope-paths-hint">
-                  Repository-relative paths only. Do not enter a filesystem root, traversal segments, or secrets.
+                <p
+                  className="text-xs leading-5 text-muted-foreground"
+                  id="operator-scope-paths-hint"
+                >
+                  Repository-relative paths only. Do not enter a filesystem
+                  root, traversal segments, or secrets.
                 </p>
               </div>
             </div>
@@ -155,7 +178,7 @@ export const OperatorSubmitFormView = ({
                 tabIndex={-1}
               >
                 {feedback.message}
-            </p>
+              </p>
             )}
             <Button
               className="w-full sm:w-auto"
@@ -164,91 +187,103 @@ export const OperatorSubmitFormView = ({
               loadingLabel="Submitting workflow run"
               type="submit"
             >
-              <Play aria-hidden="true" className="size-4" />Submit run
+              <Play aria-hidden="true" className="size-4" />
+              Submit run
             </Button>
           </form>
         </CardContent>
       </Card>
-  </details>
-  )
-}
+    </details>
+  );
+};
 
 interface OperatorSubmitFormProps {
-  readonly gateway: OperatorGateway
-  readonly onSubmitted: (outcome: OperatorSubmissionOutcome) => void
+  readonly gateway: OperatorGateway;
+  readonly onSubmitted: (outcome: OperatorSubmissionOutcome) => void;
 }
 
 const EMPTY_SUBMISSION_VALUES: OperatorSubmissionValues = Object.freeze({
   title: "",
   repositoryId: "",
   scopePaths: "",
-})
+});
 
-const OperatorSubmitForm = ({ gateway, onSubmitted }: OperatorSubmitFormProps) => {
-  const [values, setValues] = useState<OperatorSubmissionValues>(EMPTY_SUBMISSION_VALUES)
-  const [feedback, setFeedback] = useState<OperatorSubmitFeedback | null>(null)
-  const [pending, setPending] = useState(false)
-  const submissionInFlight = useRef(false)
-  const idempotency = useRef<OperatorIdempotencyKeySlot | null>(null)
-  const mounted = useRef(false)
+const OperatorSubmitForm = ({
+  gateway,
+  onSubmitted,
+}: OperatorSubmitFormProps) => {
+  const [values, setValues] = useState<OperatorSubmissionValues>(
+    EMPTY_SUBMISSION_VALUES
+  );
+  const [feedback, setFeedback] = useState<OperatorSubmitFeedback | null>(null);
+  const [pending, setPending] = useState(false);
+  const submissionInFlight = useRef(false);
+  const idempotency = useRef<OperatorIdempotencyKeySlot | null>(null);
+  const mounted = useRef(false);
 
   useEffect(() => {
-    mounted.current = true
+    mounted.current = true;
     return () => {
-      mounted.current = false
-      return undefined
-    }
-  }
-  , [])
+      mounted.current = false;
+      return undefined;
+    };
+  }, []);
 
-  const change = (field: keyof OperatorSubmissionValues, value: string): void => {
-    idempotency.current?.invalidate()
-    setFeedback(null)
-    setValues((current) => ({ ...current, [field]: value }))
-  }
+  const change = (
+    field: keyof OperatorSubmissionValues,
+    value: string
+  ): void => {
+    idempotency.current?.invalidate();
+    setFeedback(null);
+    setValues((current) => ({ ...current, [field]: value }));
+  };
 
-  const submit = async (event: React.FormEvent<HTMLFormElement>): Promise<void> => {
-    event.preventDefault()
-    if (submissionInFlight.current) return
-    submissionInFlight.current = true
-    setPending(true)
-    setFeedback(null)
+  const submit = async (
+    event: React.FormEvent<HTMLFormElement>
+  ): Promise<void> => {
+    event.preventDefault();
+    if (submissionInFlight.current) return;
+    submissionInFlight.current = true;
+    setPending(true);
+    setFeedback(null);
     try {
-      const keySlot = idempotency.current ?? createOperatorIdempotencyKeySlot()
-      idempotency.current = keySlot
-      const outcome = await submitOperatorRun(gateway, values, keySlot.key())
-      if (!mounted.current) return
-      onSubmitted(outcome)
-      const title = operatorRunTitle(outcome.selectedRun.run)
-      setFeedback("workspaceFailure" in outcome
-        ? {
-          tone: "warning",
-          message: `Run “${title}” was submitted and selected, but the work monitor could not refresh. ${outcome.workspaceFailure.message}`,
-        }
-        : {
-          tone: "success",
-          message: `Run “${title}” was submitted and selected.`,
-        })
-      keySlot.invalidate()
-    }
-    catch (error) {
-      if (!mounted.current) return
+      const keySlot = idempotency.current ?? createOperatorIdempotencyKeySlot();
+      idempotency.current = keySlot;
+      const outcome = await submitOperatorRun(gateway, values, keySlot.key());
+      if (!mounted.current) return;
+      onSubmitted(outcome);
+      const title = operatorRunTitle(outcome.selectedRun.run);
+      setFeedback(
+        "workspaceFailure" in outcome
+          ? {
+              tone: "warning",
+              message: `Run “${title}” was submitted and selected, but the work monitor could not refresh. ${outcome.workspaceFailure.message}`,
+            }
+          : {
+              tone: "success",
+              message: `Run “${title}” was submitted and selected.`,
+            }
+      );
+      keySlot.invalidate();
+    } catch (error) {
+      if (!mounted.current) return;
       setFeedback({
         tone: "error",
         message: classifyOperatorSubmissionFailure(error).message,
-      })
-    }
-    finally {
-      submissionInFlight.current = false
+      });
+    } finally {
+      submissionInFlight.current = false;
       if (mounted.current) {
-        setPending(false)
+        setPending(false);
         window.setTimeout(
-          () => mounted.current && document.getElementById("operator-submit-status")?.focus(),
-          0,
-        )
+          () =>
+            mounted.current &&
+            document.getElementById("operator-submit-status")?.focus(),
+          0
+        );
       }
     }
-  }
+  };
 
   return (
     <OperatorSubmitFormView
@@ -258,16 +293,16 @@ const OperatorSubmitForm = ({ gateway, onSubmitted }: OperatorSubmitFormProps) =
       pending={pending}
       values={values}
     />
-  )
-}
+  );
+};
 
 type OperatorWorkspaceState =
   | Readonly<{ type: "loading" }>
   | Readonly<{ type: "ready"; output: OperatorWorkspaceOutput }>
-  | Readonly<{ type: "error"; failure: OperatorFailure }>
+  | Readonly<{ type: "error"; failure: OperatorFailure }>;
 
 export interface OperatorWorkspaceProps {
-  readonly gateway?: OperatorGateway
+  readonly gateway?: OperatorGateway;
 }
 
 const WorkspaceLoading = () => (
@@ -278,77 +313,96 @@ const WorkspaceLoading = () => (
     </div>
     <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
       {Array.from({ length: 4 }, (_, index) => (
-        <div className="rounded-lg border border-border bg-surface p-4" key={index}>
+        <div
+          className="rounded-lg border border-border bg-surface p-4"
+          key={index}
+        >
           <Skeleton className="h-5 w-28" />
           <Skeleton className="mt-4 h-20 w-full" />
-      </div>
+        </div>
       ))}
     </div>
-</SkeletonGroup>
-)
+  </SkeletonGroup>
+);
 
-export const OperatorWorkspace = ({ gateway: suppliedGateway }: OperatorWorkspaceProps) => {
-  const [gateway] = useState(() => suppliedGateway ?? createBrowserOperatorGateway())
-  const [state, setState] = useState<OperatorWorkspaceState>({ type: "loading" })
-  const [selectedRun, setSelectedRun] = useState<OperatorRunDetailOutput | null>(null)
-  const requestRevision = useRef(0)
+export const OperatorWorkspace = ({
+  gateway: suppliedGateway,
+}: OperatorWorkspaceProps) => {
+  const [gateway] = useState(
+    () => suppliedGateway ?? createBrowserOperatorGateway()
+  );
+  const [state, setState] = useState<OperatorWorkspaceState>({
+    type: "loading",
+  });
+  const [selectedRun, setSelectedRun] =
+    useState<OperatorRunDetailOutput | null>(null);
+  const requestRevision = useRef(0);
 
   const load = useCallback(async () => {
-    const revision = requestRevision.current + 1
-    requestRevision.current = revision
-    setState({ type: "loading" })
+    const revision = requestRevision.current + 1;
+    requestRevision.current = revision;
+    setState({ type: "loading" });
     try {
-      const output = await gateway.workspace()
-      if (requestRevision.current === revision) return setState({ type: "ready", output });return
-    }
-    catch (error) {
+      const output = await gateway.workspace();
+      if (requestRevision.current === revision)
+        return setState({ type: "ready", output });
+      return;
+    } catch (error) {
       if (requestRevision.current === revision) {
-        return setState({ type: "error", failure: classifyOperatorFailure(error) })
-      };return
+        return setState({
+          type: "error",
+          failure: classifyOperatorFailure(error),
+        });
+      }
+      return;
     }
-  }
-  , [gateway])
+  }, [gateway]);
 
   useEffect(() => {
-    void load()
+    void load();
     return () => {
-      requestRevision.current += 1
-      return undefined
-    }
-  }
-  , [load])
+      requestRevision.current += 1;
+      return undefined;
+    };
+  }, [load]);
 
   if (state.type === "loading") {
     return (
       <div className="space-y-8">
         <WayfinderPanel gateway={gateway} />
         <WorkspaceLoading />
-    </div>
-    )
+      </div>
+    );
   }
   if (state.type === "error") {
     return (
       <div className="space-y-8">
         <WayfinderPanel gateway={gateway} />
-        <section className="border-y border-destructive-border bg-destructive-subtle px-4 py-6" role="alert">
-          <h2 className="font-heading text-lg font-semibold text-foreground">Operator workspace unavailable
+        <section
+          className="border-y border-destructive-border bg-destructive-subtle px-4 py-6"
+          role="alert"
+        >
+          <h2 className="font-heading text-lg font-semibold text-foreground">
+            Operator workspace unavailable
           </h2>
-          <p className="mt-2 text-sm leading-6 text-muted-foreground">{state.failure.message}
+          <p className="mt-2 text-sm leading-6 text-muted-foreground">
+            {state.failure.message}
           </p>
           <Button className="mt-4" onClick={load} variant="secondary">
-            <RefreshCw aria-hidden="true" className="size-4" />Retry loading
+            <RefreshCw aria-hidden="true" className="size-4" />
+            Retry loading
           </Button>
         </section>
-    </div>
-    )
+      </div>
+    );
   }
 
   const acceptSubmission = (outcome: OperatorSubmissionOutcome): void => {
-    setSelectedRun(outcome.selectedRun)
+    setSelectedRun(outcome.selectedRun);
     if ("workspace" in outcome) {
-      setState({ type: "ready", output: outcome.workspace })
+      setState({ type: "ready", output: outcome.workspace });
     }
-  }
+  };
 
   return (
     <div className="space-y-8">
@@ -356,11 +410,12 @@ export const OperatorWorkspace = ({ gateway: suppliedGateway }: OperatorWorkspac
       <OperatorSubmitForm gateway={gateway} onSubmitted={acceptSubmission} />
       {state.output.runs.length === 0 ? (
         <EmptyState
-          action={(
+          action={
             <Button onClick={load} variant="secondary">
-              <RefreshCw aria-hidden="true" className="size-4" />Refresh runs
-      </Button>
-          )}
+              <RefreshCw aria-hidden="true" className="size-4" />
+              Refresh runs
+            </Button>
+          }
           description="Start planning above. The new run will appear here after Wayfinder saves it."
           icon={<GitBranch />}
           title="No planned work yet"
@@ -369,19 +424,26 @@ export const OperatorWorkspace = ({ gateway: suppliedGateway }: OperatorWorkspac
         <>
           <div className="flex justify-end">
             <Button onClick={load} size="compact" variant="secondary">
-              <RefreshCw aria-hidden="true" className="size-4" />Refresh workspace
+              <RefreshCw aria-hidden="true" className="size-4" />
+              Refresh workspace
             </Button>
           </div>
           <RunMonitor
             runs={state.output.runs}
             selectedRunId={selectedRun?.run.id}
           />
-      </>
+        </>
       )}
       {selectedRun === null ? null : (
-        <section aria-labelledby="selected-run-detail-title" className="space-y-4">
+        <section
+          aria-labelledby="selected-run-detail-title"
+          className="space-y-4"
+        >
           <div className="border-b border-border pb-4">
-            <h2 className="break-words font-heading text-xl font-semibold text-foreground" id="selected-run-detail-title">
+            <h2
+              className="break-words font-heading text-xl font-semibold text-foreground"
+              id="selected-run-detail-title"
+            >
               Run details: {operatorRunTitle(selectedRun.run)}
             </h2>
           </div>
@@ -390,8 +452,8 @@ export const OperatorWorkspace = ({ gateway: suppliedGateway }: OperatorWorkspac
             id={selectedRun.run.id}
             key={selectedRun.run.id}
           />
-      </section>
+        </section>
       )}
-  </div>
-  )
-}
+    </div>
+  );
+};

@@ -1,6 +1,6 @@
-"use client"
+"use client";
 
-import { cn } from "@darkfactory/ui"
+import { cn } from "@darkfactory/ui";
 
 const accountRoutes = [
   { href: "/account", label: "Summary" },
@@ -8,10 +8,10 @@ const accountRoutes = [
   { href: "/account/address", label: "Addresses" },
   { href: "/account/preferences", label: "Preferences" },
   { href: "/account/security", label: "Security" },
-] as const
+] as const;
 
 export interface AccountNavigationProps {
-  readonly currentPath?: string
+  readonly currentPath?: string;
 }
 
 export const AccountNavigation = ({ currentPath }: AccountNavigationProps) => {
@@ -19,7 +19,7 @@ export const AccountNavigation = ({ currentPath }: AccountNavigationProps) => {
     <nav aria-label="Account settings" className="border-b border-border">
       <ul className="flex flex-wrap gap-1" role="list">
         {accountRoutes.map((route) => {
-          const isCurrent = currentPath === route.href
+          const isCurrent = currentPath === route.href;
           return (
             <li key={route.href}>
               <a
@@ -28,17 +28,16 @@ export const AccountNavigation = ({ currentPath }: AccountNavigationProps) => {
                   "inline-flex min-h-11 items-center border-b-2 px-3 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
                   isCurrent
                     ? "border-primary text-foreground"
-                    : "border-transparent text-muted-foreground hover:border-border-strong hover:text-foreground",
+                    : "border-transparent text-muted-foreground hover:border-border-strong hover:text-foreground"
                 )}
                 href={route.href}
               >
                 {route.label}
               </a>
-          </li>
-          )
-        }
-        )}
+            </li>
+          );
+        })}
       </ul>
-  </nav>
-  )
-}
+    </nav>
+  );
+};

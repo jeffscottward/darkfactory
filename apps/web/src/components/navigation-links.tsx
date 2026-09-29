@@ -1,24 +1,23 @@
-"use client"
+"use client";
 
-import Link from "next/link"
-import { usePathname } from "next/navigation"
-import { cn } from "@darkfactory/ui"
+import Link from "next/link";
+import { usePathname } from "next/navigation";
+import { cn } from "@darkfactory/ui";
 
 import {
   isNavigationItemActive,
   type NavigationItem,
-} from "../lib/navigation.ts"
-
+} from "../lib/navigation.ts";
 
 export interface NavigationLinksProps {
-  readonly items: readonly NavigationItem[]
-  readonly currentPath?: string
-  readonly orientation?: "horizontal" | "vertical"
-  readonly className?: string
-  readonly linkClassName?: string
-  readonly showIcons?: boolean
-  readonly onNavigate?: (() => void) | undefined
-  readonly prefetch?: boolean
+  readonly items: readonly NavigationItem[];
+  readonly currentPath?: string;
+  readonly orientation?: "horizontal" | "vertical";
+  readonly className?: string;
+  readonly linkClassName?: string;
+  readonly showIcons?: boolean;
+  readonly onNavigate?: (() => void) | undefined;
+  readonly prefetch?: boolean;
 }
 
 export const NavigationLinks = ({
@@ -31,20 +30,20 @@ export const NavigationLinks = ({
   orientation = "horizontal",
   showIcons = false,
 }: NavigationLinksProps) => {
-  const frameworkPath = usePathname()
-  const pathname = currentPath ?? frameworkPath ?? ""
+  const frameworkPath = usePathname();
+  const pathname = currentPath ?? frameworkPath ?? "";
 
   return (
     <ul
       className={cn(
         "flex list-none p-0",
         orientation === "horizontal" ? "items-center gap-1" : "flex-col gap-1",
-        className,
+        className
       )}
     >
       {items.map((item) => {
-        const active = isNavigationItemActive(pathname, item)
-        const Icon = item.icon
+        const active = isNavigationItemActive(pathname, item);
+        const Icon = item.icon;
         return (
           <li key={item.href}>
             <Link
@@ -54,23 +53,20 @@ export const NavigationLinks = ({
                 "inline-flex min-h-11 min-w-11 items-center gap-3 rounded-md px-3 text-sm font-medium text-muted-foreground transition-colors duration-base ease-out hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background",
                 orientation === "vertical" && "w-full",
                 active && "bg-primary-subtle text-primary-subtle-foreground",
-                linkClassName,
+                linkClassName
               )}
               {...(prefetch === undefined ? {} : { prefetch })}
               href={item.href}
             >
-              {showIcons ? <Icon aria-hidden="true" className="size-5 shrink-0" /> : null}
-              <span>{item.label}
-              </span>
-              {active ? (
-                <span className="sr-only">, current page
-              </span>
+              {showIcons ? (
+                <Icon aria-hidden="true" className="size-5 shrink-0" />
               ) : null}
+              <span>{item.label}</span>
+              {active ? <span className="sr-only">, current page</span> : null}
             </Link>
-        </li>
-        )
-      }
-      )}
-  </ul>
-  )
-}
+          </li>
+        );
+      })}
+    </ul>
+  );
+};

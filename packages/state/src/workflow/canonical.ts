@@ -1,12 +1,12 @@
-import { sha256 } from "@noble/hashes/sha2.js"
-import { bytesToHex, utf8ToBytes } from "@noble/hashes/utils.js"
+import { sha256 } from "@noble/hashes/sha2.js";
+import { bytesToHex, utf8ToBytes } from "@noble/hashes/utils.js";
 
 import {
   WORKFLOW_MACHINE_ID,
   WORKFLOW_MACHINE_VERSION,
   type WorkflowEffectProposalV1,
   type WorkflowEventV1,
-} from "./types.ts"
+} from "./types.ts";
 
 type CanonicalJsonValue =
   | null
@@ -14,107 +14,114 @@ type CanonicalJsonValue =
   | number
   | string
   | readonly CanonicalJsonValue[]
-  | { readonly [key: string]: CanonicalJsonValue | undefined }
+  | { readonly [key: string]: CanonicalJsonValue | undefined };
 
 const encodeCanonical = (
   value: unknown,
   ancestors: Set<object>,
   arrayElement: boolean
 ): string | undefined => {
-  if (value === null) return "null"
+  if (value === null) return "null";
 
-  switch(typeof value) {
-    case "string":case "boolean": {
-      return JSON.stringify(value)
+  switch (typeof value) {
+    case "string":
+    case "boolean": {
+      return JSON.stringify(value);
     }
     case "number": {
       if (!Number.isFinite(value)) {
-        throw new TypeError("Canonical JSON numbers must be finite")
+        throw new TypeError("Canonical JSON numbers must be finite");
       }
-      return JSON.stringify(value)
+      return JSON.stringify(value);
     }
-    case "undefined":case "function":case "symbol": {
-      return arrayElement ? "null" : undefined
+    case "undefined":
+    case "function":
+    case "symbol": {
+      return arrayElement ? "null" : undefined;
     }
     case "bigint": {
-      throw new TypeError("Unsupported canonical JSON value: bigint")
+      throw new TypeError("Unsupported canonical JSON value: bigint");
     }
     default: {
-      const objectValue = value as object
+      const objectValue = value as object;
       if (ancestors.has(objectValue)) {
-        throw new TypeError("Canonical JSON cannot encode cyclic values")
+        throw new TypeError("Canonical JSON cannot encode cyclic values");
       }
 
-      ancestors.add(objectValue)
+      ancestors.add(objectValue);
       try {
         if (Array.isArray(value)) {
-          const items = value.map((item) => encodeCanonical(item, ancestors, true))
-          return `[${items.join(",")}]`
+          const items = value.map((item) =>
+            encodeCanonical(item, ancestors, true)
+          );
+          return `[${items.join(",")}]`;
         }
 
-        const prototype = Object.getPrototypeOf(value)
+        const prototype = Object.getPrototypeOf(value);
         if (prototype !== Object.prototype && prototype !== null) {
-          throw new TypeError("Canonical JSON objects must be plain objects")
+          throw new TypeError("Canonical JSON objects must be plain objects");
         }
 
-        const fields: string[] = []
+        const fields: string[] = [];
         for (const key of Object.keys(value).sort()) {
           const encoded = encodeCanonical(
             (value as Record<string, unknown>)[key],
             ancestors,
             false
-          )
+          );
           if (encoded !== undefined) {
-            fields.push(`${JSON.stringify(key)}:${encoded}`)
+            fields.push(`${JSON.stringify(key)}:${encoded}`);
           }
         }
-        return `{${fields.join(",")}}`
-      }
-      finally {
-        ancestors.delete(objectValue)
+        return `{${fields.join(",")}}`;
+      } finally {
+        ancestors.delete(objectValue);
       }
     }
   }
-}
+};
 
 export const canonicalJson = (value: CanonicalJsonValue | unknown): string => {
-  const encoded = encodeCanonical(value, new Set(), false)
+  const encoded = encodeCanonical(value, new Set(), false);
   if (encoded === undefined) {
-    throw new TypeError("Unsupported canonical JSON root value")
+    throw new TypeError("Unsupported canonical JSON root value");
   }
-  return encoded
-}
-export const canonicalJsonV1 = canonicalJson
-
+  return encoded;
+};
+export const canonicalJsonV1 = canonicalJson;
 
 export const sha256Hex = (material: string): string => {
-  return bytesToHex(sha256(utf8ToBytes(material)))
-}
+  return bytesToHex(sha256(utf8ToBytes(material)));
+};
 
 export const hashWorkflowEffectProposalV1 = (
   proposal: WorkflowEffectProposalV1
-): string => sha256Hex(canonicalJson({
-  machineId: WORKFLOW_MACHINE_ID,
-  machineVersion: WORKFLOW_MACHINE_VERSION,
-  proposal
-}))
+): string =>
+  sha256Hex(
+    canonicalJson({
+      machineId: WORKFLOW_MACHINE_ID,
+      machineVersion: WORKFLOW_MACHINE_VERSION,
+      proposal,
+    })
+  );
 
 export interface WorkflowJournalHashMaterialV1 {
-  readonly sequence: number
-  readonly previousHash: string
-  readonly event: WorkflowEventV1
+  readonly sequence: number;
+  readonly previousHash: string;
+  readonly event: WorkflowEventV1;
 }
 
 export const journalHashMaterialV1 = (
   material: WorkflowJournalHashMaterialV1
-): string => canonicalJson({
-  machineId: WORKFLOW_MACHINE_ID,
-  machineVersion: WORKFLOW_MACHINE_VERSION,
-  sequence: material.sequence,
-  previousHash: material.previousHash,
-  event: material.event
-})
+): string =>
+  canonicalJson({
+    machineId: WORKFLOW_MACHINE_ID,
+    machineVersion: WORKFLOW_MACHINE_VERSION,
+    sequence: material.sequence,
+    previousHash: material.previousHash,
+    event: material.event,
+  });
 
 export const hashWorkflowJournalEntryV1 = (
   material: WorkflowJournalHashMaterialV1
-): string => sha256Hex(journalHashMaterialV1(material))
+): string => sha256Hex(journalHashMaterialV1(material));

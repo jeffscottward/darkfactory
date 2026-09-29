@@ -1,13 +1,13 @@
-import { setup, transition } from "xstate"
+import { setup, transition } from "xstate";
 
-import { verifyWorkflowApprovalBindingV1 } from "./approval.ts"
+import { verifyWorkflowApprovalBindingV1 } from "./approval.ts";
 import {
   canonicalJsonV1,
   hashWorkflowEffectProposalV1,
   hashWorkflowJournalEntryV1,
   sha256Hex,
-} from "./canonical.ts"
-import { assertWorkflowEventV1, assertWorkflowSnapshotV1 } from "./guards.ts"
+} from "./canonical.ts";
+import { assertWorkflowEventV1, assertWorkflowSnapshotV1 } from "./guards.ts";
 import {
   GENESIS_WORKFLOW_JOURNAL_HASH,
   MAX_WORKFLOW_STAGE_ATTEMPTS_V1,
@@ -25,20 +25,22 @@ import {
   type WorkflowStateV1,
   type WorkflowTransitionMode,
   type WorkflowTransitionResultV1,
-} from "./types.ts"
+} from "./types.ts";
 
 const workflowSetupV1 = setup({
   types: {} as {
-    context: WorkflowContextV1
-    events: WorkflowEventV1
+    context: WorkflowContextV1;
+    events: WorkflowEventV1;
   },
   guards: {
     failedDuringPlanning: ({ context }) => context.failedStage === "planning",
-    failedDuringImplementation: ({ context }) => context.failedStage === "implementing",
+    failedDuringImplementation: ({ context }) =>
+      context.failedStage === "implementing",
     canReviseBlockedPlan: ({ context }) => context.failedStage === "planning",
-    failedDuringVerification: ({ context }) => context.failedStage === "verifying"
-  }
-})
+    failedDuringVerification: ({ context }) =>
+      context.failedStage === "verifying",
+  },
+});
 
 export const workflowMachineV1 = workflowSetupV1.createMachine({
   id: WORKFLOW_MACHINE_ID,
@@ -46,77 +48,106 @@ export const workflowMachineV1 = workflowSetupV1.createMachine({
   context: ({ input }) => input as WorkflowContextV1,
   on: {
     OPERATOR_MESSAGE_ADDED: {},
-    CANCEL_REQUESTED: { target: ".cancelled" }
+    CANCEL_REQUESTED: { target: ".cancelled" },
   },
   states: {
     draft: {
-      on: { RUN_SUBMITTED: { target: "planning" } }
+      on: { RUN_SUBMITTED: { target: "planning" } },
     },
     planning: {
       on: {
         PLAN_SUCCEEDED: { target: "awaitingApproval" },
-        EFFECT_FAILED: { target: "blocked" }
-      }
+        EFFECT_FAILED: { target: "blocked" },
+      },
     },
     awaitingApproval: {
       on: {
         APPROVAL_GRANTED: { target: "implementing" },
         APPROVAL_REJECTED: { target: "cancelled" },
-        PLAN_REVISION_REQUESTED: { target: "planning" }
-      }
+        PLAN_REVISION_REQUESTED: { target: "planning" },
+      },
     },
     implementing: {
       on: {
         IMPLEMENTATION_SUCCEEDED: { target: "verifying" },
-        EFFECT_FAILED: { target: "blocked" }
-      }
+        EFFECT_FAILED: { target: "blocked" },
+      },
     },
     verifying: {
       on: {
         VERIFICATION_SUCCEEDED: { target: "completed" },
         VERIFICATION_FAILED: { target: "blocked" },
-        EFFECT_FAILED: { target: "blocked" }
-      }
+        EFFECT_FAILED: { target: "blocked" },
+      },
     },
     blocked: {
       on: {
         RETRY_REQUESTED: [
           { guard: "failedDuringPlanning", target: "planning" },
           { guard: "failedDuringImplementation", target: "implementing" },
-          { guard: "failedDuringVerification", target: "verifying" }
+          { guard: "failedDuringVerification", target: "verifying" },
         ],
         PLAN_REVISION_REQUESTED: {
           guard: "canReviseBlockedPlan",
-          target: "planning"
-        }
-      }
+          target: "planning",
+        },
+      },
     },
     completed: { type: "final" },
-    cancelled: { type: "final" }
-  }
-})
+    cancelled: { type: "final" },
+  },
+});
 
-export const WORKFLOW_GRAPH_V1: Readonly<Record<WorkflowStateV1, readonly WorkflowEventTypeV1[]>> = Object.freeze({
+export const WORKFLOW_GRAPH_V1: Readonly<
+  Record<WorkflowStateV1, readonly WorkflowEventTypeV1[]>
+> = Object.freeze({
   draft: ["RUN_SUBMITTED", "OPERATOR_MESSAGE_ADDED", "CANCEL_REQUESTED"],
-  planning: ["PLAN_SUCCEEDED", "EFFECT_FAILED", "OPERATOR_MESSAGE_ADDED", "CANCEL_REQUESTED"],
-  awaitingApproval: ["APPROVAL_GRANTED", "APPROVAL_REJECTED", "PLAN_REVISION_REQUESTED", "OPERATOR_MESSAGE_ADDED", "CANCEL_REQUESTED"],
-  implementing: ["IMPLEMENTATION_SUCCEEDED", "EFFECT_FAILED", "OPERATOR_MESSAGE_ADDED", "CANCEL_REQUESTED"],
-  verifying: ["VERIFICATION_SUCCEEDED", "VERIFICATION_FAILED", "EFFECT_FAILED", "OPERATOR_MESSAGE_ADDED", "CANCEL_REQUESTED"],
-  blocked: ["RETRY_REQUESTED", "PLAN_REVISION_REQUESTED", "OPERATOR_MESSAGE_ADDED", "CANCEL_REQUESTED"],
+  planning: [
+    "PLAN_SUCCEEDED",
+    "EFFECT_FAILED",
+    "OPERATOR_MESSAGE_ADDED",
+    "CANCEL_REQUESTED",
+  ],
+  awaitingApproval: [
+    "APPROVAL_GRANTED",
+    "APPROVAL_REJECTED",
+    "PLAN_REVISION_REQUESTED",
+    "OPERATOR_MESSAGE_ADDED",
+    "CANCEL_REQUESTED",
+  ],
+  implementing: [
+    "IMPLEMENTATION_SUCCEEDED",
+    "EFFECT_FAILED",
+    "OPERATOR_MESSAGE_ADDED",
+    "CANCEL_REQUESTED",
+  ],
+  verifying: [
+    "VERIFICATION_SUCCEEDED",
+    "VERIFICATION_FAILED",
+    "EFFECT_FAILED",
+    "OPERATOR_MESSAGE_ADDED",
+    "CANCEL_REQUESTED",
+  ],
+  blocked: [
+    "RETRY_REQUESTED",
+    "PLAN_REVISION_REQUESTED",
+    "OPERATOR_MESSAGE_ADDED",
+    "CANCEL_REQUESTED",
+  ],
   completed: [],
-  cancelled: []
-})
+  cancelled: [],
+});
 
 export interface CreateInitialWorkflowSnapshotV1Input {
-  readonly runId: string
-  readonly ownerId: string
+  readonly runId: string;
+  readonly ownerId: string;
 }
 
 export const createInitialWorkflowSnapshotV1 = (
   input: CreateInitialWorkflowSnapshotV1Input
 ): WorkflowSnapshotV1 => {
   if (input.runId.length === 0 || input.ownerId.length === 0) {
-    throw new TypeError("Workflow run and owner identifiers are required")
+    throw new TypeError("Workflow run and owner identifiers are required");
   }
   return {
     machineId: WORKFLOW_MACHINE_ID,
@@ -143,19 +174,19 @@ export const createInitialWorkflowSnapshotV1 = (
       verificationEvidenceId: null,
       failedStage: null,
       lastErrorCode: null,
-      messageCount: 0
-    }
-  }
-}
+      messageCount: 0,
+    },
+  };
+};
 
 const handlerFor = (kind: WorkflowEffectKindV1) => {
-  return `coding-agent.${kind}` as const
-}
+  return `coding-agent.${kind}` as const;
+};
 
-const evidenceIds = (context: WorkflowContextV1): readonly string[] => [
-  context.planEvidenceId,
-  context.implementationEvidenceId
-].filter((value): value is string => value !== null)
+const evidenceIds = (context: WorkflowContextV1): readonly string[] =>
+  [context.planEvidenceId, context.implementationEvidenceId].filter(
+    (value): value is string => value !== null
+  );
 
 const proposalFor = (
   context: WorkflowContextV1,
@@ -181,31 +212,32 @@ const proposalFor = (
       : { humanRequest: context.humanRequest }),
     ...(kind === "plan" && context.planClarification !== undefined
       ? { planClarification: context.planClarification }
-      : {})
-  }
-})
+      : {}),
+  },
+});
 
 const incrementAttempt = (
   context: WorkflowContextV1,
   kind: WorkflowEffectKindV1
 ): WorkflowContextV1["attempts"] => ({
   ...context.attempts,
-  [kind]: context.attempts[kind] + 1
-})
+  [kind]: context.attempts[kind] + 1,
+});
 
-const retryKindFor = (
-  context: WorkflowContextV1
-): WorkflowEffectKindV1 => {
-  switch(context.failedStage) {
-    case "planning": { return "plan"
+const retryKindFor = (context: WorkflowContextV1): WorkflowEffectKindV1 => {
+  switch (context.failedStage) {
+    case "planning": {
+      return "plan";
     }
-    case "implementing": { return "implement"
+    case "implementing": {
+      return "implement";
     }
-    case "verifying": { return "verify"
+    case "verifying": {
+      return "verify";
     }
   }
-  throw new Error("Workflow retry requires a failed stage")
-}
+  throw new Error("Workflow retry requires a failed stage");
+};
 
 const reduceContext = (
   context: WorkflowContextV1,
@@ -213,7 +245,7 @@ const reduceContext = (
   previousState: WorkflowStateV1,
   nextSequence: number
 ): WorkflowContextV1 => {
-  switch(event.type) {
+  switch (event.type) {
     case "RUN_SUBMITTED": {
       const submittedContext = {
         ...context,
@@ -228,12 +260,17 @@ const reduceContext = (
         ...(event.humanRequest === undefined
           ? {}
           : { humanRequest: event.humanRequest }),
-        attempts: incrementAttempt(context, "plan")
-      }
+        attempts: incrementAttempt(context, "plan"),
+      };
       return {
         ...submittedContext,
-        pendingEffect: proposalFor(submittedContext, "plan", event.scope, nextSequence)
-      }
+        pendingEffect: proposalFor(
+          submittedContext,
+          "plan",
+          event.scope,
+          nextSequence
+        ),
+      };
     }
     case "PLAN_SUCCEEDED": {
       const plannedContext = {
@@ -241,8 +278,8 @@ const reduceContext = (
         planEvidenceId: event.planEvidenceId,
         planHash: event.planHash,
         failedStage: null,
-        lastErrorCode: null
-      }
+        lastErrorCode: null,
+      };
       return {
         ...plannedContext,
         pendingEffect: proposalFor(
@@ -250,18 +287,20 @@ const reduceContext = (
           "implement",
           event.implementationScope,
           nextSequence
-        )
-      }
+        ),
+      };
     }
     case "PLAN_REVISION_REQUESTED": {
       const revisedContext = {
         ...context,
         taskRevision: context.taskRevision! + 1,
-        taskHash: sha256Hex(canonicalJsonV1({
-          previousTaskHash: context.taskHash,
-          taskRevision: context.taskRevision! + 1,
-          clarification: event.clarification
-        })),
+        taskHash: sha256Hex(
+          canonicalJsonV1({
+            previousTaskHash: context.taskHash,
+            taskRevision: context.taskRevision! + 1,
+            clarification: event.clarification,
+          })
+        ),
         planClarification: event.clarification,
         attempts: { ...context.attempts, plan: 1 },
         planEvidenceId: null,
@@ -269,8 +308,8 @@ const reduceContext = (
         approvalId: null,
         approvalHash: null,
         failedStage: null,
-        lastErrorCode: null
-      }
+        lastErrorCode: null,
+      };
       return {
         ...revisedContext,
         pendingEffect: proposalFor(
@@ -278,8 +317,8 @@ const reduceContext = (
           "plan",
           context.scope!,
           nextSequence
-        )
-      }
+        ),
+      };
     }
     case "APPROVAL_GRANTED": {
       return {
@@ -288,11 +327,11 @@ const reduceContext = (
         approvalHash: event.approvalHash,
         attempts: incrementAttempt(context, "implement"),
         failedStage: null,
-        lastErrorCode: null
-      }
+        lastErrorCode: null,
+      };
     }
     case "APPROVAL_REJECTED": {
-      return { ...context, approvalId: event.approvalId, pendingEffect: null }
+      return { ...context, approvalId: event.approvalId, pendingEffect: null };
     }
     case "IMPLEMENTATION_SUCCEEDED": {
       const implementedContext = {
@@ -301,8 +340,8 @@ const reduceContext = (
         changeHash: event.changeHash,
         attempts: incrementAttempt(context, "verify"),
         failedStage: null,
-        lastErrorCode: null
-      }
+        lastErrorCode: null,
+      };
       return {
         ...implementedContext,
         pendingEffect: proposalFor(
@@ -310,8 +349,8 @@ const reduceContext = (
           "verify",
           event.verificationScope,
           nextSequence
-        )
-      }
+        ),
+      };
     }
     case "VERIFICATION_SUCCEEDED": {
       return {
@@ -319,59 +358,63 @@ const reduceContext = (
         verificationEvidenceId: event.verificationEvidenceId,
         pendingEffect: null,
         failedStage: null,
-        lastErrorCode: null
-      }
+        lastErrorCode: null,
+      };
     }
-    case "VERIFICATION_FAILED":case "EFFECT_FAILED": {
+    case "VERIFICATION_FAILED":
+    case "EFFECT_FAILED": {
       return {
         ...context,
         failedStage: previousState as WorkflowActiveEffectStateV1,
-        lastErrorCode: event.failure.code
-      }
+        lastErrorCode: event.failure.code,
+      };
     }
     case "RETRY_REQUESTED": {
-      const kind = retryKindFor(context)
+      const kind = retryKindFor(context);
       return {
         ...context,
         attempts: incrementAttempt(context, kind),
         pendingEffect: {
           ...context.pendingEffect!,
-          payload: { ...context.pendingEffect!.payload, sourceSequence: nextSequence }
+          payload: {
+            ...context.pendingEffect!.payload,
+            sourceSequence: nextSequence,
+          },
         },
         failedStage: null,
-        lastErrorCode: null
-      }
+        lastErrorCode: null,
+      };
     }
     case "CANCEL_REQUESTED": {
-      return { ...context, pendingEffect: null }
+      return { ...context, pendingEffect: null };
     }
     case "OPERATOR_MESSAGE_ADDED": {
-      return { ...context, messageCount: context.messageCount + 1 }
+      return { ...context, messageCount: context.messageCount + 1 };
     }
   }
-  throw new TypeError("Unsupported workflow event")
-}
+  throw new TypeError("Unsupported workflow event");
+};
 
 const attemptFor = (
   context: WorkflowContextV1,
   kind: WorkflowEffectKindV1
-): number => context.attempts[kind]
+): number => context.attempts[kind];
 
-const materializeEffect = (
-  context: WorkflowContextV1
-): WorkflowEffectV1 => {
-  const proposal = context.pendingEffect!
-  const attempt = attemptFor(context, proposal.kind)
-  const idempotencyKey = sha256Hex(canonicalJsonV1({
-    machineId: WORKFLOW_MACHINE_ID,
-    machineVersion: WORKFLOW_MACHINE_VERSION,
-    runId: context.runId,
-    kind: proposal.kind,
-    attempt,
-    ...(proposal.kind === "plan"
-      ? { taskRevision: proposal.payload.taskRevision }
-      : {})
-  }))
+const materializeEffect = (context: WorkflowContextV1): WorkflowEffectV1 => {
+  const proposal = context.pendingEffect!;
+  const attempt = attemptFor(context, proposal.kind);
+  const idempotencyKey = sha256Hex(
+    canonicalJsonV1({
+      machineId: WORKFLOW_MACHINE_ID,
+      machineVersion: WORKFLOW_MACHINE_VERSION,
+      runId: context.runId,
+      kind: proposal.kind,
+      attempt,
+      ...(proposal.kind === "plan"
+        ? { taskRevision: proposal.payload.taskRevision }
+        : {}),
+    })
+  );
   return {
     ...proposal,
     id: idempotencyKey,
@@ -380,17 +423,19 @@ const materializeEffect = (
     machineVersion: WORKFLOW_MACHINE_VERSION,
     runId: context.runId,
     attempt,
-    proposalHash: hashWorkflowEffectProposalV1(proposal)
-  }
-}
+    proposalHash: hashWorkflowEffectProposalV1(proposal),
+  };
+};
 
 const emitsEffect = (event: WorkflowEventV1): boolean => {
-  return event.type === "RUN_SUBMITTED" ||
+  return (
+    event.type === "RUN_SUBMITTED" ||
     event.type === "PLAN_REVISION_REQUESTED" ||
     event.type === "APPROVAL_GRANTED" ||
     event.type === "IMPLEMENTATION_SUCCEEDED" ||
     event.type === "RETRY_REQUESTED"
-}
+  );
+};
 
 export const transitionWorkflowV1 = (
   snapshot: WorkflowSnapshotV1,
@@ -398,54 +443,68 @@ export const transitionWorkflowV1 = (
   mode: WorkflowTransitionMode
 ): WorkflowTransitionResultV1 => {
   if (mode !== "live" && mode !== "replay") {
-    throw new TypeError("Invalid transition mode")
+    throw new TypeError("Invalid transition mode");
   }
-  assertWorkflowSnapshotV1(snapshot)
-  assertWorkflowEventV1(event)
+  assertWorkflowSnapshotV1(snapshot);
+  assertWorkflowEventV1(event);
   if (snapshot.state === "completed" || snapshot.state === "cancelled") {
-    throw new Error(`Workflow state ${snapshot.state} is terminal`)
+    throw new Error(`Workflow state ${snapshot.state} is terminal`);
   }
   if (!WORKFLOW_GRAPH_V1[snapshot.state].includes(event.type)) {
-    throw new Error(`Workflow event ${event.type} is not accepted from ${snapshot.state}`)
+    throw new Error(
+      `Workflow event ${event.type} is not accepted from ${snapshot.state}`
+    );
   }
   if (event.type === "RETRY_REQUESTED") {
-    const retryKind = retryKindFor(snapshot.context)
-    if (snapshot.context.attempts[retryKind] >= MAX_WORKFLOW_STAGE_ATTEMPTS_V1) {
-      throw new WorkflowRetryLimitReachedError()
+    const retryKind = retryKindFor(snapshot.context);
+    if (
+      snapshot.context.attempts[retryKind] >= MAX_WORKFLOW_STAGE_ATTEMPTS_V1
+    ) {
+      throw new WorkflowRetryLimitReachedError();
     }
   }
-  if (event.type === "PLAN_REVISION_REQUESTED" &&
-      snapshot.state === "blocked" &&
-      snapshot.context.failedStage !== "planning") {
-    throw new Error("Workflow plan revision requires a failed plan stage")
+  if (
+    event.type === "PLAN_REVISION_REQUESTED" &&
+    snapshot.state === "blocked" &&
+    snapshot.context.failedStage !== "planning"
+  ) {
+    throw new Error("Workflow plan revision requires a failed plan stage");
   }
 
   if (event.type === "EFFECT_FAILED") {
-    const expectedKind = snapshot.state === "planning"
-      ? "plan"
-      : snapshot.state === "implementing"
-        ? "implement"
-        : "verify"
+    const expectedKind =
+      snapshot.state === "planning"
+        ? "plan"
+        : snapshot.state === "implementing"
+          ? "implement"
+          : "verify";
     if (event.effectKind !== expectedKind) {
-      throw new Error(`Workflow effect ${event.effectKind} does not own ${snapshot.state}`)
+      throw new Error(
+        `Workflow effect ${event.effectKind} does not own ${snapshot.state}`
+      );
     }
   }
 
   if (event.type === "APPROVAL_GRANTED") {
-    const approval = verifyWorkflowApprovalBindingV1(event.binding, snapshot)
+    const approval = verifyWorkflowApprovalBindingV1(event.binding, snapshot);
     if (!approval.ok || event.approvalId !== event.binding.approvalId) {
-      throw new Error("Stale workflow approval")
+      throw new Error("Stale workflow approval");
     }
   }
 
   const resolved = workflowMachineV1.resolveState({
     value: snapshot.state,
-    context: snapshot.context
-  })
-  const [machineSnapshot] = transition(workflowMachineV1, resolved, event)
-  const nextState = String(machineSnapshot.value) as WorkflowStateV1
-  const nextSequence = snapshot.sequence + 1
-  const nextContext = reduceContext(snapshot.context, event, snapshot.state, nextSequence)
+    context: snapshot.context,
+  });
+  const [machineSnapshot] = transition(workflowMachineV1, resolved, event);
+  const nextState = String(machineSnapshot.value) as WorkflowStateV1;
+  const nextSequence = snapshot.sequence + 1;
+  const nextContext = reduceContext(
+    snapshot.context,
+    event,
+    snapshot.state,
+    nextSequence
+  );
   const nextSnapshot: WorkflowSnapshotV1 = {
     machineId: WORKFLOW_MACHINE_ID,
     machineVersion: WORKFLOW_MACHINE_VERSION,
@@ -454,26 +513,27 @@ export const transitionWorkflowV1 = (
     journalHeadHash: hashWorkflowJournalEntryV1({
       sequence: nextSequence,
       previousHash: snapshot.journalHeadHash,
-      event
+      event,
     }),
-    context: nextContext
-  }
+    context: nextContext,
+  };
 
   return {
     snapshot: nextSnapshot,
-    effects: mode === "live" && emitsEffect(event)
-      ? [materializeEffect(nextContext)]
-      : []
-  }
-}
+    effects:
+      mode === "live" && emitsEffect(event)
+        ? [materializeEffect(nextContext)]
+        : [],
+  };
+};
 
 export const replayWorkflowV1 = (
   initialSnapshot: WorkflowSnapshotV1,
   events: readonly WorkflowEventV1[]
 ): WorkflowTransitionResultV1 => {
-  let snapshot = initialSnapshot
+  let snapshot = initialSnapshot;
   for (const event of events) {
-    snapshot = transitionWorkflowV1(snapshot, event, "replay").snapshot
+    snapshot = transitionWorkflowV1(snapshot, event, "replay").snapshot;
   }
-  return { snapshot, effects: [] }
-}
+  return { snapshot, effects: [] };
+};

@@ -1,6 +1,6 @@
-import { readFile } from "node:fs/promises"
+import { readFile } from "node:fs/promises";
 
-import { describe, expect, it, vi } from "vitest"
+import { describe, expect, it, vi } from "vitest";
 
 import {
   MAX_JOB_PAYLOAD_BYTES,
@@ -8,54 +8,54 @@ import {
   snapshotJobPayload,
   type JobDefinition,
   type JsonObject,
-} from "./index.ts"
-import { createRecordingJobPort } from "./test.ts"
+} from "./index.ts";
+import { createRecordingJobPort } from "./test.ts";
 
 const uppercaseJob: JobDefinition<"uppercase", { value: string }, string> = {
   name: "uppercase",
   execute: async ({ value }) => value.toUpperCase(),
-}
+};
 
 interface InterfacePayload {
-  value: string
+  value: string;
 }
 
 const interfaceJob: JobDefinition<"interface", InterfacePayload, string> = {
   name: "interface",
   execute: async ({ value }) => value,
-}
+};
 
 const jsonJob: JobDefinition<"json", JsonObject, JsonObject> = {
   name: "json",
   execute: async (payload) => payload,
-}
+};
 
-const asPayload = (value: unknown): JsonObject => value as JsonObject
+const asPayload = (value: unknown): JsonObject => value as JsonObject;
 
 const nestedPayload = (depth: number): JsonObject => {
-  let payload: JsonObject = {}
+  let payload: JsonObject = {};
   for (let index = 0; index < depth; index += 1) {
-    payload = { nested: payload }
+    payload = { nested: payload };
   }
-  return payload
-}
+  return payload;
+};
 
-describe("recording jobs adapter", function() {
-  it("records typed envelopes deterministically without executing jobs", async function() {
-    let executions = 0
+describe("recording jobs adapter", function () {
+  it("records typed envelopes deterministically without executing jobs", async function () {
+    let executions = 0;
     const definition: JobDefinition<"count", { amount: number }, number> = {
       name: "count",
       execute: async ({ amount }) => {
-        executions += 1
-        return amount
-      }
-    }
+        executions += 1;
+        return amount;
+      },
+    };
     const jobs = createRecordingJobPort({
       now: () => "2026-01-02T03:04:05.000Z",
-    })
+    });
 
-    const first = await jobs.enqueue(definition, { amount: 2 })
-    const second = await jobs.enqueue(definition, { amount: 3 })
+    const first = await jobs.enqueue(definition, { amount: 2 });
+    const second = await jobs.enqueue(definition, { amount: 3 });
 
     expect(first).toEqual({
       status: "recorded",
@@ -63,11 +63,11 @@ describe("recording jobs adapter", function() {
       jobId: "recording-job-000001",
       jobName: "count",
       enqueuedAt: "2026-01-02T03:04:05.000Z",
-    })
+    });
     expect(second).toMatchObject({
       status: "recorded",
       jobId: "recording-job-000002",
-    })
+    });
     expect(jobs.getEnvelopes()).toEqual([
       {
         id: "recording-job-000001",
@@ -81,65 +81,68 @@ describe("recording jobs adapter", function() {
         payload: { amount: 3 },
         enqueuedAt: "2026-01-02T03:04:05.000Z",
       },
-    ])
-    expect(executions).toBe(0)
-    return await expect(jobs.flush()).resolves.toBeUndefined()
-  })
+    ]);
+    expect(executions).toBe(0);
+    return await expect(jobs.flush()).resolves.toBeUndefined();
+  });
 
-  it("accepts an interface-declared JSON object payload", async function() {
-    const jobs = createRecordingJobPort()
+  it("accepts an interface-declared JSON object payload", async function () {
+    const jobs = createRecordingJobPort();
 
-    const receipt = await jobs.enqueue(interfaceJob, { value: "valid" })
+    const receipt = await jobs.enqueue(interfaceJob, { value: "valid" });
 
     return expect(receipt).toMatchObject({
       status: "recorded",
       jobName: "interface",
-    })
-  })
+    });
+  });
 
-  it("enforces cumulative serialized-byte boundaries exactly", function() {
-    const emptyPayloadBytes = JSON.stringify({ value: "" }).length
+  it("enforces cumulative serialized-byte boundaries exactly", function () {
+    const emptyPayloadBytes = JSON.stringify({ value: "" }).length;
     const exact = {
       value: "x".repeat(MAX_JOB_PAYLOAD_BYTES - emptyPayloadBytes),
-    }
+    };
     const over = {
       value: "x".repeat(MAX_JOB_PAYLOAD_BYTES - emptyPayloadBytes + 1),
-    }
+    };
     const cumulative = Object.fromEntries(
-      Array.from({ length: 8_000 }, (_, index) => [`key-${index}`, ""]),
-    )
+      Array.from({ length: 8_000 }, (_, index) => [`key-${index}`, ""])
+    );
 
-    expect(snapshotJobPayload(exact).status).toBe("valid")
-    expect(snapshotJobPayload(over).status).toBe("invalid")
-    return expect(snapshotJobPayload(cumulative).status).toBe("invalid")
-  })
+    expect(snapshotJobPayload(exact).status).toBe("valid");
+    expect(snapshotJobPayload(over).status).toBe("invalid");
+    return expect(snapshotJobPayload(cumulative).status).toBe("invalid");
+  });
 
-  it("bounds collection size and nesting depth", function() {
-    expect(snapshotJobPayload({
-      values: Array(MAX_JOB_PAYLOAD_BYTES).fill(0),
-    }).status).toBe("invalid")
-    expect(snapshotJobPayload(
-      nestedPayload(MAX_JOB_PAYLOAD_DEPTH),
-    ).status).toBe("valid")
-    return expect(snapshotJobPayload(
-      nestedPayload(MAX_JOB_PAYLOAD_DEPTH + 1),
-    ).status).toBe("invalid")
-  })
+  it("bounds collection size and nesting depth", function () {
+    expect(
+      snapshotJobPayload({
+        values: Array(MAX_JOB_PAYLOAD_BYTES).fill(0),
+      }).status
+    ).toBe("invalid");
+    expect(
+      snapshotJobPayload(nestedPayload(MAX_JOB_PAYLOAD_DEPTH)).status
+    ).toBe("valid");
+    return expect(
+      snapshotJobPayload(nestedPayload(MAX_JOB_PAYLOAD_DEPTH + 1)).status
+    ).toBe("invalid");
+  });
 
-  it("canonicalizes payloads at enqueue and isolates every returned snapshot", async function() {
-    const jobs = createRecordingJobPort()
-    const payload = { z: 1, nested: { value: "original" }, a: [true, null] }
+  it("canonicalizes payloads at enqueue and isolates every returned snapshot", async function () {
+    const jobs = createRecordingJobPort();
+    const payload = { z: 1, nested: { value: "original" }, a: [true, null] };
 
-    await jobs.enqueue(jsonJob, asPayload(payload))
-    payload.nested.value = "caller mutation"
-    const first = jobs.getEnvelopes()
-    ;(first[0]!.payload["nested"] as { value: string }).value = "snapshot mutation"
-    const second = jobs.getEnvelopes()
+    await jobs.enqueue(jsonJob, asPayload(payload));
+    payload.nested.value = "caller mutation";
+    const first = jobs.getEnvelopes();
+    (first[0]!.payload["nested"] as { value: string }).value =
+      "snapshot mutation";
+    const second = jobs.getEnvelopes();
 
     return expect(JSON.stringify(second[0]!.payload)).toBe(
-      '{"a":[true,null],"nested":{"value":"original"},"z":1}',
-    )
-  })
+      '{"a":[true,null],"nested":{"value":"original"},"z":1}'
+    );
+  });
 
   it.each([
     ["function", { value: () => "no" }],
@@ -148,139 +151,147 @@ describe("recording jobs adapter", function() {
     ["undefined", { value: undefined }],
     ["bigint", { value: 1n }],
     ["root array", []],
-    ["custom array prototype", {
-      value: Object.setPrototypeOf([], { inherited: true }),
-    }],
-    ["non-enumerable property", Object.defineProperty({}, "value", {
-      enumerable: false,
-      value: "no",
-    })],
-    ["accessor", Object.defineProperty({}, "value", {
-      enumerable: true,
-      get: () => "no",
-    })],
+    [
+      "custom array prototype",
+      {
+        value: Object.setPrototypeOf([], { inherited: true }),
+      },
+    ],
+    [
+      "non-enumerable property",
+      Object.defineProperty({}, "value", {
+        enumerable: false,
+        value: "no",
+      }),
+    ],
+    [
+      "accessor",
+      Object.defineProperty({}, "value", {
+        enumerable: true,
+        get: () => "no",
+      }),
+    ],
     ["custom prototype", Object.create({ inherited: true })],
     ["non-finite number", { value: Number.POSITIVE_INFINITY }],
     ["oversize value", { value: "x".repeat(MAX_JOB_PAYLOAD_BYTES + 1) }],
   ])("normalizes invalid %s payloads without recording them", async (_, payload) => {
-    const jobs = createRecordingJobPort()
-    const receipt = await jobs.enqueue(jsonJob, asPayload(payload))
+    const jobs = createRecordingJobPort();
+    const receipt = await jobs.enqueue(jsonJob, asPayload(payload));
 
     expect(receipt).toMatchObject({
       status: "failed",
       execution: "recording",
       error: { code: "JOB_PAYLOAD_INVALID", retryable: false },
-    })
-    return expect(jobs.getEnvelopes()).toEqual([])
-  }
-  )
+    });
+    return expect(jobs.getEnvelopes()).toEqual([]);
+  });
 
-  it("rejects cyclic payloads without invoking accessors", async function() {
-    let getterCalls = 0
-    const cyclic: Record<string, unknown> = {}
-    cyclic["self"] = cyclic
-    const accessorContainer = {}
+  it("rejects cyclic payloads without invoking accessors", async function () {
+    let getterCalls = 0;
+    const cyclic: Record<string, unknown> = {};
+    cyclic["self"] = cyclic;
+    const accessorContainer = {};
     Object.defineProperty(accessorContainer, "secret", {
       enumerable: true,
       get: () => {
-        getterCalls += 1
-        return "secret"
-      }
-    })
-    cyclic["zAccessor"] = accessorContainer
-    const jobs = createRecordingJobPort()
+        getterCalls += 1;
+        return "secret";
+      },
+    });
+    cyclic["zAccessor"] = accessorContainer;
+    const jobs = createRecordingJobPort();
 
-    const receipt = await jobs.enqueue(jsonJob, asPayload(cyclic))
+    const receipt = await jobs.enqueue(jsonJob, asPayload(cyclic));
 
     expect(receipt).toMatchObject({
       status: "failed",
       error: { code: "JOB_PAYLOAD_INVALID" },
-    })
-    expect(getterCalls).toBe(0)
-    return expect(jobs.getEnvelopes()).toEqual([])
-  })
+    });
+    expect(getterCalls).toBe(0);
+    return expect(jobs.getEnvelopes()).toEqual([]);
+  });
 
-  it("rejects excessive object keys before inspecting their properties", async function() {
+  it("rejects excessive object keys before inspecting their properties", async function () {
     const keys = Array.from(
       { length: MAX_JOB_PAYLOAD_BYTES + 1 },
-      (_, index) => `key-${index}`,
-    )
-    let descriptorCalls = 0
-    const payload = new Proxy({}, {
-      ownKeys: () => keys,
-      getOwnPropertyDescriptor: () => {
-        descriptorCalls += 1
-        return {
-          configurable: true,
-          enumerable: true,
-          value: null,
-          writable: true,
-        }
+      (_, index) => `key-${index}`
+    );
+    let descriptorCalls = 0;
+    const payload = new Proxy(
+      {},
+      {
+        ownKeys: () => keys,
+        getOwnPropertyDescriptor: () => {
+          descriptorCalls += 1;
+          return {
+            configurable: true,
+            enumerable: true,
+            value: null,
+            writable: true,
+          };
+        },
       }
-    })
-    const jobs = createRecordingJobPort()
+    );
+    const jobs = createRecordingJobPort();
 
-    const receipt = await jobs.enqueue(jsonJob, asPayload(payload))
+    const receipt = await jobs.enqueue(jsonJob, asPayload(payload));
 
     expect(receipt).toMatchObject({
       status: "failed",
       error: { code: "JOB_PAYLOAD_INVALID" },
-    })
-    return expect(descriptorCalls).toBe(0)
-  })
-  
+    });
+    return expect(descriptorCalls).toBe(0);
+  });
 
-  it("fails closed when a recorded payload can no longer be verified", async function() {
-    const jobs = createRecordingJobPort()
-    await jobs.enqueue(uppercaseJob, { value: "original" })
-    const prototypeSpy = vi.spyOn(Object, "getPrototypeOf").mockReturnValue({})
-    let thrown: unknown
+  it("fails closed when a recorded payload can no longer be verified", async function () {
+    const jobs = createRecordingJobPort();
+    await jobs.enqueue(uppercaseJob, { value: "original" });
+    const prototypeSpy = vi.spyOn(Object, "getPrototypeOf").mockReturnValue({});
+    let thrown: unknown;
 
     try {
-      jobs.getEnvelopes()
-    }
-    catch (error) {
-      thrown = error
-    }
-    finally {
-      prototypeSpy.mockRestore()
+      jobs.getEnvelopes();
+    } catch (error) {
+      thrown = error;
+    } finally {
+      prototypeSpy.mockRestore();
     }
 
-    expect(thrown).toBeInstanceOf(Error)
+    expect(thrown).toBeInstanceOf(Error);
     return expect((thrown as Error).message).toBe(
       "recorded job payload invariant violated"
-    )
-  })
-  it("returns envelope snapshots that cannot mutate prior recordings", async function() {
-    const jobs = createRecordingJobPort()
-    const payload = { value: "original" }
-    await jobs.enqueue(uppercaseJob, payload)
-    payload.value = "changed"
+    );
+  });
+  it("returns envelope snapshots that cannot mutate prior recordings", async function () {
+    const jobs = createRecordingJobPort();
+    const payload = { value: "original" };
+    await jobs.enqueue(uppercaseJob, payload);
+    payload.value = "changed";
 
-    const snapshots = jobs.getEnvelopes()
-    return expect(snapshots[0]?.payload).toEqual({ value: "original" })
-  })
+    const snapshots = jobs.getEnvelopes();
+    return expect(snapshots[0]?.payload).toEqual({ value: "original" });
+  });
 
-  return it("covers primitive roots, JSON numeric canonicalization, and reflective array invariants", function() {
+  return it("covers primitive roots, JSON numeric canonicalization, and reflective array invariants", function () {
     const valid = snapshotJobPayload({
       disabled: false,
       negativeZero: -0,
-    })
-    expect(valid.status).toBe("valid")
+    });
+    expect(valid.status).toBe("valid");
     if (valid.status === "valid") {
-      expect(valid.payload["disabled"]).toBe(false)
-      expect(valid.payload["negativeZero"]).toBe(0)
-      expect(Object.is(valid.payload["negativeZero"], -0)).toBe(false)
+      expect(valid.payload["disabled"]).toBe(false);
+      expect(valid.payload["negativeZero"]).toBe(0);
+      expect(Object.is(valid.payload["negativeZero"], -0)).toBe(false);
     }
 
     for (const primitive of [null, "root", 1, false]) {
-      expect(snapshotJobPayload(primitive)).toEqual({ status: "invalid" })
+      expect(snapshotJobPayload(primitive)).toEqual({ status: "invalid" });
     }
 
-    const sparse = new Array(1)
+    const sparse = new Array(1);
     const outOfOrder = new Proxy([0], {
       ownKeys: () => ["length", "0"],
-    })
+    });
     const describeMisindexed = (target: number[], key: string | symbol) => {
       if (key === "1") {
         return {
@@ -288,34 +299,35 @@ describe("recording jobs adapter", function() {
           enumerable: true,
           value: 0,
           writable: true,
-        }
+        };
       }
-      return Reflect.getOwnPropertyDescriptor(target, key)
-    }
+      return Reflect.getOwnPropertyDescriptor(target, key);
+    };
     const misindexed = new Proxy([0], {
       ownKeys: () => ["1", "length"],
       getOwnPropertyDescriptor: describeMisindexed,
-    })
-    let accessorReads = 0
-    const accessor = [0]
+    });
+    let accessorReads = 0;
+    const accessor = [0];
     Object.defineProperty(accessor, "0", {
       configurable: true,
       enumerable: true,
       get: () => {
-        accessorReads += 1
-        return 0
-      }
-    })
-    const hidden = [0]
+        accessorReads += 1;
+        return 0;
+      },
+    });
+    const hidden = [0];
     Object.defineProperty(hidden, "0", {
       configurable: true,
       enumerable: false,
       value: 0,
       writable: true,
-    })
+    });
     const disappearing = new Proxy([0], {
-      getOwnPropertyDescriptor: (target, key) => key === "0" ? undefined : Reflect.getOwnPropertyDescriptor(target, key),
-    })
+      getOwnPropertyDescriptor: (target, key) =>
+        key === "0" ? undefined : Reflect.getOwnPropertyDescriptor(target, key),
+    });
 
     for (const array of [
       sparse,
@@ -327,16 +339,19 @@ describe("recording jobs adapter", function() {
     ]) {
       expect(snapshotJobPayload({ values: array })).toEqual({
         status: "invalid",
-      })
+      });
     }
-    return expect(accessorReads).toBe(0)
-  })
-})
+    return expect(accessorReads).toBe(0);
+  });
+});
 
-describe("jobs dependency inventory", function() {
-  return it("declares only internal runtime dependencies and explicit entrypoints", async function() {
-    const manifestText = await readFile(new URL("../package.json", import.meta.url), "utf8")
-    const manifest = JSON.parse(manifestText)
+describe("jobs dependency inventory", function () {
+  return it("declares only internal runtime dependencies and explicit entrypoints", async function () {
+    const manifestText = await readFile(
+      new URL("../package.json", import.meta.url),
+      "utf8"
+    );
+    const manifest = JSON.parse(manifestText);
 
     expect({
       dependencies: manifest.dependencies ?? {},
@@ -345,11 +360,11 @@ describe("jobs dependency inventory", function() {
     }).toEqual({
       dependencies: {
         "@darkfactory/db": "workspace:*",
-        "@darkfactory/state": "workspace:*"
+        "@darkfactory/state": "workspace:*",
       },
       optionalDependencies: {},
       peerDependencies: {},
-    })
+    });
     return expect(Object.keys(manifest.exports)).toEqual([
       ".",
       "./server/inline",
@@ -359,7 +374,7 @@ describe("jobs dependency inventory", function() {
       "./server/workflow-runtime",
       "./server/plan-evidence",
       "./server/pilot-worker",
-      "./test"
-    ])
-  })
-})
+      "./test",
+    ]);
+  });
+});

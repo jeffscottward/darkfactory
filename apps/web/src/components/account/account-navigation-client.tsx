@@ -1,9 +1,9 @@
-"use client"
+"use client";
 
-import { usePathname } from "next/navigation"
+import { usePathname } from "next/navigation";
 
-import { AccountNavigation } from "./account-navigation.tsx"
+import { AccountNavigation } from "./account-navigation.tsx";
 
 export const AccountNavigationClient = () => (
   <AccountNavigation currentPath={usePathname()} />
-)
+);

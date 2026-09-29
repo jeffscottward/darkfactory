@@ -1,9 +1,9 @@
-import type { ComponentPropsWithRef } from "react"
-import type { VariantProps } from "class-variance-authority"
-import { cva } from "class-variance-authority"
-import { LoaderCircle } from "lucide-react"
+import type { ComponentPropsWithRef } from "react";
+import type { VariantProps } from "class-variance-authority";
+import { cva } from "class-variance-authority";
+import { LoaderCircle } from "lucide-react";
 
-import { cn } from "./utilities.ts"
+import { cn } from "./utilities.ts";
 
 export const buttonVariants = cva(
   "relative inline-flex min-h-11 min-w-11 items-center justify-center gap-2 rounded-md border border-transparent px-4 font-body text-sm font-semibold transition-colors duration-base ease-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:pointer-events-none disabled:border-disabled-border disabled:bg-disabled disabled:text-disabled-foreground disabled:opacity-100",
@@ -15,8 +15,7 @@ export const buttonVariants = cva(
         secondary:
           "border-border-strong bg-surface text-foreground hover:bg-accent active:bg-muted",
         ghost: "text-foreground hover:bg-accent active:bg-muted",
-        link:
-          "text-primary underline-offset-4 hover:underline active:text-primary-active",
+        link: "text-primary underline-offset-4 hover:underline active:text-primary-active",
         destructive:
           "bg-destructive text-destructive-foreground hover:bg-destructive-hover active:bg-destructive-active",
       },
@@ -35,14 +34,14 @@ export const buttonVariants = cva(
       size: "default",
       fullWidth: false,
     },
-  },
-)
+  }
+);
 
 export interface ButtonProps
   extends ComponentPropsWithRef<"button">,
     VariantProps<typeof buttonVariants> {
-  loading?: boolean
-  loadingLabel?: string
+  loading?: boolean;
+  loadingLabel?: string;
 }
 
 export const Button = ({
@@ -65,7 +64,9 @@ export const Button = ({
     disabled={disabled || loading}
     className={cn(buttonVariants({ variant, size, fullWidth }), className)}
   >
-    <span className={cn("inline-flex items-center gap-2", loading && "invisible")}>
+    <span
+      className={cn("inline-flex items-center gap-2", loading && "invisible")}
+    >
       {children}
     </span>
     {loading ? (
@@ -74,9 +75,8 @@ export const Button = ({
           aria-hidden="true"
           className="absolute size-5 animate-spin motion-reduce:animate-none"
         />
-        <span className="sr-only">{loadingLabel}
-        </span>
-    </>
+        <span className="sr-only">{loadingLabel}</span>
+      </>
     ) : null}
-</button>
-)
+  </button>
+);

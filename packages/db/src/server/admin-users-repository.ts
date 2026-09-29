@@ -7,158 +7,173 @@ import {
   or as orWhere,
   sql,
   type SQL,
-} from "drizzle-orm"
-import { union } from "drizzle-orm/pg-core"
+} from "drizzle-orm";
+import { union } from "drizzle-orm/pg-core";
 
 import {
   profiles,
   users,
   type UserRole,
   type UserStatus,
-} from "../schema/index.ts"
-import { withTransaction, type DatabaseExecutor } from "./client.ts"
+} from "../schema/index.ts";
+import { withTransaction, type DatabaseExecutor } from "./client.ts";
 
 export class InvalidAdminUsersCursorError extends Error {
   constructor() {
-    super("Invalid admin user directory cursor")
-    this.name = "InvalidAdminUsersCursorError"
+    super("Invalid admin user directory cursor");
+    this.name = "InvalidAdminUsersCursorError";
   }
 }
 
 export class AdminUsersPersistenceError extends Error {
   constructor() {
-    super("Admin user directory is unavailable")
-    this.name = "AdminUsersPersistenceError"
+    super("Admin user directory is unavailable");
+    this.name = "AdminUsersPersistenceError";
   }
 }
 
 export type AdminUsersCursorKey = Readonly<{
-  createdAt: Date
-  id: string
-}>
+  createdAt: Date;
+  id: string;
+}>;
 
 const toBase64Url = (value: string): string => {
-  const bytes = new TextEncoder().encode(value)
-  let binary = ""
-  for (const byte of bytes) binary += String.fromCharCode(byte)
-  return btoa(binary).replaceAll("+", "-").replaceAll("/", "_").replace(/=+$/u, "")
-}
+  const bytes = new TextEncoder().encode(value);
+  let binary = "";
+  for (const byte of bytes) binary += String.fromCharCode(byte);
+  return btoa(binary)
+    .replaceAll("+", "-")
+    .replaceAll("/", "_")
+    .replace(/=+$/u, "");
+};
 
 const fromBase64Url = (value: string): string => {
-  if (!/^[A-Za-z0-9_-]+$/u.test(value)) throw new InvalidAdminUsersCursorError()
-  const standard = value.replaceAll("-", "+").replaceAll("_", "/")
-  const padded = standard + "=".repeat((4 - (standard.length % 4)) % 4)
-  let binary: string
+  if (!/^[A-Za-z0-9_-]+$/u.test(value))
+    throw new InvalidAdminUsersCursorError();
+  const standard = value.replaceAll("-", "+").replaceAll("_", "/");
+  const padded = standard + "=".repeat((4 - (standard.length % 4)) % 4);
+  let binary: string;
   try {
-    binary = atob(padded)
+    binary = atob(padded);
+  } catch {
+    throw new InvalidAdminUsersCursorError();
   }
-  catch {
-    throw new InvalidAdminUsersCursorError()
-  }
-  const bytes = Uint8Array.from(binary, (character) => character.charCodeAt(0))
+  const bytes = Uint8Array.from(binary, (character) => character.charCodeAt(0));
   try {
-    return new TextDecoder("utf-8", { fatal: true }).decode(bytes)
+    return new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+  } catch {
+    throw new InvalidAdminUsersCursorError();
   }
-  catch {
-    throw new InvalidAdminUsersCursorError()
-  }
-}
+};
 
 export const encodeAdminUsersCursor = (key: AdminUsersCursorKey): string => {
-  return toBase64Url(JSON.stringify({ v: 1, createdAt: key.createdAt.toISOString(), id: key.id }))
-}
+  return toBase64Url(
+    JSON.stringify({ v: 1, createdAt: key.createdAt.toISOString(), id: key.id })
+  );
+};
 
 export const decodeAdminUsersCursor = (cursor: string): AdminUsersCursorKey => {
-  let value: unknown
+  let value: unknown;
   try {
-    value = JSON.parse(fromBase64Url(cursor))
-  }
-  catch (error) {
-    if (error instanceof InvalidAdminUsersCursorError) throw error
-    throw new InvalidAdminUsersCursorError()
+    value = JSON.parse(fromBase64Url(cursor));
+  } catch (error) {
+    if (error instanceof InvalidAdminUsersCursorError) throw error;
+    throw new InvalidAdminUsersCursorError();
   }
   if (typeof value !== "object" || value === null || Array.isArray(value)) {
-    throw new InvalidAdminUsersCursorError()
+    throw new InvalidAdminUsersCursorError();
   }
-  const record = value as Record<string, unknown>
+  const record = value as Record<string, unknown>;
   if (
     Object.keys(record).sort().join(",") !== "createdAt,id,v" ||
     record["v"] !== 1 ||
     typeof record["createdAt"] !== "string" ||
     typeof record["id"] !== "string" ||
     record["id"].trim().length === 0
-  ) throw new InvalidAdminUsersCursorError()
-  const timestamp = record["createdAt"]
-  const id = record["id"]
-  const createdAt = new Date(timestamp)
-  if (!Number.isFinite(createdAt.getTime()) || createdAt.toISOString() !== timestamp) {
-    throw new InvalidAdminUsersCursorError()
+  )
+    throw new InvalidAdminUsersCursorError();
+  const timestamp = record["createdAt"];
+  const id = record["id"];
+  const createdAt = new Date(timestamp);
+  if (
+    !Number.isFinite(createdAt.getTime()) ||
+    createdAt.toISOString() !== timestamp
+  ) {
+    throw new InvalidAdminUsersCursorError();
   }
-  return { createdAt, id }
-}
+  return { createdAt, id };
+};
 
 export type AdminUserSummary = Readonly<{
-  id: string
-  name: string
-  email: string
-  emailVerified: boolean
-  image: string | null
-  role: UserRole
-  status: UserStatus
-  createdAt: Date
+  id: string;
+  name: string;
+  email: string;
+  emailVerified: boolean;
+  image: string | null;
+  role: UserRole;
+  status: UserStatus;
+  createdAt: Date;
   profile: Readonly<{
-    displayName: string | null
-    avatarUrl: string | null
-    businessName: string | null
-    jobTitle: string | null
-  }> | null
-}>
+    displayName: string | null;
+    avatarUrl: string | null;
+    businessName: string | null;
+    jobTitle: string | null;
+  }> | null;
+}>;
 
 export type AdminUsersSearchInput = Readonly<{
-  query?: string
-  cursor?: string
-  limit: number
-}>
+  query?: string;
+  cursor?: string;
+  limit: number;
+}>;
 
 export type AdminUsersSearchResult = Readonly<{
-  items: AdminUserSummary[]
-  nextCursor: string | null
-}>
+  items: AdminUserSummary[];
+  nextCursor: string | null;
+}>;
 
 export type AdminUsersRepository = Readonly<{
-  search: (input: AdminUsersSearchInput) => Promise<AdminUsersSearchResult>
-}>
+  search: (input: AdminUsersSearchInput) => Promise<AdminUsersSearchResult>;
+}>;
 
 const escapedLikePattern = (query: string): string => {
-  return `${query.replaceAll("\\", "\\\\").replaceAll("%", "\\%").replaceAll("_", "\\_").toLowerCase()}%`
-}
+  return `${query.replaceAll("\\", "\\\\").replaceAll("%", "\\%").replaceAll("_", "\\_").toLowerCase()}%`;
+};
 
 export const createAdminUsersRepository = (
-  database: DatabaseExecutor,
+  database: DatabaseExecutor
 ): AdminUsersRepository => ({
   search: async (input) => {
-    if (!Number.isInteger(input.limit) || input.limit < 1 || input.limit > 100) {
-      throw new InvalidAdminUsersCursorError()
+    if (
+      !Number.isInteger(input.limit) ||
+      input.limit < 1 ||
+      input.limit > 100
+    ) {
+      throw new InvalidAdminUsersCursorError();
     }
-    const query = input.query?.trim()
-    const cursor = input.cursor === undefined
-      ? undefined
-      : decodeAdminUsersCursor(input.cursor)
-    const createdAtKey = users.createdAt
-    const conditions: SQL[] = []
-    const pattern = query === undefined || query.length === 0
-      ? undefined
-      : escapedLikePattern(query)
+    const query = input.query?.trim();
+    const cursor =
+      input.cursor === undefined
+        ? undefined
+        : decodeAdminUsersCursor(input.cursor);
+    const createdAtKey = users.createdAt;
+    const conditions: SQL[] = [];
+    const pattern =
+      query === undefined || query.length === 0
+        ? undefined
+        : escapedLikePattern(query);
     if (cursor !== undefined) {
-      conditions.push(orWhere(
-        lt(createdAtKey, cursor.createdAt),
-        andWhere(eq(createdAtKey, cursor.createdAt), lt(users.id, cursor.id)),
-      )!)
+      conditions.push(
+        orWhere(
+          lt(createdAtKey, cursor.createdAt),
+          andWhere(eq(createdAtKey, cursor.createdAt), lt(users.id, cursor.id))
+        )!
+      );
     }
 
     try {
       return await withTransaction(database, async (transaction) => {
-        await transaction.execute(sql`set local statement_timeout = '2000ms'`)
+        await transaction.execute(sql`set local statement_timeout = '2000ms'`);
         const selection = {
           id: users.id,
           name: users.name,
@@ -173,43 +188,48 @@ export const createAdminUsersRepository = (
           avatarUrl: profiles.avatarUrl,
           businessName: profiles.businessName,
           jobTitle: profiles.jobTitle,
-        }
-        const baseQuery = pattern === undefined
-          ? transaction
-              .select(selection)
-              .from(users)
-              .leftJoin(profiles, eq(profiles.userId, users.id))
-          : transaction
-              .select(selection)
-              .from(users)
-              .innerJoin(
-                union(
-                  transaction
-                    .select({ id: users.id })
-                    .from(users)
-                    .where(orWhere(
-                      like(sql`lower(${users.email})`, pattern),
-                      like(sql`lower(${users.name})`, pattern),
-                    )),
-                  transaction
-                    .select({ id: profiles.userId })
-                    .from(profiles)
-                    .where(orWhere(
-                      like(sql`lower(${profiles.displayName})`, pattern),
-                      like(sql`lower(${profiles.firstName})`, pattern),
-                      like(sql`lower(${profiles.lastName})`, pattern),
-                    )),
-                ).as("matched_admin_users"),
-                eq(users.id, sql`matched_admin_users.id`),
-              )
-              .leftJoin(profiles, eq(profiles.userId, users.id))
+        };
+        const baseQuery =
+          pattern === undefined
+            ? transaction
+                .select(selection)
+                .from(users)
+                .leftJoin(profiles, eq(profiles.userId, users.id))
+            : transaction
+                .select(selection)
+                .from(users)
+                .innerJoin(
+                  union(
+                    transaction
+                      .select({ id: users.id })
+                      .from(users)
+                      .where(
+                        orWhere(
+                          like(sql`lower(${users.email})`, pattern),
+                          like(sql`lower(${users.name})`, pattern)
+                        )
+                      ),
+                    transaction
+                      .select({ id: profiles.userId })
+                      .from(profiles)
+                      .where(
+                        orWhere(
+                          like(sql`lower(${profiles.displayName})`, pattern),
+                          like(sql`lower(${profiles.firstName})`, pattern),
+                          like(sql`lower(${profiles.lastName})`, pattern)
+                        )
+                      )
+                  ).as("matched_admin_users"),
+                  eq(users.id, sql`matched_admin_users.id`)
+                )
+                .leftJoin(profiles, eq(profiles.userId, users.id));
         const rows = await baseQuery
           .where(conditions.length === 0 ? undefined : andWhere(...conditions))
           .orderBy(desc(createdAtKey), desc(users.id))
-          .limit(input.limit + 1)
+          .limit(input.limit + 1);
 
-        const hasMore = rows.length > input.limit
-        const pageRows = hasMore ? rows.slice(0, input.limit) : rows
+        const hasMore = rows.length > input.limit;
+        const pageRows = hasMore ? rows.slice(0, input.limit) : rows;
         const items: AdminUserSummary[] = pageRows.map((row) => ({
           id: row.id,
           name: row.name,
@@ -219,28 +239,31 @@ export const createAdminUsersRepository = (
           role: row.role,
           status: row.status,
           createdAt: row.createdAt,
-          profile: row.profileUserId === null
-            ? null
-            : {
-                displayName: row.displayName,
-                avatarUrl: row.avatarUrl,
-                businessName: row.businessName,
-                jobTitle: row.jobTitle,
-              },
-        }))
-        const last = items.at(-1)
+          profile:
+            row.profileUserId === null
+              ? null
+              : {
+                  displayName: row.displayName,
+                  avatarUrl: row.avatarUrl,
+                  businessName: row.businessName,
+                  jobTitle: row.jobTitle,
+                },
+        }));
+        const last = items.at(-1);
         return {
           items,
-          nextCursor: hasMore && last !== undefined
-            ? encodeAdminUsersCursor({ createdAt: last.createdAt, id: last.id })
-            : null,
-        }
-      }
-      )
+          nextCursor:
+            hasMore && last !== undefined
+              ? encodeAdminUsersCursor({
+                  createdAt: last.createdAt,
+                  id: last.id,
+                })
+              : null,
+        };
+      });
+    } catch (error) {
+      if (error instanceof InvalidAdminUsersCursorError) throw error;
+      throw new AdminUsersPersistenceError();
     }
-    catch (error) {
-      if (error instanceof InvalidAdminUsersCursorError) throw error
-      throw new AdminUsersPersistenceError()
-    }
-  }
-})
+  },
+});

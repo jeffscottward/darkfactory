@@ -1,8 +1,8 @@
-import type { ComponentPropsWithRef } from "react"
-import type { VariantProps } from "class-variance-authority"
-import { cva } from "class-variance-authority"
+import type { ComponentPropsWithRef } from "react";
+import type { VariantProps } from "class-variance-authority";
+import { cva } from "class-variance-authority";
 
-import { cn } from "./utilities.ts"
+import { cn } from "./utilities.ts";
 
 export const badgeVariants = cva(
   "inline-flex min-h-6 items-center gap-1 rounded-xs border px-2 py-0.5 font-body text-xs font-semibold leading-4",
@@ -10,13 +10,14 @@ export const badgeVariants = cva(
     variants: {
       variant: {
         neutral: "border-border bg-muted text-foreground",
-        primary: "border-primary-border bg-primary-subtle text-primary-subtle-foreground",
+        primary:
+          "border-primary-border bg-primary-subtle text-primary-subtle-foreground",
         outline: "border-border-strong bg-transparent text-foreground",
       },
     },
     defaultVariants: { variant: "neutral" },
-  },
-)
+  }
+);
 
 export interface BadgeProps
   extends ComponentPropsWithRef<"span">,
@@ -24,4 +25,4 @@ export interface BadgeProps
 
 export const Badge = ({ className, variant, ...props }: BadgeProps) => (
   <span className={cn(badgeVariants({ variant }), className)} {...props} />
-)
+);

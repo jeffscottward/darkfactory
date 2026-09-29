@@ -1,16 +1,19 @@
-import { spawnSync } from "node:child_process"
-import { readFile } from "node:fs/promises"
-import { fileURLToPath } from "node:url"
-import { describe, expect, it } from "vitest"
+import { spawnSync } from "node:child_process";
+import { readFile } from "node:fs/promises";
+import { fileURLToPath } from "node:url";
+import { describe, expect, it } from "vitest";
 
-const workspaceRoot = fileURLToPath(new URL("../../..", import.meta.url))
+const workspaceRoot = fileURLToPath(new URL("../../..", import.meta.url));
 const webPackageRoot = fileURLToPath(
-  new URL("../../../apps/web", import.meta.url),
-)
+  new URL("../../../apps/web", import.meta.url)
+);
 const forbiddenServerDependencies =
-  /better-auth|drizzle|\bpg\b|resend|node:fs|DATABASE_URL|BETTER_AUTH_SECRET/i
+  /better-auth|drizzle|\bpg\b|resend|node:fs|DATABASE_URL|BETTER_AUTH_SECRET/i;
 
-const importWithConditions = (specifier: string, conditions: readonly string[]) => {
+const importWithConditions = (
+  specifier: string,
+  conditions: readonly string[]
+) => {
   return spawnSync(
     process.execPath,
     [
@@ -19,27 +22,27 @@ const importWithConditions = (specifier: string, conditions: readonly string[]) 
       "--eval",
       `await import(${JSON.stringify(specifier)})`,
     ],
-    { cwd: workspaceRoot, encoding: "utf8" },
-  )
-}
+    { cwd: workspaceRoot, encoding: "utf8" }
+  );
+};
 
 const expectBrowserImportToFailClosed = (
   specifier: string,
-  expectedMessage: string,
+  expectedMessage: string
 ): void => {
-  const result = importWithConditions(specifier, ["browser"])
-  const output = `${result.stdout}\n${result.stderr}`
+  const result = importWithConditions(specifier, ["browser"]);
+  const output = `${result.stdout}\n${result.stderr}`;
 
-  expect(result.status).toBe(1)
-  expect(output).toContain(expectedMessage)
-  expect(output).not.toMatch(forbiddenServerDependencies)
-}
+  expect(result.status).toBe(1);
+  expect(output).toContain(expectedMessage);
+  expect(output).not.toMatch(forbiddenServerDependencies);
+};
 
 const bundleBrowserPoisonModule = (specifier: string) => {
   const fixtureSource = [
     `import ${JSON.stringify(specifier)};`,
     "export const marker = true;",
-  ].join("\n")
+  ].join("\n");
   const script = `
     const { build } = await import("vite")
     const virtualId = "virtual:config-browser-poison"
@@ -66,57 +69,61 @@ const bundleBrowserPoisonModule = (specifier: string) => {
       .map((entry) => entry.code)
       .join("\\n")
     process.stdout.write(code)
-  `
+  `;
   return spawnSync(
     process.execPath,
     ["--input-type=module", "--eval", script],
-    { cwd: webPackageRoot, encoding: "utf8" },
-  )
-}
+    { cwd: webPackageRoot, encoding: "utf8" }
+  );
+};
 
-describe("config package boundaries", function() {
-  it("keeps the root export limited to the dependency-free client module", async function() {
+describe("config package boundaries", function () {
+  it("keeps the root export limited to the dependency-free client module", async function () {
     const manifest = JSON.parse(
-      await readFile(new URL("../package.json", import.meta.url), "utf8"),
-    )
+      await readFile(new URL("../package.json", import.meta.url), "utf8")
+    );
     const rootSource = await readFile(
       new URL("./client.ts", import.meta.url),
-      "utf8",
-    )
+      "utf8"
+    );
 
     expect(manifest.exports["."]).toEqual({
       import: "./src/client.ts",
       default: "./src/client.ts",
-    })
-    expect(rootSource).not.toMatch(/^\s*import\s/m)
-    expect(rootSource).not.toMatch(forbiddenServerDependencies)
+    });
+    expect(rootSource).not.toMatch(/^\s*import\s/m);
+    expect(rootSource).not.toMatch(forbiddenServerDependencies);
     expect(rootSource).not.toMatch(
-      /ServerEnv|serverEnvSchema|parseServerEnv|ProviderCapabilities|DATABASE_URL|BETTER_AUTH_SECRET/,
-    )
+      /ServerEnv|serverEnvSchema|parseServerEnv|ProviderCapabilities|DATABASE_URL|BETTER_AUTH_SECRET/
+    );
     return expect(Object.keys(await import("@darkfactory/config"))).toEqual([
       "CANONICAL_APP_URL",
       "toClientEnv",
-    ])
-  })
+    ]);
+  });
 
-  it("prioritizes Worker runtimes before browser poison and Node fallbacks", async function() {
+  it("prioritizes Worker runtimes before browser poison and Node fallbacks", async function () {
     const manifest = JSON.parse(
-      await readFile(new URL("../package.json", import.meta.url), "utf8"),
-    )
+      await readFile(new URL("../package.json", import.meta.url), "utf8")
+    );
     const expectedConditions = [
       "workerd",
       "worker",
       "browser",
       "import",
       "default",
-    ]
+    ];
 
-    expect(Object.keys(manifest.exports["./server"])).toEqual(expectedConditions)
-    expect(Object.keys(manifest.exports["./database"])).toEqual(expectedConditions)
-    return expect(Object.keys(manifest.exports["./server/capabilities"])).toEqual(
-      expectedConditions,
-    )
-  })
+    expect(Object.keys(manifest.exports["./server"])).toEqual(
+      expectedConditions
+    );
+    expect(Object.keys(manifest.exports["./database"])).toEqual(
+      expectedConditions
+    );
+    return expect(
+      Object.keys(manifest.exports["./server/capabilities"])
+    ).toEqual(expectedConditions);
+  });
 
   it.each([
     {
@@ -132,18 +139,17 @@ describe("config package boundaries", function() {
       message:
         "@darkfactory/config/server/capabilities is unavailable in browser bundles",
     },
-  ])("retains the $specifier poison throw in a browser-condition Vite bundle", function({
+  ])("retains the $specifier poison throw in a browser-condition Vite bundle", function ({
     specifier,
     message,
   }) {
-    const bundle = bundleBrowserPoisonModule(specifier)
+    const bundle = bundleBrowserPoisonModule(specifier);
 
-    expect(bundle.status).toBe(0)
-    expect(bundle.stderr).toBe("")
-    expect(bundle.stdout).toContain(message)
-    return undefined
-  }
-  )
+    expect(bundle.status).toBe(0);
+    expect(bundle.stderr).toBe("");
+    expect(bundle.stdout).toContain(message);
+    return undefined;
+  });
 
   it.each([
     {
@@ -165,27 +171,27 @@ describe("config package boundaries", function() {
       message:
         "@darkfactory/config/server/capabilities is unavailable in browser bundles",
     },
-  ])("fails closed for $specifier under browser resolution", async function({
+  ])("fails closed for $specifier under browser resolution", async function ({
     specifier,
     poisonPath,
     runtimePath,
     message,
   }) {
     const manifest = JSON.parse(
-      await readFile(new URL("../package.json", import.meta.url), "utf8"),
-    )
-    const subpath = specifier.slice("@darkfactory/config".length)
+      await readFile(new URL("../package.json", import.meta.url), "utf8")
+    );
+    const subpath = specifier.slice("@darkfactory/config".length);
     const poisonSource = await readFile(
       new URL(poisonPath, import.meta.url),
-      "utf8",
-    )
+      "utf8"
+    );
 
     expect(manifest.exports[`.${subpath}`].browser).toBe(
-      `./src${poisonPath.slice(1)}`,
-    )
-    expect(poisonSource).not.toMatch(/^\s*import\s/m)
-    expect(poisonSource).not.toMatch(forbiddenServerDependencies)
-    expectBrowserImportToFailClosed(specifier, message)
+      `./src${poisonPath.slice(1)}`
+    );
+    expect(poisonSource).not.toMatch(/^\s*import\s/m);
+    expect(poisonSource).not.toMatch(forbiddenServerDependencies);
+    expectBrowserImportToFailClosed(specifier, message);
 
     for (const workerCondition of ["workerd", "worker"]) {
       const resolution = spawnSync(
@@ -199,33 +205,35 @@ describe("config package boundaries", function() {
           "--eval",
           `console.log(import.meta.resolve(${JSON.stringify(specifier)}))`,
         ],
-        { cwd: workspaceRoot, encoding: "utf8" },
-      )
+        { cwd: workspaceRoot, encoding: "utf8" }
+      );
 
-      expect(resolution.status).toBe(0)
+      expect(resolution.status).toBe(0);
       expect(
-        resolution.stdout.trim().replaceAll("\\", "/").endsWith(runtimePath),
-      ).toBe(true)
-      expect(resolution.stderr).toBe("")
+        resolution.stdout.trim().replaceAll("\\", "/").endsWith(runtimePath)
+      ).toBe(true);
+      expect(resolution.stderr).toBe("");
     }
-    return undefined
-  }
-  )
+    return undefined;
+  });
 
-  it("keeps normal server and database imports operational", async function() {
-    const [{ parseServerEnv }, { composeDatabaseProfile }, { loadCapabilityManifest }] =
-      await Promise.all([
-        import("@darkfactory/config/server"),
-        import("@darkfactory/config/database"),
-        import("@darkfactory/config/server/capabilities"),
-      ])
+  it("keeps normal server and database imports operational", async function () {
+    const [
+      { parseServerEnv },
+      { composeDatabaseProfile },
+      { loadCapabilityManifest },
+    ] = await Promise.all([
+      import("@darkfactory/config/server"),
+      import("@darkfactory/config/database"),
+      import("@darkfactory/config/server/capabilities"),
+    ]);
 
-    expect(parseServerEnv).toBeTypeOf("function")
-    expect(composeDatabaseProfile).toBeTypeOf("function")
-    return expect(loadCapabilityManifest).toBeTypeOf("function")
-  })
+    expect(parseServerEnv).toBeTypeOf("function");
+    expect(composeDatabaseProfile).toBeTypeOf("function");
+    return expect(loadCapabilityManifest).toBeTypeOf("function");
+  });
 
-  return it("executes each dependency-free poison module in the instrumented test runtime", async function() {
+  return it("executes each dependency-free poison module in the instrumented test runtime", async function () {
     const poisonModules = [
       {
         specifier: "./server/unsupported.js",
@@ -233,17 +241,22 @@ describe("config package boundaries", function() {
       },
       {
         specifier: "./database/unsupported.js",
-        message: "@darkfactory/config/database is unavailable in browser bundles",
+        message:
+          "@darkfactory/config/database is unavailable in browser bundles",
       },
       {
         specifier: "./server/capabilities-unsupported.js",
         message:
           "@darkfactory/config/server/capabilities is unavailable in browser bundles",
       },
-    ]
+    ];
 
-    const results=[];for (const { specifier, message } of poisonModules) {
-      results.push(await expect(import(specifier)).rejects.toThrowError(message))
-    };return results;
-  })
-})
+    const results = [];
+    for (const { specifier, message } of poisonModules) {
+      results.push(
+        await expect(import(specifier)).rejects.toThrowError(message)
+      );
+    }
+    return results;
+  });
+});

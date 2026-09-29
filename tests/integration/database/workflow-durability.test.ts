@@ -1,5 +1,5 @@
 type AutoPromise<T> = Promise<Awaited<T>>;
-import { createHash, randomUUID } from "node:crypto"
+import { createHash, randomUUID } from "node:crypto";
 import {
   StaleWorkflowApprovalError,
   WorkflowConcurrencyError,
@@ -11,31 +11,31 @@ import {
   type PersistedWorkflowEvent,
   type WorkflowProjection,
   type WorkflowRepository,
-} from "@darkfactory/db/server"
-import { migrate } from "@darkfactory/db/server/migration"
+} from "@darkfactory/db/server";
+import { migrate } from "@darkfactory/db/server/migration";
 import {
   GENESIS_WORKFLOW_JOURNAL_HASH,
   users,
   type OutboxEvent,
-} from "@darkfactory/db/schema"
-import { createWorkflowPlanEvidenceV1 } from "@darkfactory/jobs/server/plan-evidence"
-import { createWorkflowApplication } from "@darkfactory/jobs/server/workflow-runtime"
-import { WORKFLOW_EFFECT_HANDLER_V2 } from "@darkfactory/jobs/server/workflow-worker"
-import { createOperatorWorkflowPort } from "@darkfactory/operator/server"
+} from "@darkfactory/db/schema";
+import { createWorkflowPlanEvidenceV1 } from "@darkfactory/jobs/server/plan-evidence";
+import { createWorkflowApplication } from "@darkfactory/jobs/server/workflow-runtime";
+import { WORKFLOW_EFFECT_HANDLER_V2 } from "@darkfactory/jobs/server/workflow-worker";
+import { createOperatorWorkflowPort } from "@darkfactory/operator/server";
 import {
   createPostgresTestDatabase,
   dropPostgresTestDatabase,
   type PostgresTestDatabase,
-} from "@darkfactory/testkit/postgres"
-import { afterAll, beforeAll, describe, expect, it } from "vitest"
+} from "@darkfactory/testkit/postgres";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
-let testDatabase: PostgresTestDatabase
-let databaseResource: ReturnType<typeof createNodeDatabase>
-let repository: WorkflowRepository
-const nextId = (prefix: string): string => `${prefix}-${randomUUID()}`
+let testDatabase: PostgresTestDatabase;
+let databaseResource: ReturnType<typeof createNodeDatabase>;
+let repository: WorkflowRepository;
+const nextId = (prefix: string): string => `${prefix}-${randomUUID()}`;
 
 const createOwner = async (id = nextId("owner")): Promise<string> => {
-  const instant = new Date("2026-07-29T12:00:00.000Z")
+  const instant = new Date("2026-07-29T12:00:00.000Z");
   await databaseResource.db.insert(users).values({
     id,
     name: `Owner ${id}`,
@@ -43,13 +43,13 @@ const createOwner = async (id = nextId("owner")): Promise<string> => {
     emailVerified: true,
     createdAt: instant,
     updatedAt: instant,
-  })
-  return id
-}
+  });
+  return id;
+};
 
 const eventFor = (
   eventId: string,
-  type = "RUN_SUBMITTED",
+  type = "RUN_SUBMITTED"
 ): PersistedWorkflowEvent => ({
   type,
   eventId,
@@ -61,56 +61,59 @@ const eventFor = (
   taskRevision: "revision-1",
   taskHash: "a".repeat(64),
   scope: "packages/db",
-})
+});
 
 const createRun = async (
   ownerId: string,
   options: Readonly<{
-    handler?: string
-    idempotencyKey?: string
-    payload?: Readonly<Record<string, string>>
-    effectHash?: string
-    effectScope?: string
-    state?: "completed" | "cancelled"
-  }> = {},
+    handler?: string;
+    idempotencyKey?: string;
+    payload?: Readonly<Record<string, string>>;
+    effectHash?: string;
+    effectScope?: string;
+    state?: "completed" | "cancelled";
+  }> = {}
 ): Promise<WorkflowProjection> => {
-  const runId = nextId("run")
-  const event = eventFor(nextId("event"))
+  const runId = nextId("run");
+  const event = eventFor(nextId("event"));
   const headHash = hashWorkflowJournalEntryV1({
     sequence: 1,
     previousHash: GENESIS_WORKFLOW_JOURNAL_HASH,
     event,
-  })
-  const effectKind = options.payload?.["effectKind"] ?? "plan"
-  const effectState = effectKind === "implement"
-    ? "implementing"
-    : effectKind === "verify"
-      ? "verifying"
-      : "planning"
-  const taskId = event["taskId"]
-  const workspaceId = event["workspaceId"]
-  const taskHash = event["taskHash"]
+  });
+  const effectKind = options.payload?.["effectKind"] ?? "plan";
+  const effectState =
+    effectKind === "implement"
+      ? "implementing"
+      : effectKind === "verify"
+        ? "verifying"
+        : "planning";
+  const taskId = event["taskId"];
+  const workspaceId = event["workspaceId"];
+  const taskHash = event["taskHash"];
   if (
     typeof taskId !== "string" ||
     typeof workspaceId !== "string" ||
     typeof taskHash !== "string"
   ) {
-    throw new TypeError("Workflow effect fixture requires string task identity")
+    throw new TypeError(
+      "Workflow effect fixture requires string task identity"
+    );
   }
   const effectScope: Readonly<{
-    repositoryId: string
-    paths: readonly string[]
+    repositoryId: string;
+    paths: readonly string[];
   }> = {
     repositoryId: "darkfactory",
     paths: ["packages/db"],
-  }
+  };
   const effectTask: Readonly<{
-    taskId: string
-    workspaceId: string
-    taskRevision: number
-    taskHash: string
-    sourceSequence: number
-    evidenceIds: readonly string[]
+    taskId: string;
+    workspaceId: string;
+    taskRevision: number;
+    taskHash: string;
+    sourceSequence: number;
+    evidenceIds: readonly string[];
   }> = {
     taskId,
     workspaceId,
@@ -118,15 +121,16 @@ const createRun = async (
     taskHash,
     sourceSequence: 1,
     evidenceIds: [],
-  }
-  const pendingEffect = options.handler === undefined
-    ? null
-    : {
-        kind: effectKind,
-        handler: `coding-agent.${effectKind}`,
-        scope: effectScope,
-        payload: effectTask,
-      }
+  };
+  const pendingEffect =
+    options.handler === undefined
+      ? null
+      : {
+          kind: effectKind,
+          handler: `coding-agent.${effectKind}`,
+          scope: effectScope,
+          payload: effectTask,
+        };
   return repository.createRun({
     id: runId,
     ownerId,
@@ -134,7 +138,8 @@ const createRun = async (
     snapshot: {
       machineId: "darkfactory-pilot",
       machineVersion: 1,
-      state: options.state ??
+      state:
+        options.state ??
         (options.handler === undefined ? "draft" : effectState),
       sequence: 1,
       journalHeadHash: headHash,
@@ -149,43 +154,47 @@ const createRun = async (
       effectHash:
         options.effectHash ?? (pendingEffect === null ? null : "f".repeat(64)),
       effectScope:
-        options.effectScope ?? (pendingEffect === null ? null : JSON.stringify(effectScope)),
+        options.effectScope ??
+        (pendingEffect === null ? null : JSON.stringify(effectScope)),
     },
     effects:
       options.handler === undefined
         ? []
-        : [{
-            handler: options.handler,
-            idempotencyKey: options.idempotencyKey!,
-            eventType: "workflow.effect",
-            payload: {
-              ownerId,
-              effectId: options.payload?.["effectId"] ?? options.idempotencyKey!,
-              effectKind,
-              effectScope,
-              task: effectTask,
-              ...options.payload,
+        : [
+            {
+              handler: options.handler,
+              idempotencyKey: options.idempotencyKey!,
+              eventType: "workflow.effect",
+              payload: {
+                ownerId,
+                effectId:
+                  options.payload?.["effectId"] ?? options.idempotencyKey!,
+                effectKind,
+                effectScope,
+                task: effectTask,
+                ...options.payload,
+              },
             },
-          }],
-  })
-}
+          ],
+  });
+};
 
 const messageInputFor = (
   projection: WorkflowProjection,
   ownerId: string,
   options: Readonly<{
-    idempotencyKey?: string
-    content?: string
-    authorId?: string | null
-    messageId?: string
-    eventId?: string
-  }> = {},
+    idempotencyKey?: string;
+    content?: string;
+    authorId?: string | null;
+    messageId?: string;
+    eventId?: string;
+  }> = {}
 ): Parameters<WorkflowRepository["addMessageAndAppend"]>[0] => {
-  const idempotencyKey = options.idempotencyKey ?? nextId("message-key")
+  const idempotencyKey = options.idempotencyKey ?? nextId("message-key");
   const messageIdentity = createHash("sha256")
     .update(`${projection.run.id}\u0000${idempotencyKey}`)
-    .digest("hex")
-  const messageId = options.messageId ?? `message-${messageIdentity}`
+    .digest("hex");
+  const messageId = options.messageId ?? `message-${messageIdentity}`;
   const event: PersistedWorkflowEvent = {
     type: "OPERATOR_MESSAGE_ADDED",
     eventId: options.eventId ?? `message-event-${messageIdentity}`,
@@ -193,14 +202,14 @@ const messageInputFor = (
     machineVersion: 1,
     occurredAt: "2026-07-29T13:00:00.000Z",
     messageId,
-  }
-  const sequence = projection.run.headSequence + 1
+  };
+  const sequence = projection.run.headSequence + 1;
   const headHash = hashWorkflowJournalEntryV1({
     sequence,
     previousHash: projection.run.headHash,
     event,
-  })
-  const currentCount = projection.snapshot.context["messageCount"]
+  });
+  const currentCount = projection.snapshot.context["messageCount"];
   return {
     id: messageId,
     idempotencyKey,
@@ -223,40 +232,41 @@ const messageInputFor = (
         journalHeadHash: headHash,
         context: {
           ...projection.snapshot.context,
-          messageCount:
-            typeof currentCount === "number" ? currentCount + 1 : 1,
+          messageCount: typeof currentCount === "number" ? currentCount + 1 : 1,
         },
         effectHash: projection.snapshot.effectHash,
         effectScope: projection.snapshot.effectScope,
       },
     },
-  }
-}
+  };
+};
 
 const appendMessage = async (
   projection: WorkflowProjection,
   ownerId: string,
-  eventId = nextId("event"),
+  eventId = nextId("event")
 ): AutoPromise<ReturnType<WorkflowRepository["addMessageAndAppend"]>> => {
-  return repository.addMessageAndAppend(messageInputFor(projection, ownerId, {
-    idempotencyKey: eventId,
-    eventId,
-  }))
-}
+  return repository.addMessageAndAppend(
+    messageInputFor(projection, ownerId, {
+      idempotencyKey: eventId,
+      eventId,
+    })
+  );
+};
 
 const appendInputFor = (
   projection: WorkflowProjection,
   ownerId: string,
   event: PersistedWorkflowEvent,
   state = projection.run.state,
-  effect: Readonly<{ hash: string; scope: string }> | null = null,
+  effect: Readonly<{ hash: string; scope: string }> | null = null
 ): Parameters<WorkflowRepository["append"]>[0] => {
-  const sequence = projection.run.headSequence + 1
+  const sequence = projection.run.headSequence + 1;
   const headHash = hashWorkflowJournalEntryV1({
     sequence,
     previousHash: projection.run.headHash,
     event,
-  })
+  });
   return {
     runId: projection.run.id,
     ownerId,
@@ -273,22 +283,20 @@ const appendInputFor = (
       effectHash: effect?.hash ?? null,
       effectScope: effect?.scope ?? null,
     },
-  }
-}
+  };
+};
 
 const finalizationFor = (
   projection: WorkflowProjection,
   ownerId: string,
   claim: OutboxEvent,
-  terminal: "completed" | "dead" = "completed",
+  terminal: "completed" | "dead" = "completed"
 ): Parameters<WorkflowRepository["finalizeEffect"]>[0] => {
-  const effectId = claim.payload["effectId"] ?? claim.id
+  const effectId = claim.payload["effectId"] ?? claim.id;
   const event = eventFor(
-    `effect-${effectId}-${
-      terminal === "completed" ? "succeeded" : "failed"
-    }`,
-    terminal === "completed" ? "PLAN_SUCCEEDED" : "EFFECT_FAILED",
-  )
+    `effect-${effectId}-${terminal === "completed" ? "succeeded" : "failed"}`,
+    terminal === "completed" ? "PLAN_SUCCEEDED" : "EFFECT_FAILED"
+  );
   return {
     id: claim.id,
     leaseOwner: claim.leaseOwner!,
@@ -302,53 +310,54 @@ const finalizationFor = (
       runId: projection.run.id,
       ownerId,
       kind: terminal === "completed" ? "plan.succeeded" : "plan.failed",
-      summary: terminal === "completed" ? "plan effect succeeded" : "plan effect failed",
+      summary:
+        terminal === "completed"
+          ? "plan effect succeeded"
+          : "plan effect failed",
       data: { effectId },
     },
-  }
-}
+  };
+};
 
-describe.sequential("workflow durability on real PostgreSQL", function() {
-  beforeAll(async function() {
-    testDatabase = await createPostgresTestDatabase()
+describe.sequential("workflow durability on real PostgreSQL", function () {
+  beforeAll(async function () {
+    testDatabase = await createPostgresTestDatabase();
     databaseResource = createNodeDatabase({
       connectionString: testDatabase.databaseUrl,
       maxConnections: 8,
-    })
-    await migrate(databaseResource.db)
-    return repository = createWorkflowRepository(databaseResource.db)
-  }
-  , 60_000)
+    });
+    await migrate(databaseResource.db);
+    return (repository = createWorkflowRepository(databaseResource.db));
+  }, 60_000);
 
-  afterAll(async function() {
+  afterAll(async function () {
     try {
-      if (databaseResource !== undefined) return await databaseResource.close();return
-    }
-    finally {
+      if (databaseResource !== undefined) return await databaseResource.close();
+      return;
+    } finally {
       if (testDatabase !== undefined) {
-        await dropPostgresTestDatabase(testDatabase)
+        await dropPostgresTestDatabase(testDatabase);
       }
     }
-  }
-  , 60_000)
+  }, 60_000);
 
-  it("atomically commits sequence, head, snapshot, and idempotent effects", async function() {
-    const ownerId = await createOwner()
+  it("atomically commits sequence, head, snapshot, and idempotent effects", async function () {
+    const ownerId = await createOwner();
     const projection = await createRun(ownerId, {
       handler: "atomic",
       idempotencyKey: "atomic-effect",
-    })
-    const eventId = nextId("event")
+    });
+    const eventId = nextId("event");
 
-    const appended = await appendMessage(projection, ownerId, eventId)
-    const duplicate = await appendMessage(projection, ownerId, eventId)
+    const appended = await appendMessage(projection, ownerId, eventId);
+    const duplicate = await appendMessage(projection, ownerId, eventId);
     const rows = await testDatabase.query<{
-      head_sequence: string
-      head_hash: string
-      snapshot_sequence: string
-      snapshot_hash: string
-      journal_count: string
-      effect_count: string
+      head_sequence: string;
+      head_hash: string;
+      snapshot_sequence: string;
+      snapshot_hash: string;
+      journal_count: string;
+      effect_count: string;
     }>(
       `SELECT r.head_sequence, r.head_hash,
         s.sequence AS snapshot_sequence,
@@ -358,11 +367,11 @@ describe.sequential("workflow durability on real PostgreSQL", function() {
        FROM workflow_runs r
        JOIN workflow_snapshots s ON s.run_id = r.id
        WHERE r.id = $1`,
-      [projection.run.id],
-    )
+      [projection.run.id]
+    );
 
-    expect(appended.duplicate).toBe(false)
-    expect(duplicate.duplicate).toBe(true)
+    expect(appended.duplicate).toBe(false);
+    expect(duplicate.duplicate).toBe(true);
     expect(rows).toEqual([
       expect.objectContaining({
         head_sequence: "2",
@@ -370,24 +379,24 @@ describe.sequential("workflow durability on real PostgreSQL", function() {
         journal_count: "2",
         effect_count: "1",
       }),
-    ])
-    return expect(rows[0]!.head_hash).toBe(rows[0]!.snapshot_hash)
-  })
+    ]);
+    return expect(rows[0]!.head_hash).toBe(rows[0]!.snapshot_hash);
+  });
 
-  it("rolls back the run when a handler-scoped idempotency conflict mismatches", async function() {
-    const ownerId = await createOwner()
+  it("rolls back the run when a handler-scoped idempotency conflict mismatches", async function () {
+    const ownerId = await createOwner();
     await createRun(ownerId, {
       handler: "dedupe",
       idempotencyKey: "shared-key",
       payload: { command: "first" },
-    })
-    const runId = nextId("run")
-    const event = eventFor(nextId("event"))
+    });
+    const runId = nextId("run");
+    const event = eventFor(nextId("event"));
     const headHash = hashWorkflowJournalEntryV1({
       sequence: 1,
       previousHash: GENESIS_WORKFLOW_JOURNAL_HASH,
       event,
-    })
+    });
 
     await expect(
       repository.createRun({
@@ -402,43 +411,45 @@ describe.sequential("workflow durability on real PostgreSQL", function() {
           journalHeadHash: headHash,
           context: { runId, ownerId },
         },
-        effects: [{
-          handler: "dedupe",
-          idempotencyKey: "shared-key",
-          eventType: "workflow.effect",
-          payload: { command: "different" },
-        }],
-      }),
-    ).rejects.toThrow(WorkflowConcurrencyError)
+        effects: [
+          {
+            handler: "dedupe",
+            idempotencyKey: "shared-key",
+            eventType: "workflow.effect",
+            payload: { command: "different" },
+          },
+        ],
+      })
+    ).rejects.toThrow(WorkflowConcurrencyError);
     const rows = await testDatabase.query<{ count: string }>(
       "SELECT count(*) FROM workflow_runs WHERE id = $1",
-      [runId],
-    )
-    return expect(rows[0]!.count).toBe("0")
-  })
+      [runId]
+    );
+    return expect(rows[0]!.count).toBe("0");
+  });
 
-  it("deduplicates an identical effect request without dropping the state append", async function() {
-    const ownerId = await createOwner()
-    const idempotencyKey = nextId("duplicate-effect")
+  it("deduplicates an identical effect request without dropping the state append", async function () {
+    const ownerId = await createOwner();
+    const idempotencyKey = nextId("duplicate-effect");
     const projection = await createRun(ownerId, {
       handler: "semantic-dedupe",
       idempotencyKey,
       payload: { command: "plan" },
-    })
+    });
     const [persistedEffect] = await testDatabase.query<{
-      payload: OutboxEvent["payload"]
+      payload: OutboxEvent["payload"];
     }>(
       `SELECT payload FROM outbox_events
        WHERE handler = $1 AND idempotency_key = $2`,
-      ["semantic-dedupe", idempotencyKey],
-    )
-    const event = eventFor(nextId("event"), "PLAN_REQUESTED")
-    const sequence = projection.run.headSequence + 1
+      ["semantic-dedupe", idempotencyKey]
+    );
+    const event = eventFor(nextId("event"), "PLAN_REQUESTED");
+    const sequence = projection.run.headSequence + 1;
     const headHash = hashWorkflowJournalEntryV1({
       sequence,
       previousHash: projection.run.headHash,
       event,
-    })
+    });
     const appended = await repository.append({
       runId: projection.run.id,
       ownerId,
@@ -456,64 +467,66 @@ describe.sequential("workflow durability on real PostgreSQL", function() {
           attempts: 1,
         },
       },
-      effects: [{
-        handler: "semantic-dedupe",
-        idempotencyKey,
-        eventType: "workflow.effect",
-        payload: persistedEffect!.payload,
-      }],
-    })
+      effects: [
+        {
+          handler: "semantic-dedupe",
+          idempotencyKey,
+          eventType: "workflow.effect",
+          payload: persistedEffect!.payload,
+        },
+      ],
+    });
     const rows = await testDatabase.query<{
-      head_sequence: string
-      effect_count: string
+      head_sequence: string;
+      effect_count: string;
     }>(
       `SELECT head_sequence,
         (SELECT count(*) FROM outbox_events
          WHERE handler = $2 AND idempotency_key = $3) AS effect_count
        FROM workflow_runs WHERE id = $1`,
-      [projection.run.id, "semantic-dedupe", idempotencyKey],
-    )
-    expect(appended.duplicate).toBe(false)
-    return expect(rows).toEqual([{ head_sequence: "2", effect_count: "1" }])
-  })
+      [projection.run.id, "semantic-dedupe", idempotencyKey]
+    );
+    expect(appended.duplicate).toBe(false);
+    return expect(rows).toEqual([{ head_sequence: "2", effect_count: "1" }]);
+  });
 
-  it("scopes the same idempotency key independently per handler", async function() {
-    const ownerId = await createOwner()
-    const idempotencyKey = nextId("handler-scoped-effect")
+  it("scopes the same idempotency key independently per handler", async function () {
+    const ownerId = await createOwner();
+    const idempotencyKey = nextId("handler-scoped-effect");
     await createRun(ownerId, {
       handler: "handler-a",
       idempotencyKey,
       payload: { command: "plan" },
-    })
+    });
     await createRun(ownerId, {
       handler: "handler-b",
       idempotencyKey,
       payload: { command: "plan" },
-    })
+    });
     const rows = await testDatabase.query<{ count: string }>(
       "SELECT count(*) FROM outbox_events WHERE idempotency_key = $1",
-      [idempotencyKey],
-    )
-    return expect(rows[0]!.count).toBe("2")
-  })
+      [idempotencyKey]
+    );
+    return expect(rows[0]!.count).toBe("2");
+  });
 
-  it("dead-letters cancellation effects before they can be claimed", async function() {
-    const ownerId = await createOwner()
-    const handler = nextId("cancel-before-claim")
+  it("dead-letters cancellation effects before they can be claimed", async function () {
+    const ownerId = await createOwner();
+    const handler = nextId("cancel-before-claim");
     const cancelled = await createRun(ownerId, {
       handler,
       idempotencyKey: nextId("effect-key"),
-    })
+    });
     const active = await createRun(ownerId, {
       handler,
       idempotencyKey: nextId("effect-key"),
-    })
+    });
     const cancellation = appendInputFor(
       cancelled,
       ownerId,
       eventFor(nextId("cancel-event"), "CANCEL_REQUESTED"),
-      "cancelled",
-    )
+      "cancelled"
+    );
     await repository.append({
       ...cancellation,
       snapshot: {
@@ -523,50 +536,50 @@ describe.sequential("workflow durability on real PostgreSQL", function() {
           pendingEffect: null,
         },
       },
-    })
+    });
 
     const claims = await repository.claimDueEffects({
       handler,
       leaseOwner: "worker-after-cancel",
       limit: 2,
-    })
-    expect(claims.map((claim) => claim.aggregateId)).toEqual([active.run.id])
+    });
+    expect(claims.map((claim) => claim.aggregateId)).toEqual([active.run.id]);
     const [row] = await testDatabase.query<{
-      dead_at: Date | null
-      lease_owner: string | null
-      lease_expires_at: Date | null
-      fence: string
+      dead_at: Date | null;
+      lease_owner: string | null;
+      lease_expires_at: Date | null;
+      fence: string;
     }>(
       `SELECT dead_at, lease_owner, lease_expires_at, fence
        FROM outbox_events WHERE aggregate_id = $1`,
-      [cancelled.run.id],
-    )
+      [cancelled.run.id]
+    );
     expect(row).toMatchObject({
       lease_owner: null,
       lease_expires_at: null,
       fence: "1",
-    })
-    return expect(row?.dead_at).not.toBeNull()
-  })
+    });
+    return expect(row?.dead_at).not.toBeNull();
+  });
 
-  it("invalidates an in-flight lease when its run is cancelled", async function() {
-    const ownerId = await createOwner()
-    const handler = nextId("cancel-after-claim")
+  it("invalidates an in-flight lease when its run is cancelled", async function () {
+    const ownerId = await createOwner();
+    const handler = nextId("cancel-after-claim");
     const projection = await createRun(ownerId, {
       handler,
       idempotencyKey: nextId("effect-key"),
-    })
+    });
     const [claim] = await repository.claimDueEffects({
       handler,
       leaseOwner: "worker-before-cancel",
       limit: 1,
-    })
+    });
     const cancellation = appendInputFor(
       projection,
       ownerId,
       eventFor(nextId("cancel-event"), "CANCEL_REQUESTED"),
-      "cancelled",
-    )
+      "cancelled"
+    );
     await repository.append({
       ...cancellation,
       snapshot: {
@@ -576,68 +589,68 @@ describe.sequential("workflow durability on real PostgreSQL", function() {
           pendingEffect: null,
         },
       },
-    })
+    });
 
     expect(
       await repository.heartbeatEffect({
         id: claim!.id,
         leaseOwner: claim!.leaseOwner!,
         fence: claim!.fence,
-      }),
-    ).toBe(false)
+      })
+    ).toBe(false);
     expect(
       await repository.claimDueEffects({
         handler,
         leaseOwner: "worker-after-cancel",
         limit: 1,
-      }),
-    ).toEqual([])
+      })
+    ).toEqual([]);
     const [row] = await testDatabase.query<{
-      dead_at: Date | null
-      lease_owner: string | null
-      lease_expires_at: Date | null
-      fence: string
+      dead_at: Date | null;
+      lease_owner: string | null;
+      lease_expires_at: Date | null;
+      fence: string;
     }>(
       `SELECT dead_at, lease_owner, lease_expires_at, fence
        FROM outbox_events WHERE id = $1`,
-      [claim!.id],
-    )
+      [claim!.id]
+    );
     expect(row).toMatchObject({
       lease_owner: null,
       lease_expires_at: null,
       fence: String(claim!.fence + 1),
-    })
-    return expect(row?.dead_at).not.toBeNull()
-  })
+    });
+    return expect(row?.dead_at).not.toBeNull();
+  });
 
-  it("claims only current owner-matching effects and reconciles stale rows", async function() {
-    const ownerId = await createOwner()
-    const otherOwnerId = await createOwner()
-    const handler = nextId("current-effect")
+  it("claims only current owner-matching effects and reconciles stale rows", async function () {
+    const ownerId = await createOwner();
+    const otherOwnerId = await createOwner();
+    const handler = nextId("current-effect");
     const active = await createRun(ownerId, {
       handler,
       idempotencyKey: nextId("effect-key"),
-    })
+    });
     const mismatched = await createRun(ownerId, {
       handler,
       idempotencyKey: nextId("effect-key"),
-    })
+    });
     const obsolete = await createRun(ownerId, {
       handler,
       idempotencyKey: nextId("effect-key"),
-    })
+    });
     await testDatabase.query(
       `UPDATE outbox_events
        SET payload = jsonb_set(payload, '{ownerId}', to_jsonb($2::text))
        WHERE aggregate_id = $1`,
-      [mismatched.run.id, otherOwnerId],
-    )
+      [mismatched.run.id, otherOwnerId]
+    );
     const obsoleteCancellation = appendInputFor(
       obsolete,
       ownerId,
       eventFor(nextId("obsolete-event"), "CANCEL_REQUESTED"),
-      "cancelled",
-    )
+      "cancelled"
+    );
     await repository.append({
       ...obsoleteCancellation,
       snapshot: {
@@ -647,61 +660,61 @@ describe.sequential("workflow durability on real PostgreSQL", function() {
           pendingEffect: null,
         },
       },
-    })
+    });
 
     const claims = await repository.claimDueEffects({
       handler,
       leaseOwner: "worker-current",
       limit: 3,
-    })
-    expect(claims.map((claim) => claim.aggregateId)).toEqual([active.run.id])
+    });
+    expect(claims.map((claim) => claim.aggregateId)).toEqual([active.run.id]);
     const stale = await testDatabase.query<{
-      aggregate_id: string
-      dead_at: Date | null
-      lease_owner: string | null
+      aggregate_id: string;
+      dead_at: Date | null;
+      lease_owner: string | null;
     }>(
       `SELECT aggregate_id, dead_at, lease_owner
        FROM outbox_events
        WHERE aggregate_id = ANY($1::text[])
        ORDER BY aggregate_id`,
-      [[mismatched.run.id, obsolete.run.id]],
-    )
-    expect(stale).toHaveLength(2)
-    expect(stale.every((row) => row.dead_at !== null)).toBe(true)
-    return expect(stale.every((row) => row.lease_owner === null)).toBe(true)
-  })
+      [[mismatched.run.id, obsolete.run.id]]
+    );
+    expect(stale).toHaveLength(2);
+    expect(stale.every((row) => row.dead_at !== null)).toBe(true);
+    return expect(stale.every((row) => row.lease_owner === null)).toBe(true);
+  });
 
-  it("removes workflow outbox rows when their owner is deleted", async function() {
-    const ownerId = await createOwner()
-    const handler = nextId("deleted-owner")
+  it("removes workflow outbox rows when their owner is deleted", async function () {
+    const ownerId = await createOwner();
+    const handler = nextId("deleted-owner");
     const projection = await createRun(ownerId, {
       handler,
       idempotencyKey: nextId("effect-key"),
-    })
+    });
 
-    await testDatabase.query('DELETE FROM "user" WHERE id = $1', [ownerId])
+    await testDatabase.query('DELETE FROM "user" WHERE id = $1', [ownerId]);
 
     const rows = await testDatabase.query<{ count: string }>(
       `SELECT count(*) FROM outbox_events
        WHERE aggregate_type = 'workflow_run' AND aggregate_id = $1`,
-      [projection.run.id],
-    )
-    expect(rows).toEqual([{ count: "0" }])
+      [projection.run.id]
+    );
+    expect(rows).toEqual([{ count: "0" }]);
     return expect(
       await repository.claimDueEffects({
         handler,
         leaseOwner: "worker-after-owner-delete",
         limit: 1,
-      }),
-    ).toEqual([])
-  })
+      })
+    ).toEqual([]);
+  });
 
-  it("excludes competing claims and recovers an expired lease with a new fence", async function() {
-    const ownerId = await createOwner()
+  it("excludes competing claims and recovers an expired lease with a new fence", async function () {
+    const ownerId = await createOwner();
     const projection = await createRun(ownerId, {
       handler: "recovery",
       idempotencyKey: nextId("effect-key"),
-    })
+    });
     const [first, second] = await Promise.all([
       repository.claimDueEffects({
         handler: "recovery",
@@ -713,33 +726,33 @@ describe.sequential("workflow durability on real PostgreSQL", function() {
         leaseOwner: "worker-b",
         limit: 1,
       }),
-    ])
-    const claims = [...first, ...second]
-    expect(claims).toHaveLength(1)
-    const original = claims[0]!
+    ]);
+    const claims = [...first, ...second];
+    expect(claims).toHaveLength(1);
+    const original = claims[0]!;
 
     await testDatabase.query(
       "UPDATE outbox_events SET lease_expires_at = clock_timestamp() - interval '1 second' WHERE id = $1",
-      [original.id],
-    )
+      [original.id]
+    );
     const recovered = await repository.claimDueEffects({
       handler: "recovery",
       leaseOwner: "worker-c",
       limit: 1,
-    })
-    expect(recovered).toHaveLength(1)
-    expect(recovered[0]!.aggregateId).toBe(projection.run.id)
-    expect(recovered[0]!.fence).toBe(original.fence + 1)
+    });
+    expect(recovered).toHaveLength(1);
+    expect(recovered[0]!.aggregateId).toBe(projection.run.id);
+    expect(recovered[0]!.fence).toBe(original.fence + 1);
     const stale = await repository.finalizeEffect(
-      finalizationFor(projection, ownerId, original),
-    )
-    expect(stale.status).toBe("stale")
+      finalizationFor(projection, ownerId, original)
+    );
+    expect(stale.status).toBe("stale");
     const [unchanged] = await testDatabase.query<{
-      head_sequence: string
-      journal_count: string
-      evidence_count: string
-      published_at: Date | null
-      dead_at: Date | null
+      head_sequence: string;
+      journal_count: string;
+      evidence_count: string;
+      published_at: Date | null;
+      dead_at: Date | null;
     }>(
       `SELECT r.head_sequence,
         (SELECT count(*) FROM workflow_journal WHERE run_id = r.id) AS journal_count,
@@ -748,16 +761,20 @@ describe.sequential("workflow durability on real PostgreSQL", function() {
        FROM workflow_runs r
        JOIN outbox_events o ON o.aggregate_id = r.id
        WHERE r.id = $1`,
-      [projection.run.id],
-    )
+      [projection.run.id]
+    );
     expect(unchanged).toMatchObject({
       head_sequence: "1",
       journal_count: "1",
       evidence_count: "0",
       published_at: null,
       dead_at: null,
-    })
-    const baseCompletionInput = finalizationFor(projection, ownerId, recovered[0]!)
+    });
+    const baseCompletionInput = finalizationFor(
+      projection,
+      ownerId,
+      recovered[0]!
+    );
     const completionInput = {
       ...baseCompletionInput,
       evidence: {
@@ -767,41 +784,43 @@ describe.sequential("workflow durability on real PostgreSQL", function() {
           result: "first-plan",
         },
       },
-    }
-    const completed = await repository.finalizeEffect(completionInput)
-    const duplicate = await repository.finalizeEffect(completionInput)
-    expect(completed.status).toBe("applied")
-    expect(duplicate.status).toBe("already-applied")
-    return await expect(repository.finalizeEffect({
-      ...completionInput,
-      evidence: {
-        ...completionInput.evidence,
-        data: {
-          ...completionInput.evidence.data,
-          result: "second-plan",
+    };
+    const completed = await repository.finalizeEffect(completionInput);
+    const duplicate = await repository.finalizeEffect(completionInput);
+    expect(completed.status).toBe("applied");
+    expect(duplicate.status).toBe("already-applied");
+    return await expect(
+      repository.finalizeEffect({
+        ...completionInput,
+        evidence: {
+          ...completionInput.evidence,
+          data: {
+            ...completionInput.evidence.data,
+            result: "second-plan",
+          },
         },
-      },
-    })).rejects.toThrow(WorkflowConcurrencyError)
-  })
+      })
+    ).rejects.toThrow(WorkflowConcurrencyError);
+  });
 
-  it("heartbeats, fails, reclaims, and dead-letters only a live matching fence", async function() {
-    const ownerId = await createOwner()
+  it("heartbeats, fails, reclaims, and dead-letters only a live matching fence", async function () {
+    const ownerId = await createOwner();
     const projection = await createRun(ownerId, {
       handler: "failure",
       idempotencyKey: nextId("effect-key"),
-    })
+    });
     const [claimed] = await repository.claimDueEffects({
       handler: "failure",
       leaseOwner: "worker-a",
       limit: 1,
-    })
+    });
     expect(
       await repository.heartbeatEffect({
         id: claimed!.id,
         leaseOwner: "worker-a",
         fence: claimed!.fence,
-      }),
-    ).toBe(true)
+      })
+    ).toBe(true);
     expect(
       await repository.failEffect({
         id: claimed!.id,
@@ -809,74 +828,74 @@ describe.sequential("workflow durability on real PostgreSQL", function() {
         fence: claimed!.fence,
         error: "Authorization: Bearer raw-secret-token",
         retryAt: new Date("2020-01-01T00:00:00.000Z"),
-      }),
-    ).toBe(true)
+      })
+    ).toBe(true);
     const [reclaimed] = await repository.claimDueEffects({
       handler: "failure",
       leaseOwner: "worker-b",
       limit: 1,
-    })
-    expect(reclaimed!.fence).toBe(claimed!.fence + 1)
-    expect(reclaimed!.lastError).not.toContain("raw-secret-token")
+    });
+    expect(reclaimed!.fence).toBe(claimed!.fence + 1);
+    expect(reclaimed!.lastError).not.toContain("raw-secret-token");
     const dead = await repository.finalizeEffect(
-      finalizationFor(projection, ownerId, reclaimed!, "dead"),
-    )
-    expect(dead.status).toBe("applied")
+      finalizationFor(projection, ownerId, reclaimed!, "dead")
+    );
+    expect(dead.status).toBe("applied");
     const rows = await testDatabase.query<{
-      dead_at: Date | null
-      last_error: string
-    }>(
-      "SELECT dead_at, last_error FROM outbox_events WHERE id = $1",
-      [reclaimed!.id],
-    )
-    expect(rows[0]!.dead_at).not.toBeNull()
-    return expect(rows[0]!.last_error).not.toContain("another-secret")
-  })
+      dead_at: Date | null;
+      last_error: string;
+    }>("SELECT dead_at, last_error FROM outbox_events WHERE id = $1", [
+      reclaimed!.id,
+    ]);
+    expect(rows[0]!.dead_at).not.toBeNull();
+    return expect(rows[0]!.last_error).not.toContain("another-secret");
+  });
 
-  it("atomically supersedes a Wayfinder approval and replays concurrent revisions", async function() {
-    const ownerId = await createOwner()
+  it("atomically supersedes a Wayfinder approval and replays concurrent revisions", async function () {
+    const ownerId = await createOwner();
     const scope = {
       repositoryId: "darkfactory",
-      paths: ["packages/operator"]
-    } as const
+      paths: ["packages/operator"],
+    } as const;
     const plan = createWorkflowPlanEvidenceV1({
       stdout: "Implement the bounded operator backend revision.",
       stderr: "",
       stdoutBytes: 48,
       stderrBytes: 0,
       truncated: false,
-      redacted: false
-    })
-    const application = createWorkflowApplication(repository)
+      redacted: false,
+    });
+    const application = createWorkflowApplication(repository);
     const port = createOperatorWorkflowPort({
       repository,
       authorizeRepository: (candidateOwnerId, repositoryId) => {
-        return candidateOwnerId === ownerId && repositoryId === scope.repositoryId
-      }
-    })
+        return (
+          candidateOwnerId === ownerId && repositoryId === scope.repositoryId
+        );
+      },
+    });
     const submitted = await port.submit({
       ownerId,
       actorUserId: ownerId,
       idempotencyKey: nextId("wayfinder-submit"),
       title: "Bounded Wayfinder plan",
-      scope
-    })
+      scope,
+    });
     const completeNextPlan = async (leaseOwner: string): Promise<void> => {
       const claims = await repository.claimDueEffects({
         handler: WORKFLOW_EFFECT_HANDLER_V2,
         leaseOwner,
-        limit: 1
-      })
+        limit: 1,
+      });
       const claim = claims.find(({ aggregateId }) => {
-        return aggregateId === submitted.run.id
-      }
-      )
+        return aggregateId === submitted.run.id;
+      });
       if (
         claim === undefined ||
         claim.leaseOwner === null ||
         typeof claim.payload["effectId"] !== "string"
       ) {
-        throw new Error("Expected one leased Wayfinder plan effect")
+        throw new Error("Expected one leased Wayfinder plan effect");
       }
       await application.completeEffect({
         ownerId,
@@ -897,79 +916,84 @@ describe.sequential("workflow durability on real PostgreSQL", function() {
           outputRedacted: false,
           changeHash: null,
           changedPaths: [],
-          plan
-        }
-      })
-    }
+          plan,
+        },
+      });
+    };
 
-    await completeNextPlan("wayfinder-plan-1")
-    const beforeRevision = await port.detail(ownerId, submitted.run.id)
+    await completeNextPlan("wayfinder-plan-1");
+    const beforeRevision = await port.detail(ownerId, submitted.run.id);
     expect(beforeRevision).toMatchObject({
       run: { state: "awaitingApproval" },
-      canRequestPlanRevision: true
-    })
+      canRequestPlanRevision: true,
+    });
     const [oldApproval] = await testDatabase.query<{
-      id: string
-      status: string
+      id: string;
+      status: string;
     }>(
       `SELECT id, status FROM workflow_approvals
        WHERE run_id = $1 AND status = 'pending'`,
-      [submitted.run.id],
-    )
-    expect(oldApproval).toBeDefined()
+      [submitted.run.id]
+    );
+    expect(oldApproval).toBeDefined();
 
     const revision = {
       ownerId,
       actorUserId: ownerId,
       runId: submitted.run.id,
       idempotencyKey: nextId("wayfinder-revision"),
-      clarification: "Keep the plan within packages/operator."
-    }
+      clarification: "Keep the plan within packages/operator.",
+    };
     const [first, concurrent] = await Promise.all([
       port.revise({ ...revision, requestId: nextId("revision-request") }),
-      port.revise({ ...revision, requestId: nextId("revision-request") })
-    ])
+      port.revise({ ...revision, requestId: nextId("revision-request") }),
+    ]);
     const replayed = await port.revise({
       ...revision,
-      requestId: nextId("lost-response-retry")
-    })
+      requestId: nextId("lost-response-retry"),
+    });
 
-    expect([first.run.sequence, concurrent.run.sequence, replayed.run.sequence])
-      .toEqual([3, 3, 3])
-    await expect(port.revise({
-      ...revision,
-      requestId: nextId("conflicting-revision"),
-      clarification: "Use a different scope."
-    })).rejects.toMatchObject({ code: "CONFLICT" })
+    expect([
+      first.run.sequence,
+      concurrent.run.sequence,
+      replayed.run.sequence,
+    ]).toEqual([3, 3, 3]);
+    await expect(
+      port.revise({
+        ...revision,
+        requestId: nextId("conflicting-revision"),
+        clarification: "Use a different scope.",
+      })
+    ).rejects.toMatchObject({ code: "CONFLICT" });
     const [superseded] = await testDatabase.query<{
-      status: string
-      decision_reason: string | null
+      status: string;
+      decision_reason: string | null;
     }>(
       `SELECT status, decision_reason FROM workflow_approvals
        WHERE id = $1`,
-      [oldApproval!.id],
-    )
+      [oldApproval!.id]
+    );
     expect(superseded).toEqual({
       status: "rejected",
-      decision_reason: "plan-revision-requested"
-    })
+      decision_reason: "plan-revision-requested",
+    });
 
-    await completeNextPlan("wayfinder-plan-2")
-    const revised = await port.detail(ownerId, submitted.run.id)
+    await completeNextPlan("wayfinder-plan-2");
+    const revised = await port.detail(ownerId, submitted.run.id);
     expect(revised).toMatchObject({
       run: { state: "awaitingApproval", sequence: 4 },
-      canRequestPlanRevision: true
-    })
+      canRequestPlanRevision: true,
+    });
     const [consistent] = await testDatabase.query<{
-      head_sequence: string
-      snapshot_sequence: string
-      journal_count: string
-      revision_count: string
-      evidence_count: string
-      outbox_count: string
-      published_outbox_count: string
-      pending_approval_count: string
-      rejected_approval_count: string
+      head_sequence: string;
+      snapshot_sequence: string;
+      journal_count: string;
+      revision_count: string;
+      evidence_count: string;
+      outbox_count: string;
+      published_outbox_count: string;
+      pending_approval_count: string;
+      rejected_approval_count: string;
     }>(
       `SELECT r.head_sequence, s.sequence AS snapshot_sequence,
         (SELECT count(*) FROM workflow_journal j
@@ -991,8 +1015,8 @@ describe.sequential("workflow durability on real PostgreSQL", function() {
        FROM workflow_runs r
        JOIN workflow_snapshots s ON s.run_id = r.id
        WHERE r.id = $1`,
-      [submitted.run.id],
-    )
+      [submitted.run.id]
+    );
     return expect(consistent).toEqual({
       head_sequence: "4",
       snapshot_sequence: "4",
@@ -1002,17 +1026,17 @@ describe.sequential("workflow durability on real PostgreSQL", function() {
       outbox_count: "2",
       published_outbox_count: "2",
       pending_approval_count: "1",
-      rejected_approval_count: "1"
-    })
-  })
+      rejected_approval_count: "1",
+    });
+  });
 
-  it("rejects a stale approval after the bound projection advances", async function() {
-    const ownerId = await createOwner()
-    const effectHash = "b".repeat(64)
+  it("rejects a stale approval after the bound projection advances", async function () {
+    const ownerId = await createOwner();
+    const effectHash = "b".repeat(64);
     const projection = await createRun(ownerId, {
       effectHash,
       effectScope: "implement packages/db",
-    })
+    });
     const approval = await repository.createApproval({
       id: nextId("approval"),
       runId: projection.run.id,
@@ -1024,10 +1048,10 @@ describe.sequential("workflow durability on real PostgreSQL", function() {
       journalHeadHash: projection.run.headHash,
       effectHash,
       effectScope: "implement packages/db",
-    })
-    await appendMessage(projection, ownerId)
+    });
+    await appendMessage(projection, ownerId);
 
-    const event = eventFor(nextId("approval-event"), "APPROVAL_GRANTED")
+    const event = eventFor(nextId("approval-event"), "APPROVAL_GRANTED");
     return await expect(
       repository.decideApprovalAndAppend({
         approval: {
@@ -1038,158 +1062,171 @@ describe.sequential("workflow durability on real PostgreSQL", function() {
           decision: "granted",
         },
         append: appendInputFor(projection, ownerId, event),
-      }),
-    ).rejects.toThrow(StaleWorkflowApprovalError)
-  })
+      })
+    ).rejects.toThrow(StaleWorkflowApprovalError);
+  });
 
-  it("atomically appends one canonical event for concurrent and lost-response replays", async function() {
-    const ownerId = await createOwner()
-    const projection = await createRun(ownerId)
+  it("atomically appends one canonical event for concurrent and lost-response replays", async function () {
+    const ownerId = await createOwner();
+    const projection = await createRun(ownerId);
     const input = messageInputFor(projection, ownerId, {
       idempotencyKey: nextId("message"),
       content: "Authorization: Bearer first-private-token",
-    })
+    });
 
     const [first, concurrent] = await Promise.all([
       repository.addMessageAndAppend(input),
       repository.addMessageAndAppend(input),
-    ])
+    ]);
     const retry = await repository.addMessageAndAppend({
       ...input,
       append: null,
-    })
+    });
 
-    expect([first.duplicate, concurrent.duplicate].sort()).toEqual([false, true])
-    expect(concurrent.message.id).toBe(first.message.id)
-    expect(retry.message.id).toBe(first.message.id)
-    expect(retry.duplicate).toBe(true)
-    expect(retry.projection.run.headSequence).toBe(projection.run.headSequence + 1)
-    expect(retry.projection.snapshot.context["messageCount"]).toBe(1)
+    expect([first.duplicate, concurrent.duplicate].sort()).toEqual([
+      false,
+      true,
+    ]);
+    expect(concurrent.message.id).toBe(first.message.id);
+    expect(retry.message.id).toBe(first.message.id);
+    expect(retry.duplicate).toBe(true);
+    expect(retry.projection.run.headSequence).toBe(
+      projection.run.headSequence + 1
+    );
+    expect(retry.projection.snapshot.context["messageCount"]).toBe(1);
     expect(retry.projection.journal.at(-1)?.event).toMatchObject({
       type: "OPERATOR_MESSAGE_ADDED",
       messageId: input.id,
-    })
-    await expect(repository.addMessageAndAppend({
-      ...input,
-      content: "Authorization: Bearer second-private-token",
-      append: null,
-    })).rejects.toThrow(WorkflowConcurrencyError)
+    });
+    await expect(
+      repository.addMessageAndAppend({
+        ...input,
+        content: "Authorization: Bearer second-private-token",
+        append: null,
+      })
+    ).rejects.toThrow(WorkflowConcurrencyError);
     const storedMessages = await repository.listMessagesByOwner(
       projection.run.id,
-      ownerId,
-    )
-    expect(storedMessages.items).toHaveLength(1)
-    return expect(storedMessages.items[0]!.content).not.toContain("first-private-token")
-  })
+      ownerId
+    );
+    expect(storedMessages.items).toHaveLength(1);
+    return expect(storedMessages.items[0]!.content).not.toContain(
+      "first-private-token"
+    );
+  });
 
-  it.each(["completed", "cancelled"] as const)(
-    "keeps a %s run immutable when a new operator message arrives",
-    async (state) => {
-      const ownerId = await createOwner()
-      const projection = await createRun(ownerId, { state })
-      const before = await repository.findProjectionByOwner(
-        projection.run.id,
-        ownerId,
-      )
-      await expect(repository.addMessageAndAppend(
-        messageInputFor(projection, ownerId),
-      )).rejects.toThrow("cannot accept operator messages")
-      const after = await repository.findProjectionByOwner(
-        projection.run.id,
-        ownerId,
-      )
-      expect(after).toEqual(before)
-      return expect((await repository.listMessagesByOwner(
-        projection.run.id,
-        ownerId,
-      )).items).toHaveLength(0)
-    }
-  )
-
-  it("rejects an owner miss and rolls a late message failure back through the run head", async function() {
-    const ownerId = await createOwner()
-    const projection = await createRun(ownerId)
-    const input = messageInputFor(projection, ownerId)
-    const otherOwnerId = await createOwner()
-    await expect(repository.addMessageAndAppend({
-      ...input,
-      ownerId: otherOwnerId,
-      append: {
-        ...input.append!,
-        ownerId: otherOwnerId,
-      },
-    })).rejects.toThrow("not found for this owner")
-
-    await expect(repository.addMessageAndAppend({
-      ...input,
-      authorId: "missing-author",
-    })).rejects.toThrow()
+  it.each([
+    "completed",
+    "cancelled",
+  ] as const)("keeps a %s run immutable when a new operator message arrives", async (state) => {
+    const ownerId = await createOwner();
+    const projection = await createRun(ownerId, { state });
+    const before = await repository.findProjectionByOwner(
+      projection.run.id,
+      ownerId
+    );
+    await expect(
+      repository.addMessageAndAppend(messageInputFor(projection, ownerId))
+    ).rejects.toThrow("cannot accept operator messages");
     const after = await repository.findProjectionByOwner(
       projection.run.id,
-      ownerId,
-    )
-    expect(after).toEqual(projection)
-    return expect((await repository.listMessagesByOwner(
+      ownerId
+    );
+    expect(after).toEqual(before);
+    return expect(
+      (await repository.listMessagesByOwner(projection.run.id, ownerId)).items
+    ).toHaveLength(0);
+  });
+
+  it("rejects an owner miss and rolls a late message failure back through the run head", async function () {
+    const ownerId = await createOwner();
+    const projection = await createRun(ownerId);
+    const input = messageInputFor(projection, ownerId);
+    const otherOwnerId = await createOwner();
+    await expect(
+      repository.addMessageAndAppend({
+        ...input,
+        ownerId: otherOwnerId,
+        append: {
+          ...input.append!,
+          ownerId: otherOwnerId,
+        },
+      })
+    ).rejects.toThrow("not found for this owner");
+
+    await expect(
+      repository.addMessageAndAppend({
+        ...input,
+        authorId: "missing-author",
+      })
+    ).rejects.toThrow();
+    const after = await repository.findProjectionByOwner(
       projection.run.id,
-      ownerId,
-    )).items).toHaveLength(0)
-  })
+      ownerId
+    );
+    expect(after).toEqual(projection);
+    return expect(
+      (await repository.listMessagesByOwner(projection.run.id, ownerId)).items
+    ).toHaveLength(0);
+  });
 
-  it("rolls a stale snapshot append back without persisting the message", async function() {
-    const ownerId = await createOwner()
-    const projection = await createRun(ownerId)
-    const staleInput = messageInputFor(projection, ownerId)
-    const intervening = eventFor(nextId("intervening-event"))
-    await repository.append(appendInputFor(projection, ownerId, intervening))
+  it("rolls a stale snapshot append back without persisting the message", async function () {
+    const ownerId = await createOwner();
+    const projection = await createRun(ownerId);
+    const staleInput = messageInputFor(projection, ownerId);
+    const intervening = eventFor(nextId("intervening-event"));
+    await repository.append(appendInputFor(projection, ownerId, intervening));
 
-    await expect(repository.addMessageAndAppend(staleInput))
-      .rejects.toThrow(WorkflowConcurrencyError)
-    return expect((await repository.listMessagesByOwner(
-      projection.run.id,
-      ownerId,
-    )).items).toHaveLength(0)
-  })
+    await expect(repository.addMessageAndAppend(staleInput)).rejects.toThrow(
+      WorkflowConcurrencyError
+    );
+    return expect(
+      (await repository.listMessagesByOwner(projection.run.id, ownerId)).items
+    ).toHaveLength(0);
+  });
 
-  it("scopes message idempotency independently to each owned run", async function() {
-    const firstOwnerId = await createOwner()
-    const secondOwnerId = await createOwner()
-    const first = await createRun(firstOwnerId)
-    const second = await createRun(secondOwnerId)
-    const idempotencyKey = "shared-message-key"
+  it("scopes message idempotency independently to each owned run", async function () {
+    const firstOwnerId = await createOwner();
+    const secondOwnerId = await createOwner();
+    const first = await createRun(firstOwnerId);
+    const second = await createRun(secondOwnerId);
+    const idempotencyKey = "shared-message-key";
 
     const firstInput = messageInputFor(first, firstOwnerId, {
       idempotencyKey,
       content: "First owner message",
-    })
+    });
     const secondInput = messageInputFor(second, secondOwnerId, {
       idempotencyKey,
       content: "Second owner message",
-    })
+    });
     const replayedFirstInput = messageInputFor(first, firstOwnerId, {
       idempotencyKey,
       content: "First owner message",
-    })
-    expect(replayedFirstInput.id).toBe(firstInput.id)
-    expect(replayedFirstInput.event.eventId).toBe(firstInput.event.eventId)
-    expect(firstInput.event.eventId).not.toBe(secondInput.event.eventId)
+    });
+    expect(replayedFirstInput.id).toBe(firstInput.id);
+    expect(replayedFirstInput.event.eventId).toBe(firstInput.event.eventId);
+    expect(firstInput.event.eventId).not.toBe(secondInput.event.eventId);
 
     const [firstMessage, secondMessage] = await Promise.all([
       repository.addMessageAndAppend(firstInput),
       repository.addMessageAndAppend(secondInput),
-    ])
+    ]);
 
-    expect(firstMessage.message.id).not.toBe(secondMessage.message.id)
-    expect((await repository.listMessagesByOwner(first.run.id, firstOwnerId)).items)
-      .toHaveLength(1)
-    return expect((await repository.listMessagesByOwner(second.run.id, secondOwnerId)).items)
-      .toHaveLength(1)
-  })
+    expect(firstMessage.message.id).not.toBe(secondMessage.message.id);
+    expect(
+      (await repository.listMessagesByOwner(first.run.id, firstOwnerId)).items
+    ).toHaveLength(1);
+    return expect(
+      (await repository.listMessagesByOwner(second.run.id, secondOwnerId)).items
+    ).toHaveLength(1);
+  });
 
-  it("rolls back an approval decision and projection when its outbox insert fails", async function() {
-    const ownerId = await createOwner()
-    const effectHash = "f".repeat(64)
-    const effectScope = "implement packages/db"
-    const projection = await createRun(ownerId, { effectHash, effectScope })
+  it("rolls back an approval decision and projection when its outbox insert fails", async function () {
+    const ownerId = await createOwner();
+    const effectHash = "f".repeat(64);
+    const effectScope = "implement packages/db";
+    const projection = await createRun(ownerId, { effectHash, effectScope });
     const approval = await repository.createApproval({
       id: nextId("approval"),
       runId: projection.run.id,
@@ -1201,9 +1238,9 @@ describe.sequential("workflow durability on real PostgreSQL", function() {
       journalHeadHash: projection.run.headHash,
       effectHash,
       effectScope,
-    })
-    const event = eventFor(nextId("approval-event"), "APPROVAL_GRANTED")
-    const append = appendInputFor(projection, ownerId, event)
+    });
+    const event = eventFor(nextId("approval-event"), "APPROVAL_GRANTED");
+    const append = appendInputFor(projection, ownerId, event);
     await testDatabase.query(`
       CREATE FUNCTION fail_workflow_outbox_insert() RETURNS trigger
       LANGUAGE plpgsql AS $$
@@ -1214,39 +1251,42 @@ describe.sequential("workflow durability on real PostgreSQL", function() {
       CREATE TRIGGER fail_workflow_outbox_insert
       BEFORE INSERT ON outbox_events
       FOR EACH ROW EXECUTE FUNCTION fail_workflow_outbox_insert();
-    `)
+    `);
     try {
-      await expect(repository.decideApprovalAndAppend({
-        approval: {
-          id: approval.id,
-          runId: projection.run.id,
-          ownerId,
-          decidedBy: ownerId,
-          decision: "granted",
-        },
-        append: {
-          ...append,
-          effects: [{
-            handler: "approval-rollback",
-            idempotencyKey: nextId("approval-effect"),
-            eventType: "workflow.effect",
-            payload: { command: "implement" },
-          }],
-        },
-      })).rejects.toThrow()
-    }
-    finally {
+      await expect(
+        repository.decideApprovalAndAppend({
+          approval: {
+            id: approval.id,
+            runId: projection.run.id,
+            ownerId,
+            decidedBy: ownerId,
+            decision: "granted",
+          },
+          append: {
+            ...append,
+            effects: [
+              {
+                handler: "approval-rollback",
+                idempotencyKey: nextId("approval-effect"),
+                eventType: "workflow.effect",
+                payload: { command: "implement" },
+              },
+            ],
+          },
+        })
+      ).rejects.toThrow();
+    } finally {
       await testDatabase.query(`
         DROP TRIGGER IF EXISTS fail_workflow_outbox_insert ON outbox_events;
         DROP FUNCTION IF EXISTS fail_workflow_outbox_insert();
-      `)
+      `);
     }
     const [row] = await testDatabase.query<{
-      status: string
-      head_sequence: string
-      snapshot_sequence: string
-      journal_count: string
-      outbox_count: string
+      status: string;
+      head_sequence: string;
+      snapshot_sequence: string;
+      journal_count: string;
+      outbox_count: string;
     }>(
       `SELECT a.status, r.head_sequence, s.sequence AS snapshot_sequence,
         (SELECT count(*) FROM workflow_journal WHERE run_id = r.id) AS journal_count,
@@ -1255,39 +1295,39 @@ describe.sequential("workflow durability on real PostgreSQL", function() {
        JOIN workflow_runs r ON r.id = a.run_id
        JOIN workflow_snapshots s ON s.run_id = r.id
        WHERE a.id = $1`,
-      [approval.id],
-    )
+      [approval.id]
+    );
     return expect(row).toMatchObject({
       status: "pending",
       head_sequence: "1",
       snapshot_sequence: "1",
       journal_count: "1",
       outbox_count: "0",
-    })
-  })
+    });
+  });
 
-  it("acknowledges an exact plan finalization replay after its approval advances", async function() {
-    const ownerId = await createOwner()
+  it("acknowledges an exact plan finalization replay after its approval advances", async function () {
+    const ownerId = await createOwner();
     const projection = await createRun(ownerId, {
       handler: "approval-replay",
       idempotencyKey: nextId("effect-key"),
       payload: { effectId: "approval-replay-effect", effectKind: "plan" },
-    })
+    });
     const [claim] = await repository.claimDueEffects({
       handler: "approval-replay",
       leaseOwner: "worker-approval-replay",
       limit: 1,
-    })
-    const base = finalizationFor(projection, ownerId, claim!)
-    const effectHash = "a".repeat(64)
-    const effectScope = "implement packages/db"
+    });
+    const base = finalizationFor(projection, ownerId, claim!);
+    const effectHash = "a".repeat(64);
+    const effectScope = "implement packages/db";
     const append = appendInputFor(
       projection,
       ownerId,
       base.append.event,
       "awaitingApproval",
-      { hash: effectHash, scope: effectScope },
-    )
+      { hash: effectHash, scope: effectScope }
+    );
     const approval = {
       id: nextId("approval"),
       runId: projection.run.id,
@@ -1299,7 +1339,7 @@ describe.sequential("workflow durability on real PostgreSQL", function() {
       journalHeadHash: append.snapshot.journalHeadHash,
       effectHash,
       effectScope,
-    }
+    };
     const finalization: Parameters<WorkflowRepository["finalizeEffect"]>[0] = {
       id: base.id,
       leaseOwner: base.leaseOwner,
@@ -1309,13 +1349,13 @@ describe.sequential("workflow durability on real PostgreSQL", function() {
       append,
       evidence: base.evidence,
       approval,
-    }
-    const finalized = await repository.finalizeEffect(finalization)
-    expect(finalized.status).toBe("applied")
+    };
+    const finalized = await repository.finalizeEffect(finalization);
+    expect(finalized.status).toBe("applied");
     const approvalEvent = eventFor(
       nextId("approval-event"),
-      "APPROVAL_GRANTED",
-    )
+      "APPROVAL_GRANTED"
+    );
     await repository.decideApprovalAndAppend({
       approval: {
         id: approval.id,
@@ -1328,37 +1368,37 @@ describe.sequential("workflow durability on real PostgreSQL", function() {
         finalized.projection!,
         ownerId,
         approvalEvent,
-        "implementing",
+        "implementing"
       ),
-    })
+    });
 
-    const replayed = await repository.finalizeEffect(finalization)
-    expect(replayed.status).toBe("already-applied")
-    return expect(replayed.projection?.run.headSequence).toBe(3)
-  })
+    const replayed = await repository.finalizeEffect(finalization);
+    expect(replayed.status).toBe("already-applied");
+    return expect(replayed.projection?.run.headSequence).toBe(3);
+  });
 
-  it("rolls back outbox, journal, snapshot, evidence, and approval on a late failure", async function() {
-    const ownerId = await createOwner()
+  it("rolls back outbox, journal, snapshot, evidence, and approval on a late failure", async function () {
+    const ownerId = await createOwner();
     const projection = await createRun(ownerId, {
       handler: "rollback",
       idempotencyKey: nextId("effect-key"),
       payload: { effectId: "rollback-effect" },
-    })
+    });
     const [claim] = await repository.claimDueEffects({
       handler: "rollback",
       leaseOwner: "worker-rollback",
       limit: 1,
-    })
-    const base = finalizationFor(projection, ownerId, claim!)
-    const effectHash = "e".repeat(64)
-    const effectScope = "implement packages/db"
+    });
+    const base = finalizationFor(projection, ownerId, claim!);
+    const effectHash = "e".repeat(64);
+    const effectScope = "implement packages/db";
     const append = appendInputFor(
       projection,
       ownerId,
       base.append.event,
       "awaitingApproval",
-      { hash: effectHash, scope: effectScope },
-    )
+      { hash: effectHash, scope: effectScope }
+    );
     await testDatabase.query(`
       CREATE FUNCTION fail_workflow_approval_insert() RETURNS trigger
       LANGUAGE plpgsql AS $$
@@ -1369,39 +1409,40 @@ describe.sequential("workflow durability on real PostgreSQL", function() {
       CREATE TRIGGER fail_workflow_approval_insert
       BEFORE INSERT ON workflow_approvals
       FOR EACH ROW EXECUTE FUNCTION fail_workflow_approval_insert();
-    `)
+    `);
     try {
-      await expect(repository.finalizeEffect({
-        ...base,
-        append,
-        approval: {
-          id: nextId("approval"),
-          runId: projection.run.id,
-          ownerId,
-          machineId: "darkfactory-pilot",
-          machineVersion: 1,
-          eventVersion: 1,
-          snapshotSequence: append.snapshot.sequence,
-          journalHeadHash: append.snapshot.journalHeadHash,
-          effectHash,
-          effectScope,
-        },
-      })).rejects.toThrow()
-    }
-    finally {
+      await expect(
+        repository.finalizeEffect({
+          ...base,
+          append,
+          approval: {
+            id: nextId("approval"),
+            runId: projection.run.id,
+            ownerId,
+            machineId: "darkfactory-pilot",
+            machineVersion: 1,
+            eventVersion: 1,
+            snapshotSequence: append.snapshot.sequence,
+            journalHeadHash: append.snapshot.journalHeadHash,
+            effectHash,
+            effectScope,
+          },
+        })
+      ).rejects.toThrow();
+    } finally {
       await testDatabase.query(`
         DROP TRIGGER IF EXISTS fail_workflow_approval_insert ON workflow_approvals;
         DROP FUNCTION IF EXISTS fail_workflow_approval_insert();
-      `)
+      `);
     }
     const [rows] = await testDatabase.query<{
-      head_sequence: string
-      snapshot_sequence: string
-      journal_count: string
-      evidence_count: string
-      approval_count: string
-      published_at: Date | null
-      dead_at: Date | null
+      head_sequence: string;
+      snapshot_sequence: string;
+      journal_count: string;
+      evidence_count: string;
+      approval_count: string;
+      published_at: Date | null;
+      dead_at: Date | null;
     }>(
       `SELECT r.head_sequence, s.sequence AS snapshot_sequence,
         (SELECT count(*) FROM workflow_journal WHERE run_id = r.id) AS journal_count,
@@ -1412,8 +1453,8 @@ describe.sequential("workflow durability on real PostgreSQL", function() {
        JOIN workflow_snapshots s ON s.run_id = r.id
        JOIN outbox_events o ON o.aggregate_id = r.id
        WHERE r.id = $1`,
-      [projection.run.id],
-    )
+      [projection.run.id]
+    );
     return expect(rows).toMatchObject({
       head_sequence: "1",
       snapshot_sequence: "1",
@@ -1422,68 +1463,72 @@ describe.sequential("workflow durability on real PostgreSQL", function() {
       approval_count: "0",
       published_at: null,
       dead_at: null,
-    })
-  })
+    });
+  });
 
-  it("acknowledges a durable terminal journal effect without reclaiming it", async function() {
-    const ownerId = await createOwner()
+  it("acknowledges a durable terminal journal effect without reclaiming it", async function () {
+    const ownerId = await createOwner();
     const projection = await createRun(ownerId, {
       handler: "legacy-recovery",
       idempotencyKey: nextId("effect-key"),
       payload: { effectId: "legacy-effect", effectKind: "implement" },
-    })
+    });
     const [claim] = await repository.claimDueEffects({
       handler: "legacy-recovery",
       leaseOwner: "worker-before-restart",
       limit: 1,
-    })
-    const finalization = finalizationFor(projection, ownerId, claim!)
-    await repository.append(finalization.append)
-    await repository.addEvidence(finalization.evidence)
+    });
+    const finalization = finalizationFor(projection, ownerId, claim!);
+    await repository.append(finalization.append);
+    await repository.addEvidence(finalization.evidence);
     await testDatabase.query(
       "UPDATE outbox_events SET lease_expires_at = clock_timestamp() - interval '1 second' WHERE id = $1",
-      [claim!.id],
-    )
+      [claim!.id]
+    );
 
     const reclaimed = await repository.claimDueEffects({
       handler: "legacy-recovery",
       leaseOwner: "worker-after-restart",
       limit: 1,
-    })
-    expect(reclaimed).toEqual([])
+    });
+    expect(reclaimed).toEqual([]);
     const [row] = await testDatabase.query<{
-      published_at: Date | null
-      lease_owner: string | null
-    }>(
-      "SELECT published_at, lease_owner FROM outbox_events WHERE id = $1",
-      [claim!.id],
-    )
-    expect(row?.published_at).not.toBeNull()
-    return expect(row?.lease_owner).toBeNull()
-  })
+      published_at: Date | null;
+      lease_owner: string | null;
+    }>("SELECT published_at, lease_owner FROM outbox_events WHERE id = $1", [
+      claim!.id,
+    ]);
+    expect(row?.published_at).not.toBeNull();
+    return expect(row?.lease_owner).toBeNull();
+  });
 
-  it("returns only a complete old or new projection during concurrent appends", async function() {
-    const ownerId = await createOwner()
-    let projection = await createRun(ownerId)
-    const results=[];for (const index in [1, 2, 3, 4, 5, 6, 7, 8]) {
-      const event = eventFor(nextId(`concurrent-${index}`), "PROJECTION_ADVANCED")
+  it("returns only a complete old or new projection during concurrent appends", async function () {
+    const ownerId = await createOwner();
+    let projection = await createRun(ownerId);
+    const results = [];
+    for (const index in [1, 2, 3, 4, 5, 6, 7, 8]) {
+      const event = eventFor(
+        nextId(`concurrent-${index}`),
+        "PROJECTION_ADVANCED"
+      );
       const [observed, appended] = await Promise.all([
         repository.findProjectionByOwner(projection.run.id, ownerId),
         repository.append(appendInputFor(projection, ownerId, event)),
-      ])
-      expect(observed).not.toBeNull()
-      expect(observed!.run.headSequence).toBe(observed!.snapshot.sequence)
-      expect(observed!.journal).toHaveLength(observed!.run.headSequence)
+      ]);
+      expect(observed).not.toBeNull();
+      expect(observed!.run.headSequence).toBe(observed!.snapshot.sequence);
+      expect(observed!.journal).toHaveLength(observed!.run.headSequence);
       expect([
         projection.run.headSequence,
         appended.projection.run.headSequence,
-      ]).toContain(observed!.run.headSequence)
-      results.push(projection = appended.projection)
-    };return results;
-  })
+      ]).toContain(observed!.run.headSequence);
+      results.push((projection = appended.projection));
+    }
+    return results;
+  });
 
-  it("stores only redacted bounded effect, evidence, message, and error content", async function() {
-    const ownerId = await createOwner()
+  it("stores only redacted bounded effect, evidence, message, and error content", async function () {
+    const ownerId = await createOwner();
     const projection = await createRun(ownerId, {
       handler: "redaction",
       idempotencyKey: nextId("effect-key"),
@@ -1491,7 +1536,7 @@ describe.sequential("workflow durability on real PostgreSQL", function() {
         command: "plan",
         token: "raw-effect-token",
       },
-    })
+    });
     await repository.addEvidence({
       id: nextId("evidence"),
       runId: projection.run.id,
@@ -1502,39 +1547,42 @@ describe.sequential("workflow durability on real PostgreSQL", function() {
         result: "ok",
         password: "raw-evidence-password",
       },
-    })
-    await repository.addMessageAndAppend(messageInputFor(projection, ownerId, {
-      idempotencyKey: nextId("message"),
-      content: "Basic dXNlcjpyYXctYmFzaWM= Cookie: session=raw-cookie token=raw-message-token",
-    }))
+    });
+    await repository.addMessageAndAppend(
+      messageInputFor(projection, ownerId, {
+        idempotencyKey: nextId("message"),
+        content:
+          "Basic dXNlcjpyYXctYmFzaWM= Cookie: session=raw-cookie token=raw-message-token",
+      })
+    );
     const rows = await testDatabase.query<{
-      persisted: string
+      persisted: string;
     }>(
       `SELECT concat_ws(' ',
         (SELECT payload::text FROM outbox_events WHERE aggregate_id = $1),
         (SELECT summary || ' ' || data::text FROM workflow_evidence WHERE run_id = $1),
         (SELECT content FROM workflow_messages WHERE run_id = $1)
       ) AS persisted`,
-      [projection.run.id],
-    )
+      [projection.run.id]
+    );
     expect(rows[0]!.persisted).not.toMatch(
-      /raw-effect-token|raw-evidence-bearer|raw-evidence-password|raw-message-token|raw-basic|raw-cookie/,
-    )
-    return expect(rows[0]!.persisted).toContain("[REDACTED]")
-  })
+      /raw-effect-token|raw-evidence-bearer|raw-evidence-password|raw-message-token|raw-basic|raw-cookie/
+    );
+    return expect(rows[0]!.persisted).toContain("[REDACTED]");
+  });
 
-  it("never persists sensitive event or snapshot material", async function() {
-    const ownerId = await createOwner()
+  it("never persists sensitive event or snapshot material", async function () {
+    const ownerId = await createOwner();
     const event = {
       ...eventFor(nextId("event")),
       rawPrompt: "never-store-this-prompt",
-    } as PersistedWorkflowEvent
-    const runId = nextId("run")
+    } as PersistedWorkflowEvent;
+    const runId = nextId("run");
     const headHash = hashWorkflowJournalEntryV1({
       sequence: 1,
       previousHash: GENESIS_WORKFLOW_JOURNAL_HASH,
       event,
-    })
+    });
     await expect(
       repository.createRun({
         id: runId,
@@ -1548,84 +1596,83 @@ describe.sequential("workflow durability on real PostgreSQL", function() {
           journalHeadHash: headHash,
           context: { runId, ownerId, token: "never-store-this-token" },
         },
-      }),
-    ).rejects.toThrow(WorkflowPersistenceInputError)
+      })
+    ).rejects.toThrow(WorkflowPersistenceInputError);
     const rows = await testDatabase.query<{ persisted: string }>(
       `SELECT concat_ws(' ',
         (SELECT coalesce(string_agg(event::text, ' '), '') FROM workflow_journal),
         (SELECT coalesce(string_agg(context::text, ' '), '') FROM workflow_snapshots)
-      ) AS persisted`,
-    )
+      ) AS persisted`
+    );
     return expect(rows[0]!.persisted).not.toMatch(
-      /never-store-this-prompt|never-store-this-token/,
-    )
-  })
+      /never-store-this-prompt|never-store-this-token/
+    );
+  });
 
-  it("fails closed on a corrupted chain and keeps the journal directly immutable", async function() {
-    const ownerId = await createOwner()
-    const projection = await createRun(ownerId)
+  it("fails closed on a corrupted chain and keeps the journal directly immutable", async function () {
+    const ownerId = await createOwner();
+    const projection = await createRun(ownerId);
     await expect(
       testDatabase.query(
         "UPDATE workflow_journal SET hash = $1 WHERE run_id = $2 AND sequence = 1",
-        ["c".repeat(64), projection.run.id],
-      ),
-    ).rejects.toThrow(/append-only/i)
+        ["c".repeat(64), projection.run.id]
+      )
+    ).rejects.toThrow(/append-only/i);
     await expect(
       testDatabase.query(
         "DELETE FROM workflow_journal WHERE run_id = $1 AND sequence = 1",
-        [projection.run.id],
-      ),
-    ).rejects.toThrow(/append-only/i)
+        [projection.run.id]
+      )
+    ).rejects.toThrow(/append-only/i);
 
     await testDatabase.query(
-      "ALTER TABLE workflow_journal DISABLE TRIGGER workflow_journal_immutable",
-    )
+      "ALTER TABLE workflow_journal DISABLE TRIGGER workflow_journal_immutable"
+    );
     try {
       await testDatabase.query(
         "UPDATE workflow_journal SET hash = $1 WHERE run_id = $2 AND sequence = 1",
-        ["c".repeat(64), projection.run.id],
-      )
-    }
-    finally {
+        ["c".repeat(64), projection.run.id]
+      );
+    } finally {
       await testDatabase.query(
-        "ALTER TABLE workflow_journal ENABLE TRIGGER workflow_journal_immutable",
-      )
+        "ALTER TABLE workflow_journal ENABLE TRIGGER workflow_journal_immutable"
+      );
     }
     return await expect(
-      repository.findProjectionByOwner(projection.run.id, ownerId),
-    ).rejects.toThrow(WorkflowProjectionIntegrityError)
-  })
+      repository.findProjectionByOwner(projection.run.id, ownerId)
+    ).rejects.toThrow(WorkflowProjectionIntegrityError);
+  });
 
-  it("allows verified owner cascade deletion while rejecting direct journal deletion", async function() {
-    const ownerId = await createOwner()
-    const projection = await createRun(ownerId)
-    await testDatabase.query('DELETE FROM "user" WHERE id = $1', [ownerId])
+  it("allows verified owner cascade deletion while rejecting direct journal deletion", async function () {
+    const ownerId = await createOwner();
+    const projection = await createRun(ownerId);
+    await testDatabase.query('DELETE FROM "user" WHERE id = $1', [ownerId]);
     const rows = await testDatabase.query<{
-      run_count: string
-      journal_count: string
+      run_count: string;
+      journal_count: string;
     }>(
       `SELECT
         (SELECT count(*) FROM workflow_runs WHERE id = $1) AS run_count,
         (SELECT count(*) FROM workflow_journal WHERE run_id = $1) AS journal_count`,
-      [projection.run.id],
-    )
-    return expect(rows).toEqual([{ run_count: "0", journal_count: "0" }])
-  })
+      [projection.run.id]
+    );
+    return expect(rows).toEqual([{ run_count: "0", journal_count: "0" }]);
+  });
 
-  return it("enforces owner scope for projections, evidence, messages, and listings", async function() {
-    const ownerId = await createOwner()
-    const otherOwnerId = await createOwner()
-    const projection = await createRun(ownerId)
+  return it("enforces owner scope for projections, evidence, messages, and listings", async function () {
+    const ownerId = await createOwner();
+    const otherOwnerId = await createOwner();
+    const projection = await createRun(ownerId);
 
     expect(
-      await repository.findProjectionByOwner(projection.run.id, otherOwnerId),
-    ).toBeNull()
-    expect(await repository.listRunsByOwner(otherOwnerId)).toEqual([])
+      await repository.findProjectionByOwner(projection.run.id, otherOwnerId)
+    ).toBeNull();
+    expect(await repository.listRunsByOwner(otherOwnerId)).toEqual([]);
     expect(
-      await repository.listEvidenceByOwner(projection.run.id, otherOwnerId),
-    ).toEqual({ items: [], nextCursor: null })
+      await repository.listEvidenceByOwner(projection.run.id, otherOwnerId)
+    ).toEqual({ items: [], nextCursor: null });
     return expect(
-      await repository.listMessagesByOwner(projection.run.id, otherOwnerId),
-    ).toEqual({ items: [], nextCursor: null })
-  })
-})
+      await repository.listMessagesByOwner(projection.run.id, otherOwnerId)
+    ).toEqual({ items: [], nextCursor: null });
+  });
+});

@@ -1,8 +1,7 @@
-import { runPilotWorkerMain } from "./pilot-worker.ts"
+import { runPilotWorkerMain } from "./pilot-worker.ts";
 
 try {
-  await runPilotWorkerMain()
-}
-catch {
-  process.exitCode = 1
+  await runPilotWorkerMain();
+} catch {
+  process.exitCode = 1;
 }

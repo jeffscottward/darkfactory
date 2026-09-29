@@ -1,84 +1,86 @@
-import { and as andWhere, eq, or as orWhere, sql } from "drizzle-orm"
+import { and as andWhere, eq, or as orWhere, sql } from "drizzle-orm";
 
-import { accounts, users } from "../schema/index.ts"
+import { accounts, users } from "../schema/index.ts";
 import {
   withTransaction,
   type Database,
   type DatabaseExecutor,
-} from "../server/client.ts"
-import { convergeDevelopmentContent } from "./content.ts"
-import { convergeDevelopmentPreferences } from "./preferences.ts"
-import { convergeDevelopmentProfiles } from "./profiles.ts"
+} from "../server/client.ts";
+import { convergeDevelopmentContent } from "./content.ts";
+import { convergeDevelopmentPreferences } from "./preferences.ts";
+import { convergeDevelopmentProfiles } from "./profiles.ts";
 import {
   DEVELOPMENT_PERSONAS,
   seedIdentityInput,
   type EnsureSeedIdentity,
   type PrepareSeedIdentities,
   type DevelopmentPersona,
-} from "./users.ts"
+} from "./users.ts";
 
-export type DevelopmentEnvironment = "development" | "test" | "production"
+export type DevelopmentEnvironment = "development" | "test" | "production";
 
 export type SeedDevelopmentOptions = Readonly<{
-  environment: DevelopmentEnvironment
-  prepareIdentity: PrepareSeedIdentities
-}>
+  environment: DevelopmentEnvironment;
+  prepareIdentity: PrepareSeedIdentities;
+}>;
 
 export type SeedDevelopmentResult = Readonly<{
-  identitiesCreated: number
-  usersConverged: number
-  profilesConverged: number
-  preferencesConverged: number
-  addressesConverged: number
-  featureItemsConverged: number
-}>
+  identitiesCreated: number;
+  usersConverged: number;
+  profilesConverged: number;
+  preferencesConverged: number;
+  addressesConverged: number;
+  featureItemsConverged: number;
+}>;
 
 export class DevelopmentSeedError extends Error {
   constructor(message: string) {
-    super(message)
-    this.name = "DevelopmentSeedError"
+    super(message);
+    this.name = "DevelopmentSeedError";
   }
 }
 
 export class SeedIdentityCollisionError extends DevelopmentSeedError {
   constructor(message: string) {
-    super(message)
-    this.name = "SeedIdentityCollisionError"
+    super(message);
+    this.name = "SeedIdentityCollisionError";
   }
 }
 
 type IdentityState = Readonly<{
-  persona: DevelopmentPersona
-  exists: boolean
-}>
+  persona: DevelopmentPersona;
+  exists: boolean;
+}>;
 
-const normalizedEmail = (email: string): string => email.trim().toLowerCase()
-const CREDENTIAL_HASH = /^[0-9a-f]{32}:[0-9a-f]{128}$/u
+const normalizedEmail = (email: string): string => email.trim().toLowerCase();
+const CREDENTIAL_HASH = /^[0-9a-f]{32}:[0-9a-f]{128}$/u;
 
 const isCredentialFor = (
   account: typeof accounts.$inferSelect,
-  persona: DevelopmentPersona,
+  persona: DevelopmentPersona
 ): boolean => {
-  return account.id === persona.accountId &&
-  account.userId === persona.userId &&
-  account.providerId === "credential" &&
-  account.accountId === persona.userId
-}
+  return (
+    account.id === persona.accountId &&
+    account.userId === persona.userId &&
+    account.providerId === "credential" &&
+    account.accountId === persona.userId
+  );
+};
 
 const inspectIdentity = async (
   database: DatabaseExecutor,
-  persona: DevelopmentPersona,
+  persona: DevelopmentPersona
 ): Promise<IdentityState> => {
-  const email = normalizedEmail(persona.email)
+  const email = normalizedEmail(persona.email);
   const matchedUsers = await database
     .select()
     .from(users)
     .where(
       orWhere(
         eq(users.id, persona.userId),
-        sql`lower(trim(${users.email})) = ${email}`,
-      ),
-    )
+        sql`lower(trim(${users.email})) = ${email}`
+      )
+    );
 
   const matchedAccounts = await database
     .select()
@@ -89,18 +91,18 @@ const inspectIdentity = async (
         eq(accounts.userId, persona.userId),
         andWhere(
           eq(accounts.providerId, "credential"),
-          eq(accounts.accountId, persona.userId),
-        ),
-      ),
-    )
+          eq(accounts.accountId, persona.userId)
+        )
+      )
+    );
 
   if (matchedUsers.length === 0) {
     if (matchedAccounts.length > 0) {
       throw new SeedIdentityCollisionError(
-        `Seed identity collision for ${persona.name}: deterministic account ID is already in use`,
-      )
+        `Seed identity collision for ${persona.name}: deterministic account ID is already in use`
+      );
     }
-    return { persona, exists: false }
+    return { persona, exists: false };
   }
 
   if (
@@ -109,93 +111,89 @@ const inspectIdentity = async (
     normalizedEmail(matchedUsers[0]!.email) !== email
   ) {
     throw new SeedIdentityCollisionError(
-      `Seed identity collision for ${persona.name}: deterministic user ID and normalized email do not identify the same user`,
-    )
+      `Seed identity collision for ${persona.name}: deterministic user ID and normalized email do not identify the same user`
+    );
   }
 
-  const credential = matchedAccounts.find((account) => isCredentialFor(account, persona))
+  const credential = matchedAccounts.find((account) =>
+    isCredentialFor(account, persona)
+  );
   if (!credential) {
     throw new SeedIdentityCollisionError(
-      `Seed identity collision for ${persona.name}: required credential account is missing or mismatched`,
-    )
+      `Seed identity collision for ${persona.name}: required credential account is missing or mismatched`
+    );
   }
   if (
     typeof credential.password !== "string" ||
     !CREDENTIAL_HASH.test(credential.password)
   ) {
     throw new SeedIdentityCollisionError(
-      `Seed identity collision for ${persona.name}: credential password hash is malformed`,
-    )
+      `Seed identity collision for ${persona.name}: credential password hash is malformed`
+    );
   }
 
-  return { persona, exists: true }
-}
-
+  return { persona, exists: true };
+};
 
 const convergeApplicationRows = async (
-  database: DatabaseExecutor,
+  database: DatabaseExecutor
 ): Promise<void> => {
-  await convergeDevelopmentProfiles(database)
-  await convergeDevelopmentPreferences(database)
-  await convergeDevelopmentContent(database)
-}
+  await convergeDevelopmentProfiles(database);
+  await convergeDevelopmentPreferences(database);
+  await convergeDevelopmentContent(database);
+};
 
 const lockDevelopmentIdentities = async (
-  database: DatabaseExecutor,
+  database: DatabaseExecutor
 ): Promise<void> => {
   const personas = [...DEVELOPMENT_PERSONAS].sort((left, right) => {
-    return left.userId.localeCompare(right.userId)
-  }
-  )
+    return left.userId.localeCompare(right.userId);
+  });
   for (const persona of personas) {
     await database.execute(
-      sql`select pg_advisory_xact_lock(hashtextextended(${persona.userId}, 0))`,
-    )
+      sql`select pg_advisory_xact_lock(hashtextextended(${persona.userId}, 0))`
+    );
   }
-}
+};
 
 export const seedDevelopment = async (
   database: Database,
-  options: SeedDevelopmentOptions,
+  options: SeedDevelopmentOptions
 ): Promise<SeedDevelopmentResult> => {
-  if (
-    options.environment !== "development" &&
-    options.environment !== "test"
-  ) {
+  if (options.environment !== "development" && options.environment !== "test") {
     throw new DevelopmentSeedError(
-      "Development seed requires an explicit development or test environment",
-    )
+      "Development seed requires an explicit development or test environment"
+    );
   }
 
-  const identities = DEVELOPMENT_PERSONAS.map(seedIdentityInput)
-  const ensureIdentity = await options.prepareIdentity(identities)
+  const identities = DEVELOPMENT_PERSONAS.map(seedIdentityInput);
+  const ensureIdentity = await options.prepareIdentity(identities);
 
   return await withTransaction(database, async (transaction) => {
-    await lockDevelopmentIdentities(transaction)
+    await lockDevelopmentIdentities(transaction);
 
-    const initialStates: IdentityState[] = []
+    const initialStates: IdentityState[] = [];
     for (const persona of DEVELOPMENT_PERSONAS) {
-      initialStates.push(await inspectIdentity(transaction, persona))
+      initialStates.push(await inspectIdentity(transaction, persona));
     }
 
-    let identitiesCreated = 0
+    let identitiesCreated = 0;
     for (const state of initialStates) {
       await ensureIdentity(
         seedIdentityInput(state.persona),
         state.exists,
-        transaction,
-      )
-      const ensured = await inspectIdentity(transaction, state.persona)
+        transaction
+      );
+      const ensured = await inspectIdentity(transaction, state.persona);
       if (!ensured.exists) {
         throw new DevelopmentSeedError(
-          `Identity assurer did not persist ${state.persona.name}`,
-        )
+          `Identity assurer did not persist ${state.persona.name}`
+        );
       }
-      if (!state.exists) identitiesCreated += 1
+      if (!state.exists) identitiesCreated += 1;
     }
 
-    await convergeApplicationRows(transaction)
-
+    await convergeApplicationRows(transaction);
 
     return Object.freeze({
       identitiesCreated,
@@ -204,13 +202,12 @@ export const seedDevelopment = async (
       preferencesConverged: DEVELOPMENT_PERSONAS.length,
       addressesConverged: DEVELOPMENT_PERSONAS.length,
       featureItemsConverged: DEVELOPMENT_PERSONAS.length,
-    })
-  }
-  )
-}
+    });
+  });
+};
 
 export type {
   EnsureSeedIdentity,
   PrepareSeedIdentities,
   SeedIdentityInput,
-} from "./users.ts"
+} from "./users.ts";

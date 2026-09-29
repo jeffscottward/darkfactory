@@ -1,5 +1,5 @@
-import { describe, expect, it } from "vitest"
-import { z } from "zod"
+import { describe, expect, it } from "vitest";
+import { z } from "zod";
 
 import {
   AddressCreateSchema,
@@ -11,20 +11,22 @@ import {
   PreferencesUpdateSchema,
   ProfileUpdateSchema,
   appContract,
-} from "./contract.ts"
-import { buildOpenApiDocument } from "./openapi.ts"
+} from "./contract.ts";
+import { buildOpenApiDocument } from "./openapi.ts";
 import {
   DashboardSessionProjectionSchema,
   createDashboardContract,
-} from "./contracts/dashboard.ts"
+} from "./contracts/dashboard.ts";
 
 const route = (procedure: unknown) => {
-  const value = (procedure as { ["~orpc"]: { route: { method: string; path: string } } })["~orpc"].route
-  return { method: value.method, path: value.path }
-}
+  const value = (
+    procedure as { ["~orpc"]: { route: { method: string; path: string } } }
+  )["~orpc"].route;
+  return { method: value.method, path: value.path };
+};
 
-describe("account, preferences, dashboard, and admin contracts", function() {
-  it("publishes every v0.1 procedure at a stable route", function() {
+describe("account, preferences, dashboard, and admin contracts", function () {
+  it("publishes every v0.1 procedure at a stable route", function () {
     return expect([
       route(appContract.account.profile.get),
       route(appContract.account.profile.update),
@@ -49,18 +51,18 @@ describe("account, preferences, dashboard, and admin contracts", function() {
       { method: "PATCH", path: "/preferences" },
       { method: "GET", path: "/dashboard/summary" },
       { method: "GET", path: "/admin/users" },
-    ])
-  })
+    ]);
+  });
 
-  it("requires an exact safe active-session projection in dashboard summaries", function() {
-    const summarySchema = createDashboardContract(z.object({}).strict()).schema
+  it("requires an exact safe active-session projection in dashboard summaries", function () {
+    const summarySchema = createDashboardContract(z.object({}).strict()).schema;
     const session = {
       userId: "member-1",
       name: "Example Member",
       role: "member",
       status: "active",
       expiresAt: new Date("2030-01-01T00:00:00.000Z"),
-    } as const
+    } as const;
     const summary = {
       session,
       featureItems: {
@@ -78,16 +80,12 @@ describe("account, preferences, dashboard, and admin contracts", function() {
         storage: false,
         errorTracking: false,
       },
-    }
+    };
 
-    expect(summarySchema.parse(summary)).toEqual(summary)
-    expect(Object.keys(DashboardSessionProjectionSchema.parse(session))).toEqual([
-      "userId",
-      "name",
-      "role",
-      "status",
-      "expiresAt",
-    ])
+    expect(summarySchema.parse(summary)).toEqual(summary);
+    expect(
+      Object.keys(DashboardSessionProjectionSchema.parse(session))
+    ).toEqual(["userId", "name", "role", "status", "expiresAt"]);
     for (const [key, value] of Object.entries({
       email: "private@example.test",
       id: "session-1",
@@ -98,21 +96,27 @@ describe("account, preferences, dashboard, and admin contracts", function() {
       createdAt: new Date("2029-01-01T00:00:00.000Z"),
       updatedAt: new Date("2029-01-02T00:00:00.000Z"),
     })) {
-      expect(() => summarySchema.parse({
-        ...summary,
-        session: { ...session, [key]: value },
-      })).toThrow()
+      expect(() =>
+        summarySchema.parse({
+          ...summary,
+          session: { ...session, [key]: value },
+        })
+      ).toThrow();
     }
-    expect(() => summarySchema.parse({
-      ...summary,
-      session: { ...session, role: "owner" },
-    })).toThrow()
-    expect(() => summarySchema.parse({
-      ...summary,
-      session: { ...session, status: "suspended" },
-    })).toThrow()
-    const { session: _session, ...summaryWithoutSession } = summary
-    expect(() => summarySchema.parse(summaryWithoutSession)).toThrow()
+    expect(() =>
+      summarySchema.parse({
+        ...summary,
+        session: { ...session, role: "owner" },
+      })
+    ).toThrow();
+    expect(() =>
+      summarySchema.parse({
+        ...summary,
+        session: { ...session, status: "suspended" },
+      })
+    ).toThrow();
+    const { session: _session, ...summaryWithoutSession } = summary;
+    expect(() => summarySchema.parse(summaryWithoutSession)).toThrow();
     for (const invalidSession of [
       { ...session, userId: "" },
       { ...session, userId: "x".repeat(257) },
@@ -120,73 +124,115 @@ describe("account, preferences, dashboard, and admin contracts", function() {
       { ...session, name: "x".repeat(201) },
       { ...session, expiresAt: new Date(Number.NaN) },
     ]) {
-      expect(() => DashboardSessionProjectionSchema.parse(invalidSession)).toThrow()
+      expect(() =>
+        DashboardSessionProjectionSchema.parse(invalidSession)
+      ).toThrow();
     }
-    return expect(DashboardSessionProjectionSchema.parse({
-      ...session,
-      userId: "  member-1  ",
-      name: "  Example Member  ",
-    })).toEqual(session)
-  })
+    return expect(
+      DashboardSessionProjectionSchema.parse({
+        ...session,
+        userId: "  member-1  ",
+        name: "  Example Member  ",
+      })
+    ).toEqual(session);
+  });
 
-  it("normalizes profile patches and rejects empty or invalid patches", function() {
-    expect(ProfileUpdateSchema.parse({
-      expectedUpdatedAt: null,
-      displayName: "  Ada  ",
-      biography: "",
-      dateOfBirth: "2000-02-29",
-    })).toEqual({
+  it("normalizes profile patches and rejects empty or invalid patches", function () {
+    expect(
+      ProfileUpdateSchema.parse({
+        expectedUpdatedAt: null,
+        displayName: "  Ada  ",
+        biography: "",
+        dateOfBirth: "2000-02-29",
+      })
+    ).toEqual({
       expectedUpdatedAt: null,
       displayName: "Ada",
       biography: null,
       dateOfBirth: "2000-02-29",
-    })
-    expect(() => ProfileUpdateSchema.parse({ expectedUpdatedAt: null })).toThrow()
-    expect(() => ProfileUpdateSchema.parse({ expectedUpdatedAt: null, biography: "x".repeat(5001) })).toThrow()
-    expect(() => ProfileUpdateSchema.parse({ expectedUpdatedAt: null, timezone: "" })).toThrow()
-    expect(() => ProfileUpdateSchema.parse({ expectedUpdatedAt: null, dateOfBirth: "2023-02-29" })).toThrow()
-    expect(() => ProfileUpdateSchema.parse({ expectedUpdatedAt: null, email: "victim@example.test" })).toThrow()
-    expect(ProfileUpdateSchema.parse({
-      expectedUpdatedAt: null,
-      biography: null,
-    })).toEqual({ expectedUpdatedAt: null, biography: null })
-    return expect(() => ProfileUpdateSchema.parse({
-      expectedUpdatedAt: null,
-      dateOfBirth: "not-a-date",
-    })).toThrow()
-  })
+    });
+    expect(() =>
+      ProfileUpdateSchema.parse({ expectedUpdatedAt: null })
+    ).toThrow();
+    expect(() =>
+      ProfileUpdateSchema.parse({
+        expectedUpdatedAt: null,
+        biography: "x".repeat(5001),
+      })
+    ).toThrow();
+    expect(() =>
+      ProfileUpdateSchema.parse({ expectedUpdatedAt: null, timezone: "" })
+    ).toThrow();
+    expect(() =>
+      ProfileUpdateSchema.parse({
+        expectedUpdatedAt: null,
+        dateOfBirth: "2023-02-29",
+      })
+    ).toThrow();
+    expect(() =>
+      ProfileUpdateSchema.parse({
+        expectedUpdatedAt: null,
+        email: "victim@example.test",
+      })
+    ).toThrow();
+    expect(
+      ProfileUpdateSchema.parse({
+        expectedUpdatedAt: null,
+        biography: null,
+      })
+    ).toEqual({ expectedUpdatedAt: null, biography: null });
+    return expect(() =>
+      ProfileUpdateSchema.parse({
+        expectedUpdatedAt: null,
+        dateOfBirth: "not-a-date",
+      })
+    ).toThrow();
+  });
 
-  it("normalizes countries and enforces bounded nonempty address patches", function() {
-    expect(AddressCreateSchema.parse({
-      type: "home",
-      line1: "  1 Main St  ",
-      line2: "",
-      city: " Paris ",
-      region: " Ile-de-France ",
-      postalCode: " 75001 ",
-      country: " fr ",
-      isPrimary: true,
-    })).toMatchObject({
+  it("normalizes countries and enforces bounded nonempty address patches", function () {
+    expect(
+      AddressCreateSchema.parse({
+        type: "home",
+        line1: "  1 Main St  ",
+        line2: "",
+        city: " Paris ",
+        region: " Ile-de-France ",
+        postalCode: " 75001 ",
+        country: " fr ",
+        isPrimary: true,
+      })
+    ).toMatchObject({
       line1: "1 Main St",
       line2: null,
       city: "Paris",
       country: "FR",
-    })
-    expect(() => AddressUpdateSchema.parse({
-      id: "address-1",
-      expectedUpdatedAt: new Date(),
-    })).toThrow()
-    expect(() => AddressCreateSchema.parse({
-      type: "home", line1: "x", city: "x", region: "x", postalCode: "x", country: "USA",
-    })).toThrow()
-    return expect(() => AddressUpdateSchema.parse({
-      id: "address-1",
-      expectedUpdatedAt: new Date(),
-      ownerId: "victim",
-    })).toThrow()
-  })
+    });
+    expect(() =>
+      AddressUpdateSchema.parse({
+        id: "address-1",
+        expectedUpdatedAt: new Date(),
+      })
+    ).toThrow();
+    expect(() =>
+      AddressCreateSchema.parse({
+        type: "home",
+        line1: "x",
+        city: "x",
+        region: "x",
+        postalCode: "x",
+        country: "USA",
+      })
+    ).toThrow();
+    return expect(() =>
+      AddressUpdateSchema.parse({
+        id: "address-1",
+        expectedUpdatedAt: new Date(),
+        ownerId: "victim",
+      })
+    ).toThrow();
+  });
 
-  it("requires authoritative versions and strict dirty preference patches", function() {
+  it("requires authoritative versions and strict dirty preference patches", function () {
     const preference = {
       themeMode: "system",
       palette: "neutral",
@@ -196,82 +242,108 @@ describe("account, preferences, dashboard, and admin contracts", function() {
       personalizationConsent: false,
       profileVisibility: "private",
       updatedAt: null,
-    }
-    expect(PreferencesSchema.parse(preference)).toEqual(preference)
-    expect(() => PreferencesSchema.parse({ ...preference, ownerId: "victim" })).toThrow()
-    expect(PreferencesUpdateSchema.parse({
-      expectedUpdatedAt: null,
-      analyticsConsent: true,
-    })).toEqual({ expectedUpdatedAt: null, analyticsConsent: true })
-    expect(() => PreferencesUpdateSchema.parse({ expectedUpdatedAt: null })).toThrow()
-    expect(() => PreferencesUpdateSchema.parse({
-      expectedUpdatedAt: null,
-      themeMode: "dark",
-    })).toThrow()
-    return expect(() => PreferencesUpdateSchema.parse({
-      expectedUpdatedAt: null,
-      palette: "violet",
-    })).toThrow()
-  })
+    };
+    expect(PreferencesSchema.parse(preference)).toEqual(preference);
+    expect(() =>
+      PreferencesSchema.parse({ ...preference, ownerId: "victim" })
+    ).toThrow();
+    expect(
+      PreferencesUpdateSchema.parse({
+        expectedUpdatedAt: null,
+        analyticsConsent: true,
+      })
+    ).toEqual({ expectedUpdatedAt: null, analyticsConsent: true });
+    expect(() =>
+      PreferencesUpdateSchema.parse({ expectedUpdatedAt: null })
+    ).toThrow();
+    expect(() =>
+      PreferencesUpdateSchema.parse({
+        expectedUpdatedAt: null,
+        themeMode: "dark",
+      })
+    ).toThrow();
+    return expect(() =>
+      PreferencesUpdateSchema.parse({
+        expectedUpdatedAt: null,
+        palette: "violet",
+      })
+    ).toThrow();
+  });
 
-  it("bounds and normalizes admin search pagination", function() {
+  it("bounds and normalizes admin search pagination", function () {
     expect(AdminUsersListInputSchema.parse({ query: "  Ada  " })).toEqual({
       query: "Ada",
       limit: 20,
-    })
-    expect(() => AdminUsersListInputSchema.parse({ limit: 0 })).toThrow()
-    expect(() => AdminUsersListInputSchema.parse({ limit: 101 })).toThrow()
-    return expect(() => AdminUsersListInputSchema.parse({ cursor: "" })).toThrow()
-  })
+    });
+    expect(() => AdminUsersListInputSchema.parse({ limit: 0 })).toThrow();
+    expect(() => AdminUsersListInputSchema.parse({ limit: 101 })).toThrow();
+    return expect(() =>
+      AdminUsersListInputSchema.parse({ cursor: "" })
+    ).toThrow();
+  });
 
-  it("defaults and bounds the owner-scoped feature list limit", function() {
-    expect(FeatureItemListInputSchema.parse({})).toEqual({ limit: 50 })
-    expect(FeatureItemListInputSchema.parse({
-      query: "  launch  ",
-      status: "active",
-      limit: 100,
-    })).toEqual({ query: "launch", status: "active", limit: 100 })
-    expect(() => FeatureItemListInputSchema.parse({ limit: 0 })).toThrow()
-    expect(() => FeatureItemListInputSchema.parse({ limit: 101 })).toThrow()
-    expect(AdminFeatureItemListInputSchema.parse({
-      ownerId: "member-1",
-      query: "  launch  ",
-      status: "active",
-      limit: 100,
-    })).toEqual({
+  it("defaults and bounds the owner-scoped feature list limit", function () {
+    expect(FeatureItemListInputSchema.parse({})).toEqual({ limit: 50 });
+    expect(
+      FeatureItemListInputSchema.parse({
+        query: "  launch  ",
+        status: "active",
+        limit: 100,
+      })
+    ).toEqual({ query: "launch", status: "active", limit: 100 });
+    expect(() => FeatureItemListInputSchema.parse({ limit: 0 })).toThrow();
+    expect(() => FeatureItemListInputSchema.parse({ limit: 101 })).toThrow();
+    expect(
+      AdminFeatureItemListInputSchema.parse({
+        ownerId: "member-1",
+        query: "  launch  ",
+        status: "active",
+        limit: 100,
+      })
+    ).toEqual({
       ownerId: "member-1",
       query: "launch",
       status: "active",
       limit: 100,
-    })
-    return expect(() => AdminFeatureItemListInputSchema.parse({
-      ownerId: "member-1",
-      limit: 101,
-    })).toThrow()
-  })
+    });
+    return expect(() =>
+      AdminFeatureItemListInputSchema.parse({
+        ownerId: "member-1",
+        limit: 101,
+      })
+    ).toThrow();
+  });
 
-  return it("represents nullable account response fields explicitly in OpenAPI", async function() {
-    const document = await buildOpenApiDocument()
+  return it("represents nullable account response fields explicitly in OpenAPI", async function () {
+    const document = await buildOpenApiDocument();
     const profileResponse = (
       document.paths!["/account/profile"]!.get!.responses!["200"] as any
-    ).content["application/json"].schema
-    const profile = profileResponse.properties.profile
+    ).content["application/json"].schema;
+    const profile = profileResponse.properties.profile;
     for (const field of ["firstName", "lastName", "displayName", "biography"]) {
-      expect(profile.required).toContain(field)
-      expect(JSON.stringify(profile.properties[field])).toContain('"type":"string"')
-      expect(JSON.stringify(profile.properties[field])).toContain('"type":"null"')
+      expect(profile.required).toContain(field);
+      expect(JSON.stringify(profile.properties[field])).toContain(
+        '"type":"string"'
+      );
+      expect(JSON.stringify(profile.properties[field])).toContain(
+        '"type":"null"'
+      );
     }
     const addressResponse = (
-      document.paths!["/account/addresses/{id}"]!.patch!.responses!["200"] as any
-    ).content["application/json"].schema
+      document.paths!["/account/addresses/{id}"]!.patch!.responses![
+        "200"
+      ] as any
+    ).content["application/json"].schema;
     expect(addressResponse.required).toEqual(
-      expect.arrayContaining(["country", "line2"]),
-    )
+      expect.arrayContaining(["country", "line2"])
+    );
     expect(addressResponse.properties.country).toMatchObject({
       type: "string",
       minLength: 2,
       maxLength: 2,
-    })
-    return expect(JSON.stringify(addressResponse.properties.line2)).toContain('"type":"null"')
-  })
-})
+    });
+    return expect(JSON.stringify(addressResponse.properties.line2)).toContain(
+      '"type":"null"'
+    );
+  });
+});

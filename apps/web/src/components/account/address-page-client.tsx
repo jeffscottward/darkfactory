@@ -1,13 +1,13 @@
-"use client"
+"use client";
 
 import type {
   AddressCreateInput,
   AddressOutput,
   AddressUpdateInput,
-} from "@darkfactory/api"
-import { Button } from "@darkfactory/ui"
-import { Plus } from "lucide-react"
-import { useCallback, useEffect, useRef, useState } from "react"
+} from "@darkfactory/api";
+import { Button } from "@darkfactory/ui";
+import { Plus } from "lucide-react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import {
   accountFailureKind,
@@ -15,207 +15,249 @@ import {
   createLatestRequestGuard,
   isAmbiguousAccountFailure,
   safeAccountFeedback,
-} from "./account-client.ts"
-import type { AccountFeedback } from "./account-feedback.tsx"
-import { AddressBook, type AddressBookState } from "./address-book.tsx"
-import { AddressForm } from "./address-form.tsx"
+} from "./account-client.ts";
+import type { AccountFeedback } from "./account-feedback.tsx";
+import { AddressBook, type AddressBookState } from "./address-book.tsx";
+import { AddressForm } from "./address-form.tsx";
 
-type FormTarget = "new" | AddressOutput | null
+type FormTarget = "new" | AddressOutput | null;
 // Public mutations exist only in ready UI; concurrent mutation refreshes also commit ready state.
-type ReadyAddressBookState = Extract<AddressBookState, { readonly type: "ready" }>
+type ReadyAddressBookState = Extract<
+  AddressBookState,
+  { readonly type: "ready" }
+>;
 const upsertAddress = (
   addresses: readonly AddressOutput[],
-  result: AddressOutput,
+  result: AddressOutput
 ): AddressOutput[] => {
-  const found = addresses.some((address) => address.id === result.id)
+  const found = addresses.some((address) => address.id === result.id);
   return found
-    ? addresses.map((address) => address.id === result.id ? result : address)
-    : [result, ...addresses]
-}
-
+    ? addresses.map((address) => (address.id === result.id ? result : address))
+    : [result, ...addresses];
+};
 
 export const addressMutationMessage = (
-  input: AddressCreateInput | AddressUpdateInput,
-): string => "id" in input ? "Address updated." : "Address created."
+  input: AddressCreateInput | AddressUpdateInput
+): string => ("id" in input ? "Address updated." : "Address created.");
 
 export const AddressPageClient = () => {
-  const [gateway] = useState(createBrowserAccountGateway)
-  const [state, setState] = useState<AddressBookState>({ type: "loading" })
-  const [formTarget, setFormTarget] = useState<FormTarget>(null)
-  const [formVersion, setFormVersion] = useState(0)
-  const [confirmingRemoveId, setConfirmingRemoveId] = useState<string | null>(null)
-  const [busyId, setBusyId] = useState<string | null>(null)
-  const [feedback, setFeedback] = useState<AccountFeedback | null>(null)
-  const [formFeedback, setFormFeedback] = useState<AccountFeedback | null>(null)
-  const [requests] = useState(createLatestRequestGuard)
-  const mutationLock = useRef(false)
-  const focusOrigin = useRef<HTMLElement | null>(null)
+  const [gateway] = useState(createBrowserAccountGateway);
+  const [state, setState] = useState<AddressBookState>({ type: "loading" });
+  const [formTarget, setFormTarget] = useState<FormTarget>(null);
+  const [formVersion, setFormVersion] = useState(0);
+  const [confirmingRemoveId, setConfirmingRemoveId] = useState<string | null>(
+    null
+  );
+  const [busyId, setBusyId] = useState<string | null>(null);
+  const [feedback, setFeedback] = useState<AccountFeedback | null>(null);
+  const [formFeedback, setFormFeedback] = useState<AccountFeedback | null>(
+    null
+  );
+  const [requests] = useState(createLatestRequestGuard);
+  const mutationLock = useRef(false);
+  const focusOrigin = useRef<HTMLElement | null>(null);
 
   const commitAddresses = useCallback((addresses: readonly AddressOutput[]) => {
-    setState({ type: "ready", addresses })
+    setState({ type: "ready", addresses });
     return setFormTarget((current) => {
-      if (current === null || current === "new") return current
-      return addresses.find((address) => address.id === current.id) ?? current
-    }
-    )
-  }
-  , [])
+      if (current === null || current === "new") return current;
+      return addresses.find((address) => address.id === current.id) ?? current;
+    });
+  }, []);
 
-  const refresh = useCallback(async (warnOnFailure: boolean): Promise<boolean> => {
-    const request = requests.next()
-    try {
-      const addresses = await gateway.listAddresses()
-      if (requests.isLatest(request)) commitAddresses(addresses)
-      return requests.isLatest(request)
-    }
-    catch {
-      if (requests.isLatest(request) && warnOnFailure) {
-        setFeedback({ tone: "info", message: "The change was saved, but the address list could not be refreshed." })
+  const refresh = useCallback(
+    async (warnOnFailure: boolean): Promise<boolean> => {
+      const request = requests.next();
+      try {
+        const addresses = await gateway.listAddresses();
+        if (requests.isLatest(request)) commitAddresses(addresses);
+        return requests.isLatest(request);
+      } catch {
+        if (requests.isLatest(request) && warnOnFailure) {
+          setFeedback({
+            tone: "info",
+            message:
+              "The change was saved, but the address list could not be refreshed.",
+          });
+        }
+        return false;
       }
-      return false
-    }
-  }
-  , [commitAddresses, gateway, requests])
+    },
+    [commitAddresses, gateway, requests]
+  );
 
   const load = useCallback(async () => {
-    const request = requests.next()
-    setFeedback(null)
-    setState({ type: "loading" })
+    const request = requests.next();
+    setFeedback(null);
+    setState({ type: "loading" });
     try {
-      const addresses = await gateway.listAddresses()
-      if (requests.isLatest(request)) return commitAddresses(addresses);return
-    }
-    catch (error) {
+      const addresses = await gateway.listAddresses();
+      if (requests.isLatest(request)) return commitAddresses(addresses);
+      return;
+    } catch (error) {
       if (requests.isLatest(request)) {
-        return setState({ type: "error", kind: accountFailureKind(error), message: safeAccountFeedback(error) })
-      };return
+        return setState({
+          type: "error",
+          kind: accountFailureKind(error),
+          message: safeAccountFeedback(error),
+        });
+      }
+      return;
     }
-  }
-  , [commitAddresses, gateway, requests])
+  }, [commitAddresses, gateway, requests]);
 
   useEffect(() => {
-    void load()
-    return undefined
-  }
-  , [load])
+    void load();
+    return undefined;
+  }, [load]);
 
-  const save = async (input: AddressCreateInput | AddressUpdateInput): Promise<void> => {
-    if (mutationLock.current) return
-    mutationLock.current = true
-    setBusyId("form")
-    setFormFeedback(null)
+  const save = async (
+    input: AddressCreateInput | AddressUpdateInput
+  ): Promise<void> => {
+    if (mutationLock.current) return;
+    mutationLock.current = true;
+    setBusyId("form");
+    setFormFeedback(null);
     try {
-      const result = "id" in input
-        ? await gateway.updateAddress(input)
-        : await gateway.createAddress(input)
+      const result =
+        "id" in input
+          ? await gateway.updateAddress(input)
+          : await gateway.createAddress(input);
       setState((current) => ({
         type: "ready",
-        addresses: upsertAddress((current as ReadyAddressBookState).addresses, result),
-      }))
-      setFormTarget(null)
-      setFormVersion((version) => version + 1)
-      setFeedback({ tone: "success", message: addressMutationMessage(input) })
-      void refresh(true)
-    }
-    catch (error) {
+        addresses: upsertAddress(
+          (current as ReadyAddressBookState).addresses,
+          result
+        ),
+      }));
+      setFormTarget(null);
+      setFormVersion((version) => version + 1);
+      setFeedback({ tone: "success", message: addressMutationMessage(input) });
+      void refresh(true);
+    } catch (error) {
       if (!("id" in input) && isAmbiguousAccountFailure(error)) {
-        setFormTarget(null)
-        setFormVersion((version) => version + 1)
-        const refreshed = await refresh(false)
+        setFormTarget(null);
+        setFormVersion((version) => version + 1);
+        const refreshed = await refresh(false);
         if (refreshed) {
-          setFeedback({ tone: "info", message: "The address creation outcome could not be confirmed. Review the refreshed list before creating another." })
+          setFeedback({
+            tone: "info",
+            message:
+              "The address creation outcome could not be confirmed. Review the refreshed list before creating another.",
+          });
+        } else {
+          setState({
+            type: "error",
+            kind: "retryable",
+            message:
+              "The address creation outcome is unknown. Reload the address list before creating another.",
+          });
         }
-        else {
-          setState({ type: "error", kind: "retryable", message: "The address creation outcome is unknown. Reload the address list before creating another." })
-        }
+      } else if (accountFailureKind(error) === "conflict") {
+        await refresh(false);
+        setFormFeedback({
+          tone: "error",
+          message:
+            "This address changed elsewhere. Your entries are preserved; review them and save again.",
+        });
+      } else {
+        setFormFeedback({ tone: "error", message: safeAccountFeedback(error) });
       }
-      else if (accountFailureKind(error) === "conflict") {
-        await refresh(false)
-        setFormFeedback({ tone: "error", message: "This address changed elsewhere. Your entries are preserved; review them and save again." })
-      }
-      else {
-        setFormFeedback({ tone: "error", message: safeAccountFeedback(error) })
-      }
+    } finally {
+      mutationLock.current = false;
+      setBusyId(null);
     }
-    finally {
-      mutationLock.current = false
-      setBusyId(null)
-    }
-  }
+  };
 
   const setPrimary = async (address: AddressOutput): Promise<void> => {
-    if (mutationLock.current) return
-    mutationLock.current = true
-    setBusyId(address.id)
-    setFeedback(null)
+    if (mutationLock.current) return;
+    mutationLock.current = true;
+    setBusyId(address.id);
+    setFeedback(null);
     try {
-      const result = await gateway.setPrimaryAddress(address.id, address.updatedAt)
+      const result = await gateway.setPrimaryAddress(
+        address.id,
+        address.updatedAt
+      );
       setState((current) => ({
         type: "ready",
-        addresses: (current as ReadyAddressBookState).addresses.map((entry) => ({ ...entry, isPrimary: entry.id === result.id })),
-      }))
-      setFeedback({ tone: "success", message: "Primary address updated." })
-      void refresh(true)
+        addresses: (current as ReadyAddressBookState).addresses.map(
+          (entry) => ({ ...entry, isPrimary: entry.id === result.id })
+        ),
+      }));
+      setFeedback({ tone: "success", message: "Primary address updated." });
+      void refresh(true);
+    } catch (error) {
+      if (accountFailureKind(error) === "conflict") await refresh(false);
+      setFeedback({ tone: "error", message: safeAccountFeedback(error) });
+    } finally {
+      mutationLock.current = false;
+      setBusyId(null);
     }
-    catch (error) {
-      if (accountFailureKind(error) === "conflict") await refresh(false)
-      setFeedback({ tone: "error", message: safeAccountFeedback(error) })
-    }
-    finally {
-      mutationLock.current = false
-      setBusyId(null)
-    }
-  }
+  };
 
   const remove = async (address: AddressOutput): Promise<void> => {
-    if (mutationLock.current || confirmingRemoveId !== address.id) return
-    mutationLock.current = true
-    setBusyId(address.id)
-    setFeedback(null)
+    if (mutationLock.current || confirmingRemoveId !== address.id) return;
+    mutationLock.current = true;
+    setBusyId(address.id);
+    setFeedback(null);
     try {
-      await gateway.removeAddress(address.id, address.updatedAt)
+      await gateway.removeAddress(address.id, address.updatedAt);
       setState((current) => ({
         type: "ready",
-        addresses: (current as ReadyAddressBookState).addresses.filter((entry) => entry.id !== address.id),
-      }))
-      setConfirmingRemoveId(null)
-      setFeedback({ tone: "success", message: "Address removed." })
-      window.setTimeout(() => document.getElementById("add-address")?.focus(), 0)
-      void refresh(true)
+        addresses: (current as ReadyAddressBookState).addresses.filter(
+          (entry) => entry.id !== address.id
+        ),
+      }));
+      setConfirmingRemoveId(null);
+      setFeedback({ tone: "success", message: "Address removed." });
+      window.setTimeout(
+        () => document.getElementById("add-address")?.focus(),
+        0
+      );
+      void refresh(true);
+    } catch (error) {
+      if (accountFailureKind(error) === "conflict") await refresh(false);
+      setFeedback({ tone: "error", message: safeAccountFeedback(error) });
+    } finally {
+      mutationLock.current = false;
+      setBusyId(null);
     }
-    catch (error) {
-      if (accountFailureKind(error) === "conflict") await refresh(false)
-      setFeedback({ tone: "error", message: safeAccountFeedback(error) })
-    }
-    finally {
-      mutationLock.current = false
-      setBusyId(null)
-    }
-  }
+  };
 
   const rememberFocus = (): void => {
-    focusOrigin.current = document.activeElement instanceof HTMLElement
-      ? document.activeElement
-      : null
-  }
+    focusOrigin.current =
+      document.activeElement instanceof HTMLElement
+        ? document.activeElement
+        : null;
+  };
 
   const restoreFocus = (): void => {
-    const target = focusOrigin.current
-    window.setTimeout(() => target?.focus(), 0)
-  }
+    const target = focusOrigin.current;
+    window.setTimeout(() => target?.focus(), 0);
+  };
 
   const openCreate = () => {
-    rememberFocus()
-    setFormFeedback(null)
-    setFormTarget("new")
-    return setFormVersion((version) => version + 1)
-  }
+    rememberFocus();
+    setFormFeedback(null);
+    setFormTarget("new");
+    return setFormVersion((version) => version + 1);
+  };
 
   return (
     <div className="space-y-6">
-      {state.type === "ready" && state.addresses.length > 0 && formTarget === null ? (
-        <Button disabled={busyId !== null} id="add-address" onClick={openCreate} variant="secondary"><Plus aria-hidden="true" className="size-4" />Add an address
-      </Button>
+      {state.type === "ready" &&
+      state.addresses.length > 0 &&
+      formTarget === null ? (
+        <Button
+          disabled={busyId !== null}
+          id="add-address"
+          onClick={openCreate}
+          variant="secondary"
+        >
+          <Plus aria-hidden="true" className="size-4" />
+          Add an address
+        </Button>
       ) : null}
       {formTarget === null ? null : (
         <AddressForm
@@ -224,11 +266,10 @@ export const AddressPageClient = () => {
           initialAddress={formTarget === "new" ? null : formTarget}
           key={`${formTarget === "new" ? "new" : formTarget.id}-${formVersion}`}
           onCancel={() => {
-            setFormFeedback(null)
-            setFormTarget(null)
-            return restoreFocus()
-      }
-          }
+            setFormFeedback(null);
+            setFormTarget(null);
+            return restoreFocus();
+          }}
           onSave={save}
         />
       )}
@@ -237,28 +278,25 @@ export const AddressPageClient = () => {
         confirmingRemoveId={confirmingRemoveId}
         feedback={feedback}
         onCancelRemove={() => {
-          setConfirmingRemoveId(null)
-          return restoreFocus()
-      }
-        }
+          setConfirmingRemoveId(null);
+          return restoreFocus();
+        }}
         onConfirmRemove={(address) => void remove(address)}
         onCreate={openCreate}
         onEdit={(address) => {
-          rememberFocus()
-          setFormFeedback(null)
-          setFormTarget(address)
-          return setFormVersion((version) => version + 1)
-      }
-        }
+          rememberFocus();
+          setFormFeedback(null);
+          setFormTarget(address);
+          return setFormVersion((version) => version + 1);
+        }}
         onRequestRemove={(address) => {
-          rememberFocus()
-          return setConfirmingRemoveId(address.id)
-      }
-        }
+          rememberFocus();
+          return setConfirmingRemoveId(address.id);
+        }}
         onRetry={() => void load()}
         onSetPrimary={(address) => void setPrimary(address)}
         state={state}
       />
-  </div>
-  )
-}
+    </div>
+  );
+};

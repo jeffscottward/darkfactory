@@ -1,8 +1,8 @@
-import { PageHeader } from "@darkfactory/ui"
+import { PageHeader } from "@darkfactory/ui";
 
-import { OperatorWorkspace } from "../../../components/operator/operator-workspace.tsx"
+import { OperatorWorkspace } from "../../../components/operator/operator-workspace.tsx";
 
-export const metadata = { title: "Operator" }
+export const metadata = { title: "Operator" };
 
 export default function OperatorPage() {
   return (
@@ -13,6 +13,6 @@ export default function OperatorPage() {
         title="Plan and monitor work"
       />
       <OperatorWorkspace />
-  </div>
-  )
+    </div>
+  );
 }

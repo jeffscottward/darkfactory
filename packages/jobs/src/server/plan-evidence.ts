@@ -1,84 +1,91 @@
-import { canonicalJsonV1, sha256Hex } from "@darkfactory/state/workflow"
+import { canonicalJsonV1, sha256Hex } from "@darkfactory/state/workflow";
 
-import type { OmpSanitizedOutput } from "./omp.ts"
+import type { OmpSanitizedOutput } from "./omp.ts";
 
-export const MAX_WORKFLOW_PLAN_SUMMARY_BYTES = 6 * 1_024
-const utf8Encoder = new TextEncoder()
-const utf8Decoder = new TextDecoder()
+export const MAX_WORKFLOW_PLAN_SUMMARY_BYTES = 6 * 1_024;
+const utf8Encoder = new TextEncoder();
+const utf8Decoder = new TextDecoder();
 
 const truncateUtf8 = (
   value: string,
-  maximumBytes: number,
+  maximumBytes: number
 ): Readonly<{ value: string; truncated: boolean }> => {
-  const encoded = utf8Encoder.encode(value)
+  const encoded = utf8Encoder.encode(value);
   if (encoded.byteLength <= maximumBytes) {
-    return Object.freeze({ value, truncated: false })
+    return Object.freeze({ value, truncated: false });
   }
   return Object.freeze({
-    value: utf8Decoder.decode(encoded.slice(0, maximumBytes)).replace(/\uFFFD$/u, ""),
+    value: utf8Decoder
+      .decode(encoded.slice(0, maximumBytes))
+      .replace(/\uFFFD$/u, ""),
     truncated: true,
-  })
-}
-
+  });
+};
 
 export type WorkflowPlanEvidenceV1 = Readonly<{
-  version: 1
-  summary: string
-  digest: string
-  truncated: boolean
-  redacted: boolean
-}>
+  version: 1;
+  summary: string;
+  digest: string;
+  truncated: boolean;
+  redacted: boolean;
+}>;
 
 type WorkflowPlanDigestInput = Readonly<{
-  version: 1
-  summary: string
-  truncated: boolean
-  redacted: boolean
-}>
+  version: 1;
+  summary: string;
+  truncated: boolean;
+  redacted: boolean;
+}>;
 
 export class WorkflowPlanEvidenceError extends Error {
   constructor(message: string) {
-    super(message)
-    this.name = "WorkflowPlanEvidenceError"
+    super(message);
+    this.name = "WorkflowPlanEvidenceError";
   }
 }
 
 const planDigestInput = (
-  value: WorkflowPlanDigestInput,
+  value: WorkflowPlanDigestInput
 ): WorkflowPlanDigestInput => ({
   version: 1,
   summary: value.summary,
   truncated: value.truncated,
   redacted: value.redacted,
-})
+});
 
 export const hashWorkflowPlanEvidenceV1 = (
-  value: WorkflowPlanDigestInput,
-): string => sha256Hex(canonicalJsonV1(planDigestInput(value)))
+  value: WorkflowPlanDigestInput
+): string => sha256Hex(canonicalJsonV1(planDigestInput(value)));
 
 const reviewableOutput = (output: OmpSanitizedOutput): string => {
-  const streams = [output.stdout.trim(), output.stderr.trim()]
-    .filter((value) => value.length > 0)
-  return streams.join("\n\n")
-}
+  const streams = [output.stdout.trim(), output.stderr.trim()].filter(
+    (value) => value.length > 0
+  );
+  return streams.join("\n\n");
+};
 const isReviewableSummary = (value: string): boolean => {
-  return value.trim().length > 0 &&
+  return (
+    value.trim().length > 0 &&
     !/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/u.test(value)
-}
-
+  );
+};
 
 export const createWorkflowPlanEvidenceV1 = (
-  output: OmpSanitizedOutput,
+  output: OmpSanitizedOutput
 ): WorkflowPlanEvidenceV1 => {
   const bounded = truncateUtf8(
     reviewableOutput(output),
-    MAX_WORKFLOW_PLAN_SUMMARY_BYTES,
-  )
+    MAX_WORKFLOW_PLAN_SUMMARY_BYTES
+  );
   if (output.truncated || bounded.truncated) {
-    throw new WorkflowPlanEvidenceError("OMP plan output exceeds the review limit")
+    throw new WorkflowPlanEvidenceError(
+      "OMP plan output exceeds the review limit"
+    );
   }
   if (!isReviewableSummary(bounded.value)) {
-    throw new WorkflowPlanEvidenceError("OMP plan output is empty or unreviewable")
+    throw new WorkflowPlanEvidenceError(
+      "OMP plan output is empty or unreviewable"
+    );
   }
 
   const digestInput = Object.freeze({
@@ -86,23 +93,25 @@ export const createWorkflowPlanEvidenceV1 = (
     summary: bounded.value,
     truncated: output.truncated || bounded.truncated,
     redacted: output.redacted,
-  })
+  });
   return Object.freeze({
     ...digestInput,
     digest: hashWorkflowPlanEvidenceV1(digestInput),
-  })
-}
+  });
+};
 
-const isRecord = (value: unknown): value is Readonly<Record<string, unknown>> => {
-  return value !== null && typeof value === "object" && !Array.isArray(value)
-}
+const isRecord = (
+  value: unknown
+): value is Readonly<Record<string, unknown>> => {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+};
 
 export const parseWorkflowPlanEvidenceV1 = (
   value: unknown,
-  expectedDigest?: string | null,
+  expectedDigest?: string | null
 ): WorkflowPlanEvidenceV1 => {
   if (!isRecord(value)) {
-    throw new WorkflowPlanEvidenceError("Invalid workflow plan evidence")
+    throw new WorkflowPlanEvidenceError("Invalid workflow plan evidence");
   }
   if (
     Object.keys(value).sort().join(",") !==
@@ -114,18 +123,20 @@ export const parseWorkflowPlanEvidenceV1 = (
     typeof value["truncated"] !== "boolean" ||
     typeof value["redacted"] !== "boolean"
   ) {
-    throw new WorkflowPlanEvidenceError("Invalid workflow plan evidence")
+    throw new WorkflowPlanEvidenceError("Invalid workflow plan evidence");
   }
   if (value["truncated"]) {
-    throw new WorkflowPlanEvidenceError("Workflow plan evidence is incomplete")
+    throw new WorkflowPlanEvidenceError("Workflow plan evidence is incomplete");
   }
 
-  const summary = value["summary"]
+  const summary = value["summary"];
   if (
     !isReviewableSummary(summary) ||
     utf8Encoder.encode(summary).byteLength > MAX_WORKFLOW_PLAN_SUMMARY_BYTES
   ) {
-    throw new WorkflowPlanEvidenceError("Workflow plan summary is not safely reviewable")
+    throw new WorkflowPlanEvidenceError(
+      "Workflow plan summary is not safely reviewable"
+    );
   }
 
   const plan = Object.freeze({
@@ -134,10 +145,15 @@ export const parseWorkflowPlanEvidenceV1 = (
     digest: value["digest"],
     truncated: value["truncated"],
     redacted: value["redacted"],
-  })
-  const digest = hashWorkflowPlanEvidenceV1(plan)
-  if (plan.digest !== digest || (expectedDigest != null && expectedDigest !== digest)) {
-    throw new WorkflowPlanEvidenceError("Workflow plan evidence digest mismatch")
+  });
+  const digest = hashWorkflowPlanEvidenceV1(plan);
+  if (
+    plan.digest !== digest ||
+    (expectedDigest != null && expectedDigest !== digest)
+  ) {
+    throw new WorkflowPlanEvidenceError(
+      "Workflow plan evidence digest mismatch"
+    );
   }
-  return plan
-}
+  return plan;
+};

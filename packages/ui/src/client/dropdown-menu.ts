@@ -1,17 +1,17 @@
-"use client"
+"use client";
 
-import type { ComponentPropsWithRef } from "react"
-import { createElement } from "react"
-import { Check, ChevronRight, Circle } from "lucide-react"
-import { DropdownMenu as DropdownMenuPrimitive } from "radix-ui"
+import type { ComponentPropsWithRef } from "react";
+import { createElement } from "react";
+import { Check, ChevronRight, Circle } from "lucide-react";
+import { DropdownMenu as DropdownMenuPrimitive } from "radix-ui";
 
-import { cn } from "../utilities.ts"
+import { cn } from "../utilities.ts";
 
-export const DropdownMenu = DropdownMenuPrimitive.Root
-export const DropdownMenuTrigger = DropdownMenuPrimitive.Trigger
-export const DropdownMenuGroup = DropdownMenuPrimitive.Group
-export const DropdownMenuRadioGroup = DropdownMenuPrimitive.RadioGroup
-export const DropdownMenuSub = DropdownMenuPrimitive.Sub
+export const DropdownMenu = DropdownMenuPrimitive.Root;
+export const DropdownMenuTrigger = DropdownMenuPrimitive.Trigger;
+export const DropdownMenuGroup = DropdownMenuPrimitive.Group;
+export const DropdownMenuRadioGroup = DropdownMenuPrimitive.RadioGroup;
+export const DropdownMenuSub = DropdownMenuPrimitive.Sub;
 
 export const DropdownMenuContent = ({
   className,
@@ -25,27 +25,29 @@ export const DropdownMenuContent = ({
       sideOffset,
       className: cn(
         "z-popover min-w-48 overflow-hidden rounded-md border border-border bg-surface-raised p-1 text-foreground shadow-md",
-        className,
+        className
       ),
       ...props,
-    }),
-  )
-}
+    })
+  );
+};
 
 export const DropdownMenuItem = ({
   className,
   inset = false,
   ...props
-}: ComponentPropsWithRef<typeof DropdownMenuPrimitive.Item> & { inset?: boolean }) => {
+}: ComponentPropsWithRef<typeof DropdownMenuPrimitive.Item> & {
+  inset?: boolean;
+}) => {
   return createElement(DropdownMenuPrimitive.Item, {
     className: cn(
       "relative flex min-h-11 min-w-11 cursor-default select-none items-center gap-2 rounded-sm px-3 py-2 text-sm outline-none transition-colors duration-fast ease-out focus:bg-accent focus:text-accent-foreground focus:ring-2 focus:ring-ring focus:ring-offset-1 focus:ring-offset-surface-raised data-[disabled]:pointer-events-none data-[disabled]:bg-disabled data-[disabled]:text-disabled-foreground data-[disabled]:opacity-100 [&_svg]:size-4 [&_svg]:shrink-0",
       inset && "pl-9",
-      className,
+      className
     ),
     ...props,
-  })
-}
+  });
+};
 
 export const DropdownMenuCheckboxItem = ({
   children,
@@ -57,22 +59,25 @@ export const DropdownMenuCheckboxItem = ({
     {
       className: cn(
         "relative flex min-h-11 min-w-11 cursor-default select-none items-center rounded-sm py-2 pl-9 pr-3 text-sm outline-none transition-colors duration-fast ease-out focus:bg-accent focus:text-accent-foreground focus:ring-2 focus:ring-ring focus:ring-offset-1 focus:ring-offset-surface-raised data-[disabled]:pointer-events-none data-[disabled]:bg-disabled data-[disabled]:text-disabled-foreground data-[disabled]:opacity-100",
-        className,
+        className
       ),
       ...props,
     },
     createElement(
       "span",
-      { className: "absolute left-3 inline-flex size-4 items-center justify-center" },
+      {
+        className:
+          "absolute left-3 inline-flex size-4 items-center justify-center",
+      },
       createElement(
         DropdownMenuPrimitive.ItemIndicator,
         null,
-        createElement(Check, { "aria-hidden": "true", className: "size-4" }),
-      ),
+        createElement(Check, { "aria-hidden": "true", className: "size-4" })
+      )
     ),
-    children,
-  )
-}
+    children
+  );
+};
 
 export const DropdownMenuRadioItem = ({
   children,
@@ -84,37 +89,45 @@ export const DropdownMenuRadioItem = ({
     {
       className: cn(
         "relative flex min-h-11 min-w-11 cursor-default select-none items-center rounded-sm py-2 pl-9 pr-3 text-sm outline-none transition-colors duration-fast ease-out focus:bg-accent focus:text-accent-foreground focus:ring-2 focus:ring-ring focus:ring-offset-1 focus:ring-offset-surface-raised data-[disabled]:pointer-events-none data-[disabled]:bg-disabled data-[disabled]:text-disabled-foreground data-[disabled]:opacity-100",
-        className,
+        className
       ),
       ...props,
     },
     createElement(
       "span",
-      { className: "absolute left-3 inline-flex size-4 items-center justify-center" },
+      {
+        className:
+          "absolute left-3 inline-flex size-4 items-center justify-center",
+      },
       createElement(
         DropdownMenuPrimitive.ItemIndicator,
         null,
-        createElement(Circle, { "aria-hidden": "true", className: "size-2 fill-current" }),
-      ),
+        createElement(Circle, {
+          "aria-hidden": "true",
+          className: "size-2 fill-current",
+        })
+      )
     ),
-    children,
-  )
-}
+    children
+  );
+};
 
 export const DropdownMenuLabel = ({
   className,
   inset = false,
   ...props
-}: ComponentPropsWithRef<typeof DropdownMenuPrimitive.Label> & { inset?: boolean }) => {
+}: ComponentPropsWithRef<typeof DropdownMenuPrimitive.Label> & {
+  inset?: boolean;
+}) => {
   return createElement(DropdownMenuPrimitive.Label, {
     className: cn(
       "px-3 py-2 text-xs font-semibold text-muted-foreground",
       inset && "pl-9",
-      className,
+      className
     ),
     ...props,
-  })
-}
+  });
+};
 
 export const DropdownMenuSeparator = ({
   className,
@@ -123,29 +136,34 @@ export const DropdownMenuSeparator = ({
   return createElement(DropdownMenuPrimitive.Separator, {
     className: cn("-mx-1 my-1 h-px bg-border", className),
     ...props,
-  })
-}
+  });
+};
 
 export const DropdownMenuSubTrigger = ({
   children,
   className,
   inset = false,
   ...props
-}: ComponentPropsWithRef<typeof DropdownMenuPrimitive.SubTrigger> & { inset?: boolean }) => {
+}: ComponentPropsWithRef<typeof DropdownMenuPrimitive.SubTrigger> & {
+  inset?: boolean;
+}) => {
   return createElement(
     DropdownMenuPrimitive.SubTrigger,
     {
       className: cn(
         "flex min-h-11 min-w-11 cursor-default select-none items-center gap-2 rounded-sm px-3 py-2 text-sm outline-none transition-colors duration-fast ease-out focus:bg-accent focus:ring-2 focus:ring-ring focus:ring-offset-1 focus:ring-offset-surface-raised data-[state=open]:bg-accent data-[disabled]:pointer-events-none data-[disabled]:bg-disabled data-[disabled]:text-disabled-foreground data-[disabled]:opacity-100",
         inset && "pl-9",
-        className,
+        className
       ),
       ...props,
     },
     children,
-    createElement(ChevronRight, { "aria-hidden": "true", className: "ml-auto size-4" }),
-  )
-}
+    createElement(ChevronRight, {
+      "aria-hidden": "true",
+      className: "ml-auto size-4",
+    })
+  );
+};
 
 export const DropdownMenuSubContent = ({
   className,
@@ -154,8 +172,8 @@ export const DropdownMenuSubContent = ({
   return createElement(DropdownMenuPrimitive.SubContent, {
     className: cn(
       "z-popover min-w-48 overflow-hidden rounded-md border border-border bg-surface-raised p-1 text-foreground shadow-md",
-      className,
+      className
     ),
     ...props,
-  })
-}
+  });
+};

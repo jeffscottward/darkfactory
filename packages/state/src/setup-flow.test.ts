@@ -1,171 +1,175 @@
-import { createActor } from "xstate"
-import { describe, expect, expectTypeOf, it, vi } from "vitest"
+import { createActor } from "xstate";
+import { describe, expect, expectTypeOf, it, vi } from "vitest";
 
 import {
   createSetupFlowActor,
   setupFlowMachine,
   type SetupFlowContext,
   type SetupFlowEvent,
-} from "./setup-flow.ts"
+} from "./setup-flow.ts";
 
-const startFlow = function() { return createActor(setupFlowMachine).start() }
+const startFlow = function () {
+  return createActor(setupFlowMachine).start();
+};
 
-describe("createSetupFlowActor", function() {
-  return it("owns actor construction and releases subscribers when stopped", function() {
-    const actor = createSetupFlowActor()
-    const completed = vi.fn()
-    const subscription = actor.subscribe({ complete: completed })
+describe("createSetupFlowActor", function () {
+  return it("owns actor construction and releases subscribers when stopped", function () {
+    const actor = createSetupFlowActor();
+    const completed = vi.fn();
+    const subscription = actor.subscribe({ complete: completed });
 
-    actor.start()
-    actor.send({ type: "SET_DETAILS_COMPLETE", value: true })
-    actor.send({ type: "NEXT" })
-    expect(actor.getSnapshot().value).toBe("preferences")
+    actor.start();
+    actor.send({ type: "SET_DETAILS_COMPLETE", value: true });
+    actor.send({ type: "NEXT" });
+    expect(actor.getSnapshot().value).toBe("preferences");
 
-    actor.stop()
-    subscription.unsubscribe()
+    actor.stop();
+    subscription.unsubscribe();
 
-    expect(completed).toHaveBeenCalledOnce()
-    return expect(actor.getSnapshot().status).toBe("stopped")
-  })
-})
+    expect(completed).toHaveBeenCalledOnce();
+    return expect(actor.getSnapshot().status).toBe("stopped");
+  });
+});
 
-describe("setupFlowMachine", function() {
-  it("moves through details, preferences, review, submitting, and success", function() {
-    const actor = startFlow()
+describe("setupFlowMachine", function () {
+  it("moves through details, preferences, review, submitting, and success", function () {
+    const actor = startFlow();
 
-    expect(actor.getSnapshot().value).toBe("details")
+    expect(actor.getSnapshot().value).toBe("details");
 
-    actor.send({ type: "SET_DETAILS_COMPLETE", value: true })
-    actor.send({ type: "NEXT" })
-    expect(actor.getSnapshot().value).toBe("preferences")
+    actor.send({ type: "SET_DETAILS_COMPLETE", value: true });
+    actor.send({ type: "NEXT" });
+    expect(actor.getSnapshot().value).toBe("preferences");
 
-    actor.send({ type: "SET_PREFERENCES_COMPLETE", value: true })
-    actor.send({ type: "NEXT" })
-    expect(actor.getSnapshot().value).toBe("review")
+    actor.send({ type: "SET_PREFERENCES_COMPLETE", value: true });
+    actor.send({ type: "NEXT" });
+    expect(actor.getSnapshot().value).toBe("review");
 
-    actor.send({ type: "SUBMIT" })
-    expect(actor.getSnapshot().value).toBe("submitting")
-    expect(actor.getSnapshot().context.submissionAttempts).toBe(1)
+    actor.send({ type: "SUBMIT" });
+    expect(actor.getSnapshot().value).toBe("submitting");
+    expect(actor.getSnapshot().context.submissionAttempts).toBe(1);
 
-    actor.send({ type: "SUCCEED" })
-    expect(actor.getSnapshot().value).toBe("success")
-    expect(actor.getSnapshot().status).toBe("done")
+    actor.send({ type: "SUCCEED" });
+    expect(actor.getSnapshot().value).toBe("success");
+    expect(actor.getSnapshot().status).toBe("done");
 
-    return actor.stop()
-  })
+    return actor.stop();
+  });
 
-  it("supports back navigation only where explicitly allowed", function() {
-    const actor = startFlow()
+  it("supports back navigation only where explicitly allowed", function () {
+    const actor = startFlow();
 
-    actor.send({ type: "BACK" })
-    expect(actor.getSnapshot().value).toBe("details")
+    actor.send({ type: "BACK" });
+    expect(actor.getSnapshot().value).toBe("details");
 
-    actor.send({ type: "SET_DETAILS_COMPLETE", value: true })
-    actor.send({ type: "NEXT" })
-    actor.send({ type: "BACK" })
-    expect(actor.getSnapshot().value).toBe("details")
+    actor.send({ type: "SET_DETAILS_COMPLETE", value: true });
+    actor.send({ type: "NEXT" });
+    actor.send({ type: "BACK" });
+    expect(actor.getSnapshot().value).toBe("details");
 
-    actor.send({ type: "NEXT" })
-    actor.send({ type: "SET_PREFERENCES_COMPLETE", value: true })
-    actor.send({ type: "NEXT" })
-    actor.send({ type: "BACK" })
-    expect(actor.getSnapshot().value).toBe("preferences")
+    actor.send({ type: "NEXT" });
+    actor.send({ type: "SET_PREFERENCES_COMPLETE", value: true });
+    actor.send({ type: "NEXT" });
+    actor.send({ type: "BACK" });
+    expect(actor.getSnapshot().value).toBe("preferences");
 
-    return actor.stop()
-  })
+    return actor.stop();
+  });
 
-  it("rejects next until the current step guard passes", function() {
-    const actor = startFlow()
+  it("rejects next until the current step guard passes", function () {
+    const actor = startFlow();
 
-    actor.send({ type: "NEXT" })
-    expect(actor.getSnapshot().value).toBe("details")
+    actor.send({ type: "NEXT" });
+    expect(actor.getSnapshot().value).toBe("details");
 
-    actor.send({ type: "SET_DETAILS_COMPLETE", value: true })
-    actor.send({ type: "NEXT" })
-    actor.send({ type: "NEXT" })
-    expect(actor.getSnapshot().value).toBe("preferences")
+    actor.send({ type: "SET_DETAILS_COMPLETE", value: true });
+    actor.send({ type: "NEXT" });
+    actor.send({ type: "NEXT" });
+    expect(actor.getSnapshot().value).toBe("preferences");
 
-    return actor.stop()
-  })
+    return actor.stop();
+  });
 
-  it("preserves context when the preferences assignment receives another event", function() {
+  it("preserves context when the preferences assignment receives another event", function () {
     const context: SetupFlowContext = {
       detailsComplete: true,
       preferencesComplete: false,
       submissionAttempts: 0,
-      error: null
-    }
+      error: null,
+    };
     const action = setupFlowMachine.implementations.actions[
       "setPreferencesComplete"
     ] as unknown as {
       assignment: (args: {
-        context: SetupFlowContext
-        event: SetupFlowEvent
-      }) => SetupFlowContext
-    }
+        context: SetupFlowContext;
+        event: SetupFlowEvent;
+      }) => SetupFlowContext;
+    };
 
     const result = action.assignment({
       context,
-      event: { type: "NEXT" }
-    })
+      event: { type: "NEXT" },
+    });
 
-    return expect(result).toBe(context)
-  })
+    return expect(result).toBe(context);
+  });
 
-  it("ignores submit outcomes outside the submitting state", function() {
-    const actor = startFlow()
+  it("ignores submit outcomes outside the submitting state", function () {
+    const actor = startFlow();
 
-    actor.send({ type: "SUCCEED" })
-    actor.send({ type: "FAIL", message: "must be ignored" })
+    actor.send({ type: "SUCCEED" });
+    actor.send({ type: "FAIL", message: "must be ignored" });
 
-    expect(actor.getSnapshot().value).toBe("details")
-    expect(actor.getSnapshot().context.error).toBeNull()
-    expect(actor.getSnapshot().context.submissionAttempts).toBe(0)
+    expect(actor.getSnapshot().value).toBe("details");
+    expect(actor.getSnapshot().context.error).toBeNull();
+    expect(actor.getSnapshot().context.submissionAttempts).toBe(0);
 
-    return actor.stop()
-  })
+    return actor.stop();
+  });
 
-  it("captures failure and retries submission with deterministic context", function() {
-    const actor = startFlow()
-    actor.send({ type: "SET_DETAILS_COMPLETE", value: true })
-    actor.send({ type: "NEXT" })
-    actor.send({ type: "SET_PREFERENCES_COMPLETE", value: true })
-    actor.send({ type: "NEXT" })
-    actor.send({ type: "SUBMIT" })
-    actor.send({ type: "FAIL", message: "Connection interrupted" })
+  it("captures failure and retries submission with deterministic context", function () {
+    const actor = startFlow();
+    actor.send({ type: "SET_DETAILS_COMPLETE", value: true });
+    actor.send({ type: "NEXT" });
+    actor.send({ type: "SET_PREFERENCES_COMPLETE", value: true });
+    actor.send({ type: "NEXT" });
+    actor.send({ type: "SUBMIT" });
+    actor.send({ type: "FAIL", message: "Connection interrupted" });
 
-    expect(actor.getSnapshot().value).toBe("failure")
+    expect(actor.getSnapshot().value).toBe("failure");
     expect(actor.getSnapshot().context).toEqual({
       detailsComplete: true,
       preferencesComplete: true,
       submissionAttempts: 1,
       error: "Connection interrupted",
-    })
+    });
 
-    actor.send({ type: "RETRY" })
+    actor.send({ type: "RETRY" });
 
-    expect(actor.getSnapshot().value).toBe("submitting")
-    expect(actor.getSnapshot().context.submissionAttempts).toBe(2)
-    expect(actor.getSnapshot().context.error).toBeNull()
+    expect(actor.getSnapshot().value).toBe("submitting");
+    expect(actor.getSnapshot().context.submissionAttempts).toBe(2);
+    expect(actor.getSnapshot().context.error).toBeNull();
 
-    actor.send({ type: "FAIL", message: "Still unavailable" })
-    actor.send({ type: "BACK" })
-    expect(actor.getSnapshot().value).toBe("review")
-    expect(actor.getSnapshot().context.error).toBeNull()
+    actor.send({ type: "FAIL", message: "Still unavailable" });
+    actor.send({ type: "BACK" });
+    expect(actor.getSnapshot().value).toBe("review");
+    expect(actor.getSnapshot().context.error).toBeNull();
 
-    return actor.stop()
-  })
+    return actor.stop();
+  });
 
-  return it("exposes typed context and events", function() {
+  return it("exposes typed context and events", function () {
     expectTypeOf<SetupFlowContext>().toEqualTypeOf<{
-      readonly detailsComplete: boolean
-      readonly preferencesComplete: boolean
-      readonly submissionAttempts: number
-      readonly error: string | null
-    }>()
-    return expectTypeOf<Extract<SetupFlowEvent, { type: "FAIL" }>>().toEqualTypeOf<{
-      readonly type: "FAIL"
-      readonly message: string
-    }>()
-  })
-})
+      readonly detailsComplete: boolean;
+      readonly preferencesComplete: boolean;
+      readonly submissionAttempts: number;
+      readonly error: string | null;
+    }>();
+    return expectTypeOf<
+      Extract<SetupFlowEvent, { type: "FAIL" }>
+    >().toEqualTypeOf<{
+      readonly type: "FAIL";
+      readonly message: string;
+    }>();
+  });
+});

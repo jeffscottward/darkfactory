@@ -38,9 +38,7 @@ export default defineConfig({
         extends: true,
         test: {
           name: "unit",
-          include: [
-            "**/*.{test,spec}.{js,jsx,ts,tsx,mjs,cjs,mts,cts}",
-          ],
+          include: ["**/*.{test,spec}.{js,jsx,ts,tsx,mjs,cjs,mts,cts}"],
           exclude: [
             "**/node_modules/**",
             "**/.git/**",
@@ -85,9 +83,7 @@ export default defineConfig({
         extends: true,
         test: {
           name: "e2e-helpers",
-          include: [
-            "tests/e2e/helpers/*.test.ts",
-          ],
+          include: ["tests/e2e/helpers/*.test.ts"],
           exclude: [
             "**/node_modules/**",
             "**/.git/**",

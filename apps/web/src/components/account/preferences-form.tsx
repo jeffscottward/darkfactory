@@ -1,20 +1,21 @@
-"use client"
+"use client";
 
 import {
   type PreferencesOutput,
   type PreferencesUpdateInput,
-} from "@darkfactory/api"
-import { useForm } from "@tanstack/react-form"
-import { Button, Label } from "@darkfactory/ui"
+} from "@darkfactory/api";
+import { useForm } from "@tanstack/react-form";
+import { Button, Label } from "@darkfactory/ui";
 
 import {
   AccountFeedbackMessage,
   type AccountFeedback,
-} from "./account-feedback.tsx"
+} from "./account-feedback.tsx";
 
-const visibilities = ["private", "members", "public"] as const
+const visibilities = ["private", "members", "public"] as const;
 
-const labelFor = (value: string): string => value.charAt(0).toUpperCase() + value.slice(1)
+const labelFor = (value: string): string =>
+  value.charAt(0).toUpperCase() + value.slice(1);
 
 const preferenceToggles = [
   {
@@ -37,7 +38,7 @@ const preferenceToggles = [
     label: "Personalization consent",
     help: "Allow saved preferences to tailor the portal experience.",
   },
-] as const
+] as const;
 
 const preferencesDefaults = (preferences: PreferencesOutput) => ({
   emailNotifications: preferences.emailNotifications,
@@ -45,50 +46,62 @@ const preferencesDefaults = (preferences: PreferencesOutput) => ({
   analyticsConsent: preferences.analyticsConsent,
   personalizationConsent: preferences.personalizationConsent,
   profileVisibility: preferences.profileVisibility,
-})
+});
 
 export const changedPreferencesInput = (
   initial: PreferencesOutput,
-  current: ReturnType<typeof preferencesDefaults>,
+  current: ReturnType<typeof preferencesDefaults>
 ): PreferencesUpdateInput => {
-  const patch: Record<string, unknown> = { expectedUpdatedAt: initial.updatedAt }
+  const patch: Record<string, unknown> = {
+    expectedUpdatedAt: initial.updatedAt,
+  };
   for (const field of Object.keys(current) as (keyof typeof current)[]) {
-    if (current[field] !== initial[field]) patch[field] = current[field]
+    if (current[field] !== initial[field]) patch[field] = current[field];
   }
-  return patch as PreferencesUpdateInput
-}
+  return patch as PreferencesUpdateInput;
+};
 
 export interface PreferencesFormProps {
-  readonly feedback?: AccountFeedback | null | undefined
-  readonly initialPreferences: PreferencesOutput
-  readonly onSave: (input: PreferencesUpdateInput) => Promise<unknown> | unknown
+  readonly feedback?: AccountFeedback | null | undefined;
+  readonly initialPreferences: PreferencesOutput;
+  readonly onSave: (
+    input: PreferencesUpdateInput
+  ) => Promise<unknown> | unknown;
 }
 
-export const PreferencesForm = ({ feedback, initialPreferences, onSave }: PreferencesFormProps) => {
+export const PreferencesForm = ({
+  feedback,
+  initialPreferences,
+  onSave,
+}: PreferencesFormProps) => {
   const form = useForm({
     defaultValues: preferencesDefaults(initialPreferences),
     onSubmit: async ({ value }) => {
-      return await onSave(changedPreferencesInput(initialPreferences, value))
-    }
-  })
+      return await onSave(changedPreferencesInput(initialPreferences, value));
+    },
+  });
 
   return (
     <form
       className="space-y-8"
       noValidate
       onSubmit={(event) => {
-        event.preventDefault()
-        event.stopPropagation()
-        return void form.handleSubmit()
-  }
-      }
+        event.preventDefault();
+        event.stopPropagation();
+        return void form.handleSubmit();
+      }}
     >
       <AccountFeedbackMessage feedback={feedback} />
       <section aria-labelledby="appearance-summary" className="space-y-2">
-        <h2 className="font-heading text-lg font-semibold text-foreground" id="appearance-summary">Appearance
+        <h2
+          className="font-heading text-lg font-semibold text-foreground"
+          id="appearance-summary"
+        >
+          Appearance
         </h2>
         <p className="text-sm text-foreground">
-          Current appearance: {labelFor(initialPreferences.themeMode)} mode with the {labelFor(initialPreferences.palette)} palette.
+          Current appearance: {labelFor(initialPreferences.themeMode)} mode with
+          the {labelFor(initialPreferences.palette)} palette.
         </p>
         <p className="max-w-reading text-sm text-muted-foreground">
           Use Theme settings in the top bar to change mode or palette.
@@ -96,12 +109,16 @@ export const PreferencesForm = ({ feedback, initialPreferences, onSave }: Prefer
       </section>
 
       <fieldset className="space-y-3 border-t border-border pt-6">
-        <legend className="font-heading text-lg font-semibold text-foreground">Notifications and consent
+        <legend className="font-heading text-lg font-semibold text-foreground">
+          Notifications and consent
         </legend>
         {preferenceToggles.map((definition) => (
           <form.Field key={definition.name} name={definition.name}>
             {(field) => (
-              <label className="flex min-h-11 cursor-pointer items-start gap-3 py-2" htmlFor={definition.name}>
+              <label
+                className="flex min-h-11 cursor-pointer items-start gap-3 py-2"
+                htmlFor={definition.name}
+              >
                 <input
                   checked={field.state.value}
                   className="mt-1 size-5 accent-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
@@ -112,23 +129,27 @@ export const PreferencesForm = ({ feedback, initialPreferences, onSave }: Prefer
                   type="checkbox"
                 />
                 <span>
-                  <span className="block text-sm font-medium text-foreground">{definition.label}
+                  <span className="block text-sm font-medium text-foreground">
+                    {definition.label}
                   </span>
-                  <span className="block text-sm text-muted-foreground">{definition.help}
+                  <span className="block text-sm text-muted-foreground">
+                    {definition.help}
                   </span>
                 </span>
-            </label>
+              </label>
             )}
-        </form.Field>
+          </form.Field>
         ))}
       </fieldset>
 
       <form.Field name="profileVisibility">
         {(field) => (
           <div className="max-w-md space-y-2 border-t border-border pt-6">
-            <Label htmlFor="profileVisibility">Profile visibility
-            </Label>
-            <p className="text-sm text-muted-foreground" id="profileVisibility-help">
+            <Label htmlFor="profileVisibility">Profile visibility</Label>
+            <p
+              className="text-sm text-muted-foreground"
+              id="profileVisibility-help"
+            >
               Choose who may see your non-sensitive profile summary.
             </p>
             <select
@@ -137,19 +158,28 @@ export const PreferencesForm = ({ feedback, initialPreferences, onSave }: Prefer
               id="profileVisibility"
               name="profileVisibility"
               onBlur={field.handleBlur}
-              onChange={(event) => field.handleChange(event.target.value as PreferencesOutput["profileVisibility"])}
+              onChange={(event) =>
+                field.handleChange(
+                  event.target.value as PreferencesOutput["profileVisibility"]
+                )
+              }
               value={field.state.value}
             >
               {visibilities.map((visibility) => (
-                <option key={visibility} value={visibility}>{labelFor(visibility)}
-              </option>
+                <option key={visibility} value={visibility}>
+                  {labelFor(visibility)}
+                </option>
               ))}
             </select>
-        </div>
+          </div>
         )}
       </form.Field>
 
-      <form.Subscribe selector={(state) => [state.canSubmit, state.isDirty, state.isSubmitting] as const}>
+      <form.Subscribe
+        selector={(state) =>
+          [state.canSubmit, state.isDirty, state.isSubmitting] as const
+        }
+      >
         {([canSubmit, isDirty, isSubmitting]) => (
           <Button
             disabled={!canSubmit || !isDirty || isSubmitting}
@@ -158,9 +188,9 @@ export const PreferencesForm = ({ feedback, initialPreferences, onSave }: Prefer
             type="submit"
           >
             Save preferences
-        </Button>
+          </Button>
         )}
       </form.Subscribe>
-  </form>
-  )
-}
+    </form>
+  );
+};

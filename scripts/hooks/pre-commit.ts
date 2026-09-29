@@ -1,3 +1,3 @@
-import { runPreCommit } from "./index.ts"
+import { runPreCommit } from "./index.ts";
 
-process.exitCode = runPreCommit()
+process.exitCode = runPreCommit();

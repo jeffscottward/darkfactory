@@ -7,7 +7,7 @@ import {
   ne,
   or as orWhere,
   sql,
-} from "drizzle-orm"
+} from "drizzle-orm";
 import {
   COLOR_SCHEMES,
   PREFERENCE_MODES,
@@ -28,312 +28,309 @@ import {
   type Profile,
   type ProfileVisibility,
   type UserPreferences,
-} from "../schema/index.ts"
+} from "../schema/index.ts";
 import {
   withTransaction,
   type DatabaseExecutor,
   type Transaction,
-} from "./client.ts"
+} from "./client.ts";
 import {
   createAdminUsersRepository,
   type AdminUsersRepository,
-} from "./admin-users-repository.ts"
+} from "./admin-users-repository.ts";
 import {
   createDashboardRepository,
   type DashboardRepository,
-} from "./dashboard-repository.ts"
+} from "./dashboard-repository.ts";
 import {
   createGeneratedFeatureRepositories,
   type GeneratedFeatureRepositories,
-} from "../generated/repository-registry.ts"
+} from "../generated/repository-registry.ts";
 import {
   createWorkflowRepository,
   type WorkflowRepository,
-} from "./workflow-repository.ts"
+} from "./workflow-repository.ts";
 
-const FEATURE_METADATA_LIMIT_BYTES = 16 * 1024
+const FEATURE_METADATA_LIMIT_BYTES = 16 * 1024;
 const nextOptimisticVersion = (candidate: Date, expected: Date): Date => {
-  return new Date(Math.max(candidate.getTime(), expected.getTime() + 1))
-}
-const MAX_ADDRESSES_PER_USER = 20
+  return new Date(Math.max(candidate.getTime(), expected.getTime() + 1));
+};
+const MAX_ADDRESSES_PER_USER = 20;
 
 export class DatabaseConflictError extends Error {
   constructor(entity: string) {
-    super(`${entity} conflicts with an existing record`)
-    this.name = "DatabaseConflictError"
+    super(`${entity} conflicts with an existing record`);
+    this.name = "DatabaseConflictError";
   }
 }
 
 export class OptimisticConcurrencyError extends DatabaseConflictError {
   constructor(entity: string) {
-    super(entity)
-    this.name = "OptimisticConcurrencyError"
+    super(entity);
+    this.name = "OptimisticConcurrencyError";
   }
 }
 
 export class DatabasePersistenceError extends Error {
   constructor(operation: string) {
-    super(`Database operation failed: ${operation}`)
-    this.name = "DatabasePersistenceError"
+    super(`Database operation failed: ${operation}`);
+    this.name = "DatabasePersistenceError";
   }
 }
 
 export class InvalidRepositoryInputError extends Error {
   constructor(message: string) {
-    super(`Invalid repository input: ${message}`)
-    this.name = "InvalidRepositoryInputError"
+    super(`Invalid repository input: ${message}`);
+    this.name = "InvalidRepositoryInputError";
   }
 }
 
 export type RepositoryDependencies = Readonly<{
-  now?: () => Date
-  generateId?: () => string
-}>
+  now?: () => Date;
+  generateId?: () => string;
+}>;
 
 type ResolvedRepositoryDependencies = Readonly<{
-  now: () => Date
-  generateId: () => string
-}>
+  now: () => Date;
+  generateId: () => string;
+}>;
 
 const resolveDependencies = (
-  dependencies: RepositoryDependencies = {},
+  dependencies: RepositoryDependencies = {}
 ): ResolvedRepositoryDependencies => ({
   now: dependencies.now ?? (() => new Date()),
   generateId: dependencies.generateId ?? (() => crypto.randomUUID()),
-})
+});
 
 const databaseErrorDetails = (
-  error: unknown,
+  error: unknown
 ): Readonly<{ code?: unknown; constraint?: unknown }> => {
-  const visited = new Set<object>()
-  let current = error
+  const visited = new Set<object>();
+  let current = error;
 
   while (typeof current === "object" && current !== null) {
-    if (visited.has(current)) break
-    visited.add(current)
+    if (visited.has(current)) break;
+    visited.add(current);
 
     const candidate = current as {
-      cause?: unknown
-      code?: unknown
-      constraint?: unknown
-    }
+      cause?: unknown;
+      code?: unknown;
+      constraint?: unknown;
+    };
     if (typeof candidate.code === "string") {
       return {
         code: candidate.code,
         constraint: candidate.constraint,
-      }
+      };
     }
-    current = candidate.cause
+    current = candidate.cause;
   }
 
-  return {}
-}
+  return {};
+};
 
 const isUniqueViolation = (error: unknown): boolean => {
-  return databaseErrorDetails(error).code === "23505"
-}
+  return databaseErrorDetails(error).code === "23505";
+};
 
 const mapConflict = (error: unknown, entity: string): never => {
-  if (isUniqueViolation(error)) throw new DatabaseConflictError(entity)
-  throw error
-}
+  if (isUniqueViolation(error)) throw new DatabaseConflictError(entity);
+  throw error;
+};
 
 const mapFeatureMutationError = (error: unknown): never => {
-  const details = databaseErrorDetails(error)
-  if (
-    details.code === "23505" &&
-    details.constraint === "feature_items_pkey"
-  ) {
-    throw new DatabaseConflictError("feature item")
+  const details = databaseErrorDetails(error);
+  if (details.code === "23505" && details.constraint === "feature_items_pkey") {
+    throw new DatabaseConflictError("feature item");
   }
   if (
     details.code === "23514" &&
     details.constraint === "feature_items_metadata_check"
   ) {
-    throw new InvalidRepositoryInputError("metadata must not exceed 16 KiB")
+    throw new InvalidRepositoryInputError("metadata must not exceed 16 KiB");
   }
   if (typeof details.code === "string") {
-    throw new DatabasePersistenceError("feature item mutation")
+    throw new DatabasePersistenceError("feature item mutation");
   }
-  throw error
-}
+  throw error;
+};
 
 const requireNonBlank = (value: string, field: string): void => {
   if (value.trim().length === 0) {
-    throw new InvalidRepositoryInputError(`${field} must not be blank`)
+    throw new InvalidRepositoryInputError(`${field} must not be blank`);
   }
-}
+};
 
 const invalidJsonMetadata = (): never => {
   throw new InvalidRepositoryInputError(
-    "metadata must contain only strict JSON values",
-  )
-}
+    "metadata must contain only strict JSON values"
+  );
+};
 
 const normalizeJsonValue = (
   value: unknown,
-  ancestors: Set<object>,
+  ancestors: Set<object>
 ): JsonValue => {
   if (
     value === null ||
     typeof value === "string" ||
     typeof value === "boolean"
   ) {
-    return value
+    return value;
   }
 
   if (typeof value === "number") {
-    if (!Number.isFinite(value)) return invalidJsonMetadata()
-    return value
+    if (!Number.isFinite(value)) return invalidJsonMetadata();
+    return value;
   }
 
   if (typeof value !== "object" || value === null) {
-    return invalidJsonMetadata()
+    return invalidJsonMetadata();
   }
-  if (ancestors.has(value)) return invalidJsonMetadata()
+  if (ancestors.has(value)) return invalidJsonMetadata();
 
   if (Array.isArray(value)) {
-    const keys = Reflect.ownKeys(value).filter((key) => key !== "length")
+    const keys = Reflect.ownKeys(value).filter((key) => key !== "length");
     if (
       keys.length !== value.length ||
       keys.some((key, index) => key !== String(index))
     ) {
-      return invalidJsonMetadata()
+      return invalidJsonMetadata();
     }
 
-    ancestors.add(value)
-    const normalized: JsonValue[] = []
+    ancestors.add(value);
+    const normalized: JsonValue[] = [];
     for (let index = 0; index < value.length; index += 1) {
-      const descriptor = Object.getOwnPropertyDescriptor(value, String(index))
+      const descriptor = Object.getOwnPropertyDescriptor(value, String(index));
       if (
         descriptor === undefined ||
-        !(("value") in descriptor) ||
+        !("value" in descriptor) ||
         !descriptor.enumerable
       ) {
-        return invalidJsonMetadata()
+        return invalidJsonMetadata();
       }
-      normalized.push(normalizeJsonValue(descriptor.value, ancestors))
+      normalized.push(normalizeJsonValue(descriptor.value, ancestors));
     }
-    ancestors.delete(value)
-    return normalized
+    ancestors.delete(value);
+    return normalized;
   }
 
-  const prototype = Object.getPrototypeOf(value)
+  const prototype = Object.getPrototypeOf(value);
   if (prototype !== Object.prototype && prototype !== null) {
-    return invalidJsonMetadata()
+    return invalidJsonMetadata();
   }
   if (Object.prototype.hasOwnProperty.call(value, "toJSON")) {
-    return invalidJsonMetadata()
+    return invalidJsonMetadata();
   }
 
-  ancestors.add(value)
-  const normalized: Record<string, JsonValue> = {}
+  ancestors.add(value);
+  const normalized: Record<string, JsonValue> = {};
   for (const key of Reflect.ownKeys(value)) {
-    if (typeof key !== "string") return invalidJsonMetadata()
+    if (typeof key !== "string") return invalidJsonMetadata();
     if (key === "__proto__" || key === "prototype" || key === "constructor") {
-      return invalidJsonMetadata()
+      return invalidJsonMetadata();
     }
-    const descriptor = Object.getOwnPropertyDescriptor(value, key)
+    const descriptor = Object.getOwnPropertyDescriptor(value, key);
     if (
       descriptor === undefined ||
-      !(("value") in descriptor) ||
+      !("value" in descriptor) ||
       !descriptor.enumerable
     ) {
-      return invalidJsonMetadata()
+      return invalidJsonMetadata();
     }
-    normalized[key] = normalizeJsonValue(descriptor.value, ancestors)
+    normalized[key] = normalizeJsonValue(descriptor.value, ancestors);
   }
-  ancestors.delete(value)
-  return normalized
-}
+  ancestors.delete(value);
+  return normalized;
+};
 
 const jsonbNumberText = (value: number): string => {
-  const source = String(value)
-  if (!source.includes("e") && !source.includes("E")) return source
+  const source = String(value);
+  if (!source.includes("e") && !source.includes("E")) return source;
 
-  const match = /^(-?)(\d+)(?:\.(\d+))?[eE]([+-]?\d+)$/.exec(source)!
-  const sign = match[1]!
-  const whole = match[2]!
-  const fraction = match[3] ?? ""
-  const exponent = Number(match[4])
-  const digits = whole + fraction
-  const decimalIndex = whole.length + exponent
+  const match = /^(-?)(\d+)(?:\.(\d+))?[eE]([+-]?\d+)$/.exec(source)!;
+  const sign = match[1]!;
+  const whole = match[2]!;
+  const fraction = match[3] ?? "";
+  const exponent = Number(match[4]);
+  const digits = whole + fraction;
+  const decimalIndex = whole.length + exponent;
 
   if (decimalIndex <= 0) {
-    return `${sign}0.${"0".repeat(-decimalIndex)}${digits}`
+    return `${sign}0.${"0".repeat(-decimalIndex)}${digits}`;
   }
-  return `${sign}${digits}${"0".repeat(decimalIndex - digits.length)}`
-}
+  return `${sign}${digits}${"0".repeat(decimalIndex - digits.length)}`;
+};
 
 const jsonbText = (value: JsonValue): string => {
-  if (value === null) return "null"
-  if (typeof value === "string") return JSON.stringify(value)
-  if (typeof value === "boolean") return value ? "true" : "false"
-  if (typeof value === "number") return jsonbNumberText(value)
+  if (value === null) return "null";
+  if (typeof value === "string") return JSON.stringify(value);
+  if (typeof value === "boolean") return value ? "true" : "false";
+  if (typeof value === "number") return jsonbNumberText(value);
   if (Array.isArray(value)) {
-    return `[${value.map((entry) => jsonbText(entry)).join(", ")}]`
+    return `[${value.map((entry) => jsonbText(entry)).join(", ")}]`;
   }
 
   return `{${Object.entries(value)
     .map(([key, entry]) => `${JSON.stringify(key)}: ${jsonbText(entry)}`)
-    .join(", ")}}`
-}
+    .join(", ")}}`;
+};
 
-const validateFeatureMetadata = (
-  metadata: unknown,
-): FeatureItemMetadata => {
+const validateFeatureMetadata = (metadata: unknown): FeatureItemMetadata => {
   if (
     typeof metadata !== "object" ||
     metadata === null ||
     Array.isArray(metadata)
   ) {
-    throw new InvalidRepositoryInputError("metadata must be a JSON object")
+    throw new InvalidRepositoryInputError("metadata must be a JSON object");
   }
 
-  let normalized: JsonValue
+  let normalized: JsonValue;
   try {
-    normalized = normalizeJsonValue(metadata, new Set())
-  }
-  catch (error) {
-    if (error instanceof InvalidRepositoryInputError) throw error
-    return invalidJsonMetadata()
+    normalized = normalizeJsonValue(metadata, new Set());
+  } catch (error) {
+    if (error instanceof InvalidRepositoryInputError) throw error;
+    return invalidJsonMetadata();
   }
 
-  const serialized = jsonbText(normalized)
-  if (new TextEncoder().encode(serialized).byteLength > FEATURE_METADATA_LIMIT_BYTES) {
-    throw new InvalidRepositoryInputError("metadata must not exceed 16 KiB")
+  const serialized = jsonbText(normalized);
+  if (
+    new TextEncoder().encode(serialized).byteLength >
+    FEATURE_METADATA_LIMIT_BYTES
+  ) {
+    throw new InvalidRepositoryInputError("metadata must not exceed 16 KiB");
   }
-  return normalized as FeatureItemMetadata
-}
+  return normalized as FeatureItemMetadata;
+};
 
 export type UpsertProfileInput = Readonly<{
-  userId: string
-  firstName: string | null
-  lastName: string | null
-  displayName: string | null
-  avatarUrl: string | null
-  phone: string | null
-  businessName: string | null
-  jobTitle: string | null
-  biography: string | null
-  timezone: string
-  locale: string
-  dateOfBirth: string | null
-}>
+  userId: string;
+  firstName: string | null;
+  lastName: string | null;
+  displayName: string | null;
+  avatarUrl: string | null;
+  phone: string | null;
+  businessName: string | null;
+  jobTitle: string | null;
+  biography: string | null;
+  timezone: string;
+  locale: string;
+  dateOfBirth: string | null;
+}>;
 export type OptimisticProfileInput = UpsertProfileInput &
-  Readonly<{ expectedUpdatedAt: Date | null }>
+  Readonly<{ expectedUpdatedAt: Date | null }>;
 
 export type ProfileRepository = Readonly<{
-  findByUserId: (userId: string) => Promise<Profile | null>
-  upsert: (input: UpsertProfileInput) => Promise<Profile>
-  updateOptimistic: (input: OptimisticProfileInput) => Promise<Profile>
-}>
+  findByUserId: (userId: string) => Promise<Profile | null>;
+  upsert: (input: UpsertProfileInput) => Promise<Profile>;
+  updateOptimistic: (input: OptimisticProfileInput) => Promise<Profile>;
+}>;
 
 export const createProfileRepository = (
   database: DatabaseExecutor,
-  dependencies: RepositoryDependencies = {},
+  dependencies: RepositoryDependencies = {}
 ): ProfileRepository => {
-  const { now } = resolveDependencies(dependencies)
+  const { now } = resolveDependencies(dependencies);
 
   return {
     findByUserId: async (userId) => {
@@ -341,15 +338,15 @@ export const createProfileRepository = (
         .select()
         .from(profiles)
         .where(eq(profiles.userId, userId))
-        .limit(1)
-      return profile ?? null
+        .limit(1);
+      return profile ?? null;
     },
 
     upsert: async (input) => {
-      requireNonBlank(input.userId, "userId")
-      requireNonBlank(input.timezone, "timezone")
-      requireNonBlank(input.locale, "locale")
-      const updatedAt = now()
+      requireNonBlank(input.userId, "userId");
+      requireNonBlank(input.timezone, "timezone");
+      requireNonBlank(input.locale, "locale");
+      const updatedAt = now();
       const [profile] = await database
         .insert(profiles)
         .values(input)
@@ -370,17 +367,18 @@ export const createProfileRepository = (
             updatedAt,
           },
         })
-        .returning()
-      return profile!
+        .returning();
+      return profile!;
     },
 
     updateOptimistic: async (input) => {
-      requireNonBlank(input.userId, "userId")
-      requireNonBlank(input.timezone, "timezone")
-      requireNonBlank(input.locale, "locale")
-      const updatedAt = input.expectedUpdatedAt === null
-        ? now()
-        : nextOptimisticVersion(now(), input.expectedUpdatedAt)
+      requireNonBlank(input.userId, "userId");
+      requireNonBlank(input.timezone, "timezone");
+      requireNonBlank(input.locale, "locale");
+      const updatedAt =
+        input.expectedUpdatedAt === null
+          ? now()
+          : nextOptimisticVersion(now(), input.expectedUpdatedAt);
       const values = {
         userId: input.userId,
         firstName: input.firstName,
@@ -395,126 +393,130 @@ export const createProfileRepository = (
         locale: input.locale,
         dateOfBirth: input.dateOfBirth,
         updatedAt,
-      }
-      const [profile] = input.expectedUpdatedAt === null
-        ? await database
-            .insert(profiles)
-            .values(values)
-            .onConflictDoNothing()
-            .returning()
-        : await database
-            .update(profiles)
-            .set(values)
-            .where(andWhere(
-              eq(profiles.userId, input.userId),
-              sql`date_trunc('milliseconds', ${profiles.updatedAt}) = ${input.expectedUpdatedAt}`,
-            ))
-            .returning()
+      };
+      const [profile] =
+        input.expectedUpdatedAt === null
+          ? await database
+              .insert(profiles)
+              .values(values)
+              .onConflictDoNothing()
+              .returning()
+          : await database
+              .update(profiles)
+              .set(values)
+              .where(
+                andWhere(
+                  eq(profiles.userId, input.userId),
+                  sql`date_trunc('milliseconds', ${profiles.updatedAt}) = ${input.expectedUpdatedAt}`
+                )
+              )
+              .returning();
       if (profile === undefined) {
-        throw new OptimisticConcurrencyError("profile")
+        throw new OptimisticConcurrencyError("profile");
+      } else {
+        return profile;
       }
-      else {
-        return profile
-      }
-    }
-  }
-}
+    },
+  };
+};
 
 export type CreateAddressInput = Readonly<{
-  id?: string
-  userId: string
-  type: AddressType
-  line1: string
-  line2?: string | null
-  city: string
-  region: string
-  postalCode: string
-  country: string
-  isPrimary?: boolean
-}>
+  id?: string;
+  userId: string;
+  type: AddressType;
+  line1: string;
+  line2?: string | null;
+  city: string;
+  region: string;
+  postalCode: string;
+  country: string;
+  isPrimary?: boolean;
+}>;
 
 export type UpdateAddressInput = Readonly<{
-  id: string
-  userId: string
-  type?: AddressType
-  line1?: string
-  line2?: string | null
-  city?: string
-  region?: string
-  postalCode?: string
-  country?: string
-  isPrimary?: boolean
-}>
+  id: string;
+  userId: string;
+  type?: AddressType;
+  line1?: string;
+  line2?: string | null;
+  city?: string;
+  region?: string;
+  postalCode?: string;
+  country?: string;
+  isPrimary?: boolean;
+}>;
 export type OptimisticAddressUpdateInput = UpdateAddressInput &
-  Readonly<{ expectedUpdatedAt: Date }>
+  Readonly<{ expectedUpdatedAt: Date }>;
 export type OptimisticAddressIdInput = Readonly<{
-  id: string
-  userId: string
-  expectedUpdatedAt: Date
-}>
+  id: string;
+  userId: string;
+  expectedUpdatedAt: Date;
+}>;
 
 export type AddressRepository = Readonly<{
-  listByUserId: (userId: string) => Promise<Address[]>
-  findByIdForUser: (id: string, userId: string) => Promise<Address | null>
-  create: (input: CreateAddressInput) => Promise<Address>
-  update: (input: UpdateAddressInput) => Promise<Address | null>
-  updateOptimistic: (input: OptimisticAddressUpdateInput) => Promise<Address | null>
-  remove: (id: string, userId: string) => Promise<boolean>
-  removeOptimistic: (input: OptimisticAddressIdInput) => Promise<boolean>
-  setPrimary: (id: string, userId: string) => Promise<Address | null>
-  setPrimaryOptimistic: (input: OptimisticAddressIdInput) => Promise<Address | null>
-}>
+  listByUserId: (userId: string) => Promise<Address[]>;
+  findByIdForUser: (id: string, userId: string) => Promise<Address | null>;
+  create: (input: CreateAddressInput) => Promise<Address>;
+  update: (input: UpdateAddressInput) => Promise<Address | null>;
+  updateOptimistic: (
+    input: OptimisticAddressUpdateInput
+  ) => Promise<Address | null>;
+  remove: (id: string, userId: string) => Promise<boolean>;
+  removeOptimistic: (input: OptimisticAddressIdInput) => Promise<boolean>;
+  setPrimary: (id: string, userId: string) => Promise<Address | null>;
+  setPrimaryOptimistic: (
+    input: OptimisticAddressIdInput
+  ) => Promise<Address | null>;
+}>;
 
 const findAddress = async (
   database: DatabaseExecutor,
   id: string,
-  userId: string,
+  userId: string
 ): Promise<Address | null> => {
   const [address] = await database
     .select()
     .from(addresses)
     .where(andWhere(eq(addresses.id, id), eq(addresses.userId, userId)))
-    .limit(1)
-  return address ?? null
-}
+    .limit(1);
+  return address ?? null;
+};
 
 const lockAddressOwner = async (
   transaction: Transaction,
-  userId: string,
+  userId: string
 ): Promise<void> => {
   await transaction.execute(
-    sql`select pg_advisory_xact_lock(hashtextextended(${userId}, 0))`,
-  )
-}
+    sql`select pg_advisory_xact_lock(hashtextextended(${userId}, 0))`
+  );
+};
 const nextPrimaryMutationVersion = async (
   transaction: Transaction,
   userId: string,
   candidate: Date,
-  targetVersion?: Date,
+  targetVersion?: Date
 ): Promise<Date> => {
   const [primary] = await transaction
     .select({ updatedAt: addresses.updatedAt })
     .from(addresses)
-    .where(andWhere(
-      eq(addresses.userId, userId),
-      eq(addresses.isPrimary, true),
-    ))
-    .limit(1)
+    .where(
+      andWhere(eq(addresses.userId, userId), eq(addresses.isPrimary, true))
+    )
+    .limit(1);
   const priorMilliseconds = Math.max(
     targetVersion?.getTime() ?? Number.NEGATIVE_INFINITY,
-    primary?.updatedAt.getTime() ?? Number.NEGATIVE_INFINITY,
-  )
+    primary?.updatedAt.getTime() ?? Number.NEGATIVE_INFINITY
+  );
   return Number.isFinite(priorMilliseconds)
     ? nextOptimisticVersion(candidate, new Date(priorMilliseconds))
-    : candidate
-}
-
+    : candidate;
+};
 
 const clearPrimaryAddress = async (
   transaction: Transaction,
   userId: string,
   updatedAt: Date,
-  excludedId?: string,
+  excludedId?: string
 ): Promise<void> => {
   await transaction
     .update(addresses)
@@ -525,16 +527,16 @@ const clearPrimaryAddress = async (
         : andWhere(
             eq(addresses.userId, userId),
             eq(addresses.isPrimary, true),
-            ne(addresses.id, excludedId),
-          ),
-    )
-}
+            ne(addresses.id, excludedId)
+          )
+    );
+};
 
 export const createAddressRepository = (
   database: DatabaseExecutor,
-  dependencies: RepositoryDependencies = {},
+  dependencies: RepositoryDependencies = {}
 ): AddressRepository => {
-  const { generateId, now } = resolveDependencies(dependencies)
+  const { generateId, now } = resolveDependencies(dependencies);
 
   return {
     listByUserId: async (userId) => {
@@ -545,37 +547,39 @@ export const createAddressRepository = (
         .orderBy(
           desc(addresses.isPrimary),
           asc(addresses.createdAt),
-          asc(addresses.id),
+          asc(addresses.id)
         )
-        .limit(MAX_ADDRESSES_PER_USER)
+        .limit(MAX_ADDRESSES_PER_USER);
     },
 
     findByIdForUser: async (id, userId) => {
-      return findAddress(database, id, userId)
+      return findAddress(database, id, userId);
     },
 
     create: async (input) => {
-      requireNonBlank(input.userId, "userId")
-      requireNonBlank(input.line1, "line1")
+      requireNonBlank(input.userId, "userId");
+      requireNonBlank(input.line1, "line1");
       if (input.country.length !== 2) {
-        throw new InvalidRepositoryInputError("country must be a two-letter code")
+        throw new InvalidRepositoryInputError(
+          "country must be a two-letter code"
+        );
       }
 
       try {
         return await withTransaction(database, async (transaction) => {
-          await lockAddressOwner(transaction, input.userId)
+          await lockAddressOwner(transaction, input.userId);
           const [addressCount] = await transaction
             .select({ value: sql<number>`count(*)::int` })
             .from(addresses)
-            .where(eq(addresses.userId, input.userId))
+            .where(eq(addresses.userId, input.userId));
           if ((addressCount?.value ?? 0) >= MAX_ADDRESSES_PER_USER) {
-            throw new InvalidRepositoryInputError("address limit reached")
+            throw new InvalidRepositoryInputError("address limit reached");
           }
           const timestamp = input.isPrimary
             ? await nextPrimaryMutationVersion(transaction, input.userId, now())
-            : now()
+            : now();
           if (input.isPrimary) {
-            await clearPrimaryAddress(transaction, input.userId, timestamp)
+            await clearPrimaryAddress(transaction, input.userId, timestamp);
           }
 
           const [address] = await transaction
@@ -594,45 +598,50 @@ export const createAddressRepository = (
               createdAt: timestamp,
               updatedAt: timestamp,
             })
-            .returning()
-          return address!
-        }
-        )
-      }
-      catch (error) {
-        return mapConflict(error, "address")
+            .returning();
+          return address!;
+        });
+      } catch (error) {
+        return mapConflict(error, "address");
       }
     },
 
     update: async (input) => {
-      requireNonBlank(input.id, "id")
-      requireNonBlank(input.userId, "userId")
-      if (input.line1 !== undefined) requireNonBlank(input.line1, "line1")
+      requireNonBlank(input.id, "id");
+      requireNonBlank(input.userId, "userId");
+      if (input.line1 !== undefined) requireNonBlank(input.line1, "line1");
       if (input.country !== undefined && input.country.length !== 2) {
-        throw new InvalidRepositoryInputError("country must be a two-letter code")
+        throw new InvalidRepositoryInputError(
+          "country must be a two-letter code"
+        );
       }
 
       try {
         return await withTransaction(database, async (transaction) => {
-          await lockAddressOwner(transaction, input.userId)
-          const existing = await findAddress(transaction, input.id, input.userId)
-          if (!existing) return null
+          await lockAddressOwner(transaction, input.userId);
+          const existing = await findAddress(
+            transaction,
+            input.id,
+            input.userId
+          );
+          if (!existing) return null;
 
-          const updatedAt = input.isPrimary === true
-            ? await nextPrimaryMutationVersion(
-                transaction,
-                input.userId,
-                now(),
-                existing.updatedAt,
-              )
-            : now()
+          const updatedAt =
+            input.isPrimary === true
+              ? await nextPrimaryMutationVersion(
+                  transaction,
+                  input.userId,
+                  now(),
+                  existing.updatedAt
+                )
+              : now();
           if (input.isPrimary === true) {
             await clearPrimaryAddress(
               transaction,
               input.userId,
               updatedAt,
-              input.id,
-            )
+              input.id
+            );
           }
 
           const [address] = await transaction
@@ -654,23 +663,28 @@ export const createAddressRepository = (
                 : { isPrimary: input.isPrimary }),
               updatedAt,
             })
-            .where(andWhere(eq(addresses.id, input.id), eq(addresses.userId, input.userId)))
-            .returning()
-          return address ?? null
-        }
-        )
-      }
-      catch (error) {
-        return mapConflict(error, "address")
+            .where(
+              andWhere(
+                eq(addresses.id, input.id),
+                eq(addresses.userId, input.userId)
+              )
+            )
+            .returning();
+          return address ?? null;
+        });
+      } catch (error) {
+        return mapConflict(error, "address");
       }
     },
 
     updateOptimistic: async (input) => {
-      requireNonBlank(input.id, "id")
-      requireNonBlank(input.userId, "userId")
-      if (input.line1 !== undefined) requireNonBlank(input.line1, "line1")
+      requireNonBlank(input.id, "id");
+      requireNonBlank(input.userId, "userId");
+      if (input.line1 !== undefined) requireNonBlank(input.line1, "line1");
       if (input.country !== undefined && input.country.length !== 2) {
-        throw new InvalidRepositoryInputError("country must be a two-letter code")
+        throw new InvalidRepositoryInputError(
+          "country must be a two-letter code"
+        );
       }
 
       const values = {
@@ -688,51 +702,52 @@ export const createAddressRepository = (
         ...(input.isPrimary === undefined
           ? {}
           : { isPrimary: input.isPrimary }),
-      }
+      };
 
       try {
         if (input.isPrimary === true) {
           return await withTransaction(database, async (transaction) => {
-            await lockAddressOwner(transaction, input.userId)
+            await lockAddressOwner(transaction, input.userId);
             const existing = await findAddress(
               transaction,
               input.id,
-              input.userId,
-            )
-            if (existing === null) return null
+              input.userId
+            );
+            if (existing === null) return null;
             if (
               existing.updatedAt.getTime() !== input.expectedUpdatedAt.getTime()
             ) {
-              throw new OptimisticConcurrencyError("address")
+              throw new OptimisticConcurrencyError("address");
             }
 
             const updatedAt = await nextPrimaryMutationVersion(
               transaction,
               input.userId,
               now(),
-              existing.updatedAt,
-            )
+              existing.updatedAt
+            );
             await clearPrimaryAddress(
               transaction,
               input.userId,
               updatedAt,
-              input.id,
-            )
+              input.id
+            );
             const [address] = await transaction
               .update(addresses)
               .set({ ...values, updatedAt })
-              .where(andWhere(
-                eq(addresses.id, input.id),
-                eq(addresses.userId, input.userId),
-                sql`date_trunc('milliseconds', ${addresses.updatedAt}) = ${input.expectedUpdatedAt}`,
-              ))
-              .returning()
+              .where(
+                andWhere(
+                  eq(addresses.id, input.id),
+                  eq(addresses.userId, input.userId),
+                  sql`date_trunc('milliseconds', ${addresses.updatedAt}) = ${input.expectedUpdatedAt}`
+                )
+              )
+              .returning();
             if (address === undefined) {
-              throw new OptimisticConcurrencyError("address")
+              throw new OptimisticConcurrencyError("address");
             }
-            return address
-          }
-          )
+            return address;
+          });
         }
 
         const [address] = await database
@@ -741,20 +756,21 @@ export const createAddressRepository = (
             ...values,
             updatedAt: nextOptimisticVersion(now(), input.expectedUpdatedAt),
           })
-          .where(andWhere(
-            eq(addresses.id, input.id),
-            eq(addresses.userId, input.userId),
-            sql`date_trunc('milliseconds', ${addresses.updatedAt}) = ${input.expectedUpdatedAt}`,
-          ))
-          .returning()
-        if (address !== undefined) return address
-        if (await findAddress(database, input.id, input.userId) === null) {
-          return null
+          .where(
+            andWhere(
+              eq(addresses.id, input.id),
+              eq(addresses.userId, input.userId),
+              sql`date_trunc('milliseconds', ${addresses.updatedAt}) = ${input.expectedUpdatedAt}`
+            )
+          )
+          .returning();
+        if (address !== undefined) return address;
+        if ((await findAddress(database, input.id, input.userId)) === null) {
+          return null;
         }
-        throw new OptimisticConcurrencyError("address")
-      }
-      catch (error) {
-        return mapConflict(error, "address")
+        throw new OptimisticConcurrencyError("address");
+      } catch (error) {
+        return mapConflict(error, "address");
       }
     },
 
@@ -762,140 +778,144 @@ export const createAddressRepository = (
       const removed = await database
         .delete(addresses)
         .where(andWhere(eq(addresses.id, id), eq(addresses.userId, userId)))
-        .returning({ id: addresses.id })
-      return removed.length > 0
+        .returning({ id: addresses.id });
+      return removed.length > 0;
     },
 
     removeOptimistic: async (input) => {
       const removed = await database
         .delete(addresses)
-        .where(andWhere(
-          eq(addresses.id, input.id),
-          eq(addresses.userId, input.userId),
-          sql`date_trunc('milliseconds', ${addresses.updatedAt}) = ${input.expectedUpdatedAt}`,
-        ))
-        .returning({ id: addresses.id })
-      if (removed.length > 0) return true
-      if (await findAddress(database, input.id, input.userId) === null) return false
-      throw new OptimisticConcurrencyError("address")
+        .where(
+          andWhere(
+            eq(addresses.id, input.id),
+            eq(addresses.userId, input.userId),
+            sql`date_trunc('milliseconds', ${addresses.updatedAt}) = ${input.expectedUpdatedAt}`
+          )
+        )
+        .returning({ id: addresses.id });
+      if (removed.length > 0) return true;
+      if ((await findAddress(database, input.id, input.userId)) === null)
+        return false;
+      throw new OptimisticConcurrencyError("address");
     },
 
     setPrimary: async (id, userId) => {
       try {
         return await withTransaction(database, async (transaction) => {
-          await lockAddressOwner(transaction, userId)
-          const existing = await findAddress(transaction, id, userId)
-          if (!existing) return null
+          await lockAddressOwner(transaction, userId);
+          const existing = await findAddress(transaction, id, userId);
+          if (!existing) return null;
           const updatedAt = await nextPrimaryMutationVersion(
             transaction,
             userId,
             now(),
-            existing.updatedAt,
-          )
-          await clearPrimaryAddress(transaction, userId, updatedAt, id)
+            existing.updatedAt
+          );
+          await clearPrimaryAddress(transaction, userId, updatedAt, id);
           const [address] = await transaction
             .update(addresses)
             .set({ isPrimary: true, updatedAt })
             .where(andWhere(eq(addresses.id, id), eq(addresses.userId, userId)))
-            .returning()
-          return address ?? null
-        }
-        )
-      }
-      catch (error) {
-        return mapConflict(error, "address")
+            .returning();
+          return address ?? null;
+        });
+      } catch (error) {
+        return mapConflict(error, "address");
       }
     },
 
     setPrimaryOptimistic: async (input) => {
       return withTransaction(database, async (transaction) => {
-        await lockAddressOwner(transaction, input.userId)
-        const existing = await findAddress(transaction, input.id, input.userId)
-        if (existing === null) return null
-        if (existing.updatedAt.getTime() !== input.expectedUpdatedAt.getTime()) {
-          throw new OptimisticConcurrencyError("address")
+        await lockAddressOwner(transaction, input.userId);
+        const existing = await findAddress(transaction, input.id, input.userId);
+        if (existing === null) return null;
+        if (
+          existing.updatedAt.getTime() !== input.expectedUpdatedAt.getTime()
+        ) {
+          throw new OptimisticConcurrencyError("address");
         }
         const updatedAt = await nextPrimaryMutationVersion(
           transaction,
           input.userId,
           now(),
-          existing.updatedAt,
-        )
+          existing.updatedAt
+        );
         await clearPrimaryAddress(
           transaction,
           input.userId,
           updatedAt,
-          input.id,
-        )
+          input.id
+        );
         const [address] = await transaction
           .update(addresses)
           .set({ isPrimary: true, updatedAt })
-          .where(andWhere(
-            eq(addresses.id, input.id),
-            eq(addresses.userId, input.userId),
-            sql`date_trunc('milliseconds', ${addresses.updatedAt}) = ${input.expectedUpdatedAt}`,
-          ))
-          .returning()
+          .where(
+            andWhere(
+              eq(addresses.id, input.id),
+              eq(addresses.userId, input.userId),
+              sql`date_trunc('milliseconds', ${addresses.updatedAt}) = ${input.expectedUpdatedAt}`
+            )
+          )
+          .returning();
         if (address === undefined) {
-          throw new OptimisticConcurrencyError("address")
+          throw new OptimisticConcurrencyError("address");
         }
-        return address
-      }
-      )
-    }
-  }
-}
+        return address;
+      });
+    },
+  };
+};
 
 export type UpsertUserPreferencesInput = Readonly<{
-  userId: string
-  mode: PreferenceMode
-  colorScheme: ColorScheme
-  emailNotifications: boolean
-  productUpdates: boolean
-  analyticsConsent: boolean
-  personalizationConsent: boolean
-  profileVisibility: ProfileVisibility
-}>
+  userId: string;
+  mode: PreferenceMode;
+  colorScheme: ColorScheme;
+  emailNotifications: boolean;
+  productUpdates: boolean;
+  analyticsConsent: boolean;
+  personalizationConsent: boolean;
+  profileVisibility: ProfileVisibility;
+}>;
 export type OptimisticUserPreferencesInput = Readonly<{
-  userId: string
-  emailNotifications: boolean
-  productUpdates: boolean
-  analyticsConsent: boolean
-  personalizationConsent: boolean
-  profileVisibility: ProfileVisibility
-  expectedUpdatedAt: Date | null
-}>
+  userId: string;
+  emailNotifications: boolean;
+  productUpdates: boolean;
+  analyticsConsent: boolean;
+  personalizationConsent: boolean;
+  profileVisibility: ProfileVisibility;
+  expectedUpdatedAt: Date | null;
+}>;
 
 export type UpsertUserThemeInput = Readonly<{
-  userId: string
-  mode: PreferenceMode
-  expectedUpdatedAt: Date | null
-  colorScheme: ColorScheme
-}>
+  userId: string;
+  mode: PreferenceMode;
+  expectedUpdatedAt: Date | null;
+  colorScheme: ColorScheme;
+}>;
 
 export type UserThemePreference = Readonly<
   Pick<UserPreferences, "mode" | "colorScheme" | "updatedAt">
->
+>;
 
 export type UserPreferencesRepository = Readonly<{
-  findByUserId: (userId: string) => Promise<UserPreferences | null>
-  findThemeByUserId: (userId: string) => Promise<UserThemePreference | null>
-  upsertTheme: (input: UpsertUserThemeInput) => Promise<UserThemePreference>
-  upsert: (input: UpsertUserPreferencesInput) => Promise<UserPreferences>
+  findByUserId: (userId: string) => Promise<UserPreferences | null>;
+  findThemeByUserId: (userId: string) => Promise<UserThemePreference | null>;
+  upsertTheme: (input: UpsertUserThemeInput) => Promise<UserThemePreference>;
+  upsert: (input: UpsertUserPreferencesInput) => Promise<UserPreferences>;
   updateOptimistic: (
-    input: OptimisticUserPreferencesInput,
-  ) => Promise<UserPreferences>
-}>
+    input: OptimisticUserPreferencesInput
+  ) => Promise<UserPreferences>;
+}>;
 
 export const createUserPreferencesRepository = (
   database: DatabaseExecutor,
-  dependencies: RepositoryDependencies = {},
+  dependencies: RepositoryDependencies = {}
 ): UserPreferencesRepository => {
-  const { now } = resolveDependencies(dependencies)
+  const { now } = resolveDependencies(dependencies);
 
   return {
     findThemeByUserId: async (userId) => {
-      requireNonBlank(userId, "userId")
+      requireNonBlank(userId, "userId");
       try {
         const [preference] = await database
           .select({
@@ -905,11 +925,10 @@ export const createUserPreferencesRepository = (
           })
           .from(userPreferences)
           .where(eq(userPreferences.userId, userId))
-          .limit(1)
-        return preference ?? null
-      }
-      catch {
-        throw new DatabasePersistenceError("theme preference query")
+          .limit(1);
+        return preference ?? null;
+      } catch {
+        throw new DatabasePersistenceError("theme preference query");
       }
     },
 
@@ -918,74 +937,76 @@ export const createUserPreferencesRepository = (
         .select()
         .from(userPreferences)
         .where(eq(userPreferences.userId, userId))
-        .limit(1)
-      return preferences ?? null
+        .limit(1);
+      return preferences ?? null;
     },
 
     upsertTheme: async (input) => {
-      requireNonBlank(input.userId, "userId")
+      requireNonBlank(input.userId, "userId");
       if (!(PREFERENCE_MODES as readonly string[]).includes(input.mode)) {
-        throw new InvalidRepositoryInputError("mode must be canonical")
+        throw new InvalidRepositoryInputError("mode must be canonical");
       }
       if (!(COLOR_SCHEMES as readonly string[]).includes(input.colorScheme)) {
-        throw new InvalidRepositoryInputError("colorScheme must be canonical")
+        throw new InvalidRepositoryInputError("colorScheme must be canonical");
       }
 
       try {
-        const updatedAt = input.expectedUpdatedAt === null
-          ? now()
-          : nextOptimisticVersion(now(), input.expectedUpdatedAt)
-        const [preference] = input.expectedUpdatedAt === null
-          ? await database
-              .insert(userPreferences)
-              .values({
-                userId: input.userId,
-                mode: input.mode,
-                colorScheme: input.colorScheme,
-                updatedAt,
-              })
-              .onConflictDoNothing()
-              .returning({
-                mode: userPreferences.mode,
-                colorScheme: userPreferences.colorScheme,
-                updatedAt: userPreferences.updatedAt,
-              })
-          : await database
-              .update(userPreferences)
-              .set({
-                mode: input.mode,
-                colorScheme: input.colorScheme,
-                updatedAt,
-              })
-              .where(andWhere(
-                eq(userPreferences.userId, input.userId),
-                sql`date_trunc('milliseconds', ${userPreferences.updatedAt}) = ${input.expectedUpdatedAt}`,
-              ))
-              .returning({
-                mode: userPreferences.mode,
-                colorScheme: userPreferences.colorScheme,
-                updatedAt: userPreferences.updatedAt,
-              })
+        const updatedAt =
+          input.expectedUpdatedAt === null
+            ? now()
+            : nextOptimisticVersion(now(), input.expectedUpdatedAt);
+        const [preference] =
+          input.expectedUpdatedAt === null
+            ? await database
+                .insert(userPreferences)
+                .values({
+                  userId: input.userId,
+                  mode: input.mode,
+                  colorScheme: input.colorScheme,
+                  updatedAt,
+                })
+                .onConflictDoNothing()
+                .returning({
+                  mode: userPreferences.mode,
+                  colorScheme: userPreferences.colorScheme,
+                  updatedAt: userPreferences.updatedAt,
+                })
+            : await database
+                .update(userPreferences)
+                .set({
+                  mode: input.mode,
+                  colorScheme: input.colorScheme,
+                  updatedAt,
+                })
+                .where(
+                  andWhere(
+                    eq(userPreferences.userId, input.userId),
+                    sql`date_trunc('milliseconds', ${userPreferences.updatedAt}) = ${input.expectedUpdatedAt}`
+                  )
+                )
+                .returning({
+                  mode: userPreferences.mode,
+                  colorScheme: userPreferences.colorScheme,
+                  updatedAt: userPreferences.updatedAt,
+                });
         if (preference === undefined) {
-          throw new OptimisticConcurrencyError("theme preference")
+          throw new OptimisticConcurrencyError("theme preference");
+        } else {
+          return preference;
         }
-        else {
-          return preference
-        }
-      }
-      catch (error) {
+      } catch (error) {
         if (
           error instanceof InvalidRepositoryInputError ||
           error instanceof OptimisticConcurrencyError
         ) {
-          throw error
+          throw error;
         }
-        throw new DatabasePersistenceError("theme preference upsert")
+        throw new DatabasePersistenceError("theme preference upsert");
       }
     },
 
     upsert: async (input) => {
-      requireNonBlank(input.userId, "userId")
+      requireNonBlank(input.userId, "userId");
       const [preferences] = await database
         .insert(userPreferences)
         .values(input)
@@ -1002,15 +1023,16 @@ export const createUserPreferencesRepository = (
             updatedAt: now(),
           },
         })
-        .returning()
-      return preferences!
+        .returning();
+      return preferences!;
     },
 
     updateOptimistic: async (input) => {
-      requireNonBlank(input.userId, "userId")
-      const updatedAt = input.expectedUpdatedAt === null
-        ? now()
-        : nextOptimisticVersion(now(), input.expectedUpdatedAt)
+      requireNonBlank(input.userId, "userId");
+      const updatedAt =
+        input.expectedUpdatedAt === null
+          ? now()
+          : nextOptimisticVersion(now(), input.expectedUpdatedAt);
       const values = {
         emailNotifications: input.emailNotifications,
         productUpdates: input.productUpdates,
@@ -1018,89 +1040,97 @@ export const createUserPreferencesRepository = (
         personalizationConsent: input.personalizationConsent,
         profileVisibility: input.profileVisibility,
         updatedAt,
-      }
-      const [preferences] = input.expectedUpdatedAt === null
-        ? await database
-            .insert(userPreferences)
-            .values({ userId: input.userId, ...values })
-            .onConflictDoNothing()
-            .returning()
-        : await database
-            .update(userPreferences)
-            .set(values)
-            .where(andWhere(
-              eq(userPreferences.userId, input.userId),
-              sql`date_trunc('milliseconds', ${userPreferences.updatedAt}) = ${input.expectedUpdatedAt}`,
-            ))
-            .returning()
+      };
+      const [preferences] =
+        input.expectedUpdatedAt === null
+          ? await database
+              .insert(userPreferences)
+              .values({ userId: input.userId, ...values })
+              .onConflictDoNothing()
+              .returning()
+          : await database
+              .update(userPreferences)
+              .set(values)
+              .where(
+                andWhere(
+                  eq(userPreferences.userId, input.userId),
+                  sql`date_trunc('milliseconds', ${userPreferences.updatedAt}) = ${input.expectedUpdatedAt}`
+                )
+              )
+              .returning();
       if (preferences === undefined) {
-        throw new OptimisticConcurrencyError("user preferences")
+        throw new OptimisticConcurrencyError("user preferences");
+      } else {
+        return preferences;
       }
-      else {
-        return preferences
-      }
-    }
-  }
-}
+    },
+  };
+};
 
 export type FeatureMutationContext = Readonly<{
-  actorUserId: string | null
-  requestId: string
-}>
+  actorUserId: string | null;
+  requestId: string;
+}>;
 
 export type CreateFeatureItemInput = Readonly<{
-  id?: string
-  ownerId: string
-  name: string
-  description: string
-  status?: FeatureItemStatus
-  metadata?: FeatureItemMetadata
-}>
+  id?: string;
+  ownerId: string;
+  name: string;
+  description: string;
+  status?: FeatureItemStatus;
+  metadata?: FeatureItemMetadata;
+}>;
 
 export type UpdateFeatureItemInput = Readonly<{
-  id: string
-  ownerId: string
-  name?: string
-  description?: string
-  status?: FeatureItemStatus
-  metadata?: FeatureItemMetadata
-}>
+  id: string;
+  ownerId: string;
+  name?: string;
+  description?: string;
+  status?: FeatureItemStatus;
+  metadata?: FeatureItemMetadata;
+}>;
 
 export type FeatureListFilters = Readonly<{
-  query?: string
-  status?: FeatureItemStatus
-  limit?: number
-}>
+  query?: string;
+  status?: FeatureItemStatus;
+  limit?: number;
+}>;
 
 export type FeatureItemRepository = Readonly<{
-  listByOwner: (ownerId: string, filters?: FeatureListFilters) => Promise<FeatureItem[]>
-  findByIdForOwner: (id: string, ownerId: string) => Promise<FeatureItem | null>
+  listByOwner: (
+    ownerId: string,
+    filters?: FeatureListFilters
+  ) => Promise<FeatureItem[]>;
+  findByIdForOwner: (
+    id: string,
+    ownerId: string
+  ) => Promise<FeatureItem | null>;
   create: (
     input: CreateFeatureItemInput,
-    context: FeatureMutationContext,
-  ) => Promise<FeatureItem>
+    context: FeatureMutationContext
+  ) => Promise<FeatureItem>;
   update: (
     input: UpdateFeatureItemInput,
-    context: FeatureMutationContext,
-  ) => Promise<FeatureItem | null>
+    context: FeatureMutationContext
+  ) => Promise<FeatureItem | null>;
   archive: (
     id: string,
     ownerId: string,
-    context: FeatureMutationContext,
-  ) => Promise<FeatureItem | null>
-}>
+    context: FeatureMutationContext
+  ) => Promise<FeatureItem | null>;
+}>;
 
 type FeatureMutationAction =
   | "feature_item.created"
   | "feature_item.updated"
-  | "feature_item.archived"
+  | "feature_item.archived";
 
 const validateMutationContext = (context: FeatureMutationContext): void => {
-  requireNonBlank(context.requestId, "requestId")
+  requireNonBlank(context.requestId, "requestId");
   if (context.actorUserId !== null) {
-    requireNonBlank(context.actorUserId, "actorUserId")
+    requireNonBlank(context.actorUserId, "actorUserId");
   }
-}
+};
 
 const writeMutationRecords = async (
   transaction: Transaction,
@@ -1109,7 +1139,7 @@ const writeMutationRecords = async (
   context: FeatureMutationContext,
   metadata: FeatureItemMetadata,
   dependencies: ResolvedRepositoryDependencies,
-  occurredAt: Date,
+  occurredAt: Date
 ): Promise<void> => {
   await transaction.insert(auditRecords).values({
     id: dependencies.generateId(),
@@ -1135,77 +1165,83 @@ const writeMutationRecords = async (
     occurredAt,
     attemptCount: 0,
   });
-}
+};
 
 const findFeatureItem = async (
   database: DatabaseExecutor,
   id: string,
-  ownerId: string,
+  ownerId: string
 ): Promise<FeatureItem | null> => {
   const [item] = await database
     .select()
     .from(featureItems)
     .where(andWhere(eq(featureItems.id, id), eq(featureItems.ownerId, ownerId)))
-    .limit(1)
-  return item ?? null
-}
+    .limit(1);
+  return item ?? null;
+};
 
 export const createFeatureItemRepository = (
   database: DatabaseExecutor,
-  repositoryDependencies: RepositoryDependencies = {},
+  repositoryDependencies: RepositoryDependencies = {}
 ): FeatureItemRepository => {
-  const dependencies = resolveDependencies(repositoryDependencies)
+  const dependencies = resolveDependencies(repositoryDependencies);
 
   return {
     listByOwner: async (ownerId, filters = {}) => {
-      const limit = filters.limit ?? 50
+      const limit = filters.limit ?? 50;
       if (!Number.isInteger(limit) || limit < 1 || limit > 100) {
-        throw new InvalidRepositoryInputError("feature list limit must be 1-100")
+        throw new InvalidRepositoryInputError(
+          "feature list limit must be 1-100"
+        );
       }
       if (filters.query !== undefined) {
-        requireNonBlank(filters.query, "query")
+        requireNonBlank(filters.query, "query");
         if (filters.query.length > 200) {
-          throw new InvalidRepositoryInputError("query must not exceed 200 characters")
+          throw new InvalidRepositoryInputError(
+            "query must not exceed 200 characters"
+          );
         }
       }
-      const conditions = [eq(featureItems.ownerId, ownerId)]
+      const conditions = [eq(featureItems.ownerId, ownerId)];
       if (filters.query !== undefined) {
         const escaped = filters.query
           .replaceAll("\\", "\\\\")
           .replaceAll("%", "\\%")
-          .replaceAll("_", "\\_")
-        const pattern = `%${escaped}%`
-        conditions.push(orWhere(
-          ilike(featureItems.name, pattern),
-          ilike(featureItems.description, pattern),
-        )!)
+          .replaceAll("_", "\\_");
+        const pattern = `%${escaped}%`;
+        conditions.push(
+          orWhere(
+            ilike(featureItems.name, pattern),
+            ilike(featureItems.description, pattern)
+          )!
+        );
       }
       if (filters.status !== undefined) {
-        conditions.push(eq(featureItems.status, filters.status))
+        conditions.push(eq(featureItems.status, filters.status));
       }
       return database
         .select()
         .from(featureItems)
         .where(andWhere(...conditions))
         .orderBy(desc(featureItems.updatedAt), desc(featureItems.id))
-        .limit(limit)
+        .limit(limit);
     },
 
     findByIdForOwner: async (id, ownerId) => {
-      return findFeatureItem(database, id, ownerId)
+      return findFeatureItem(database, id, ownerId);
     },
 
     create: async (input, context) => {
-      requireNonBlank(input.ownerId, "ownerId")
-      requireNonBlank(input.name, "name")
-      validateMutationContext(context)
+      requireNonBlank(input.ownerId, "ownerId");
+      requireNonBlank(input.name, "name");
+      validateMutationContext(context);
       const metadata = validateFeatureMetadata(
-        input.metadata === undefined ? {} : input.metadata,
-      )
+        input.metadata === undefined ? {} : input.metadata
+      );
 
       try {
         return await withTransaction(database, async (transaction) => {
-          const timestamp = dependencies.now()
+          const timestamp = dependencies.now();
           const [item] = await transaction
             .insert(featureItems)
             .values({
@@ -1218,7 +1254,7 @@ export const createFeatureItemRepository = (
               createdAt: timestamp,
               updatedAt: timestamp,
             })
-            .returning()
+            .returning();
           await writeMutationRecords(
             transaction,
             item!,
@@ -1226,42 +1262,40 @@ export const createFeatureItemRepository = (
             context,
             { status: item!.status },
             dependencies,
-            timestamp,
-          )
-          return item!
-        }
-        )
-      }
-      catch (error) {
-        return mapFeatureMutationError(error)
+            timestamp
+          );
+          return item!;
+        });
+      } catch (error) {
+        return mapFeatureMutationError(error);
       }
     },
 
     update: async (input, context) => {
-      requireNonBlank(input.id, "id")
-      requireNonBlank(input.ownerId, "ownerId")
-      if (input.name !== undefined) requireNonBlank(input.name, "name")
-      validateMutationContext(context)
+      requireNonBlank(input.id, "id");
+      requireNonBlank(input.ownerId, "ownerId");
+      if (input.name !== undefined) requireNonBlank(input.name, "name");
+      validateMutationContext(context);
       const metadata =
         input.metadata === undefined
           ? undefined
-          : validateFeatureMetadata(input.metadata)
+          : validateFeatureMetadata(input.metadata);
 
       const changedFields = [
         input.name === undefined ? null : "name",
         input.description === undefined ? null : "description",
         input.status === undefined ? null : "status",
         input.metadata === undefined ? null : "metadata",
-      ].filter((field): field is string => field !== null)
+      ].filter((field): field is string => field !== null);
       if (changedFields.length === 0) {
         throw new InvalidRepositoryInputError(
-          "feature item update must change at least one field",
-        )
+          "feature item update must change at least one field"
+        );
       }
 
       try {
         return await withTransaction(database, async (transaction) => {
-          const timestamp = dependencies.now()
+          const timestamp = dependencies.now();
           const [item] = await transaction
             .update(featureItems)
             .set({
@@ -1270,19 +1304,17 @@ export const createFeatureItemRepository = (
                 ? {}
                 : { description: input.description }),
               ...(input.status === undefined ? {} : { status: input.status }),
-              ...(metadata === undefined
-                ? {}
-                : { metadata }),
+              ...(metadata === undefined ? {} : { metadata }),
               updatedAt: timestamp,
             })
             .where(
               andWhere(
                 eq(featureItems.id, input.id),
-                eq(featureItems.ownerId, input.ownerId),
-              ),
+                eq(featureItems.ownerId, input.ownerId)
+              )
             )
-            .returning()
-          if (!item) return null
+            .returning();
+          if (!item) return null;
 
           await writeMutationRecords(
             transaction,
@@ -1291,33 +1323,34 @@ export const createFeatureItemRepository = (
             context,
             { changedFields },
             dependencies,
-            timestamp,
-          )
-          return item
-        }
-        )
-      }
-      catch (error) {
-        return mapFeatureMutationError(error)
+            timestamp
+          );
+          return item;
+        });
+      } catch (error) {
+        return mapFeatureMutationError(error);
       }
     },
 
     archive: async (id, ownerId, context) => {
-      requireNonBlank(id, "id")
-      requireNonBlank(ownerId, "ownerId")
-      validateMutationContext(context)
+      requireNonBlank(id, "id");
+      requireNonBlank(ownerId, "ownerId");
+      validateMutationContext(context);
 
       try {
         return await withTransaction(database, async (transaction) => {
-          const timestamp = dependencies.now()
+          const timestamp = dependencies.now();
           const [item] = await transaction
             .update(featureItems)
             .set({ status: "archived", updatedAt: timestamp })
             .where(
-              andWhere(eq(featureItems.id, id), eq(featureItems.ownerId, ownerId)),
+              andWhere(
+                eq(featureItems.id, id),
+                eq(featureItems.ownerId, ownerId)
+              )
             )
-            .returning()
-          if (!item) return null
+            .returning();
+          if (!item) return null;
 
           await writeMutationRecords(
             transaction,
@@ -1326,33 +1359,31 @@ export const createFeatureItemRepository = (
             context,
             { status: "archived" },
             dependencies,
-            timestamp,
-          )
-          return item
-        }
-        )
+            timestamp
+          );
+          return item;
+        });
+      } catch (error) {
+        return mapFeatureMutationError(error);
       }
-      catch (error) {
-        return mapFeatureMutationError(error)
-      }
-    }
-  }
-}
+    },
+  };
+};
 
 export type Repositories = Readonly<{
-  profiles: ProfileRepository
-  addresses: AddressRepository
-  userPreferences: UserPreferencesRepository
-  featureItems: FeatureItemRepository
-  adminUsers: AdminUsersRepository
-  dashboard: DashboardRepository
-  generated?: GeneratedFeatureRepositories
-  workflows?: WorkflowRepository
-}>
+  profiles: ProfileRepository;
+  addresses: AddressRepository;
+  userPreferences: UserPreferencesRepository;
+  featureItems: FeatureItemRepository;
+  adminUsers: AdminUsersRepository;
+  dashboard: DashboardRepository;
+  generated?: GeneratedFeatureRepositories;
+  workflows?: WorkflowRepository;
+}>;
 
 export const createRepositories = (
   database: DatabaseExecutor,
-  dependencies: RepositoryDependencies = {},
+  dependencies: RepositoryDependencies = {}
 ): Repositories => ({
   profiles: createProfileRepository(database, dependencies),
   addresses: createAddressRepository(database, dependencies),
@@ -1362,4 +1393,4 @@ export const createRepositories = (
   dashboard: createDashboardRepository(database),
   generated: createGeneratedFeatureRepositories(database),
   workflows: createWorkflowRepository(database, dependencies),
-})
+});

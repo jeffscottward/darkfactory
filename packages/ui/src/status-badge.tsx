@@ -1,8 +1,8 @@
-import type { ComponentPropsWithRef } from "react"
-import type { VariantProps } from "class-variance-authority"
-import { cva } from "class-variance-authority"
+import type { ComponentPropsWithRef } from "react";
+import type { VariantProps } from "class-variance-authority";
+import { cva } from "class-variance-authority";
 
-import { cn } from "./utilities.ts"
+import { cn } from "./utilities.ts";
 
 export const statusBadgeVariants = cva(
   "inline-flex min-h-6 items-center gap-1.5 rounded-pill border px-2.5 py-0.5 font-body text-xs font-semibold leading-4 before:size-1.5 before:rounded-pill before:bg-current",
@@ -10,20 +10,23 @@ export const statusBadgeVariants = cva(
     variants: {
       status: {
         neutral: "border-border-strong bg-muted text-foreground",
-        success: "border-success-border bg-success-subtle text-success-foreground",
-        warning: "border-warning-border bg-warning-subtle text-warning-foreground",
+        success:
+          "border-success-border bg-success-subtle text-success-foreground",
+        warning:
+          "border-warning-border bg-warning-subtle text-warning-foreground",
         info: "border-info-border bg-info-subtle text-info-foreground",
-        destructive: "border-destructive-border bg-destructive-subtle text-destructive",
+        destructive:
+          "border-destructive-border bg-destructive-subtle text-destructive",
       },
     },
     defaultVariants: { status: "neutral" },
-  },
-)
+  }
+);
 
 export interface StatusBadgeProps
   extends ComponentPropsWithRef<"span">,
     VariantProps<typeof statusBadgeVariants> {
-  status: NonNullable<VariantProps<typeof statusBadgeVariants>["status"]>
+  status: NonNullable<VariantProps<typeof statusBadgeVariants>["status"]>;
 }
 
 export const StatusBadge = ({
@@ -37,9 +40,7 @@ export const StatusBadge = ({
     className={cn(statusBadgeVariants({ status }), className)}
     {...props}
   >
-    <span className="sr-only">Status:
-    </span>
-    <span>{children}
-    </span>
-</span>
-)
+    <span className="sr-only">Status:</span>
+    <span>{children}</span>
+  </span>
+);

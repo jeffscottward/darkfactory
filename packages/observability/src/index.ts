@@ -19,7 +19,7 @@ export type {
   TelemetryRuntime,
   TelemetryRuntimeState,
   WaitUntil,
-} from "./port.ts"
+} from "./port.ts";
 
 export {
   REDACTED,
@@ -29,4 +29,4 @@ export {
   redactSemanticEvent,
   type RedactedValue,
   type RedactionOptions,
-} from "./redaction.ts"
+} from "./redaction.ts";

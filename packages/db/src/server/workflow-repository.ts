@@ -1,5 +1,5 @@
-import { redact } from "@darkfactory/observability/redaction"
-import { createHash } from "node:crypto"
+import { redact } from "@darkfactory/observability/redaction";
+import { createHash } from "node:crypto";
 import {
   and as andWhere,
   asc,
@@ -9,7 +9,7 @@ import {
   lt,
   or as orWhere,
   sql,
-} from "drizzle-orm"
+} from "drizzle-orm";
 
 import {
   GENESIS_WORKFLOW_JOURNAL_HASH,
@@ -36,532 +36,536 @@ import {
   type WorkflowSnapshot,
   type WorkflowSnapshotContext,
   type WorkflowState,
-} from "../schema/index.ts"
+} from "../schema/index.ts";
 import {
   withTransaction,
   type DatabaseExecutor,
   type Transaction,
-} from "./client.ts"
+} from "./client.ts";
 
-const HASH_PATTERN = /^[0-9a-f]{64}$/
-const IDEMPOTENCY_KEY_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:-]*$/
-const MAX_REDACTION_DEPTH = 32
-const MAX_EVENT_BYTES = 48 * 1024
-const MAX_SNAPSHOT_BYTES = 48 * 1024
-const MAX_EFFECT_BYTES = 48 * 1024
-const MAX_EVIDENCE_BYTES = 48 * 1024
-const MAX_SUMMARY_BYTES = 4 * 1024
-const MAX_MESSAGE_BYTES = 8 * 1024
-const MAX_IDEMPOTENCY_KEY_BYTES = 128
-const MAX_ERROR_BYTES = 4 * 1024
-const DEFAULT_LEASE_MILLISECONDS = 30_000
-const DEFAULT_CLAIM_LIMIT = 10
-const MAX_CLAIM_LIMIT = 100
-const MAX_LEASE_MILLISECONDS = 5 * 60_000
-const WORKFLOW_CAPACITY_GLOBAL_LOCK_CLASS = 1_464_210_001
-const WORKFLOW_CAPACITY_OWNER_LOCK_CLASS = 1_464_210_002
+const HASH_PATTERN = /^[0-9a-f]{64}$/;
+const IDEMPOTENCY_KEY_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:-]*$/;
+const MAX_REDACTION_DEPTH = 32;
+const MAX_EVENT_BYTES = 48 * 1024;
+const MAX_SNAPSHOT_BYTES = 48 * 1024;
+const MAX_EFFECT_BYTES = 48 * 1024;
+const MAX_EVIDENCE_BYTES = 48 * 1024;
+const MAX_SUMMARY_BYTES = 4 * 1024;
+const MAX_MESSAGE_BYTES = 8 * 1024;
+const MAX_IDEMPOTENCY_KEY_BYTES = 128;
+const MAX_ERROR_BYTES = 4 * 1024;
+const DEFAULT_LEASE_MILLISECONDS = 30_000;
+const DEFAULT_CLAIM_LIMIT = 10;
+const MAX_CLAIM_LIMIT = 100;
+const MAX_LEASE_MILLISECONDS = 5 * 60_000;
+const WORKFLOW_CAPACITY_GLOBAL_LOCK_CLASS = 1_464_210_001;
+const WORKFLOW_CAPACITY_OWNER_LOCK_CLASS = 1_464_210_002;
 
-export const MAX_ACTIVE_WORKFLOW_RUNS_PER_OWNER = 20
-export const MAX_ACTIVE_WORKFLOW_RUNS_GLOBAL = 200
+export const MAX_ACTIVE_WORKFLOW_RUNS_PER_OWNER = 20;
+export const MAX_ACTIVE_WORKFLOW_RUNS_GLOBAL = 200;
 
-export const WORKFLOW_RUN_SUBMISSION_WINDOW_SECONDS = 60 * 60
-export const MAX_WORKFLOW_RUN_SUBMISSIONS_PER_OWNER = 20
+export const WORKFLOW_RUN_SUBMISSION_WINDOW_SECONDS = 60 * 60;
+export const MAX_WORKFLOW_RUN_SUBMISSIONS_PER_OWNER = 20;
 
-export const MAX_WORKFLOW_MESSAGES_PER_RUN = 100
+export const MAX_WORKFLOW_MESSAGES_PER_RUN = 100;
 
 export class WorkflowPersistenceInputError extends Error {
   constructor(message: string) {
-    super(`Invalid workflow persistence input: ${message}`)
-    this.name = "WorkflowPersistenceInputError"
+    super(`Invalid workflow persistence input: ${message}`);
+    this.name = "WorkflowPersistenceInputError";
   }
 }
 
 export class WorkflowRunNotFoundError extends Error {
   constructor() {
-    super("Workflow run was not found for this owner")
-    this.name = "WorkflowRunNotFoundError"
+    super("Workflow run was not found for this owner");
+    this.name = "WorkflowRunNotFoundError";
   }
 }
 
 export class WorkflowRunCapacityError extends Error {
   constructor() {
-    super("Workflow run admission is temporarily unavailable")
-    this.name = "WorkflowRunCapacityError"
+    super("Workflow run admission is temporarily unavailable");
+    this.name = "WorkflowRunCapacityError";
   }
 }
 
 export class WorkflowRunSubmissionRateError extends Error {
-  readonly retryAfterSeconds: number
+  readonly retryAfterSeconds: number;
 
   constructor(retryAfterSeconds: number) {
-    super("Workflow run submission is temporarily limited; retry later")
-    this.name = "WorkflowRunSubmissionRateError"
-    this.retryAfterSeconds = retryAfterSeconds
+    super("Workflow run submission is temporarily limited; retry later");
+    this.name = "WorkflowRunSubmissionRateError";
+    this.retryAfterSeconds = retryAfterSeconds;
   }
 }
 
 export class WorkflowConcurrencyError extends Error {
   constructor() {
-    super("Workflow run changed before the event could be appended")
-    this.name = "WorkflowConcurrencyError"
+    super("Workflow run changed before the event could be appended");
+    this.name = "WorkflowConcurrencyError";
   }
 }
 
 export class WorkflowRunTerminalError extends Error {
-  readonly state: "completed" | "cancelled"
+  readonly state: "completed" | "cancelled";
 
   constructor(state: "completed" | "cancelled") {
-    super(`Workflow run is ${state} and cannot accept operator messages`)
-    this.name = "WorkflowRunTerminalError"
-    this.state = state
+    super(`Workflow run is ${state} and cannot accept operator messages`);
+    this.name = "WorkflowRunTerminalError";
+    this.state = state;
   }
 }
 
 export class WorkflowMessageCapacityError extends Error {
   constructor() {
-    super("Workflow run has reached the operator message limit")
-    this.name = "WorkflowMessageCapacityError"
+    super("Workflow run has reached the operator message limit");
+    this.name = "WorkflowMessageCapacityError";
   }
 }
 
 export class WorkflowProjectionIntegrityError extends Error {
   constructor(message: string) {
-    super(`Workflow projection integrity check failed: ${message}`)
-    this.name = "WorkflowProjectionIntegrityError"
+    super(`Workflow projection integrity check failed: ${message}`);
+    this.name = "WorkflowProjectionIntegrityError";
   }
 }
 
 export class StaleWorkflowApprovalError extends Error {
   constructor() {
-    super("Workflow approval no longer matches the current projection")
-    this.name = "StaleWorkflowApprovalError"
+    super("Workflow approval no longer matches the current projection");
+    this.name = "StaleWorkflowApprovalError";
   }
 }
 
 export type WorkflowRepositoryOptions = Readonly<{
-  now?: () => Date
-  generateId?: () => string
-}>
+  now?: () => Date;
+  generateId?: () => string;
+}>;
 
 export type WorkflowRunsCursorKey = Readonly<{
-  id: string
-  updatedAt: Date
-  state?: WorkflowState
-}>
+  id: string;
+  updatedAt: Date;
+  state?: WorkflowState;
+}>;
 
 export type WorkflowRecordPageOptions = Readonly<{
-  limit?: number
-  cursor?: string
-}>
+  limit?: number;
+  cursor?: string;
+}>;
 
 export type WorkflowRecordPage<Item> = Readonly<{
-  items: readonly Item[]
-  nextCursor: string | null
-}>
+  items: readonly Item[];
+  nextCursor: string | null;
+}>;
 
 type ResolvedOptions = Readonly<{
-  now: () => Date
-  generateId: () => string
-}>
+  now: () => Date;
+  generateId: () => string;
+}>;
 
-type JsonObject = Readonly<Record<string, JsonValue>>
-type QueryRows<Row> = Readonly<{ rows: Row[] }>
+type JsonObject = Readonly<Record<string, JsonValue>>;
+type QueryRows<Row> = Readonly<{ rows: Row[] }>;
 
 export type PersistedWorkflowEvent = WorkflowPersistedEvent &
   Readonly<{
-    type: string
-    eventId: string
-    eventVersion: 1
-    machineVersion: 1
-    occurredAt: string
-  }>
+    type: string;
+    eventId: string;
+    eventVersion: 1;
+    machineVersion: 1;
+    occurredAt: string;
+  }>;
 
 export type PersistedWorkflowSnapshot = Readonly<{
-  machineId: typeof WORKFLOW_MACHINE_ID
-  machineVersion: typeof WORKFLOW_MACHINE_VERSION
-  state: WorkflowState
-  sequence: number
-  journalHeadHash: string
-  context: WorkflowSnapshotContext
-  effectHash?: string | null
-  effectScope?: string | null
-}>
+  machineId: typeof WORKFLOW_MACHINE_ID;
+  machineVersion: typeof WORKFLOW_MACHINE_VERSION;
+  state: WorkflowState;
+  sequence: number;
+  journalHeadHash: string;
+  context: WorkflowSnapshotContext;
+  effectHash?: string | null;
+  effectScope?: string | null;
+}>;
 
 export type WorkflowEffectInput = Readonly<{
-  id?: string
-  handler: string
-  idempotencyKey: string
-  eventType: string
-  payload: JsonObject
-  availableAt?: Date
-}>
+  id?: string;
+  handler: string;
+  idempotencyKey: string;
+  eventType: string;
+  payload: JsonObject;
+  availableAt?: Date;
+}>;
 
 export type CreateWorkflowRunInput = Readonly<{
-  id?: string
-  ownerId: string
-  event: PersistedWorkflowEvent
-  snapshot: PersistedWorkflowSnapshot
-  effects?: readonly WorkflowEffectInput[]
-}>
+  id?: string;
+  ownerId: string;
+  event: PersistedWorkflowEvent;
+  snapshot: PersistedWorkflowSnapshot;
+  effects?: readonly WorkflowEffectInput[];
+}>;
 
 export type AppendWorkflowInput = Readonly<{
-  runId: string
-  ownerId: string
-  expectedSequence: number
-  expectedHeadHash: string
-  event: PersistedWorkflowEvent
-  snapshot: PersistedWorkflowSnapshot
-  effects?: readonly WorkflowEffectInput[]
-}>
+  runId: string;
+  ownerId: string;
+  expectedSequence: number;
+  expectedHeadHash: string;
+  event: PersistedWorkflowEvent;
+  snapshot: PersistedWorkflowSnapshot;
+  effects?: readonly WorkflowEffectInput[];
+}>;
 
 export type WorkflowProjection = Readonly<{
-  run: WorkflowRun
-  snapshot: WorkflowSnapshot
-  journal: readonly WorkflowJournalEntry[]
-}>
+  run: WorkflowRun;
+  snapshot: WorkflowSnapshot;
+  journal: readonly WorkflowJournalEntry[];
+}>;
 
 export type WorkflowAppendResult = Readonly<{
-  duplicate: boolean
-  projection: WorkflowProjection
-}>
+  duplicate: boolean;
+  projection: WorkflowProjection;
+}>;
 
 export type CreateWorkflowApprovalInput = Readonly<{
-  id?: string
-  runId: string
-  ownerId: string
-  machineId: typeof WORKFLOW_MACHINE_ID
-  machineVersion: typeof WORKFLOW_MACHINE_VERSION
-  eventVersion: typeof WORKFLOW_EVENT_VERSION
-  snapshotSequence: number
-  journalHeadHash: string
-  effectHash: string
-  effectScope: string
-}>
+  id?: string;
+  runId: string;
+  ownerId: string;
+  machineId: typeof WORKFLOW_MACHINE_ID;
+  machineVersion: typeof WORKFLOW_MACHINE_VERSION;
+  eventVersion: typeof WORKFLOW_EVENT_VERSION;
+  snapshotSequence: number;
+  journalHeadHash: string;
+  effectHash: string;
+  effectScope: string;
+}>;
 
 export type DecideWorkflowApprovalInput = Readonly<{
-  id: string
-  runId: string
-  ownerId: string
-  decidedBy: string
-  decision: "granted" | "rejected"
-  reason?: string | null
-}>
+  id: string;
+  runId: string;
+  ownerId: string;
+  decidedBy: string;
+  decision: "granted" | "rejected";
+  reason?: string | null;
+}>;
 export type DecideWorkflowApprovalAndAppendInput = Readonly<{
-  approval: DecideWorkflowApprovalInput
-  append: AppendWorkflowInput
-}>
-
+  approval: DecideWorkflowApprovalInput;
+  append: AppendWorkflowInput;
+}>;
 
 export type AddWorkflowEvidenceInput = Readonly<{
-  id?: string
-  runId: string
-  ownerId: string
-  kind: string
-  summary: string
-  data: JsonObject
-}>
-export type AddWorkflowEvidenceWithIdInput =
-  AddWorkflowEvidenceInput & Readonly<{ id: string }>
-
+  id?: string;
+  runId: string;
+  ownerId: string;
+  kind: string;
+  summary: string;
+  data: JsonObject;
+}>;
+export type AddWorkflowEvidenceWithIdInput = AddWorkflowEvidenceInput &
+  Readonly<{ id: string }>;
 
 export type AddWorkflowMessageInput = Readonly<{
-  idempotencyKey: string
-  runId: string
-  ownerId: string
-  authorId: string | null
-  content: string
-}>
+  idempotencyKey: string;
+  runId: string;
+  ownerId: string;
+  authorId: string | null;
+  content: string;
+}>;
 export type AddWorkflowMessageAndAppendInput = AddWorkflowMessageInput &
   Readonly<{
-    id: string
-    event: PersistedWorkflowEvent
-    append: AppendWorkflowInput | null
-  }>
+    id: string;
+    event: PersistedWorkflowEvent;
+    append: AppendWorkflowInput | null;
+  }>;
 export type WorkflowMessageAppendResult = Readonly<{
-  duplicate: boolean
-  message: WorkflowMessage
-  projection: WorkflowProjection
-}>
-export type CreateWorkflowApprovalWithIdInput =
-  CreateWorkflowApprovalInput & Readonly<{ id: string }>
-
+  duplicate: boolean;
+  message: WorkflowMessage;
+  projection: WorkflowProjection;
+}>;
+export type CreateWorkflowApprovalWithIdInput = CreateWorkflowApprovalInput &
+  Readonly<{ id: string }>;
 
 export type ClaimDueWorkflowEffectsInput = Readonly<{
-  handler: string
-  leaseOwner: string
-  limit?: number
-  leaseMilliseconds?: number
-}>
+  handler: string;
+  leaseOwner: string;
+  limit?: number;
+  leaseMilliseconds?: number;
+}>;
 
 export type WorkflowEffectLeaseInput = Readonly<{
-  id: string
-  leaseOwner: string
-  fence: number
-}>
+  id: string;
+  leaseOwner: string;
+  fence: number;
+}>;
 
 export type HeartbeatWorkflowEffectInput = WorkflowEffectLeaseInput &
-  Readonly<{ leaseMilliseconds?: number }>
+  Readonly<{ leaseMilliseconds?: number }>;
 
 export type FailWorkflowEffectInput = WorkflowEffectLeaseInput &
   Readonly<{
-    error: string
-    retryAt: Date
-  }>
+    error: string;
+    retryAt: Date;
+  }>;
 
 export type FinalizeWorkflowEffectInput = WorkflowEffectLeaseInput &
   Readonly<{
-    ownerId: string
-    append: AppendWorkflowInput
-    evidence: AddWorkflowEvidenceWithIdInput
-    approval?: CreateWorkflowApprovalWithIdInput
-    terminal: "completed" | "dead"
-    error?: string
-  }>
+    ownerId: string;
+    append: AppendWorkflowInput;
+    evidence: AddWorkflowEvidenceWithIdInput;
+    approval?: CreateWorkflowApprovalWithIdInput;
+    terminal: "completed" | "dead";
+    error?: string;
+  }>;
 
 export type WorkflowEffectFinalizationResult =
   | Readonly<{
-      status: "applied" | "already-applied"
-      projection: WorkflowProjection
+      status: "applied" | "already-applied";
+      projection: WorkflowProjection;
     }>
-  | Readonly<{ status: "stale"; projection: null }>
+  | Readonly<{ status: "stale"; projection: null }>;
 
 export type ClaimWorkflowRetainedResourcesInput = Readonly<{
-  leaseOwner: string
-  limit?: number
-  leaseMilliseconds?: number
-}>
+  leaseOwner: string;
+  limit?: number;
+  leaseMilliseconds?: number;
+}>;
 
 export type WorkflowRetainedResourceClaim = Readonly<{
-  runId: string
-  ownerId: string
-  evidenceId: string
-  evidenceData: JsonObject
-  leaseOwner: string
-  fence: number
-}>
+  runId: string;
+  ownerId: string;
+  evidenceId: string;
+  evidenceData: JsonObject;
+  leaseOwner: string;
+  fence: number;
+}>;
 
 export type WorkflowRetainedResourceLeaseInput = Readonly<{
-  runId: string
-  leaseOwner: string
-  fence: number
-}>
+  runId: string;
+  leaseOwner: string;
+  fence: number;
+}>;
 
 export type HeartbeatWorkflowRetainedResourceInput =
-  WorkflowRetainedResourceLeaseInput &
-    Readonly<{ leaseMilliseconds?: number }>
+  WorkflowRetainedResourceLeaseInput & Readonly<{ leaseMilliseconds?: number }>;
 
 export type ReleaseWorkflowRetainedResourceInput =
-  WorkflowRetainedResourceLeaseInput &
-    Readonly<{ retryAt?: Date }>
+  WorkflowRetainedResourceLeaseInput & Readonly<{ retryAt?: Date }>;
 
 export type FailWorkflowRetainedResourceInput =
-  WorkflowRetainedResourceLeaseInput & Readonly<{ error: string }>
-
+  WorkflowRetainedResourceLeaseInput & Readonly<{ error: string }>;
 
 export interface WorkflowRepository {
-  readonly createRun: (input: CreateWorkflowRunInput) => Promise<WorkflowProjection>
-  readonly append: (input: AppendWorkflowInput) => Promise<WorkflowAppendResult>
+  readonly createRun: (
+    input: CreateWorkflowRunInput
+  ) => Promise<WorkflowProjection>;
+  readonly append: (
+    input: AppendWorkflowInput
+  ) => Promise<WorkflowAppendResult>;
   readonly listRunsByOwner: (
     ownerId: string,
     options?: Readonly<{
-      limit?: number
-      cursor?: string
-      state?: WorkflowState
-    }>,
-  ) => Promise<readonly WorkflowRun[]>
+      limit?: number;
+      cursor?: string;
+      state?: WorkflowState;
+    }>
+  ) => Promise<readonly WorkflowRun[]>;
   readonly findProjectionByOwner: (
     runId: string,
-    ownerId: string,
-  ) => Promise<WorkflowProjection | null>
+    ownerId: string
+  ) => Promise<WorkflowProjection | null>;
   readonly listProjectionsByOwner: (
     ownerId: string,
-    runIds: readonly string[],
-  ) => Promise<readonly WorkflowProjection[]>
+    runIds: readonly string[]
+  ) => Promise<readonly WorkflowProjection[]>;
   readonly createApproval: (
-    input: CreateWorkflowApprovalInput,
-  ) => Promise<WorkflowApproval>
+    input: CreateWorkflowApprovalInput
+  ) => Promise<WorkflowApproval>;
   readonly decideApprovalAndAppend: (
-    input: DecideWorkflowApprovalAndAppendInput,
-  ) => Promise<WorkflowAppendResult>
+    input: DecideWorkflowApprovalAndAppendInput
+  ) => Promise<WorkflowAppendResult>;
   readonly addEvidence: (
-    input: AddWorkflowEvidenceInput,
-  ) => Promise<WorkflowEvidence>
+    input: AddWorkflowEvidenceInput
+  ) => Promise<WorkflowEvidence>;
   readonly listEvidenceByOwner: (
     runId: string,
     ownerId: string,
-    options?: WorkflowRecordPageOptions,
-  ) => Promise<WorkflowRecordPage<WorkflowEvidence>>
+    options?: WorkflowRecordPageOptions
+  ) => Promise<WorkflowRecordPage<WorkflowEvidence>>;
   readonly findEvidenceByOwner: (
     id: string,
     runId: string,
-    ownerId: string,
-  ) => Promise<WorkflowEvidence | null>
+    ownerId: string
+  ) => Promise<WorkflowEvidence | null>;
   readonly addMessageAndAppend: (
-    input: AddWorkflowMessageAndAppendInput,
-  ) => Promise<WorkflowMessageAppendResult>
+    input: AddWorkflowMessageAndAppendInput
+  ) => Promise<WorkflowMessageAppendResult>;
   readonly listMessagesByOwner: (
     runId: string,
     ownerId: string,
-    options?: WorkflowRecordPageOptions,
-  ) => Promise<WorkflowRecordPage<WorkflowMessage>>
+    options?: WorkflowRecordPageOptions
+  ) => Promise<WorkflowRecordPage<WorkflowMessage>>;
   readonly claimDueEffects: (
-    input: ClaimDueWorkflowEffectsInput,
-  ) => Promise<readonly OutboxEvent[]>
+    input: ClaimDueWorkflowEffectsInput
+  ) => Promise<readonly OutboxEvent[]>;
   readonly heartbeatEffect: (
-    input: HeartbeatWorkflowEffectInput,
-  ) => Promise<boolean>
-  readonly failEffect: (input: FailWorkflowEffectInput) => Promise<boolean>
+    input: HeartbeatWorkflowEffectInput
+  ) => Promise<boolean>;
+  readonly failEffect: (input: FailWorkflowEffectInput) => Promise<boolean>;
   readonly finalizeEffect: (
-    input: FinalizeWorkflowEffectInput,
-  ) => Promise<WorkflowEffectFinalizationResult>
+    input: FinalizeWorkflowEffectInput
+  ) => Promise<WorkflowEffectFinalizationResult>;
   readonly claimRetainedResources: (
-    input: ClaimWorkflowRetainedResourcesInput,
-  ) => Promise<readonly WorkflowRetainedResourceClaim[]>
+    input: ClaimWorkflowRetainedResourcesInput
+  ) => Promise<readonly WorkflowRetainedResourceClaim[]>;
   readonly heartbeatRetainedResource: (
-    input: HeartbeatWorkflowRetainedResourceInput,
-  ) => Promise<boolean>
+    input: HeartbeatWorkflowRetainedResourceInput
+  ) => Promise<boolean>;
   readonly releaseRetainedResource: (
-    input: ReleaseWorkflowRetainedResourceInput,
-  ) => Promise<boolean>
+    input: ReleaseWorkflowRetainedResourceInput
+  ) => Promise<boolean>;
   readonly completeRetainedResource: (
-    input: WorkflowRetainedResourceLeaseInput,
-  ) => Promise<boolean>
+    input: WorkflowRetainedResourceLeaseInput
+  ) => Promise<boolean>;
   readonly failRetainedResource: (
-    input: FailWorkflowRetainedResourceInput,
-  ) => Promise<boolean>
+    input: FailWorkflowRetainedResourceInput
+  ) => Promise<boolean>;
 }
 
 const requireNonBlank = (value: string, field: string): void => {
   if (value.trim().length === 0) {
-    throw new WorkflowPersistenceInputError(`${field} must not be blank`)
+    throw new WorkflowPersistenceInputError(`${field} must not be blank`);
   }
-}
-
+};
 
 const requireHash = (value: string, field: string): void => {
   if (!HASH_PATTERN.test(value)) {
-    throw new WorkflowPersistenceInputError(`${field} must be a lowercase SHA-256 hash`)
+    throw new WorkflowPersistenceInputError(
+      `${field} must be a lowercase SHA-256 hash`
+    );
   }
-}
+};
 
 const boundedInteger = (
   value: number,
   minimum: number,
   maximum: number,
-  field: string,
+  field: string
 ): number => {
   if (!Number.isSafeInteger(value) || value < minimum || value > maximum) {
     throw new WorkflowPersistenceInputError(
-      `${field} must be an integer between ${minimum} and ${maximum}`,
-    )
+      `${field} must be an integer between ${minimum} and ${maximum}`
+    );
   }
-  return value
-}
+  return value;
+};
 
 const databaseNonNegativeInteger = (
   value: unknown,
-  integrityMessage: string,
+  integrityMessage: string
 ): number => {
-  const parsed = typeof value === "number"
-    ? value
-    : typeof value === "string" && /^(?:0|[1-9]\d*)$/u.test(value)
-      ? Number(value)
-      : Number.NaN
+  const parsed =
+    typeof value === "number"
+      ? value
+      : typeof value === "string" && /^(?:0|[1-9]\d*)$/u.test(value)
+        ? Number(value)
+        : Number.NaN;
   if (!Number.isSafeInteger(parsed) || parsed < 0) {
-    throw new WorkflowProjectionIntegrityError(integrityMessage)
+    throw new WorkflowProjectionIntegrityError(integrityMessage);
   }
-  return parsed
-}
+  return parsed;
+};
 
 const toBase64Url = (value: string): string => {
-  const bytes = new TextEncoder().encode(value)
-  let binary = ""
-  for (const byte of bytes) binary += String.fromCharCode(byte)
-  return btoa(binary).replaceAll("+", "-").replaceAll("/", "_").replace(/=+$/u, "")
-}
+  const bytes = new TextEncoder().encode(value);
+  let binary = "";
+  for (const byte of bytes) binary += String.fromCharCode(byte);
+  return btoa(binary)
+    .replaceAll("+", "-")
+    .replaceAll("/", "_")
+    .replace(/=+$/u, "");
+};
 
 const fromBase64Url = (value: string): string => {
   if (!/^[A-Za-z0-9_-]+$/u.test(value)) {
-    throw new WorkflowPersistenceInputError("workflow run cursor is invalid")
+    throw new WorkflowPersistenceInputError("workflow run cursor is invalid");
   }
-  const standard = value.replaceAll("-", "+").replaceAll("_", "/")
-  const padded = standard + "=".repeat((4 - (standard.length % 4)) % 4)
-  let binary: string
+  const standard = value.replaceAll("-", "+").replaceAll("_", "/");
+  const padded = standard + "=".repeat((4 - (standard.length % 4)) % 4);
+  let binary: string;
   try {
-    binary = atob(padded)
-  }
-  catch {
-    throw new WorkflowPersistenceInputError("workflow run cursor is invalid")
+    binary = atob(padded);
+  } catch {
+    throw new WorkflowPersistenceInputError("workflow run cursor is invalid");
   }
   try {
     return new TextDecoder("utf-8", { fatal: true }).decode(
-      Uint8Array.from(binary, (character) => character.charCodeAt(0)),
-    )
+      Uint8Array.from(binary, (character) => character.charCodeAt(0))
+    );
+  } catch {
+    throw new WorkflowPersistenceInputError("workflow run cursor is invalid");
   }
-  catch {
-    throw new WorkflowPersistenceInputError("workflow run cursor is invalid")
-  }
-}
+};
 
 export const encodeWorkflowRunsCursor = (
-  key: WorkflowRunsCursorKey,
+  key: WorkflowRunsCursorKey
 ): string => {
-  requireNonBlank(key.id, "cursor.id")
+  requireNonBlank(key.id, "cursor.id");
   if (
     !Number.isFinite(key.updatedAt.getTime()) ||
     (key.state !== undefined &&
       !(WORKFLOW_STATES as readonly string[]).includes(key.state))
   ) {
-    throw new WorkflowPersistenceInputError("workflow run cursor is invalid")
+    throw new WorkflowPersistenceInputError("workflow run cursor is invalid");
   }
-  const encoded = toBase64Url(JSON.stringify({
-    v: 1,
-    updatedAt: key.updatedAt.toISOString(),
-    id: key.id,
-    state: key.state ?? null,
-  }))
+  const encoded = toBase64Url(
+    JSON.stringify({
+      v: 1,
+      updatedAt: key.updatedAt.toISOString(),
+      id: key.id,
+      state: key.state ?? null,
+    })
+  );
   if (encoded.length > 256) {
-    throw new WorkflowPersistenceInputError("workflow run cursor is too long")
+    throw new WorkflowPersistenceInputError("workflow run cursor is too long");
   }
-  return encoded
-}
+  return encoded;
+};
 
 export const decodeWorkflowRunsCursor = (
-  cursor: string,
+  cursor: string
 ): WorkflowRunsCursorKey => {
-  requireNonBlank(cursor, "cursor")
+  requireNonBlank(cursor, "cursor");
   if (cursor.length > 256) {
-    throw new WorkflowPersistenceInputError("workflow run cursor is too long")
+    throw new WorkflowPersistenceInputError("workflow run cursor is too long");
   }
-  let value: unknown
+  let value: unknown;
   try {
-    value = JSON.parse(fromBase64Url(cursor))
-  }
-  catch (error) {
-    if (error instanceof WorkflowPersistenceInputError) throw error
-    throw new WorkflowPersistenceInputError("workflow run cursor is invalid")
+    value = JSON.parse(fromBase64Url(cursor));
+  } catch (error) {
+    if (error instanceof WorkflowPersistenceInputError) throw error;
+    throw new WorkflowPersistenceInputError("workflow run cursor is invalid");
   }
   if (typeof value !== "object" || value === null || Array.isArray(value)) {
-    throw new WorkflowPersistenceInputError("workflow run cursor is invalid")
+    throw new WorkflowPersistenceInputError("workflow run cursor is invalid");
   }
-  const record = value as Record<string, unknown>
+  const record = value as Record<string, unknown>;
   if (
     Object.keys(record).sort().join(",") !== "id,state,updatedAt,v" ||
     record["v"] !== 1 ||
     typeof record["id"] !== "string" ||
     record["id"].trim().length === 0 ||
     typeof record["updatedAt"] !== "string" ||
-    !(record["state"] === null ||
-      (WORKFLOW_STATES as readonly unknown[]).includes(record["state"]))
+    !(
+      record["state"] === null ||
+      (WORKFLOW_STATES as readonly unknown[]).includes(record["state"])
+    )
   ) {
-    throw new WorkflowPersistenceInputError("workflow run cursor is invalid")
+    throw new WorkflowPersistenceInputError("workflow run cursor is invalid");
   }
-  const updatedAt = new Date(record["updatedAt"])
+  const updatedAt = new Date(record["updatedAt"]);
   if (
     !Number.isFinite(updatedAt.getTime()) ||
     updatedAt.toISOString() !== record["updatedAt"]
   ) {
-    throw new WorkflowPersistenceInputError("workflow run cursor is invalid")
+    throw new WorkflowPersistenceInputError("workflow run cursor is invalid");
   }
   return {
     id: record["id"],
@@ -569,48 +573,59 @@ export const decodeWorkflowRunsCursor = (
     ...(record["state"] === null
       ? {}
       : { state: record["state"] as WorkflowState }),
-  }
-}
+  };
+};
 
-type WorkflowRecordCursorKind = "evidence" | "message"
+type WorkflowRecordCursorKind = "evidence" | "message";
 
 type WorkflowRecordCursorKey = Readonly<{
-  kind: WorkflowRecordCursorKind
-  runId: string
-  id: string
-  createdAt: Date
-}>
+  kind: WorkflowRecordCursorKind;
+  runId: string;
+  id: string;
+  createdAt: Date;
+}>;
 
 const encodeWorkflowRecordCursor = (key: WorkflowRecordCursorKey): string => {
-  const encoded = toBase64Url(JSON.stringify({
-    v: 1,
-    kind: key.kind,
-    runId: key.runId,
-    createdAt: key.createdAt.toISOString(),
-    id: key.id,
-  }))
+  const encoded = toBase64Url(
+    JSON.stringify({
+      v: 1,
+      kind: key.kind,
+      runId: key.runId,
+      createdAt: key.createdAt.toISOString(),
+      id: key.id,
+    })
+  );
   if (encoded.length > 256) {
-    throw new WorkflowPersistenceInputError("workflow record cursor is too long")
+    throw new WorkflowPersistenceInputError(
+      "workflow record cursor is too long"
+    );
   }
-  return encoded
-}
+  return encoded;
+};
 
-const decodeWorkflowRecordCursor = (cursor: string): WorkflowRecordCursorKey => {
-  requireNonBlank(cursor, "cursor")
+const decodeWorkflowRecordCursor = (
+  cursor: string
+): WorkflowRecordCursorKey => {
+  requireNonBlank(cursor, "cursor");
   if (cursor.length > 256) {
-    throw new WorkflowPersistenceInputError("workflow record cursor is too long")
+    throw new WorkflowPersistenceInputError(
+      "workflow record cursor is too long"
+    );
   }
-  let value: unknown
+  let value: unknown;
   try {
-    value = JSON.parse(fromBase64Url(cursor))
-  }
-  catch {
-    throw new WorkflowPersistenceInputError("workflow record cursor is invalid")
+    value = JSON.parse(fromBase64Url(cursor));
+  } catch {
+    throw new WorkflowPersistenceInputError(
+      "workflow record cursor is invalid"
+    );
   }
   if (typeof value !== "object" || value === null || Array.isArray(value)) {
-    throw new WorkflowPersistenceInputError("workflow record cursor is invalid")
+    throw new WorkflowPersistenceInputError(
+      "workflow record cursor is invalid"
+    );
   }
-  const record = value as Record<string, unknown>
+  const record = value as Record<string, unknown>;
   if (
     Object.keys(record).sort().join(",") !== "createdAt,id,kind,runId,v" ||
     record["v"] !== 1 ||
@@ -621,43 +636,48 @@ const decodeWorkflowRecordCursor = (cursor: string): WorkflowRecordCursorKey => 
     record["id"].trim().length === 0 ||
     typeof record["createdAt"] !== "string"
   ) {
-    throw new WorkflowPersistenceInputError("workflow record cursor is invalid")
+    throw new WorkflowPersistenceInputError(
+      "workflow record cursor is invalid"
+    );
   }
-  const createdAt = new Date(record["createdAt"])
+  const createdAt = new Date(record["createdAt"]);
   if (
     !Number.isFinite(createdAt.getTime()) ||
     createdAt.toISOString() !== record["createdAt"]
   ) {
-    throw new WorkflowPersistenceInputError("workflow record cursor is invalid")
+    throw new WorkflowPersistenceInputError(
+      "workflow record cursor is invalid"
+    );
   }
   return {
     kind: record["kind"],
     runId: record["runId"],
     id: record["id"],
     createdAt,
-  }
-}
+  };
+};
 
-const recordPage = <Item extends Readonly<{ id: string; createdAt: Date }>,>(
+const recordPage = <Item extends Readonly<{ id: string; createdAt: Date }>>(
   rows: readonly Item[],
   limit: number,
   kind: WorkflowRecordCursorKind,
-  runId: string,
+  runId: string
 ): WorkflowRecordPage<Item> => {
-  const items = Object.freeze(rows.slice(0, limit))
-  const last = items.at(-1)
+  const items = Object.freeze(rows.slice(0, limit));
+  const last = items.at(-1);
   return Object.freeze({
     items,
-    nextCursor: rows.length > limit && last !== undefined
-      ? encodeWorkflowRecordCursor({
-          kind,
-          runId,
-          id: last.id,
-          createdAt: last.createdAt,
-        })
-      : null,
-  })
-}
+    nextCursor:
+      rows.length > limit && last !== undefined
+        ? encodeWorkflowRecordCursor({
+            kind,
+            runId,
+            id: last.id,
+            createdAt: last.createdAt,
+          })
+        : null,
+  });
+};
 
 const canonicalize = (value: unknown, ancestors: Set<object>): JsonValue => {
   if (
@@ -665,55 +685,59 @@ const canonicalize = (value: unknown, ancestors: Set<object>): JsonValue => {
     typeof value === "string" ||
     typeof value === "boolean"
   ) {
-    return value
+    return value;
   }
   if (typeof value === "number") {
     if (!Number.isFinite(value)) {
-      throw new WorkflowPersistenceInputError("JSON numbers must be finite")
+      throw new WorkflowPersistenceInputError("JSON numbers must be finite");
     }
-    return value
+    return value;
   }
   if (typeof value !== "object" || value === null) {
-    throw new WorkflowPersistenceInputError("values must be strict JSON")
+    throw new WorkflowPersistenceInputError("values must be strict JSON");
   }
   if (ancestors.has(value)) {
-    throw new WorkflowPersistenceInputError("JSON values must not be cyclic")
+    throw new WorkflowPersistenceInputError("JSON values must not be cyclic");
   }
 
   if (Array.isArray(value)) {
-    ancestors.add(value)
-    const normalized = value.map((entry) => canonicalize(entry, ancestors))
-    ancestors.delete(value)
-    return normalized
+    ancestors.add(value);
+    const normalized = value.map((entry) => canonicalize(entry, ancestors));
+    ancestors.delete(value);
+    return normalized;
   }
 
-  const prototype = Object.getPrototypeOf(value)
+  const prototype = Object.getPrototypeOf(value);
   if (prototype !== Object.prototype && prototype !== null) {
-    throw new WorkflowPersistenceInputError("JSON objects must be plain objects")
+    throw new WorkflowPersistenceInputError(
+      "JSON objects must be plain objects"
+    );
   }
-  ancestors.add(value)
-  const normalized: Record<string, JsonValue> = {}
+  ancestors.add(value);
+  const normalized: Record<string, JsonValue> = {};
   for (const key of Object.keys(value).sort()) {
     normalized[key] = canonicalize(
       (value as Record<string, unknown>)[key],
-      ancestors,
-    )
+      ancestors
+    );
   }
-  ancestors.delete(value)
-  return normalized
-}
+  ancestors.delete(value);
+  return normalized;
+};
 
 export const canonicalWorkflowJson = (value: unknown): string => {
-  return JSON.stringify(canonicalize(value, new Set()))
-}
+  return JSON.stringify(canonicalize(value, new Set()));
+};
 
-export const hashWorkflowJournalEntryV1 = (input: Readonly<{
-  sequence: number
-  previousHash: string
-  event: PersistedWorkflowEvent
-}>): string => {
-  requireHash(input.previousHash, "previousHash")
-  boundedInteger(input.sequence, 1, Number.MAX_SAFE_INTEGER, "sequence")
+export const hashWorkflowJournalEntryV1 = (
+  input: Readonly<{
+    sequence: number;
+    previousHash: string;
+    event: PersistedWorkflowEvent;
+  }>
+): string => {
+  requireHash(input.previousHash, "previousHash");
+  boundedInteger(input.sequence, 1, Number.MAX_SAFE_INTEGER, "sequence");
   return createHash("sha256")
     .update(
       canonicalWorkflowJson({
@@ -722,31 +746,34 @@ export const hashWorkflowJournalEntryV1 = (input: Readonly<{
         sequence: input.sequence,
         previousHash: input.previousHash,
         event: input.event,
-      }),
+      })
     )
-    .digest("hex")
-}
+    .digest("hex");
+};
 
-const byteLength = (value: string): number => new TextEncoder().encode(value).byteLength
+const byteLength = (value: string): number =>
+  new TextEncoder().encode(value).byteLength;
 
 const isJsonObject = (value: JsonValue): value is JsonObject => {
-  return typeof value === "object" && value !== null && !Array.isArray(value)
-}
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+};
 
 const requireBoundedJsonObject = (
   value: unknown,
   maximumBytes: number,
-  field: string,
+  field: string
 ): JsonObject => {
-  const normalized = canonicalize(value, new Set())
+  const normalized = canonicalize(value, new Set());
   if (!isJsonObject(normalized)) {
-    throw new WorkflowPersistenceInputError(`${field} must be a JSON object`)
+    throw new WorkflowPersistenceInputError(`${field} must be a JSON object`);
   }
   if (byteLength(JSON.stringify(normalized)) > maximumBytes) {
-    throw new WorkflowPersistenceInputError(`${field} exceeds its storage limit`)
+    throw new WorkflowPersistenceInputError(
+      `${field} exceeds its storage limit`
+    );
   }
-  return normalized
-}
+  return normalized;
+};
 
 const hardenedRedact = (value: JsonValue, maximumBytes: number): JsonValue => {
   return redact(value, {
@@ -756,156 +783,187 @@ const hardenedRedact = (value: JsonValue, maximumBytes: number): JsonValue => {
     maxObjectKeys: maximumBytes,
     maxStringLength: maximumBytes,
     maxTotalNodes: maximumBytes,
-  }) as JsonValue
-}
+  }) as JsonValue;
+};
 
-const redactText = (value: string, maximumBytes: number, field: string): string => {
+const redactText = (
+  value: string,
+  maximumBytes: number,
+  field: string
+): string => {
   if (byteLength(value) < 1 || byteLength(value) > maximumBytes) {
-    throw new WorkflowPersistenceInputError(`${field} exceeds its storage limit`)
+    throw new WorkflowPersistenceInputError(
+      `${field} exceeds its storage limit`
+    );
   }
-  const redacted = hardenedRedact(value, maximumBytes)
+  const redacted = hardenedRedact(value, maximumBytes);
   if (typeof redacted !== "string") {
-    throw new WorkflowPersistenceInputError(`${field} must be text`)
+    throw new WorkflowPersistenceInputError(`${field} must be text`);
   }
   if (byteLength(redacted) < 1 || byteLength(redacted) > maximumBytes) {
-    throw new WorkflowPersistenceInputError(`${field} exceeds its storage limit`)
+    throw new WorkflowPersistenceInputError(
+      `${field} exceeds its storage limit`
+    );
   }
-  return redacted
-}
+  return redacted;
+};
 
 const redactBoundedObject = (
   value: unknown,
   maximumBytes: number,
-  field: string,
+  field: string
 ): JsonObject => {
-  const normalized = requireBoundedJsonObject(value, maximumBytes, field)
+  const normalized = requireBoundedJsonObject(value, maximumBytes, field);
   return requireBoundedJsonObject(
     hardenedRedact(normalized, maximumBytes),
     maximumBytes,
-    field,
-  )
-}
+    field
+  );
+};
 
 const requireSafeBoundedObject = (
   value: unknown,
   maximumBytes: number,
-  field: string,
+  field: string
 ): JsonObject => {
-  const normalized = requireBoundedJsonObject(value, maximumBytes, field)
-  const redacted = redactBoundedObject(normalized, maximumBytes, field)
+  const normalized = requireBoundedJsonObject(value, maximumBytes, field);
+  const redacted = redactBoundedObject(normalized, maximumBytes, field);
   if (canonicalWorkflowJson(redacted) !== canonicalWorkflowJson(normalized)) {
     throw new WorkflowPersistenceInputError(
-      `${field} contains sensitive or unsafe persistence data`,
-    )
+      `${field} contains sensitive or unsafe persistence data`
+    );
   }
-  return normalized
-}
+  return normalized;
+};
 
 const validateEvent = (event: PersistedWorkflowEvent): JsonObject => {
-  requireNonBlank(event.type, "event.type")
-  requireNonBlank(event.eventId, "event.eventId")
+  requireNonBlank(event.type, "event.type");
+  requireNonBlank(event.eventId, "event.eventId");
   if (event.eventVersion !== WORKFLOW_EVENT_VERSION) {
-    throw new WorkflowPersistenceInputError("event.eventVersion must be 1")
+    throw new WorkflowPersistenceInputError("event.eventVersion must be 1");
   }
   if (event.machineVersion !== WORKFLOW_MACHINE_VERSION) {
-    throw new WorkflowPersistenceInputError("event.machineVersion must be 1")
+    throw new WorkflowPersistenceInputError("event.machineVersion must be 1");
   }
   if (!Number.isFinite(Date.parse(event.occurredAt))) {
-    throw new WorkflowPersistenceInputError("event.occurredAt must be an ISO timestamp")
+    throw new WorkflowPersistenceInputError(
+      "event.occurredAt must be an ISO timestamp"
+    );
   }
-  return requireSafeBoundedObject(event, MAX_EVENT_BYTES, "event")
-}
+  return requireSafeBoundedObject(event, MAX_EVENT_BYTES, "event");
+};
 
 const validateSnapshot = (
   snapshot: PersistedWorkflowSnapshot,
   expectedSequence: number,
-  expectedHash: string,
+  expectedHash: string
 ): WorkflowSnapshotContext => {
   if (
     snapshot.machineId !== WORKFLOW_MACHINE_ID ||
     snapshot.machineVersion !== WORKFLOW_MACHINE_VERSION
   ) {
-    throw new WorkflowPersistenceInputError("snapshot machine identity is unsupported")
+    throw new WorkflowPersistenceInputError(
+      "snapshot machine identity is unsupported"
+    );
   }
-  if (snapshot.sequence !== expectedSequence || snapshot.journalHeadHash !== expectedHash) {
-    throw new WorkflowPersistenceInputError("snapshot must bind the appended journal head")
+  if (
+    snapshot.sequence !== expectedSequence ||
+    snapshot.journalHeadHash !== expectedHash
+  ) {
+    throw new WorkflowPersistenceInputError(
+      "snapshot must bind the appended journal head"
+    );
   }
-  const effectHash = snapshot.effectHash ?? null
-  const effectScope = snapshot.effectScope ?? null
+  const effectHash = snapshot.effectHash ?? null;
+  const effectScope = snapshot.effectScope ?? null;
   if ((effectHash === null) !== (effectScope === null)) {
-    throw new WorkflowPersistenceInputError("snapshot effect hash and scope must be paired")
+    throw new WorkflowPersistenceInputError(
+      "snapshot effect hash and scope must be paired"
+    );
   }
-  if (effectHash !== null) requireHash(effectHash, "snapshot.effectHash")
-  if (effectScope !== null) requireNonBlank(effectScope, "snapshot.effectScope")
+  if (effectHash !== null) requireHash(effectHash, "snapshot.effectHash");
+  if (effectScope !== null)
+    requireNonBlank(effectScope, "snapshot.effectScope");
   return requireSafeBoundedObject(
     snapshot.context,
     MAX_SNAPSHOT_BYTES,
-    "snapshot.context",
-  ) as WorkflowSnapshotContext
-}
+    "snapshot.context"
+  ) as WorkflowSnapshotContext;
+};
 
-const resolveOptions = (options: WorkflowRepositoryOptions): ResolvedOptions => ({
+const resolveOptions = (
+  options: WorkflowRepositoryOptions
+): ResolvedOptions => ({
   now: options.now ?? (() => new Date()),
   generateId: options.generateId ?? (() => crypto.randomUUID()),
-})
+});
 
 const lockRun = async (
   transaction: Transaction,
   runId: string,
-  ownerId: string,
+  ownerId: string
 ): Promise<WorkflowRun> => {
   await transaction.execute(sql`
     select id
     from workflow_runs
     where id = ${runId} and owner_id = ${ownerId}
     for update
-  `)
+  `);
   const [run] = await transaction
     .select()
     .from(workflowRuns)
-    .where(andWhere(eq(workflowRuns.id, runId), eq(workflowRuns.ownerId, ownerId)))
-    .limit(1)
-  if (!run) throw new WorkflowRunNotFoundError()
-  return run
-}
+    .where(
+      andWhere(eq(workflowRuns.id, runId), eq(workflowRuns.ownerId, ownerId))
+    )
+    .limit(1);
+  if (!run) throw new WorkflowRunNotFoundError();
+  return run;
+};
 
 const verifyProjection = (
   run: WorkflowRun,
   snapshot: WorkflowSnapshot,
-  journal: readonly WorkflowJournalEntry[],
+  journal: readonly WorkflowJournalEntry[]
 ): WorkflowProjection => {
-  if (run.machineId !== WORKFLOW_MACHINE_ID || run.machineVersion !== WORKFLOW_MACHINE_VERSION) {
-    throw new WorkflowProjectionIntegrityError("unsupported machine identity")
+  if (
+    run.machineId !== WORKFLOW_MACHINE_ID ||
+    run.machineVersion !== WORKFLOW_MACHINE_VERSION
+  ) {
+    throw new WorkflowProjectionIntegrityError("unsupported machine identity");
   }
   if (journal.length !== run.headSequence) {
-    throw new WorkflowProjectionIntegrityError("journal length does not match run head")
+    throw new WorkflowProjectionIntegrityError(
+      "journal length does not match run head"
+    );
   }
 
-  let previousHash = GENESIS_WORKFLOW_JOURNAL_HASH
+  let previousHash = GENESIS_WORKFLOW_JOURNAL_HASH;
   for (let index = 0; index < journal.length; index += 1) {
-    const entry = journal[index]!
-    const sequence = index + 1
+    const entry = journal[index]!;
+    const sequence = index + 1;
     if (
       entry.runId !== run.id ||
       entry.sequence !== sequence ||
       entry.previousHash !== previousHash ||
       entry.eventVersion !== WORKFLOW_EVENT_VERSION
     ) {
-      throw new WorkflowProjectionIntegrityError("journal sequence or link is invalid")
+      throw new WorkflowProjectionIntegrityError(
+        "journal sequence or link is invalid"
+      );
     }
     const expectedHash = hashWorkflowJournalEntryV1({
       sequence,
       previousHash,
       event: entry.event as PersistedWorkflowEvent,
-    })
+    });
     if (entry.hash !== expectedHash) {
-      throw new WorkflowProjectionIntegrityError("journal hash is invalid")
+      throw new WorkflowProjectionIntegrityError("journal hash is invalid");
     }
-    previousHash = entry.hash
+    previousHash = entry.hash;
   }
 
   if (previousHash !== run.headHash) {
-    throw new WorkflowProjectionIntegrityError("run head hash is invalid")
+    throw new WorkflowProjectionIntegrityError("run head hash is invalid");
   }
   if (
     snapshot.runId !== run.id ||
@@ -915,96 +973,103 @@ const verifyProjection = (
     snapshot.machineVersion !== run.machineVersion ||
     snapshot.state !== run.state
   ) {
-    throw new WorkflowProjectionIntegrityError("snapshot does not match run head")
+    throw new WorkflowProjectionIntegrityError(
+      "snapshot does not match run head"
+    );
   }
-  return Object.freeze({ run, snapshot, journal: Object.freeze([...journal]) })
-}
+  return Object.freeze({ run, snapshot, journal: Object.freeze([...journal]) });
+};
 
 const readProjection = async (
   database: DatabaseExecutor,
   runId: string,
-  ownerId: string,
+  ownerId: string
 ): Promise<WorkflowProjection | null> => {
   const [run] = await database
     .select()
     .from(workflowRuns)
-    .where(andWhere(eq(workflowRuns.id, runId), eq(workflowRuns.ownerId, ownerId)))
-    .limit(1)
-  if (!run) return null
+    .where(
+      andWhere(eq(workflowRuns.id, runId), eq(workflowRuns.ownerId, ownerId))
+    )
+    .limit(1);
+  if (!run) return null;
   const [snapshot] = await database
     .select()
     .from(workflowSnapshots)
     .where(eq(workflowSnapshots.runId, runId))
-    .limit(1)
+    .limit(1);
   if (!snapshot) {
-    throw new WorkflowProjectionIntegrityError("snapshot is missing")
+    throw new WorkflowProjectionIntegrityError("snapshot is missing");
   }
   const journal = await database
     .select()
     .from(workflowJournal)
     .where(eq(workflowJournal.runId, runId))
-    .orderBy(asc(workflowJournal.sequence))
-  return verifyProjection(run, snapshot, journal)
-}
+    .orderBy(asc(workflowJournal.sequence));
+  return verifyProjection(run, snapshot, journal);
+};
 
 const readProjections = async (
   database: DatabaseExecutor,
   ownerId: string,
-  runIds: readonly string[],
+  runIds: readonly string[]
 ): Promise<readonly WorkflowProjection[]> => {
   const runs = await database
     .select()
     .from(workflowRuns)
-    .where(andWhere(
-      eq(workflowRuns.ownerId, ownerId),
-      inArray(workflowRuns.id, runIds),
-    ))
-  if (runs.length === 0) return Object.freeze([])
-  const ownedRunIds = runs.map(({ id }) => id)
+    .where(
+      andWhere(
+        eq(workflowRuns.ownerId, ownerId),
+        inArray(workflowRuns.id, runIds)
+      )
+    );
+  if (runs.length === 0) return Object.freeze([]);
+  const ownedRunIds = runs.map(({ id }) => id);
   const snapshots = await database
     .select()
     .from(workflowSnapshots)
-    .where(inArray(workflowSnapshots.runId, ownedRunIds))
+    .where(inArray(workflowSnapshots.runId, ownedRunIds));
   const journal = await database
     .select()
     .from(workflowJournal)
     .where(inArray(workflowJournal.runId, ownedRunIds))
-    .orderBy(asc(workflowJournal.runId), asc(workflowJournal.sequence))
-  const runsById = new Map(runs.map((run) => [run.id, run]))
+    .orderBy(asc(workflowJournal.runId), asc(workflowJournal.sequence));
+  const runsById = new Map(runs.map((run) => [run.id, run]));
   const snapshotsByRunId = new Map(
-    snapshots.map((snapshot) => [snapshot.runId, snapshot]),
-  )
-  const journalByRunId = new Map<string, WorkflowJournalEntry[]>()
+    snapshots.map((snapshot) => [snapshot.runId, snapshot])
+  );
+  const journalByRunId = new Map<string, WorkflowJournalEntry[]>();
   for (const entry of journal) {
-    const entries = journalByRunId.get(entry.runId)
-    if (entries === undefined) { journalByRunId.set(entry.runId, [entry])}
-    else entries.push(entry)
+    const entries = journalByRunId.get(entry.runId);
+    if (entries === undefined) {
+      journalByRunId.set(entry.runId, [entry]);
+    } else entries.push(entry);
   }
-  const projections: WorkflowProjection[] = []
+  const projections: WorkflowProjection[] = [];
   for (const runId of runIds) {
-    const run = runsById.get(runId)
-    if (run === undefined) continue
-    const snapshot = snapshotsByRunId.get(runId)
+    const run = runsById.get(runId);
+    if (run === undefined) continue;
+    const snapshot = snapshotsByRunId.get(runId);
     if (snapshot === undefined) {
-      throw new WorkflowProjectionIntegrityError("snapshot is missing")
+      throw new WorkflowProjectionIntegrityError("snapshot is missing");
     }
-    projections.push(verifyProjection(
-      run,
-      snapshot,
-      journalByRunId.get(runId) ?? [],
-    ))
+    projections.push(
+      verifyProjection(run, snapshot, journalByRunId.get(runId) ?? [])
+    );
   }
-  return Object.freeze(projections)
-}
+  return Object.freeze(projections);
+};
 
-const hashWorkflowEffectRequest = (input: Readonly<{
-  handler: string
-  idempotencyKey: string
-  eventType: string
-  runId: string
-  payload: JsonObject
-  availableAt: string | null
-}>): string => {
+const hashWorkflowEffectRequest = (
+  input: Readonly<{
+    handler: string;
+    idempotencyKey: string;
+    eventType: string;
+    runId: string;
+    payload: JsonObject;
+    availableAt: string | null;
+  }>
+): string => {
   return createHash("sha256")
     .update(
       canonicalWorkflowJson({
@@ -1015,26 +1080,30 @@ const hashWorkflowEffectRequest = (input: Readonly<{
         aggregateId: input.runId,
         payload: input.payload,
         availableAt: input.availableAt,
-      }),
+      })
     )
-    .digest("hex")
-}
+    .digest("hex");
+};
 
 const hashWorkflowAppendRequest = (
   input: AppendWorkflowInput,
-  event: JsonObject,
+  event: JsonObject
 ): string => {
-  const requestedEffects = input.effects ?? []
+  const requestedEffects = input.effects ?? [];
   for (const effect of requestedEffects) {
-    requireNonBlank(effect.handler, "effect.handler")
-    requireNonBlank(effect.idempotencyKey, "effect.idempotencyKey")
-    requireNonBlank(effect.eventType, "effect.eventType")
+    requireNonBlank(effect.handler, "effect.handler");
+    requireNonBlank(effect.idempotencyKey, "effect.idempotencyKey");
+    requireNonBlank(effect.eventType, "effect.eventType");
     if (effect.availableAt !== undefined) {
       if (!(effect.availableAt instanceof Date)) {
-        throw new WorkflowPersistenceInputError("effect.availableAt must be a valid date")
+        throw new WorkflowPersistenceInputError(
+          "effect.availableAt must be a valid date"
+        );
       }
       if (!Number.isFinite(effect.availableAt.getTime())) {
-        throw new WorkflowPersistenceInputError("effect.availableAt must be a valid date")
+        throw new WorkflowPersistenceInputError(
+          "effect.availableAt must be a valid date"
+        );
       }
     }
   }
@@ -1046,74 +1115,85 @@ const hashWorkflowAppendRequest = (
       eventType: effect.eventType,
       payload: effect.payload,
       availableAt: effect.availableAt?.toISOString() ?? null,
-    }
-  }
-  )
+    };
+  });
   return createHash("sha256")
-    .update(canonicalWorkflowJson({
-      runId: input.runId,
-      ownerId: input.ownerId,
-      expectedSequence: input.expectedSequence,
-      expectedHeadHash: input.expectedHeadHash,
-      event,
-      snapshot: {
-        machineId: input.snapshot.machineId,
-        machineVersion: input.snapshot.machineVersion,
-        state: input.snapshot.state,
-        context: input.snapshot.context,
-        journalHeadHash: input.snapshot.journalHeadHash,
-        effectHash: input.snapshot.effectHash ?? null,
-        effectScope: input.snapshot.effectScope ?? null,
-      },
-      effects,
-    }))
-    .digest("hex")
-}
+    .update(
+      canonicalWorkflowJson({
+        runId: input.runId,
+        ownerId: input.ownerId,
+        expectedSequence: input.expectedSequence,
+        expectedHeadHash: input.expectedHeadHash,
+        event,
+        snapshot: {
+          machineId: input.snapshot.machineId,
+          machineVersion: input.snapshot.machineVersion,
+          state: input.snapshot.state,
+          context: input.snapshot.context,
+          journalHeadHash: input.snapshot.journalHeadHash,
+          effectHash: input.snapshot.effectHash ?? null,
+          effectScope: input.snapshot.effectScope ?? null,
+        },
+        effects,
+      })
+    )
+    .digest("hex");
+};
 
 const hashWorkflowEvidenceRequest = (
-  input: AddWorkflowEvidenceInput,
+  input: AddWorkflowEvidenceInput
 ): Readonly<{
-  kind: string
-  normalizedRawSummary: string
-  requestHash: string
+  kind: string;
+  normalizedRawSummary: string;
+  requestHash: string;
 }> => {
-  const kind = input.kind.trim()
-  const normalizedRawSummary = input.summary.trim()
+  const kind = input.kind.trim();
+  const normalizedRawSummary = input.summary.trim();
   return Object.freeze({
     kind,
     normalizedRawSummary,
     requestHash: createHash("sha256")
-      .update(canonicalWorkflowJson({
-        ownerId: input.ownerId,
-        runId: input.runId,
-        kind,
-        summary: normalizedRawSummary,
-        data: input.data,
-      }))
+      .update(
+        canonicalWorkflowJson({
+          ownerId: input.ownerId,
+          runId: input.runId,
+          kind,
+          summary: normalizedRawSummary,
+          data: input.data,
+        })
+      )
       .digest("hex"),
-  })
-}
+  });
+};
 
 const insertEffects = async (
   transaction: Transaction,
   runId: string,
   effects: readonly WorkflowEffectInput[],
   options: ResolvedOptions,
-  occurredAt: Date,
+  occurredAt: Date
 ): Promise<void> => {
   for (const effect of effects) {
-    requireNonBlank(effect.handler, "effect.handler")
-    requireNonBlank(effect.idempotencyKey, "effect.idempotencyKey")
-    requireNonBlank(effect.eventType, "effect.eventType")
+    requireNonBlank(effect.handler, "effect.handler");
+    requireNonBlank(effect.idempotencyKey, "effect.idempotencyKey");
+    requireNonBlank(effect.eventType, "effect.eventType");
     if (effect.availableAt !== undefined) {
       if (!(effect.availableAt instanceof Date)) {
-        throw new WorkflowPersistenceInputError("effect.availableAt must be a valid date")
+        throw new WorkflowPersistenceInputError(
+          "effect.availableAt must be a valid date"
+        );
       }
       if (!Number.isFinite(effect.availableAt.getTime())) {
-        throw new WorkflowPersistenceInputError("effect.availableAt must be a valid date")
+        throw new WorkflowPersistenceInputError(
+          "effect.availableAt must be a valid date"
+        );
       }
     }
-    const payload = redactBoundedObject(effect.payload, MAX_EFFECT_BYTES, "effect.payload")
+    const payload = redactBoundedObject(
+      effect.payload,
+      MAX_EFFECT_BYTES,
+      "effect.payload"
+    );
     const requestHash = hashWorkflowEffectRequest({
       handler: effect.handler,
       idempotencyKey: effect.idempotencyKey,
@@ -1121,7 +1201,7 @@ const insertEffects = async (
       runId,
       payload: effect.payload,
       availableAt: effect.availableAt?.toISOString() ?? null,
-    })
+    });
     const [persisted] = await transaction
       .insert(outboxEvents)
       .values({
@@ -1144,15 +1224,15 @@ const insertEffects = async (
         set: { requestHash },
         setWhere: eq(outboxEvents.requestHash, requestHash),
       })
-      .returning({ id: outboxEvents.id })
-    if (!persisted) throw new WorkflowConcurrencyError()
+      .returning({ id: outboxEvents.id });
+    if (!persisted) throw new WorkflowConcurrencyError();
   }
-}
+};
 
 const fenceCancelledRunEffects = async (
   transaction: Transaction,
   runId: string,
-  timestamp: Date,
+  timestamp: Date
 ): Promise<void> => {
   await transaction
     .update(outboxEvents)
@@ -1168,15 +1248,15 @@ const fenceCancelledRunEffects = async (
         eq(outboxEvents.aggregateType, "workflow_run"),
         eq(outboxEvents.aggregateId, runId),
         sql`${outboxEvents.publishedAt} is null`,
-        sql`${outboxEvents.deadAt} is null`,
-      ),
-    )
-}
+        sql`${outboxEvents.deadAt} is null`
+      )
+    );
+};
 
 const requestRetainedResourceCleanup = async (
   transaction: Transaction,
   runId: string,
-  timestamp: Date,
+  timestamp: Date
 ): Promise<void> => {
   await transaction
     .update(workflowOmpResources)
@@ -1189,51 +1269,55 @@ const requestRetainedResourceCleanup = async (
     .where(
       andWhere(
         eq(workflowOmpResources.runId, runId),
-        sql`${workflowOmpResources.deadAt} is null`,
-      ),
-    )
-}
+        sql`${workflowOmpResources.deadAt} is null`
+      )
+    );
+};
 
 const appendLocked = async (
   transaction: Transaction,
   run: WorkflowRun,
   input: AppendWorkflowInput,
   event: JsonObject,
-  options: ResolvedOptions,
+  options: ResolvedOptions
 ): Promise<WorkflowAppendResult> => {
-  const requestHash = hashWorkflowAppendRequest(input, event)
+  const requestHash = hashWorkflowAppendRequest(input, event);
   const [existing] = await transaction
     .select()
     .from(workflowJournal)
     .where(eq(workflowJournal.eventId, input.event.eventId))
-    .limit(1)
+    .limit(1);
   if (existing) {
     if (
       existing.runId !== input.runId ||
       existing.requestHash !== requestHash
     ) {
-      throw new WorkflowConcurrencyError()
+      throw new WorkflowConcurrencyError();
     }
     return Object.freeze({
       duplicate: true,
-      projection: (await readProjection(transaction, input.runId, input.ownerId))!,
-    })
+      projection: (await readProjection(
+        transaction,
+        input.runId,
+        input.ownerId
+      ))!,
+    });
   }
 
   if (
     run.headSequence !== input.expectedSequence ||
     run.headHash !== input.expectedHeadHash
   ) {
-    throw new WorkflowConcurrencyError()
+    throw new WorkflowConcurrencyError();
   }
-  const sequence = input.expectedSequence + 1
+  const sequence = input.expectedSequence + 1;
   const hash = hashWorkflowJournalEntryV1({
     sequence,
     previousHash: input.expectedHeadHash,
     event: event as PersistedWorkflowEvent,
-  })
-  const context = validateSnapshot(input.snapshot, sequence, hash)
-  const timestamp = options.now()
+  });
+  const context = validateSnapshot(input.snapshot, sequence, hash);
+  const timestamp = options.now();
 
   await transaction.insert(workflowJournal).values({
     runId: input.runId,
@@ -1246,7 +1330,7 @@ const appendLocked = async (
     previousHash: input.expectedHeadHash,
     hash,
     requestHash,
-  })
+  });
   const [snapshot] = await transaction
     .update(workflowSnapshots)
     .set({
@@ -1262,11 +1346,11 @@ const appendLocked = async (
       andWhere(
         eq(workflowSnapshots.runId, input.runId),
         eq(workflowSnapshots.sequence, input.expectedSequence),
-        eq(workflowSnapshots.journalHeadHash, input.expectedHeadHash),
-      ),
+        eq(workflowSnapshots.journalHeadHash, input.expectedHeadHash)
+      )
     )
-    .returning()
-  if (!snapshot) throw new WorkflowConcurrencyError()
+    .returning();
+  if (!snapshot) throw new WorkflowConcurrencyError();
   const [updatedRun] = await transaction
     .update(workflowRuns)
     .set({
@@ -1280,49 +1364,58 @@ const appendLocked = async (
         eq(workflowRuns.id, input.runId),
         eq(workflowRuns.ownerId, input.ownerId),
         eq(workflowRuns.headSequence, input.expectedSequence),
-        eq(workflowRuns.headHash, input.expectedHeadHash),
-      ),
+        eq(workflowRuns.headHash, input.expectedHeadHash)
+      )
     )
-    .returning()
-  if (!updatedRun) throw new WorkflowConcurrencyError()
+    .returning();
+  if (!updatedRun) throw new WorkflowConcurrencyError();
   await insertEffects(
     transaction,
     input.runId,
     input.effects ?? [],
     options,
-    timestamp,
-  )
-  if (input.snapshot.state === "completed" || input.snapshot.state === "cancelled") {
-    await requestRetainedResourceCleanup(transaction, input.runId, timestamp)
+    timestamp
+  );
+  if (
+    input.snapshot.state === "completed" ||
+    input.snapshot.state === "cancelled"
+  ) {
+    await requestRetainedResourceCleanup(transaction, input.runId, timestamp);
   }
   if (input.snapshot.state === "cancelled") {
-    await fenceCancelledRunEffects(transaction, input.runId, timestamp)
+    await fenceCancelledRunEffects(transaction, input.runId, timestamp);
   }
   return Object.freeze({
     duplicate: false,
-    projection: (await readProjection(transaction, input.runId, input.ownerId))!,
-  })
-}
+    projection: (await readProjection(
+      transaction,
+      input.runId,
+      input.ownerId
+    ))!,
+  });
+};
 
-const mapOutboxRow = (row: Readonly<{
-  id: string
-  event_type: string
-  aggregate_type: string
-  aggregate_id: string
-  payload: JsonObject
-  occurred_at: Date
-  published_at: Date | null
-  attempt_count: number
-  handler: string
-  idempotency_key: string | null
-  request_hash: string | null
-  available_at: Date
-  lease_owner: string | null
-  lease_expires_at: Date | null
-  fence: number | string
-  last_error: string | null
-  dead_at: Date | null
-}>): OutboxEvent => ({
+const mapOutboxRow = (
+  row: Readonly<{
+    id: string;
+    event_type: string;
+    aggregate_type: string;
+    aggregate_id: string;
+    payload: JsonObject;
+    occurred_at: Date;
+    published_at: Date | null;
+    attempt_count: number;
+    handler: string;
+    idempotency_key: string | null;
+    request_hash: string | null;
+    available_at: Date;
+    lease_owner: string | null;
+    lease_expires_at: Date | null;
+    fence: number | string;
+    last_error: string | null;
+    dead_at: Date | null;
+  }>
+): OutboxEvent => ({
   id: row.id,
   eventType: row.event_type,
   aggregateType: row.aggregate_type,
@@ -1340,58 +1433,60 @@ const mapOutboxRow = (row: Readonly<{
   fence: Number(row.fence),
   lastError: row.last_error,
   deadAt: row.dead_at,
-})
+});
 
 const validateLease = (leaseMilliseconds: number | undefined): number => {
   return boundedInteger(
     leaseMilliseconds ?? DEFAULT_LEASE_MILLISECONDS,
     1,
     MAX_LEASE_MILLISECONDS,
-    "leaseMilliseconds",
-  )
-}
+    "leaseMilliseconds"
+  );
+};
 
 export const createWorkflowRepository = (
   database: DatabaseExecutor,
-  repositoryOptions: WorkflowRepositoryOptions = {},
+  repositoryOptions: WorkflowRepositoryOptions = {}
 ): WorkflowRepository => {
-  const options = resolveOptions(repositoryOptions)
+  const options = resolveOptions(repositoryOptions);
 
   return Object.freeze({
-    createRun: async (input: CreateWorkflowRunInput): Promise<WorkflowProjection> => {
-      requireNonBlank(input.ownerId, "ownerId")
-      const event = validateEvent(input.event)
-      const sequence = 1
+    createRun: async (
+      input: CreateWorkflowRunInput
+    ): Promise<WorkflowProjection> => {
+      requireNonBlank(input.ownerId, "ownerId");
+      const event = validateEvent(input.event);
+      const sequence = 1;
       const hash = hashWorkflowJournalEntryV1({
         sequence,
         previousHash: GENESIS_WORKFLOW_JOURNAL_HASH,
         event: event as PersistedWorkflowEvent,
-      })
-      const context = validateSnapshot(input.snapshot, sequence, hash)
-      const runId = input.id ?? options.generateId()
-      const occurredAt = new Date(input.event.occurredAt)
-      const timestamp = options.now()
+      });
+      const context = validateSnapshot(input.snapshot, sequence, hash);
+      const runId = input.id ?? options.generateId();
+      const occurredAt = new Date(input.event.occurredAt);
+      const timestamp = options.now();
 
       return withTransaction(database, async (transaction) => {
-        const globalCapacityLock = WORKFLOW_CAPACITY_GLOBAL_LOCK_CLASS
-        const ownerCapacityLock = WORKFLOW_CAPACITY_OWNER_LOCK_CLASS
+        const globalCapacityLock = WORKFLOW_CAPACITY_GLOBAL_LOCK_CLASS;
+        const ownerCapacityLock = WORKFLOW_CAPACITY_OWNER_LOCK_CLASS;
         await transaction.execute(
-          sql`select pg_advisory_xact_lock(${globalCapacityLock}, 0)`,
-        )
+          sql`select pg_advisory_xact_lock(${globalCapacityLock}, 0)`
+        );
         await transaction.execute(
-          sql`select pg_advisory_xact_lock(${ownerCapacityLock}, hashtext(${input.ownerId}))`,
-        )
+          sql`select pg_advisory_xact_lock(${ownerCapacityLock}, hashtext(${input.ownerId}))`
+        );
         const replayResult = await transaction.execute(sql`
           select ${workflowRuns.ownerId} as owner_id
           from ${workflowRuns}
           where ${workflowRuns.id} = ${runId}
           limit 1
-        `)
+        `);
         const replayOwner = (
           replayResult as unknown as QueryRows<{ owner_id: string }>
-        ).rows[0]?.owner_id
+        ).rows[0]?.owner_id;
         if (replayOwner === input.ownerId) {
-          throw new WorkflowConcurrencyError()
+          throw new WorkflowConcurrencyError();
         }
 
         const admissionResult = await transaction.execute(sql`
@@ -1425,35 +1520,35 @@ export const createWorkflowRepository = (
             from ${workflowRuns}
             where ${workflowRuns.state} not in ('completed', 'cancelled')
           ) as active
-        `)
+        `);
         const admission = (
           admissionResult as unknown as QueryRows<{
-            submission_count: unknown
-            retry_after_seconds: unknown
-            owner_count: unknown
-            global_count: unknown
+            submission_count: unknown;
+            retry_after_seconds: unknown;
+            owner_count: unknown;
+            global_count: unknown;
           }>
-        ).rows[0]
+        ).rows[0];
         if (admission === undefined) {
           throw new WorkflowProjectionIntegrityError(
-            "workflow run admission query returned no result",
-          )
+            "workflow run admission query returned no result"
+          );
         }
         const submissionCount = databaseNonNegativeInteger(
           admission.submission_count,
-          "workflow run admission query returned an invalid submission count",
-        )
+          "workflow run admission query returned an invalid submission count"
+        );
         if (submissionCount >= MAX_WORKFLOW_RUN_SUBMISSIONS_PER_OWNER) {
           const retryAfterSeconds = databaseNonNegativeInteger(
             admission.retry_after_seconds,
-            "workflow run admission query returned invalid retry guidance",
-          )
+            "workflow run admission query returned invalid retry guidance"
+          );
           if (retryAfterSeconds < 1) {
             throw new WorkflowProjectionIntegrityError(
-              "workflow run admission query returned invalid retry guidance",
-            )
+              "workflow run admission query returned invalid retry guidance"
+            );
           }
-          throw new WorkflowRunSubmissionRateError(retryAfterSeconds)
+          throw new WorkflowRunSubmissionRateError(retryAfterSeconds);
         }
 
         if (
@@ -1462,17 +1557,17 @@ export const createWorkflowRepository = (
         ) {
           const ownerCount = databaseNonNegativeInteger(
             admission.owner_count,
-            "workflow run capacity query returned invalid counts",
-          )
+            "workflow run capacity query returned invalid counts"
+          );
           const globalCount = databaseNonNegativeInteger(
             admission.global_count,
-            "workflow run capacity query returned invalid counts",
-          )
+            "workflow run capacity query returned invalid counts"
+          );
           if (
             ownerCount >= MAX_ACTIVE_WORKFLOW_RUNS_PER_OWNER ||
             globalCount >= MAX_ACTIVE_WORKFLOW_RUNS_GLOBAL
           ) {
-            throw new WorkflowRunCapacityError()
+            throw new WorkflowRunCapacityError();
           }
         }
         await transaction.insert(workflowRuns).values({
@@ -1485,7 +1580,7 @@ export const createWorkflowRepository = (
           headHash: hash,
           createdAt: timestamp,
           updatedAt: timestamp,
-        })
+        });
         await transaction.insert(workflowJournal).values({
           runId,
           sequence,
@@ -1496,7 +1591,7 @@ export const createWorkflowRepository = (
           occurredAt,
           previousHash: GENESIS_WORKFLOW_JOURNAL_HASH,
           hash,
-        })
+        });
         await transaction.insert(workflowSnapshots).values({
           runId,
           sequence,
@@ -1508,108 +1603,126 @@ export const createWorkflowRepository = (
           effectHash: input.snapshot.effectHash ?? null,
           effectScope: input.snapshot.effectScope ?? null,
           updatedAt: timestamp,
-        })
-        await insertEffects(transaction, runId, input.effects ?? [], options, timestamp)
-        return (await readProjection(transaction, runId, input.ownerId))!
-      }
-      )
+        });
+        await insertEffects(
+          transaction,
+          runId,
+          input.effects ?? [],
+          options,
+          timestamp
+        );
+        return (await readProjection(transaction, runId, input.ownerId))!;
+      });
     },
 
-    append: async (input: AppendWorkflowInput): Promise<WorkflowAppendResult> => {
-      requireNonBlank(input.runId, "runId")
-      requireNonBlank(input.ownerId, "ownerId")
-      requireHash(input.expectedHeadHash, "expectedHeadHash")
-      boundedInteger(input.expectedSequence, 1, Number.MAX_SAFE_INTEGER - 1, "expectedSequence")
-      const event = validateEvent(input.event)
+    append: async (
+      input: AppendWorkflowInput
+    ): Promise<WorkflowAppendResult> => {
+      requireNonBlank(input.runId, "runId");
+      requireNonBlank(input.ownerId, "ownerId");
+      requireHash(input.expectedHeadHash, "expectedHeadHash");
+      boundedInteger(
+        input.expectedSequence,
+        1,
+        Number.MAX_SAFE_INTEGER - 1,
+        "expectedSequence"
+      );
+      const event = validateEvent(input.event);
 
       return withTransaction(database, async (transaction) => {
-        const run = await lockRun(transaction, input.runId, input.ownerId)
-        return appendLocked(transaction, run, input, event, options)
-      }
-      )
+        const run = await lockRun(transaction, input.runId, input.ownerId);
+        return appendLocked(transaction, run, input, event, options);
+      });
     },
     findProjectionByOwner: async (runId: string, ownerId: string) => {
-      requireNonBlank(runId, "runId")
-      requireNonBlank(ownerId, "ownerId")
+      requireNonBlank(runId, "runId");
+      requireNonBlank(ownerId, "ownerId");
       return database.transaction(
         (transaction) => readProjection(transaction, runId, ownerId),
-        { isolationLevel: "repeatable read", accessMode: "read only" },
-      )
+        { isolationLevel: "repeatable read", accessMode: "read only" }
+      );
     },
     listProjectionsByOwner: async (
       ownerId: string,
-      runIds: readonly string[],
+      runIds: readonly string[]
     ): Promise<readonly WorkflowProjection[]> => {
-      requireNonBlank(ownerId, "ownerId")
-      if (runIds.length === 0) return Object.freeze([])
-      boundedInteger(runIds.length, 1, 100, "runIds.length")
-      for (const runId of runIds) requireNonBlank(runId, "runId")
+      requireNonBlank(ownerId, "ownerId");
+      if (runIds.length === 0) return Object.freeze([]);
+      boundedInteger(runIds.length, 1, 100, "runIds.length");
+      for (const runId of runIds) requireNonBlank(runId, "runId");
       return database.transaction(
         (transaction) => readProjections(transaction, ownerId, runIds),
-        { isolationLevel: "repeatable read", accessMode: "read only" },
-      )
+        { isolationLevel: "repeatable read", accessMode: "read only" }
+      );
     },
     decideApprovalAndAppend: async (
-      input: DecideWorkflowApprovalAndAppendInput,
+      input: DecideWorkflowApprovalAndAppendInput
     ): Promise<WorkflowAppendResult> => {
-      const decision = input.approval
-      const append = input.append
-      requireNonBlank(decision.id, "approval.id")
-      requireNonBlank(decision.runId, "approval.runId")
-      requireNonBlank(decision.ownerId, "approval.ownerId")
+      const decision = input.approval;
+      const append = input.append;
+      requireNonBlank(decision.id, "approval.id");
+      requireNonBlank(decision.runId, "approval.runId");
+      requireNonBlank(decision.ownerId, "approval.ownerId");
       if (
         append.runId !== decision.runId ||
         append.ownerId !== decision.ownerId
       ) {
         throw new WorkflowPersistenceInputError(
-          "approval and append must identify the same owned run",
-        )
+          "approval and append must identify the same owned run"
+        );
       }
-      requireNonBlank(decision.decidedBy, "decidedBy")
-      requireHash(append.expectedHeadHash, "expectedHeadHash")
+      requireNonBlank(decision.decidedBy, "decidedBy");
+      requireHash(append.expectedHeadHash, "expectedHeadHash");
       boundedInteger(
         append.expectedSequence,
         1,
         Number.MAX_SAFE_INTEGER - 1,
-        "expectedSequence",
-      )
+        "expectedSequence"
+      );
       const normalizedRawReason =
         decision.reason === undefined || decision.reason === null
           ? null
-          : decision.reason.trim()
-      const reason = normalizedRawReason === null
-        ? null
-        : redactText(normalizedRawReason, MAX_ERROR_BYTES, "reason")
-      const event = validateEvent(append.event)
+          : decision.reason.trim();
+      const reason =
+        normalizedRawReason === null
+          ? null
+          : redactText(normalizedRawReason, MAX_ERROR_BYTES, "reason");
+      const event = validateEvent(append.event);
       const decisionRequestHash = createHash("sha256")
-        .update(canonicalWorkflowJson({
-          approvalId: decision.id,
-          runId: decision.runId,
-          ownerId: decision.ownerId,
-          decidedBy: decision.decidedBy,
-          decision: decision.decision,
-          reason: normalizedRawReason,
-          event,
-        }))
-        .digest("hex")
+        .update(
+          canonicalWorkflowJson({
+            approvalId: decision.id,
+            runId: decision.runId,
+            ownerId: decision.ownerId,
+            decidedBy: decision.decidedBy,
+            decision: decision.decision,
+            reason: normalizedRawReason,
+            event,
+          })
+        )
+        .digest("hex");
 
       return withTransaction(database, async (transaction) => {
-        const run = await lockRun(transaction, decision.runId, decision.ownerId)
+        const run = await lockRun(
+          transaction,
+          decision.runId,
+          decision.ownerId
+        );
         const [approval] = await transaction
           .select()
           .from(workflowApprovals)
           .where(
             andWhere(
               eq(workflowApprovals.id, decision.id),
-              eq(workflowApprovals.runId, decision.runId),
-            ),
+              eq(workflowApprovals.runId, decision.runId)
+            )
           )
-          .limit(1)
+          .limit(1);
         const [existing] = await transaction
           .select()
           .from(workflowJournal)
           .where(eq(workflowJournal.eventId, append.event.eventId))
-          .limit(1)
+          .limit(1);
         if (
           approval?.status === decision.decision &&
           approval.decidedBy === decision.decidedBy &&
@@ -1622,15 +1735,15 @@ export const createWorkflowRepository = (
             projection: (await readProjection(
               transaction,
               append.runId,
-              append.ownerId,
+              append.ownerId
             ))!,
-          })
+          });
         }
         const [snapshot] = await transaction
           .select()
           .from(workflowSnapshots)
           .where(eq(workflowSnapshots.runId, decision.runId))
-          .limit(1)
+          .limit(1);
         if (
           !approval ||
           approval.status !== "pending" ||
@@ -1642,7 +1755,7 @@ export const createWorkflowRepository = (
           snapshot.effectHash !== approval.effectHash ||
           snapshot.effectScope !== approval.effectScope
         ) {
-          throw new StaleWorkflowApprovalError()
+          throw new StaleWorkflowApprovalError();
         }
         const [decided] = await transaction
           .update(workflowApprovals)
@@ -1656,43 +1769,44 @@ export const createWorkflowRepository = (
           .where(
             andWhere(
               eq(workflowApprovals.id, decision.id),
-              eq(workflowApprovals.status, "pending"),
-            ),
+              eq(workflowApprovals.status, "pending")
+            )
           )
-          .returning()
-        if (!decided) throw new StaleWorkflowApprovalError()
-        return appendLocked(transaction, run, append, event, options)
-      }
-      )
+          .returning();
+        if (!decided) throw new StaleWorkflowApprovalError();
+        return appendLocked(transaction, run, append, event, options);
+      });
     },
     listEvidenceByOwner: async (
       runId: string,
       ownerId: string,
-      listOptions: WorkflowRecordPageOptions = {},
+      listOptions: WorkflowRecordPageOptions = {}
     ) => {
-      requireNonBlank(runId, "runId")
-      requireNonBlank(ownerId, "ownerId")
-      const limit = boundedInteger(listOptions.limit ?? 100, 1, 100, "limit")
-      const cursor = listOptions.cursor === undefined
-        ? undefined
-        : decodeWorkflowRecordCursor(listOptions.cursor)
+      requireNonBlank(runId, "runId");
+      requireNonBlank(ownerId, "ownerId");
+      const limit = boundedInteger(listOptions.limit ?? 100, 1, 100, "limit");
+      const cursor =
+        listOptions.cursor === undefined
+          ? undefined
+          : decodeWorkflowRecordCursor(listOptions.cursor);
       if (
         cursor !== undefined &&
         (cursor.kind !== "evidence" || cursor.runId !== runId)
       ) {
         throw new WorkflowPersistenceInputError(
-          "workflow record cursor does not match the requested evidence",
-        )
+          "workflow record cursor does not match the requested evidence"
+        );
       }
-      const cursorCondition = cursor === undefined
-        ? undefined
-        : orWhere(
-            lt(workflowEvidence.createdAt, cursor.createdAt),
-            andWhere(
-              eq(workflowEvidence.createdAt, cursor.createdAt),
-              lt(workflowEvidence.id, cursor.id),
-            ),
-          )
+      const cursorCondition =
+        cursor === undefined
+          ? undefined
+          : orWhere(
+              lt(workflowEvidence.createdAt, cursor.createdAt),
+              andWhere(
+                eq(workflowEvidence.createdAt, cursor.createdAt),
+                lt(workflowEvidence.id, cursor.id)
+              )
+            );
       const rows = await database
         .select({ evidence: workflowEvidence })
         .from(workflowEvidence)
@@ -1700,24 +1814,27 @@ export const createWorkflowRepository = (
           workflowRuns,
           andWhere(
             eq(workflowRuns.id, workflowEvidence.runId),
-            eq(workflowRuns.ownerId, ownerId),
-          ),
+            eq(workflowRuns.ownerId, ownerId)
+          )
         )
-        .where(cursorCondition === undefined
-          ? eq(workflowEvidence.runId, runId)
-          : andWhere(eq(workflowEvidence.runId, runId), cursorCondition))
+        .where(
+          cursorCondition === undefined
+            ? eq(workflowEvidence.runId, runId)
+            : andWhere(eq(workflowEvidence.runId, runId), cursorCondition)
+        )
         .orderBy(desc(workflowEvidence.createdAt), desc(workflowEvidence.id))
-        .limit(limit + 1)
-      return recordPage(rows.map(({ evidence }) => evidence), limit, "evidence", runId)
+        .limit(limit + 1);
+      return recordPage(
+        rows.map(({ evidence }) => evidence),
+        limit,
+        "evidence",
+        runId
+      );
     },
-    findEvidenceByOwner: async (
-      id: string,
-      runId: string,
-      ownerId: string,
-    ) => {
-      requireNonBlank(id, "evidence.id")
-      requireNonBlank(runId, "runId")
-      requireNonBlank(ownerId, "ownerId")
+    findEvidenceByOwner: async (id: string, runId: string, ownerId: string) => {
+      requireNonBlank(id, "evidence.id");
+      requireNonBlank(runId, "runId");
+      requireNonBlank(ownerId, "ownerId");
       const [row] = await database
         .select({ evidence: workflowEvidence })
         .from(workflowEvidence)
@@ -1725,46 +1842,48 @@ export const createWorkflowRepository = (
           workflowRuns,
           andWhere(
             eq(workflowRuns.id, workflowEvidence.runId),
-            eq(workflowRuns.ownerId, ownerId),
-          ),
+            eq(workflowRuns.ownerId, ownerId)
+          )
         )
         .where(
           andWhere(
             eq(workflowEvidence.id, id),
-            eq(workflowEvidence.runId, runId),
-          ),
+            eq(workflowEvidence.runId, runId)
+          )
         )
-        .limit(1)
-      return row?.evidence ?? null
+        .limit(1);
+      return row?.evidence ?? null;
     },
     listMessagesByOwner: async (
       runId: string,
       ownerId: string,
-      listOptions: WorkflowRecordPageOptions = {},
+      listOptions: WorkflowRecordPageOptions = {}
     ) => {
-      requireNonBlank(runId, "runId")
-      requireNonBlank(ownerId, "ownerId")
-      const limit = boundedInteger(listOptions.limit ?? 100, 1, 100, "limit")
-      const cursor = listOptions.cursor === undefined
-        ? undefined
-        : decodeWorkflowRecordCursor(listOptions.cursor)
+      requireNonBlank(runId, "runId");
+      requireNonBlank(ownerId, "ownerId");
+      const limit = boundedInteger(listOptions.limit ?? 100, 1, 100, "limit");
+      const cursor =
+        listOptions.cursor === undefined
+          ? undefined
+          : decodeWorkflowRecordCursor(listOptions.cursor);
       if (
         cursor !== undefined &&
         (cursor.kind !== "message" || cursor.runId !== runId)
       ) {
         throw new WorkflowPersistenceInputError(
-          "workflow record cursor does not match the requested messages",
-        )
+          "workflow record cursor does not match the requested messages"
+        );
       }
-      const cursorCondition = cursor === undefined
-        ? undefined
-        : orWhere(
-            lt(workflowMessages.createdAt, cursor.createdAt),
-            andWhere(
-              eq(workflowMessages.createdAt, cursor.createdAt),
-              lt(workflowMessages.id, cursor.id),
-            ),
-          )
+      const cursorCondition =
+        cursor === undefined
+          ? undefined
+          : orWhere(
+              lt(workflowMessages.createdAt, cursor.createdAt),
+              andWhere(
+                eq(workflowMessages.createdAt, cursor.createdAt),
+                lt(workflowMessages.id, cursor.id)
+              )
+            );
       const rows = await database
         .select({ message: workflowMessages })
         .from(workflowMessages)
@@ -1772,91 +1891,106 @@ export const createWorkflowRepository = (
           workflowRuns,
           andWhere(
             eq(workflowRuns.id, workflowMessages.runId),
-            eq(workflowRuns.ownerId, ownerId),
-          ),
+            eq(workflowRuns.ownerId, ownerId)
+          )
         )
-        .where(cursorCondition === undefined
-          ? eq(workflowMessages.runId, runId)
-          : andWhere(eq(workflowMessages.runId, runId), cursorCondition))
+        .where(
+          cursorCondition === undefined
+            ? eq(workflowMessages.runId, runId)
+            : andWhere(eq(workflowMessages.runId, runId), cursorCondition)
+        )
         .orderBy(desc(workflowMessages.createdAt), desc(workflowMessages.id))
-        .limit(limit + 1)
-      return recordPage(rows.map(({ message }) => message), limit, "message", runId)
+        .limit(limit + 1);
+      return recordPage(
+        rows.map(({ message }) => message),
+        limit,
+        "message",
+        runId
+      );
     },
 
     listRunsByOwner: async (
       ownerId: string,
       listOptions: Readonly<{
-        limit?: number
-        cursor?: string
-        state?: WorkflowState
-      }> = {},
+        limit?: number;
+        cursor?: string;
+        state?: WorkflowState;
+      }> = {}
     ) => {
-      requireNonBlank(ownerId, "ownerId")
-      const limit = boundedInteger(listOptions.limit ?? 50, 1, 101, "limit")
+      requireNonBlank(ownerId, "ownerId");
+      const limit = boundedInteger(listOptions.limit ?? 50, 1, 101, "limit");
       if (
         listOptions.state !== undefined &&
         !(WORKFLOW_STATES as readonly string[]).includes(listOptions.state)
       ) {
-        throw new WorkflowPersistenceInputError("state is invalid")
+        throw new WorkflowPersistenceInputError("state is invalid");
       }
-      const ownerAndState = listOptions.state === undefined
-        ? eq(workflowRuns.ownerId, ownerId)
-        : andWhere(
-            eq(workflowRuns.ownerId, ownerId),
-            eq(workflowRuns.state, listOptions.state),
-          )!
-      const cursor = listOptions.cursor === undefined
-        ? undefined
-        : decodeWorkflowRunsCursor(listOptions.cursor)
+      const ownerAndState =
+        listOptions.state === undefined
+          ? eq(workflowRuns.ownerId, ownerId)
+          : andWhere(
+              eq(workflowRuns.ownerId, ownerId),
+              eq(workflowRuns.state, listOptions.state)
+            )!;
+      const cursor =
+        listOptions.cursor === undefined
+          ? undefined
+          : decodeWorkflowRunsCursor(listOptions.cursor);
       if (cursor !== undefined && cursor.state !== listOptions.state) {
         throw new WorkflowPersistenceInputError(
-          "workflow run cursor does not match the requested state",
-        )
+          "workflow run cursor does not match the requested state"
+        );
       }
       if (cursor !== undefined) {
         const [knownCursor] = await database
           .select({ id: workflowRuns.id })
           .from(workflowRuns)
-          .where(andWhere(
-            eq(workflowRuns.ownerId, ownerId),
-            eq(workflowRuns.id, cursor.id),
-          ))
-          .limit(1)
+          .where(
+            andWhere(
+              eq(workflowRuns.ownerId, ownerId),
+              eq(workflowRuns.id, cursor.id)
+            )
+          )
+          .limit(1);
         if (knownCursor === undefined) {
-          throw new WorkflowPersistenceInputError("workflow run cursor is invalid")
+          throw new WorkflowPersistenceInputError(
+            "workflow run cursor is invalid"
+          );
         }
       }
-      const cursorCondition = cursor === undefined
-        ? undefined
-        : orWhere(
-            lt(workflowRuns.updatedAt, cursor.updatedAt),
-            andWhere(
-              eq(workflowRuns.updatedAt, cursor.updatedAt),
-              lt(workflowRuns.id, cursor.id),
-            ),
-          )
+      const cursorCondition =
+        cursor === undefined
+          ? undefined
+          : orWhere(
+              lt(workflowRuns.updatedAt, cursor.updatedAt),
+              andWhere(
+                eq(workflowRuns.updatedAt, cursor.updatedAt),
+                lt(workflowRuns.id, cursor.id)
+              )
+            );
       return database
         .select()
         .from(workflowRuns)
-        .where(cursorCondition === undefined
-          ? ownerAndState
-          : andWhere(ownerAndState, cursorCondition))
+        .where(
+          cursorCondition === undefined
+            ? ownerAndState
+            : andWhere(ownerAndState, cursorCondition)
+        )
         .orderBy(desc(workflowRuns.updatedAt), desc(workflowRuns.id))
-        .limit(limit)
+        .limit(limit);
     },
 
-
     createApproval: async (input: CreateWorkflowApprovalInput) => {
-      requireNonBlank(input.effectScope, "effectScope")
-      requireHash(input.journalHeadHash, "journalHeadHash")
-      requireHash(input.effectHash, "effectHash")
+      requireNonBlank(input.effectScope, "effectScope");
+      requireHash(input.journalHeadHash, "journalHeadHash");
+      requireHash(input.effectHash, "effectHash");
       return withTransaction(database, async (transaction) => {
-        const run = await lockRun(transaction, input.runId, input.ownerId)
+        const run = await lockRun(transaction, input.runId, input.ownerId);
         const [snapshot] = await transaction
           .select()
           .from(workflowSnapshots)
           .where(eq(workflowSnapshots.runId, input.runId))
-          .limit(1)
+          .limit(1);
         if (
           !snapshot ||
           input.machineId !== WORKFLOW_MACHINE_ID ||
@@ -1869,7 +2003,7 @@ export const createWorkflowRepository = (
           snapshot.effectHash !== input.effectHash ||
           snapshot.effectScope !== input.effectScope
         ) {
-          throw new StaleWorkflowApprovalError()
+          throw new StaleWorkflowApprovalError();
         }
         const [approval] = await transaction
           .insert(workflowApprovals)
@@ -1886,24 +2020,22 @@ export const createWorkflowRepository = (
             effectScope: input.effectScope,
             createdAt: options.now(),
           })
-          .returning()
-        return approval!
-      }
-      )
+          .returning();
+        return approval!;
+      });
     },
 
-
     addEvidence: async (input: AddWorkflowEvidenceInput) => {
-      requireNonBlank(input.kind, "kind")
-      const evidenceIdentity = hashWorkflowEvidenceRequest(input)
+      requireNonBlank(input.kind, "kind");
+      const evidenceIdentity = hashWorkflowEvidenceRequest(input);
       const summary = redactText(
         evidenceIdentity.normalizedRawSummary,
         MAX_SUMMARY_BYTES,
-        "summary",
-      )
-      const data = redactBoundedObject(input.data, MAX_EVIDENCE_BYTES, "data")
+        "summary"
+      );
+      const data = redactBoundedObject(input.data, MAX_EVIDENCE_BYTES, "data");
       return withTransaction(database, async (transaction) => {
-        await lockRun(transaction, input.runId, input.ownerId)
+        await lockRun(transaction, input.runId, input.ownerId);
         const [evidence] = await transaction
           .insert(workflowEvidence)
           .values({
@@ -1915,72 +2047,77 @@ export const createWorkflowRepository = (
             data,
             createdAt: options.now(),
           })
-          .returning()
-        return evidence!
-      }
-      )
+          .returning();
+        return evidence!;
+      });
     },
 
-
     addMessageAndAppend: async (input: AddWorkflowMessageAndAppendInput) => {
-      requireNonBlank(input.id, "id")
-      const normalizedRawBody = input.content.trim()
+      requireNonBlank(input.id, "id");
+      const normalizedRawBody = input.content.trim();
       const requestHash = createHash("sha256")
-        .update(canonicalWorkflowJson({
-          ownerId: input.ownerId,
-          runId: input.runId,
-          authorId: input.authorId,
-          body: normalizedRawBody,
-        }))
-        .digest("hex")
-      const content = redactText(normalizedRawBody, MAX_MESSAGE_BYTES, "content")
-      requireNonBlank(input.idempotencyKey, "idempotencyKey")
+        .update(
+          canonicalWorkflowJson({
+            ownerId: input.ownerId,
+            runId: input.runId,
+            authorId: input.authorId,
+            body: normalizedRawBody,
+          })
+        )
+        .digest("hex");
+      const content = redactText(
+        normalizedRawBody,
+        MAX_MESSAGE_BYTES,
+        "content"
+      );
+      requireNonBlank(input.idempotencyKey, "idempotencyKey");
       if (
         byteLength(input.idempotencyKey) > MAX_IDEMPOTENCY_KEY_BYTES ||
         !IDEMPOTENCY_KEY_PATTERN.test(input.idempotencyKey)
       ) {
-        throw new WorkflowPersistenceInputError("idempotencyKey is invalid")
+        throw new WorkflowPersistenceInputError("idempotencyKey is invalid");
       }
-      const event = validateEvent(input.event)
+      const event = validateEvent(input.event);
       if (
         input.event.type !== "OPERATOR_MESSAGE_ADDED" ||
         input.event["messageId"] !== input.id
       ) {
         throw new WorkflowPersistenceInputError(
-          "operator message event must identify the persisted message",
-        )
+          "operator message event must identify the persisted message"
+        );
       }
       if (input.append !== null) {
         if (
           input.append.runId !== input.runId ||
           input.append.ownerId !== input.ownerId ||
-          canonicalWorkflowJson(input.append.event) !== canonicalWorkflowJson(event)
+          canonicalWorkflowJson(input.append.event) !==
+            canonicalWorkflowJson(event)
         ) {
           throw new WorkflowPersistenceInputError(
-            "operator message append must identify the same event and owned run",
-          )
+            "operator message append must identify the same event and owned run"
+          );
         }
-        requireHash(input.append.expectedHeadHash, "append.expectedHeadHash")
+        requireHash(input.append.expectedHeadHash, "append.expectedHeadHash");
         boundedInteger(
           input.append.expectedSequence,
           1,
           Number.MAX_SAFE_INTEGER - 1,
-          "append.expectedSequence",
-        )
+          "append.expectedSequence"
+        );
       }
 
       return withTransaction(database, async (transaction) => {
-        const run = await lockRun(transaction, input.runId, input.ownerId)
+        const run = await lockRun(transaction, input.runId, input.ownerId);
         const [existing] = await transaction
           .select()
           .from(workflowMessages)
           .where(
             andWhere(
               eq(workflowMessages.runId, input.runId),
-              eq(workflowMessages.idempotencyKey, input.idempotencyKey),
-            ),
+              eq(workflowMessages.idempotencyKey, input.idempotencyKey)
+            )
           )
-          .limit(1)
+          .limit(1);
         if (existing) {
           if (
             existing.id !== input.id ||
@@ -1988,20 +2125,20 @@ export const createWorkflowRepository = (
             existing.authorId !== input.authorId ||
             existing.content !== content
           ) {
-            throw new WorkflowConcurrencyError()
+            throw new WorkflowConcurrencyError();
           }
           const [journalEntry] = await transaction
             .select()
             .from(workflowJournal)
             .where(eq(workflowJournal.eventId, input.event.eventId))
-            .limit(1)
+            .limit(1);
           if (
             !journalEntry ||
             journalEntry.runId !== input.runId ||
             journalEntry.eventType !== "OPERATOR_MESSAGE_ADDED" ||
             journalEntry.event["messageId"] !== existing.id
           ) {
-            throw new WorkflowConcurrencyError()
+            throw new WorkflowConcurrencyError();
           }
           return Object.freeze({
             duplicate: true,
@@ -2009,54 +2146,55 @@ export const createWorkflowRepository = (
             projection: (await readProjection(
               transaction,
               input.runId,
-              input.ownerId,
+              input.ownerId
             ))!,
-          })
+          });
         }
 
         if (run.state === "completed" || run.state === "cancelled") {
-          throw new WorkflowRunTerminalError(run.state)
+          throw new WorkflowRunTerminalError(run.state);
         }
         const [snapshot] = await transaction
           .select()
           .from(workflowSnapshots)
           .where(eq(workflowSnapshots.runId, input.runId))
-          .limit(1)
-        const messageCount = snapshot?.context["messageCount"]
+          .limit(1);
+        const messageCount = snapshot?.context["messageCount"];
         if (
           !Number.isSafeInteger(messageCount) ||
           (messageCount as number) < 0
         ) {
           throw new WorkflowProjectionIntegrityError(
-            "snapshot message count is invalid",
-          )
+            "snapshot message count is invalid"
+          );
         }
         if ((messageCount as number) >= MAX_WORKFLOW_MESSAGES_PER_RUN) {
-          throw new WorkflowMessageCapacityError()
+          throw new WorkflowMessageCapacityError();
         }
-        if (input.append === null) throw new WorkflowConcurrencyError()
+        if (input.append === null) throw new WorkflowConcurrencyError();
         const expectedContext = {
           ...snapshot!.context,
           messageCount: (messageCount as number) + 1,
-        }
+        };
         if (
           input.append.snapshot.state !== run.state ||
           canonicalWorkflowJson(input.append.snapshot.context) !==
             canonicalWorkflowJson(expectedContext) ||
           (input.append.snapshot.effectHash ?? null) !== snapshot!.effectHash ||
-          (input.append.snapshot.effectScope ?? null) !== snapshot!.effectScope ||
+          (input.append.snapshot.effectScope ?? null) !==
+            snapshot!.effectScope ||
           (input.append.effects?.length ?? 0) !== 0
         ) {
-          throw new WorkflowConcurrencyError()
+          throw new WorkflowConcurrencyError();
         }
         const appended = await appendLocked(
           transaction,
           run,
           input.append,
           event,
-          options,
-        )
-        if (appended.duplicate) throw new WorkflowConcurrencyError()
+          options
+        );
+        if (appended.duplicate) throw new WorkflowConcurrencyError();
         const [message] = await transaction
           .insert(workflowMessages)
           .values({
@@ -2068,23 +2206,26 @@ export const createWorkflowRepository = (
             content,
             createdAt: options.now(),
           })
-          .returning()
-        if (!message) throw new WorkflowConcurrencyError()
+          .returning();
+        if (!message) throw new WorkflowConcurrencyError();
         return Object.freeze({
           duplicate: false,
           message,
           projection: appended.projection,
-        })
-      }
-      )
+        });
+      });
     },
 
-
     claimDueEffects: async (input: ClaimDueWorkflowEffectsInput) => {
-      requireNonBlank(input.handler, "handler")
-      requireNonBlank(input.leaseOwner, "leaseOwner")
-      const limit = boundedInteger(input.limit ?? DEFAULT_CLAIM_LIMIT, 1, MAX_CLAIM_LIMIT, "limit")
-      const leaseMilliseconds = validateLease(input.leaseMilliseconds)
+      requireNonBlank(input.handler, "handler");
+      requireNonBlank(input.leaseOwner, "leaseOwner");
+      const limit = boundedInteger(
+        input.limit ?? DEFAULT_CLAIM_LIMIT,
+        1,
+        MAX_CLAIM_LIMIT,
+        "limit"
+      );
+      const leaseMilliseconds = validateLease(input.leaseMilliseconds);
       const result = await database.execute(sql`
         with settings(handler, claim_limit) as (
           values (${input.handler}::text, ${limit}::integer)
@@ -2299,12 +2440,14 @@ export const createWorkflowRepository = (
           claimed.available_at, claimed.lease_owner,
           claimed.lease_expires_at, claimed.fence, claimed.last_error,
           claimed.dead_at
-      `)
-      return (result as unknown as QueryRows<Parameters<typeof mapOutboxRow>[0]>).rows.map(mapOutboxRow)
+      `);
+      return (
+        result as unknown as QueryRows<Parameters<typeof mapOutboxRow>[0]>
+      ).rows.map(mapOutboxRow);
     },
 
     heartbeatEffect: async (input: HeartbeatWorkflowEffectInput) => {
-      const leaseMilliseconds = validateLease(input.leaseMilliseconds)
+      const leaseMilliseconds = validateLease(input.leaseMilliseconds);
       const result = await database.execute(sql`
         update outbox_events
         set lease_expires_at = clock_timestamp() + ${leaseMilliseconds} * interval '1 millisecond'
@@ -2315,13 +2458,12 @@ export const createWorkflowRepository = (
           and published_at is null
           and dead_at is null
         returning id
-      `)
-      return (result as unknown as QueryRows<{ id: string }>).rows.length === 1
+      `);
+      return (result as unknown as QueryRows<{ id: string }>).rows.length === 1;
     },
 
-
     failEffect: async (input: FailWorkflowEffectInput) => {
-      const error = redactText(input.error, MAX_ERROR_BYTES, "error")
+      const error = redactText(input.error, MAX_ERROR_BYTES, "error");
       const result = await database.execute(sql`
         update outbox_events
         set attempt_count = attempt_count + 1,
@@ -2336,17 +2478,16 @@ export const createWorkflowRepository = (
           and published_at is null
           and dead_at is null
         returning id
-      `)
-      return (result as unknown as QueryRows<{ id: string }>).rows.length === 1
+      `);
+      return (result as unknown as QueryRows<{ id: string }>).rows.length === 1;
     },
 
-
     claimRetainedResources: async (
-      input: ClaimWorkflowRetainedResourcesInput,
+      input: ClaimWorkflowRetainedResourcesInput
     ) => {
-      requireNonBlank(input.leaseOwner, "cleanup.leaseOwner")
-      const limit = boundedInteger(input.limit ?? 8, 1, 32, "cleanup.limit")
-      const leaseMilliseconds = validateLease(input.leaseMilliseconds)
+      requireNonBlank(input.leaseOwner, "cleanup.leaseOwner");
+      const limit = boundedInteger(input.limit ?? 8, 1, 32, "cleanup.limit");
+      const leaseMilliseconds = validateLease(input.leaseMilliseconds);
       const result = await database.execute(sql`
         with due as (
           select resource.run_id
@@ -2387,31 +2528,35 @@ export const createWorkflowRepository = (
           on evidence.id = claimed.evidence_id
          and evidence.run_id = claimed.run_id
         order by claimed.run_id
-      `)
-      return (result as unknown as QueryRows<{
-        run_id: string
-        owner_id: string
-        evidence_id: string
-        lease_owner: string
-        fence: number | string
-        evidence_data: JsonObject
-      }>).rows.map((row) => Object.freeze({
-        runId: row.run_id,
-        ownerId: row.owner_id,
-        evidenceId: row.evidence_id,
-        evidenceData: row.evidence_data,
-        leaseOwner: row.lease_owner,
-        fence: Number(row.fence),
-      }))
+      `);
+      return (
+        result as unknown as QueryRows<{
+          run_id: string;
+          owner_id: string;
+          evidence_id: string;
+          lease_owner: string;
+          fence: number | string;
+          evidence_data: JsonObject;
+        }>
+      ).rows.map((row) =>
+        Object.freeze({
+          runId: row.run_id,
+          ownerId: row.owner_id,
+          evidenceId: row.evidence_id,
+          evidenceData: row.evidence_data,
+          leaseOwner: row.lease_owner,
+          fence: Number(row.fence),
+        })
+      );
     },
 
     heartbeatRetainedResource: async (
-      input: HeartbeatWorkflowRetainedResourceInput,
+      input: HeartbeatWorkflowRetainedResourceInput
     ) => {
-      requireNonBlank(input.runId, "cleanup.runId")
-      requireNonBlank(input.leaseOwner, "cleanup.leaseOwner")
-      boundedInteger(input.fence, 1, Number.MAX_SAFE_INTEGER, "cleanup.fence")
-      const leaseMilliseconds = validateLease(input.leaseMilliseconds)
+      requireNonBlank(input.runId, "cleanup.runId");
+      requireNonBlank(input.leaseOwner, "cleanup.leaseOwner");
+      boundedInteger(input.fence, 1, Number.MAX_SAFE_INTEGER, "cleanup.fence");
+      const leaseMilliseconds = validateLease(input.leaseMilliseconds);
       const result = await database.execute(sql`
         update workflow_omp_resources
         set lease_expires_at =
@@ -2424,26 +2569,28 @@ export const createWorkflowRepository = (
           and cleanup_requested_at is not null
           and dead_at is null
         returning run_id
-      `)
-      return (result as unknown as QueryRows<{ run_id: string }>).rows.length === 1
+      `);
+      return (
+        (result as unknown as QueryRows<{ run_id: string }>).rows.length === 1
+      );
     },
 
     releaseRetainedResource: async (
-      input: ReleaseWorkflowRetainedResourceInput,
+      input: ReleaseWorkflowRetainedResourceInput
     ) => {
-      requireNonBlank(input.runId, "cleanup.runId")
-      requireNonBlank(input.leaseOwner, "cleanup.leaseOwner")
-      boundedInteger(input.fence, 1, Number.MAX_SAFE_INTEGER, "cleanup.fence")
+      requireNonBlank(input.runId, "cleanup.runId");
+      requireNonBlank(input.leaseOwner, "cleanup.leaseOwner");
+      boundedInteger(input.fence, 1, Number.MAX_SAFE_INTEGER, "cleanup.fence");
       if (
         input.retryAt !== undefined &&
-        (
-          !(input.retryAt instanceof Date) ||
-          !Number.isFinite(input.retryAt.getTime())
-        )
+        (!(input.retryAt instanceof Date) ||
+          !Number.isFinite(input.retryAt.getTime()))
       ) {
-        throw new WorkflowPersistenceInputError("cleanup.retryAt must be a valid date")
+        throw new WorkflowPersistenceInputError(
+          "cleanup.retryAt must be a valid date"
+        );
       }
-      const retryAt = input.retryAt ?? null
+      const retryAt = input.retryAt ?? null;
       const result = await database.execute(sql`
         update workflow_omp_resources
         set lease_owner = null,
@@ -2457,16 +2604,18 @@ export const createWorkflowRepository = (
           and cleanup_requested_at is not null
           and dead_at is null
         returning run_id
-      `)
-      return (result as unknown as QueryRows<{ run_id: string }>).rows.length === 1
+      `);
+      return (
+        (result as unknown as QueryRows<{ run_id: string }>).rows.length === 1
+      );
     },
 
     completeRetainedResource: async (
-      input: WorkflowRetainedResourceLeaseInput,
+      input: WorkflowRetainedResourceLeaseInput
     ) => {
-      requireNonBlank(input.runId, "cleanup.runId")
-      requireNonBlank(input.leaseOwner, "cleanup.leaseOwner")
-      boundedInteger(input.fence, 1, Number.MAX_SAFE_INTEGER, "cleanup.fence")
+      requireNonBlank(input.runId, "cleanup.runId");
+      requireNonBlank(input.leaseOwner, "cleanup.leaseOwner");
+      boundedInteger(input.fence, 1, Number.MAX_SAFE_INTEGER, "cleanup.fence");
       const result = await database.execute(sql`
         delete from workflow_omp_resources
         where run_id = ${input.runId}
@@ -2476,17 +2625,17 @@ export const createWorkflowRepository = (
           and cleanup_requested_at is not null
           and dead_at is null
         returning run_id
-      `)
-      return (result as unknown as QueryRows<{ run_id: string }>).rows.length === 1
+      `);
+      return (
+        (result as unknown as QueryRows<{ run_id: string }>).rows.length === 1
+      );
     },
 
-    failRetainedResource: async (
-      input: FailWorkflowRetainedResourceInput,
-    ) => {
-      requireNonBlank(input.runId, "cleanup.runId")
-      requireNonBlank(input.leaseOwner, "cleanup.leaseOwner")
-      boundedInteger(input.fence, 1, Number.MAX_SAFE_INTEGER, "cleanup.fence")
-      const error = redactText(input.error, MAX_ERROR_BYTES, "cleanup.error")
+    failRetainedResource: async (input: FailWorkflowRetainedResourceInput) => {
+      requireNonBlank(input.runId, "cleanup.runId");
+      requireNonBlank(input.leaseOwner, "cleanup.leaseOwner");
+      boundedInteger(input.fence, 1, Number.MAX_SAFE_INTEGER, "cleanup.fence");
+      const error = redactText(input.error, MAX_ERROR_BYTES, "cleanup.error");
       const result = await database.execute(sql`
         update workflow_omp_resources
         set lease_owner = null,
@@ -2511,77 +2660,82 @@ export const createWorkflowRepository = (
           and cleanup_requested_at is not null
           and dead_at is null
         returning run_id
-      `)
-      return (result as unknown as QueryRows<{ run_id: string }>).rows.length === 1
+      `);
+      return (
+        (result as unknown as QueryRows<{ run_id: string }>).rows.length === 1
+      );
     },
 
     finalizeEffect: async (
-      input: FinalizeWorkflowEffectInput,
+      input: FinalizeWorkflowEffectInput
     ): Promise<WorkflowEffectFinalizationResult> => {
-      requireNonBlank(input.id, "effect.id")
-      requireNonBlank(input.leaseOwner, "effect.leaseOwner")
-      requireNonBlank(input.ownerId, "ownerId")
-      requireNonBlank(input.append.runId, "append.runId")
-      requireHash(input.append.expectedHeadHash, "append.expectedHeadHash")
-      boundedInteger(input.fence, 1, Number.MAX_SAFE_INTEGER, "effect.fence")
+      requireNonBlank(input.id, "effect.id");
+      requireNonBlank(input.leaseOwner, "effect.leaseOwner");
+      requireNonBlank(input.ownerId, "ownerId");
+      requireNonBlank(input.append.runId, "append.runId");
+      requireHash(input.append.expectedHeadHash, "append.expectedHeadHash");
+      boundedInteger(input.fence, 1, Number.MAX_SAFE_INTEGER, "effect.fence");
       boundedInteger(
         input.append.expectedSequence,
         1,
         Number.MAX_SAFE_INTEGER - 1,
-        "append.expectedSequence",
-      )
-      requireNonBlank(input.evidence.id, "evidence.id")
+        "append.expectedSequence"
+      );
+      requireNonBlank(input.evidence.id, "evidence.id");
       if (
         input.append.runId !== input.evidence.runId ||
         input.append.ownerId !== input.ownerId ||
         input.evidence.ownerId !== input.ownerId
       ) {
         throw new WorkflowPersistenceInputError(
-          "effect finalization must identify one owned run",
-        )
+          "effect finalization must identify one owned run"
+        );
       }
-      requireNonBlank(input.evidence.kind, "evidence.kind")
-      const evidenceIdentity = hashWorkflowEvidenceRequest(input.evidence)
+      requireNonBlank(input.evidence.kind, "evidence.kind");
+      const evidenceIdentity = hashWorkflowEvidenceRequest(input.evidence);
       const summary = redactText(
         evidenceIdentity.normalizedRawSummary,
         MAX_SUMMARY_BYTES,
-        "evidence.summary",
-      )
+        "evidence.summary"
+      );
       const data = requireSafeBoundedObject(
         input.evidence.data,
         MAX_EVIDENCE_BYTES,
-        "evidence.data",
-      )
-      const event = validateEvent(input.append.event)
-      const appendRequestHash = hashWorkflowAppendRequest(input.append, event)
-      const normalizedRawError = input.terminal === "dead"
-        ? (input.error ?? "").trim()
-        : null
-      const terminalError = normalizedRawError === null
-        ? null
-        : redactText(normalizedRawError, MAX_ERROR_BYTES, "error")
+        "evidence.data"
+      );
+      const event = validateEvent(input.append.event);
+      const appendRequestHash = hashWorkflowAppendRequest(input.append, event);
+      const normalizedRawError =
+        input.terminal === "dead" ? (input.error ?? "").trim() : null;
+      const terminalError =
+        normalizedRawError === null
+          ? null
+          : redactText(normalizedRawError, MAX_ERROR_BYTES, "error");
       const finalizationRequestHash = createHash("sha256")
-        .update(canonicalWorkflowJson({
-          effectId: input.id,
-          leaseOwner: input.leaseOwner,
-          fence: input.fence,
-          ownerId: input.ownerId,
-          terminal: input.terminal,
-          error: normalizedRawError,
-          appendRequestHash,
-          evidenceRequestHash: evidenceIdentity.requestHash,
-          approval: input.approval ?? null,
-        }))
-        .digest("hex")
+        .update(
+          canonicalWorkflowJson({
+            effectId: input.id,
+            leaseOwner: input.leaseOwner,
+            fence: input.fence,
+            ownerId: input.ownerId,
+            terminal: input.terminal,
+            error: normalizedRawError,
+            appendRequestHash,
+            evidenceRequestHash: evidenceIdentity.requestHash,
+            approval: input.approval ?? null,
+          })
+        )
+        .digest("hex");
 
       return withTransaction(database, async (transaction) => {
         const run = await lockRun(
           transaction,
           input.append.runId,
-          input.ownerId,
-        )
-        const finalized = input.terminal === "completed"
-          ? await transaction.execute(sql`
+          input.ownerId
+        );
+        const finalized =
+          input.terminal === "completed"
+            ? await transaction.execute(sql`
               update outbox_events
               set published_at = clock_timestamp(),
                   lease_owner = null,
@@ -2597,7 +2751,7 @@ export const createWorkflowRepository = (
                 and dead_at is null
               returning id
             `)
-          : await transaction.execute(sql`
+            : await transaction.execute(sql`
               update outbox_events
               set attempt_count = attempt_count + 1,
                   last_error = ${terminalError},
@@ -2613,7 +2767,7 @@ export const createWorkflowRepository = (
                 and published_at is null
                 and dead_at is null
               returning id
-            `)
+            `);
         if (
           (finalized as unknown as QueryRows<{ id: string }>).rows.length !== 1
         ) {
@@ -2627,29 +2781,29 @@ export const createWorkflowRepository = (
                 eq(outboxEvents.aggregateId, input.append.runId),
                 input.terminal === "completed"
                   ? sql`${outboxEvents.publishedAt} is not null`
-                  : sql`${outboxEvents.deadAt} is not null`,
-              ),
+                  : sql`${outboxEvents.deadAt} is not null`
+              )
             )
-            .limit(1)
+            .limit(1);
           if (!terminal) {
-            return Object.freeze({ status: "stale", projection: null })
+            return Object.freeze({ status: "stale", projection: null });
           }
           const projection = await readProjection(
             transaction,
             input.append.runId,
-            input.ownerId,
-          )
+            input.ownerId
+          );
           if (projection === null) {
-            return Object.freeze({ status: "stale", projection: null })
+            return Object.freeze({ status: "stale", projection: null });
           }
           const existingEvent = projection.journal.find(
-            (entry) => entry.eventId === input.append.event.eventId,
-          )
+            (entry) => entry.eventId === input.append.event.eventId
+          );
           if (
             existingEvent === undefined ||
             existingEvent.requestHash !== appendRequestHash
           ) {
-            throw new WorkflowConcurrencyError()
+            throw new WorkflowConcurrencyError();
           }
           const [existingEvidence] = await transaction
             .select()
@@ -2657,28 +2811,28 @@ export const createWorkflowRepository = (
             .where(
               andWhere(
                 eq(workflowEvidence.id, input.evidence.id),
-                eq(workflowEvidence.runId, input.evidence.runId),
-              ),
+                eq(workflowEvidence.runId, input.evidence.runId)
+              )
             )
-            .limit(1)
+            .limit(1);
           if (
             !existingEvidence ||
             existingEvidence.requestHash !== finalizationRequestHash
           ) {
-            throw new WorkflowConcurrencyError()
+            throw new WorkflowConcurrencyError();
           }
           if (input.approval !== undefined) {
-            const approval = input.approval
+            const approval = input.approval;
             const [existingApproval] = await transaction
               .select()
               .from(workflowApprovals)
               .where(
                 andWhere(
                   eq(workflowApprovals.id, approval.id),
-                  eq(workflowApprovals.runId, approval.runId),
-                ),
+                  eq(workflowApprovals.runId, approval.runId)
+                )
               )
-              .limit(1)
+              .limit(1);
             if (
               !existingApproval ||
               existingApproval.machineId !== approval.machineId ||
@@ -2689,23 +2843,21 @@ export const createWorkflowRepository = (
               existingApproval.effectHash !== approval.effectHash ||
               existingApproval.effectScope !== approval.effectScope
             ) {
-              throw new WorkflowConcurrencyError()
+              throw new WorkflowConcurrencyError();
             }
           }
           return Object.freeze({
             status: "already-applied",
             projection,
-          })
-        }
-        else {
-
+          });
+        } else {
           const appended = await appendLocked(
             transaction,
             run,
             input.append,
             event,
-            options,
-          )
+            options
+          );
           const [savedEvidence] = await transaction
             .insert(workflowEvidence)
             .values({
@@ -2718,7 +2870,7 @@ export const createWorkflowRepository = (
               createdAt: options.now(),
             })
             .onConflictDoNothing()
-            .returning({ id: workflowEvidence.id })
+            .returning({ id: workflowEvidence.id });
           if (!savedEvidence) {
             const [existingEvidence] = await transaction
               .select()
@@ -2726,19 +2878,19 @@ export const createWorkflowRepository = (
               .where(
                 andWhere(
                   eq(workflowEvidence.id, input.evidence.id),
-                  eq(workflowEvidence.runId, input.evidence.runId),
-                ),
+                  eq(workflowEvidence.runId, input.evidence.runId)
+                )
               )
-              .limit(1)
+              .limit(1);
             if (
               !existingEvidence ||
               existingEvidence.requestHash !== finalizationRequestHash
             ) {
-              throw new WorkflowConcurrencyError()
+              throw new WorkflowConcurrencyError();
             }
           }
           if (evidenceIdentity.kind === "implement.succeeded") {
-            const timestamp = options.now()
+            const timestamp = options.now();
             const [savedResource] = await transaction
               .insert(workflowOmpResources)
               .values({
@@ -2750,19 +2902,19 @@ export const createWorkflowRepository = (
                 updatedAt: timestamp,
               })
               .onConflictDoNothing()
-              .returning({ runId: workflowOmpResources.runId })
+              .returning({ runId: workflowOmpResources.runId });
             if (!savedResource) {
               const [existingResource] = await transaction
                 .select()
                 .from(workflowOmpResources)
                 .where(eq(workflowOmpResources.runId, input.append.runId))
-                .limit(1)
+                .limit(1);
               if (
                 !existingResource ||
                 existingResource.ownerId !== input.ownerId ||
                 existingResource.evidenceId !== input.evidence.id
               ) {
-                throw new WorkflowConcurrencyError()
+                throw new WorkflowConcurrencyError();
               }
             }
           }
@@ -2770,12 +2922,12 @@ export const createWorkflowRepository = (
             await requestRetainedResourceCleanup(
               transaction,
               input.append.runId,
-              options.now(),
-            )
+              options.now()
+            );
           }
           if (input.approval !== undefined) {
-            const approval = input.approval
-            const snapshot = appended.projection.snapshot
+            const approval = input.approval;
+            const snapshot = appended.projection.snapshot;
             if (
               approval.runId !== input.append.runId ||
               approval.ownerId !== input.ownerId ||
@@ -2787,7 +2939,7 @@ export const createWorkflowRepository = (
               approval.effectHash !== snapshot.effectHash ||
               approval.effectScope !== snapshot.effectScope
             ) {
-              throw new StaleWorkflowApprovalError()
+              throw new StaleWorkflowApprovalError();
             }
             const [savedApproval] = await transaction
               .insert(workflowApprovals)
@@ -2805,7 +2957,7 @@ export const createWorkflowRepository = (
                 createdAt: options.now(),
               })
               .onConflictDoNothing()
-              .returning({ id: workflowApprovals.id })
+              .returning({ id: workflowApprovals.id });
             if (!savedApproval) {
               const [existingApproval] = await transaction
                 .select()
@@ -2813,31 +2965,31 @@ export const createWorkflowRepository = (
                 .where(
                   andWhere(
                     eq(workflowApprovals.id, approval.id),
-                    eq(workflowApprovals.runId, approval.runId),
-                  ),
+                    eq(workflowApprovals.runId, approval.runId)
+                  )
                 )
-                .limit(1)
+                .limit(1);
               if (
                 !existingApproval ||
                 existingApproval.machineId !== approval.machineId ||
                 existingApproval.machineVersion !== approval.machineVersion ||
                 existingApproval.eventVersion !== approval.eventVersion ||
-                existingApproval.snapshotSequence !== approval.snapshotSequence ||
+                existingApproval.snapshotSequence !==
+                  approval.snapshotSequence ||
                 existingApproval.journalHeadHash !== approval.journalHeadHash ||
                 existingApproval.effectHash !== approval.effectHash ||
                 existingApproval.effectScope !== approval.effectScope
               ) {
-                throw new WorkflowConcurrencyError()
+                throw new WorkflowConcurrencyError();
               }
             }
           }
           return Object.freeze({
             status: appended.duplicate ? "already-applied" : "applied",
             projection: appended.projection,
-          })
+          });
         }
-      }
-      )
-    }
-  })
-}
+      });
+    },
+  });
+};

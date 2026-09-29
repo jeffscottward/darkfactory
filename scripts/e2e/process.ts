@@ -1,160 +1,163 @@
-
 import {
   spawnOwnedProcess,
   terminateOwnedProcessTree,
-} from "./owned-process-tree.ts"
+} from "./owned-process-tree.ts";
 
 export type ProcessSignals = Readonly<{
-  on: (signal: "SIGINT" | "SIGTERM", listener: () => void) => void
-  off: (signal: "SIGINT" | "SIGTERM", listener: () => void) => void
-}>
+  on: (signal: "SIGINT" | "SIGTERM", listener: () => void) => void;
+  off: (signal: "SIGINT" | "SIGTERM", listener: () => void) => void;
+}>;
 export type OwnedCommandOptions = Readonly<{
-  cwd: string
-  env: NodeJS.ProcessEnv
-  maxOutputBytes?: number
-  signals?: ProcessSignals
-  timeoutMillis?: number
+  cwd: string;
+  env: NodeJS.ProcessEnv;
+  maxOutputBytes?: number;
+  signals?: ProcessSignals;
+  timeoutMillis?: number;
   terminateTree?: (
-    child: ReturnType<typeof spawnOwnedProcess>,
-  ) => Promise<boolean>
-}>
+    child: ReturnType<typeof spawnOwnedProcess>
+  ) => Promise<boolean>;
+}>;
 export type OwnedCommandResult = Readonly<{
-  exitCode: number
-  stdout: string
-  stderr: string
-  treeTerminated: boolean
-  reason: "completed" | "interrupted" | "output-limit" | "spawn-error" |
-    "termination-unproven" | "timeout"
-}>
+  exitCode: number;
+  stdout: string;
+  stderr: string;
+  treeTerminated: boolean;
+  reason:
+    | "completed"
+    | "interrupted"
+    | "output-limit"
+    | "spawn-error"
+    | "termination-unproven"
+    | "timeout";
+}>;
 
 const defaultSignals: ProcessSignals = Object.freeze({
   on: (signal, listener) => process.on(signal, listener),
   off: (signal, listener) => process.off(signal, listener),
-})
+});
 
 export const runOwnedCommand = async (
   command: string,
   arguments_: readonly string[],
-  options: OwnedCommandOptions,
+  options: OwnedCommandOptions
 ): Promise<OwnedCommandResult> => {
-  const maxOutputBytes = options.maxOutputBytes ?? 32 * 1024 * 1024
-  const timeoutMillis = options.timeoutMillis ?? 15 * 60_000
-  const signals = options.signals ?? defaultSignals
-  const terminateTree = options.terminateTree ?? (async (
-    ownedChild: ReturnType<typeof spawnOwnedProcess>,
-  ): Promise<boolean> => {
-    try {
-      await terminateOwnedProcessTree(ownedChild)
-      return true
-    }
-    catch {
-      return false
-    }
-  }
-  )
+  const maxOutputBytes = options.maxOutputBytes ?? 32 * 1024 * 1024;
+  const timeoutMillis = options.timeoutMillis ?? 15 * 60_000;
+  const signals = options.signals ?? defaultSignals;
+  const terminateTree =
+    options.terminateTree ??
+    (async (
+      ownedChild: ReturnType<typeof spawnOwnedProcess>
+    ): Promise<boolean> => {
+      try {
+        await terminateOwnedProcessTree(ownedChild);
+        return true;
+      } catch {
+        return false;
+      }
+    });
   const child = spawnOwnedProcess(command, arguments_, {
     cwd: options.cwd,
     env: options.env,
     windowsHide: true,
-  })
+  });
   const terminateSafely = (): Promise<boolean> => {
     return Promise.resolve()
       .then(() => terminateTree(child))
       .then(
         (terminated) => terminated,
-        () => false,
-      )
-  }
-  const stdout: Buffer[] = []
-  const stderr: Buffer[] = []
-  let outputBytes = 0
-  let reason: OwnedCommandResult["reason"] = "completed"
-  let stopPromise: Promise<boolean> | undefined
-  let observedClose = false
-  let observedExitCode: number | undefined
-  let settleCompletion: ((exitCode: number) => void) | undefined
+        () => false
+      );
+  };
+  const stdout: Buffer[] = [];
+  const stderr: Buffer[] = [];
+  let outputBytes = 0;
+  let reason: OwnedCommandResult["reason"] = "completed";
+  let stopPromise: Promise<boolean> | undefined;
+  let observedClose = false;
+  let observedExitCode: number | undefined;
+  let settleCompletion: ((exitCode: number) => void) | undefined;
   const onError = (): void => {
-    reason = "spawn-error"
-    settleCompletion?.(1)
-  }
+    reason = "spawn-error";
+    settleCompletion?.(1);
+  };
   const onExit = (code: number | null): void => {
-    observedExitCode = code ?? 1
-  }
+    observedExitCode = code ?? 1;
+  };
   const onClose = (code: number | null): void => {
-    observedClose = true
-    settleCompletion?.(code ?? observedExitCode ?? 1)
-  }
+    observedClose = true;
+    settleCompletion?.(code ?? observedExitCode ?? 1);
+  };
   const completionPromise = new Promise<number>((resolveCompletion) => {
-    settleCompletion = resolveCompletion
-    child.once("error", onError)
-    child.once("exit", onExit)
-    return child.once("close", onClose)
-  }
-  )
+    settleCompletion = resolveCompletion;
+    child.once("error", onError);
+    child.once("exit", onExit);
+    return child.once("close", onClose);
+  });
   const stop = (nextReason: OwnedCommandResult["reason"]): Promise<boolean> => {
-    if (reason === "completed") reason = nextReason
-    stopPromise ??= terminateSafely()
-    void stopPromise.then(() => settleCompletion?.(1))
-    return stopPromise
-  }
+    if (reason === "completed") reason = nextReason;
+    stopPromise ??= terminateSafely();
+    void stopPromise.then(() => settleCompletion?.(1));
+    return stopPromise;
+  };
   const collect = (target: Buffer[], value: Buffer | string): void => {
-    const chunk = Buffer.isBuffer(value) ? value : Buffer.from(value)
-    outputBytes += chunk.byteLength
+    const chunk = Buffer.isBuffer(value) ? value : Buffer.from(value);
+    outputBytes += chunk.byteLength;
     if (outputBytes > maxOutputBytes) {
-      void stop("output-limit")
-      return
+      void stop("output-limit");
+      return;
     }
-    target.push(chunk)
-  }
-  const collectStdout = (value: Buffer | string): void => { collect(stdout, value)}
-  const collectStderr = (value: Buffer | string): void => { collect(stderr, value)}
-  child.stdout.on("data", collectStdout)
-  child.stderr.on("data", collectStderr)
+    target.push(chunk);
+  };
+  const collectStdout = (value: Buffer | string): void => {
+    collect(stdout, value);
+  };
+  const collectStderr = (value: Buffer | string): void => {
+    collect(stderr, value);
+  };
+  child.stdout.on("data", collectStdout);
+  child.stderr.on("data", collectStderr);
   const interrupt = (): void => {
-    void stop("interrupted")
-  }
-  signals.on("SIGINT", interrupt)
-  signals.on("SIGTERM", interrupt)
-  const timer = setTimeout(
-    () => void stop("timeout"),
-    timeoutMillis,
-  )
+    void stop("interrupted");
+  };
+  signals.on("SIGINT", interrupt);
+  signals.on("SIGTERM", interrupt);
+  const timer = setTimeout(() => void stop("timeout"), timeoutMillis);
 
-  let exitCode = 1
+  let exitCode = 1;
   try {
-    exitCode = await completionPromise
-  }
-  finally {
-    settleCompletion = undefined
-    clearTimeout(timer)
-    signals.off("SIGINT", interrupt)
-    signals.off("SIGTERM", interrupt)
-    child.off("error", onError)
-    child.off("exit", onExit)
-    child.off("close", onClose)
-    child.stdout.off("data", collectStdout)
-    child.stderr.off("data", collectStderr)
-    child.stdout.destroy()
-    child.stderr.destroy()
+    exitCode = await completionPromise;
+  } finally {
+    settleCompletion = undefined;
+    clearTimeout(timer);
+    signals.off("SIGINT", interrupt);
+    signals.off("SIGTERM", interrupt);
+    child.off("error", onError);
+    child.off("exit", onExit);
+    child.off("close", onClose);
+    child.stdout.off("data", collectStdout);
+    child.stderr.off("data", collectStderr);
+    child.stdout.destroy();
+    child.stderr.destroy();
   }
 
   const terminated =
     process.platform === "win32" && reason === "completed"
       ? false
-      : await (stopPromise ?? terminateSafely())
+      : await (stopPromise ?? terminateSafely());
   // Forced stops and Windows process trees cannot prove that no descendant escaped.
   const treeTerminated =
     process.platform !== "win32" &&
     reason === "completed" &&
     observedClose &&
-    terminated
-  if (!treeTerminated) reason = "termination-unproven"
-  if (reason !== "completed") exitCode = 1
+    terminated;
+  if (!treeTerminated) reason = "termination-unproven";
+  if (reason !== "completed") exitCode = 1;
   return Object.freeze({
     exitCode,
     stdout: Buffer.concat(stdout).toString("utf8"),
     stderr: Buffer.concat(stderr).toString("utf8"),
     treeTerminated,
     reason,
-  })
-}
+  });
+};

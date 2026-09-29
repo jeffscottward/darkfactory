@@ -1,4 +1,4 @@
-import { PublicLink, PublicPage } from "./public-content.tsx"
+import { PublicLink, PublicPage } from "./public-content.tsx";
 
 const privacySections = [
   {
@@ -29,7 +29,7 @@ const privacySections = [
     title: "Security, transfers, and age limits",
     body: "Describe proportionate safeguards without making absolute guarantees. Add international-transfer mechanisms and a reviewed minimum-age position where applicable.",
   },
-] as const
+] as const;
 
 const termsSections = [
   {
@@ -64,78 +64,120 @@ const termsSections = [
     title: "Changes and contact",
     body: "Explain how material changes are communicated and provide a monitored legal contact. Do not publish with a fictional or unattended address.",
   },
-] as const
+] as const;
 
 export interface LegalPageProps {
-  readonly kind: "privacy" | "terms"
+  readonly kind: "privacy" | "terms";
 }
 
 export const LegalPage = ({ kind }: LegalPageProps) => {
-  const isPrivacy = kind === "privacy"
-  const title = isPrivacy ? "Privacy notice starter" : "Terms of service starter"
+  const isPrivacy = kind === "privacy";
+  const title = isPrivacy
+    ? "Privacy notice starter"
+    : "Terms of service starter";
   const description = isPrivacy
     ? "A useful review structure for documenting how a finished deployment collects, uses, retains, shares, and protects information."
-    : "A useful review structure for defining access, responsibilities, content rights, acceptable use, service changes, and disputes."
-  const sections = isPrivacy ? privacySections : termsSections
+    : "A useful review structure for defining access, responsibilities, content rights, acceptable use, service changes, and disputes.";
+  const sections = isPrivacy ? privacySections : termsSections;
 
   return (
     <PublicPage
-      actions={<PublicLink href="/" variant="secondary">Return home
-  </PublicLink>}
+      actions={
+        <PublicLink href="/" variant="secondary">
+          Return home
+        </PublicLink>
+      }
       description={description}
       eyebrow="Legal starter"
       title={title}
     >
-      <aside aria-labelledby={`${kind}-legal-status-title`} className="my-12 border-y border-border-strong bg-muted py-8 md:my-16">
+      <aside
+        aria-labelledby={`${kind}-legal-status-title`}
+        className="my-12 border-y border-border-strong bg-muted py-8 md:my-16"
+      >
         <div className="max-w-reading">
-          <h2 className="font-heading text-2xl font-semibold tracking-tight text-foreground" id={`${kind}-legal-status-title`}>
+          <h2
+            className="font-heading text-2xl font-semibold tracking-tight text-foreground"
+            id={`${kind}-legal-status-title`}
+          >
             Starter placeholder — legal review required
           </h2>
           <p className="mt-3 text-base leading-7 text-muted-foreground">
-            This page is not legal advice and is not ready for production use. A qualified lawyer must adapt it to the actual operator, product behavior, enabled providers, users, jurisdictions, and risk profile before launch.
+            This page is not legal advice and is not ready for production use. A
+            qualified lawyer must adapt it to the actual operator, product
+            behavior, enabled providers, users, jurisdictions, and risk profile
+            before launch.
           </p>
         </div>
       </aside>
 
-      <article aria-labelledby={`${kind}-review-outline-title`} className="grid gap-10 md:grid-cols-12">
+      <article
+        aria-labelledby={`${kind}-review-outline-title`}
+        className="grid gap-10 md:grid-cols-12"
+      >
         <div className="md:col-span-4">
-          <h2 className="font-heading text-3xl font-semibold tracking-tight text-foreground" id={`${kind}-review-outline-title`}>
+          <h2
+            className="font-heading text-3xl font-semibold tracking-tight text-foreground"
+            id={`${kind}-review-outline-title`}
+          >
             Review outline
           </h2>
           <p className="mt-4 text-base leading-7 text-muted-foreground">
-            Keep only provisions that match the deployed system. Confirm the final language against the implementation and capability manifest.
+            Keep only provisions that match the deployed system. Confirm the
+            final language against the implementation and capability manifest.
           </p>
         </div>
         <div className="divide-y divide-border border-y border-border md:col-span-7 md:col-start-6">
           {sections.map((section, index) => (
-            <section aria-labelledby={`${kind}-section-${index + 1}`} className="py-8" key={section.title}>
-              <p className="text-sm font-semibold text-muted-foreground">0{index + 1}
+            <section
+              aria-labelledby={`${kind}-section-${index + 1}`}
+              className="py-8"
+              key={section.title}
+            >
+              <p className="text-sm font-semibold text-muted-foreground">
+                0{index + 1}
               </p>
-              <h3 className="mt-2 font-heading text-xl font-semibold tracking-tight text-foreground" id={`${kind}-section-${index + 1}`}>
+              <h3
+                className="mt-2 font-heading text-xl font-semibold tracking-tight text-foreground"
+                id={`${kind}-section-${index + 1}`}
+              >
                 {section.title}
               </h3>
-              <p className="mt-3 text-base leading-7 text-muted-foreground">{section.body}
+              <p className="mt-3 text-base leading-7 text-muted-foreground">
+                {section.body}
               </p>
-          </section>
+            </section>
           ))}
         </div>
       </article>
 
-      <section aria-labelledby={`${kind}-before-publishing-title`} className="mt-16 border-t border-border pt-12 md:mt-20">
-        <h2 className="font-heading text-3xl font-semibold tracking-tight text-foreground" id={`${kind}-before-publishing-title`}>
+      <section
+        aria-labelledby={`${kind}-before-publishing-title`}
+        className="mt-16 border-t border-border pt-12 md:mt-20"
+      >
+        <h2
+          className="font-heading text-3xl font-semibold tracking-tight text-foreground"
+          id={`${kind}-before-publishing-title`}
+        >
           Before publishing
         </h2>
         <ul className="mt-6 grid gap-4 text-base leading-7 text-muted-foreground md:grid-cols-2">
-          <li className="border-t border-border pt-4">Verify every statement against configured behavior and data flows.
+          <li className="border-t border-border pt-4">
+            Verify every statement against configured behavior and data flows.
           </li>
-          <li className="border-t border-border pt-4">Replace starter language, dates, operator details, and contact channels.
+          <li className="border-t border-border pt-4">
+            Replace starter language, dates, operator details, and contact
+            channels.
           </li>
-          <li className="border-t border-border pt-4">Review enabled providers, retention, user controls, and jurisdictional duties.
+          <li className="border-t border-border pt-4">
+            Review enabled providers, retention, user controls, and
+            jurisdictional duties.
           </li>
-          <li className="border-t border-border pt-4">Record approval from qualified counsel and schedule periodic review.
+          <li className="border-t border-border pt-4">
+            Record approval from qualified counsel and schedule periodic review.
           </li>
         </ul>
       </section>
-  </PublicPage>
-  )
-}
+    </PublicPage>
+  );
+};

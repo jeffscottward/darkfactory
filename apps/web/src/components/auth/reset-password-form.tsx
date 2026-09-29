@@ -1,10 +1,10 @@
-"use client"
+"use client";
 
-import { useEffect, useState } from "react"
-import Link from "next/link"
-import { useRouter } from "next/navigation"
-import { useForm } from "@tanstack/react-form"
-import { Button } from "@darkfactory/ui"
+import { useEffect, useState } from "react";
+import Link from "next/link";
+import { useRouter } from "next/navigation";
+import { useForm } from "@tanstack/react-form";
+import { Button } from "@darkfactory/ui";
 
 import {
   browserAuthClient,
@@ -13,55 +13,53 @@ import {
   validatePasswordConfirmation,
   type AuthFlowClient,
   type AuthFlowResult,
-} from "./auth-flow.ts"
-import { FormStatus } from "./form-status.tsx"
-import { PasswordField } from "./password-field.tsx"
-import {
-  createRequestGuard,
-  runGuardedRequest,
-} from "./request-guard.ts"
+} from "./auth-flow.ts";
+import { FormStatus } from "./form-status.tsx";
+import { PasswordField } from "./password-field.tsx";
+import { createRequestGuard, runGuardedRequest } from "./request-guard.ts";
 
-export const resetPasswordRequestController = runGuardedRequest
+export const resetPasswordRequestController = runGuardedRequest;
 
 const firstError = (errors: readonly unknown[]): string | undefined => {
-  return errors.find((error): error is string => typeof error === "string")
-}
+  return errors.find((error): error is string => typeof error === "string");
+};
 
 export const ResetPasswordForm = ({
   token,
   auth = browserAuthClient,
 }: Readonly<{ token: string | undefined; auth?: AuthFlowClient }>) => {
-  const router = useRouter()
-  const [result, setResult] = useState<AuthFlowResult | null>(null)
-  const [isPending, setIsPending] = useState(false)
-  const [requestGuard] = useState(createRequestGuard)
-  useEffect(() => requestGuard.dispose, [requestGuard])
+  const router = useRouter();
+  const [result, setResult] = useState<AuthFlowResult | null>(null);
+  const [isPending, setIsPending] = useState(false);
+  const [requestGuard] = useState(createRequestGuard);
+  useEffect(() => requestGuard.dispose, [requestGuard]);
   const form = useForm({
     defaultValues: {
       newPassword: "",
       confirmPassword: "",
     },
     onSubmit: async ({ value }) => {
-      setResult(null)
-      setIsPending(true)
+      setResult(null);
+      setIsPending(true);
       return await resetPasswordRequestController({
         guard: requestGuard,
         request: () => {
           return submitResetPassword(auth, {
             token,
             newPassword: value.newPassword,
-          })
+          });
         },
         commit: (nextResult) => {
-          setResult(nextResult)
+          setResult(nextResult);
           if (nextResult.status === "success" && "destination" in nextResult) {
-            return router.replace(nextResult.destination)
-          };return
+            return router.replace(nextResult.destination);
+          }
+          return;
         },
         settle: () => setIsPending(false),
-      })
-    }
-  })
+      });
+    },
+  });
 
   if (!token) {
     return (
@@ -75,8 +73,8 @@ export const ResetPasswordForm = ({
         >
           Request a new link
         </Link>
-    </div>
-    )
+      </div>
+    );
   }
 
   return (
@@ -84,16 +82,17 @@ export const ResetPasswordForm = ({
       className="grid gap-6"
       noValidate
       onSubmit={(event) => {
-        event.preventDefault()
-        const formElement = event.currentTarget
+        event.preventDefault();
+        const formElement = event.currentTarget;
         return void form.handleSubmit().then(() => {
           if (!form.state.isValid) {
-            return formElement.querySelector<HTMLElement>('[aria-invalid="true"]')?.focus()
-          };return
-        }
-        )
-  }
-      }
+            return formElement
+              .querySelector<HTMLElement>('[aria-invalid="true"]')
+              ?.focus();
+          }
+          return;
+        });
+      }}
     >
       <form.Field
         name="newPassword"
@@ -118,10 +117,9 @@ export const ResetPasswordForm = ({
             name={field.name}
             onBlur={field.handleBlur}
             onChange={(event) => {
-              setResult(null)
-              return field.handleChange(event.target.value)
-        }
-            }
+              setResult(null);
+              return field.handleChange(event.target.value);
+            }}
             value={field.state.value}
           />
         )}
@@ -131,14 +129,23 @@ export const ResetPasswordForm = ({
         name="confirmPassword"
         validators={{
           onChange: ({ value }) => {
-            return validatePasswordConfirmation(value, form.state.values.newPassword)
+            return validatePasswordConfirmation(
+              value,
+              form.state.values.newPassword
+            );
           },
           onBlur: ({ value }) => {
-            return validatePasswordConfirmation(value, form.state.values.newPassword)
+            return validatePasswordConfirmation(
+              value,
+              form.state.values.newPassword
+            );
           },
           onSubmit: ({ value }) => {
-            return validatePasswordConfirmation(value, form.state.values.newPassword)
-          }
+            return validatePasswordConfirmation(
+              value,
+              form.state.values.newPassword
+            );
+          },
         }}
       >
         {(field) => (
@@ -155,10 +162,9 @@ export const ResetPasswordForm = ({
             name={field.name}
             onBlur={field.handleBlur}
             onChange={(event) => {
-              setResult(null)
-              return field.handleChange(event.target.value)
-        }
-            }
+              setResult(null);
+              return field.handleChange(event.target.value);
+            }}
             value={field.state.value}
           />
         )}
@@ -166,17 +172,21 @@ export const ResetPasswordForm = ({
 
       <FormStatus result={result} />
 
-      <form.Subscribe selector={(state) => [state.canSubmit, state.isSubmitting] as const}>
+      <form.Subscribe
+        selector={(state) => [state.canSubmit, state.isSubmitting] as const}
+      >
         {([canSubmit, isSubmitting]) => (
           <Button
             className="min-h-11 w-full"
             disabled={!canSubmit || isSubmitting || isPending}
             type="submit"
           >
-            {isSubmitting || isPending ? "Updating password…" : "Update password"}
-        </Button>
+            {isSubmitting || isPending
+              ? "Updating password…"
+              : "Update password"}
+          </Button>
         )}
       </form.Subscribe>
-  </form>
-  )
-}
+    </form>
+  );
+};

@@ -1,8 +1,8 @@
-import { chmod, lstat, mkdtemp, rm, writeFile } from "node:fs/promises"
-import { tmpdir } from "node:os"
-import { join } from "node:path"
+import { chmod, lstat, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
-import { describe, expect, it, vi } from "vitest"
+import { describe, expect, it, vi } from "vitest";
 
 import {
   assertStableOwnedLifecycleRoot,
@@ -11,7 +11,7 @@ import {
   inspectAndCloseOwnedMarker,
   requireFileFlag,
   rethrowOwnedLifecycleReadError,
-} from "./owned-marker.js"
+} from "./owned-marker.js";
 
 const stableCapability = () => ({
   dev: 11,
@@ -23,7 +23,7 @@ const stableCapability = () => ({
   ctimeMs: 100,
   mtimeMs: 100,
   size: 128,
-})
+});
 
 const stableRead = () => ({
   expected: { dev: 11, ino: 12 },
@@ -31,21 +31,19 @@ const stableRead = () => ({
   after: stableCapability(),
   content: "owned-marker",
   expectedContent: "owned-marker",
-})
+});
 
-const validateRead = (
-  read: ReturnType<typeof stableRead>,
-): void => { assertStableOwnedMarkerRead(
-  read.expected,
-  read.before,
-  read.after,
-  read.content,
-  read.expectedContent,
-)}
+const validateRead = (read: ReturnType<typeof stableRead>): void => {
+  assertStableOwnedMarkerRead(
+    read.expected,
+    read.before,
+    read.after,
+    read.content,
+    read.expectedContent
+  );
+};
 
-const safeSnapshot = (
-  changed: Record<string, unknown> = {},
-) => ({
+const safeSnapshot = (changed: Record<string, unknown> = {}) => ({
   dev: 11,
   ino: 12,
   isFile: () => true,
@@ -57,7 +55,7 @@ const safeSnapshot = (
   ctimeMs: 100,
   mtimeMs: 100,
   ...changed,
-})
+});
 
 const markerHandle = ({
   before = safeSnapshot(),
@@ -65,14 +63,15 @@ const markerHandle = ({
   content = "owned-marker",
   close = vi.fn(async () => undefined),
 }: {
-  before?: ReturnType<typeof safeSnapshot>
-  after?: ReturnType<typeof safeSnapshot>
-  content?: string
-  close?: ReturnType<typeof vi.fn>
+  before?: ReturnType<typeof safeSnapshot>;
+  after?: ReturnType<typeof safeSnapshot>;
+  content?: string;
+  close?: ReturnType<typeof vi.fn>;
 } = {}) => {
-  const stat = vi.fn()
+  const stat = vi
+    .fn()
     .mockResolvedValueOnce(before)
-    .mockResolvedValueOnce(after)
+    .mockResolvedValueOnce(after);
   return {
     close,
     handle: {
@@ -81,100 +80,100 @@ const markerHandle = ({
       stat,
       // Partial FileHandle double: only the members the inspector uses.
     } as unknown as Parameters<typeof inspectAndCloseOwnedMarker>[0],
-  }
-}
+  };
+};
 
-describe("requireFileFlag", function() {
-  return it("retains an available platform flag and rejects a missing capability", function() {
-    expect(requireFileFlag(131_072)).toBe(131_072)
+describe("requireFileFlag", function () {
+  return it("retains an available platform flag and rejects a missing capability", function () {
+    expect(requireFileFlag(131_072)).toBe(131_072);
     return expect(() => requireFileFlag(undefined)).toThrow(
-      "Required filesystem ownership capability is unavailable",
-    )
-  })
-})
+      "Required filesystem ownership capability is unavailable"
+    );
+  });
+});
 
-describe("assertStableOwnedLifecycleRoot", function() {
-  it("rejects a changed root identity before opening its marker", async function() {
-    const root = await mkdtemp(join(tmpdir(), "darkfactory-owned-marker-"))
+describe("assertStableOwnedLifecycleRoot", function () {
+  it("rejects a changed root identity before opening its marker", async function () {
+    const root = await mkdtemp(join(tmpdir(), "darkfactory-owned-marker-"));
     try {
-      const stats = await lstat(root)
-      return await expect(assertStableOwnedLifecycleRoot(
-        root,
-        ".darkfactory-e2e-owner.json",
-        {
-          root: { dev: stats.dev, ino: stats.ino + 1 },
-          marker: { dev: 1, ino: 1 },
-        },
-        "{}",
-        async () => undefined,
-      )).rejects.toThrow(
-        "Owned lifecycle root identity or capability changed",
-      )
+      const stats = await lstat(root);
+      return await expect(
+        assertStableOwnedLifecycleRoot(
+          root,
+          ".darkfactory-e2e-owner.json",
+          {
+            root: { dev: stats.dev, ino: stats.ino + 1 },
+            marker: { dev: 1, ino: 1 },
+          },
+          "{}",
+          async () => undefined
+        )
+      ).rejects.toThrow("Owned lifecycle root identity or capability changed");
+    } finally {
+      await rm(root, { force: true, recursive: true });
     }
-    finally {
-      await rm(root, { force: true, recursive: true })
-    }
-  })
+  });
 
-  return it("rejects a root whose private creation mode already drifted", async function() {
-    const root = await mkdtemp(join(tmpdir(), "darkfactory-owned-marker-"))
+  return it("rejects a root whose private creation mode already drifted", async function () {
+    const root = await mkdtemp(join(tmpdir(), "darkfactory-owned-marker-"));
     try {
-      const markerPath = join(root, ".darkfactory-e2e-owner.json")
-      await writeFile(markerPath, "{}", { mode: 0o600 })
-      const markerStats = await lstat(markerPath)
-      const stats = await lstat(root)
-      await chmod(root, 0o755)
-      return await expect(assertStableOwnedLifecycleRoot(
-        root,
-        ".darkfactory-e2e-owner.json",
-        {
-          root: { dev: stats.dev, ino: stats.ino },
-          marker: { dev: markerStats.dev, ino: markerStats.ino },
-        },
-        "{}",
-        async () => undefined,
-      )).rejects.toThrow(
-        "Owned lifecycle root identity or capability changed",
-      )
+      const markerPath = join(root, ".darkfactory-e2e-owner.json");
+      await writeFile(markerPath, "{}", { mode: 0o600 });
+      const markerStats = await lstat(markerPath);
+      const stats = await lstat(root);
+      await chmod(root, 0o755);
+      return await expect(
+        assertStableOwnedLifecycleRoot(
+          root,
+          ".darkfactory-e2e-owner.json",
+          {
+            root: { dev: stats.dev, ino: stats.ino },
+            marker: { dev: markerStats.dev, ino: markerStats.ino },
+          },
+          "{}",
+          async () => undefined
+        )
+      ).rejects.toThrow("Owned lifecycle root identity or capability changed");
+    } finally {
+      await chmod(root, 0o700);
+      await rm(root, { force: true, recursive: true });
     }
-    finally {
-      await chmod(root, 0o700)
-      await rm(root, { force: true, recursive: true })
-    }
-  })
-})
+  });
+});
 
-describe("rethrowOwnedLifecycleReadError", function() {
-  it("translates a missing capability without exposing its path", function() {
-    const missing = Object.assign(new Error("private lifecycle path"), {code: "ENOENT"})
+describe("rethrowOwnedLifecycleReadError", function () {
+  it("translates a missing capability without exposing its path", function () {
+    const missing = Object.assign(new Error("private lifecycle path"), {
+      code: "ENOENT",
+    });
     try {
-      return rethrowOwnedLifecycleReadError(missing)
-    }
-    catch (translated) {
+      return rethrowOwnedLifecycleReadError(missing);
+    } catch (translated) {
       return expect(translated).toMatchObject({
         message: "Owned lifecycle root identity or capability changed",
-        cause: missing
-      }
-      )
+        cause: missing,
+      });
     }
-  })
+  });
 
-  return it("preserves every other failure", function() {
-    const failure = new Error("marker validation failed")
-    return expect(() => rethrowOwnedLifecycleReadError(failure)).toThrow(failure)
-  })
-})
+  return it("preserves every other failure", function () {
+    const failure = new Error("marker validation failed");
+    return expect(() => rethrowOwnedLifecycleReadError(failure)).toThrow(
+      failure
+    );
+  });
+});
 
-describe("assertStableOwnedRoot", function() {
+describe("assertStableOwnedRoot", function () {
   const root = () => ({
     ...stableCapability(),
     mode: 0o40700,
     nlink: 2,
-  })
+  });
 
-  it("accepts an unchanged pinned root capability", function() {
-    return expect(() => assertStableOwnedRoot(root(), root())).not.toThrow()
-  })
+  it("accepts an unchanged pinned root capability", function () {
+    return expect(() => assertStableOwnedRoot(root(), root())).not.toThrow();
+  });
 
   return it.each([
     ["device", { dev: 13 }],
@@ -186,18 +185,19 @@ describe("assertStableOwnedRoot", function() {
     ["change time", { ctimeMs: 101 }],
     ["modification time", { mtimeMs: 101 }],
   ] as const)("rejects changed root %s", (_case, changed) => {
-    return expect(() => assertStableOwnedRoot(root(), {
-      ...root(),
-      ...changed,
-    })).toThrow("Owned lifecycle root identity or capability changed")
-  }
-  )
-})
+    return expect(() =>
+      assertStableOwnedRoot(root(), {
+        ...root(),
+        ...changed,
+      })
+    ).toThrow("Owned lifecycle root identity or capability changed");
+  });
+});
 
-describe("assertStableOwnedMarkerRead", function() {
-  it("accepts an unchanged marker read", function() {
-    return expect(() => validateRead(stableRead())).not.toThrow()
-  })
+describe("assertStableOwnedMarkerRead", function () {
+  it("accepts an unchanged marker read", function () {
+    return expect(() => validateRead(stableRead())).not.toThrow();
+  });
 
   it.each([
     ["device identity", { dev: 13 }],
@@ -210,36 +210,39 @@ describe("assertStableOwnedMarkerRead", function() {
     ["change time", { ctimeMs: 101 }],
     ["modification time", { mtimeMs: 101 }],
   ] as const)("rejects changed %s", (_case, changed) => {
-    const current = stableRead()
-    return expect(() => validateRead({
-      ...current,
-      after: { ...current.after, ...changed },
-    })).toThrow("Owned lifecycle marker identity or capability changed")
-  }
-  )
+    const current = stableRead();
+    return expect(() =>
+      validateRead({
+        ...current,
+        after: { ...current.after, ...changed },
+      })
+    ).toThrow("Owned lifecycle marker identity or capability changed");
+  });
 
-  return it("rejects changed content", function() {
-    return expect(() => validateRead({
-      ...stableRead(),
-      content: "replaced-marker",
-    })).toThrow("Owned lifecycle marker identity or capability changed")
-  })
-})
+  return it("rejects changed content", function () {
+    return expect(() =>
+      validateRead({
+        ...stableRead(),
+        content: "replaced-marker",
+      })
+    ).toThrow("Owned lifecycle marker identity or capability changed");
+  });
+});
 
-describe("inspectAndCloseOwnedMarker", function() {
-  it("validates and closes an unchanged marker", async function() {
-    const { close, handle } = markerHandle()
+describe("inspectAndCloseOwnedMarker", function () {
+  it("validates and closes an unchanged marker", async function () {
+    const { close, handle } = markerHandle();
 
     await expect(
       inspectAndCloseOwnedMarker(
         handle,
         stableRead().expected,
         { uid: 501, gid: 20 },
-        "owned-marker",
-      ),
-    ).resolves.toBeUndefined()
-    return expect(close).toHaveBeenCalledTimes(1)
-  })
+        "owned-marker"
+      )
+    ).resolves.toBeUndefined();
+    return expect(close).toHaveBeenCalledTimes(1);
+  });
 
   it.each([
     ["file type", safeSnapshot({ isFile: () => false })],
@@ -251,80 +254,76 @@ describe("inspectAndCloseOwnedMarker", function() {
     ["owner gid", safeSnapshot({ gid: 21 })],
     ["link count", safeSnapshot({ nlink: 2 })],
   ] as const)("rejects an unsafe initial %s and still closes", async (_case, before) => {
-    const { close, handle } = markerHandle({ before })
+    const { close, handle } = markerHandle({ before });
 
     await expect(
       inspectAndCloseOwnedMarker(
         handle,
         stableRead().expected,
         { uid: 501, gid: 20 },
-        "owned-marker",
-      ),
-    ).rejects.toThrow("Owned lifecycle marker identity or capability changed")
-    return expect(close).toHaveBeenCalledTimes(1)
-  }
-  )
+        "owned-marker"
+      )
+    ).rejects.toThrow("Owned lifecycle marker identity or capability changed");
+    return expect(close).toHaveBeenCalledTimes(1);
+  });
 
-  it("closes after a post-read validation failure", async function() {
-    const { close, handle } = markerHandle({ content: "replaced-marker" })
+  it("closes after a post-read validation failure", async function () {
+    const { close, handle } = markerHandle({ content: "replaced-marker" });
 
     await expect(
       inspectAndCloseOwnedMarker(
         handle,
         stableRead().expected,
         { uid: 501, gid: 20 },
-        "owned-marker",
-      ),
-    ).rejects.toThrow("Owned lifecycle marker identity or capability changed")
-    return expect(close).toHaveBeenCalledTimes(1)
-  })
+        "owned-marker"
+      )
+    ).rejects.toThrow("Owned lifecycle marker identity or capability changed");
+    return expect(close).toHaveBeenCalledTimes(1);
+  });
 
-  it("preserves a close failure", async function() {
-    const closeFailure = new Error("private close failure")
+  it("preserves a close failure", async function () {
+    const closeFailure = new Error("private close failure");
     const close = vi.fn(async () => {
-      throw closeFailure
-    }
-    )
-    const { handle } = markerHandle({ close })
+      throw closeFailure;
+    });
+    const { handle } = markerHandle({ close });
 
     return await expect(
       inspectAndCloseOwnedMarker(
         handle,
         stableRead().expected,
         { uid: 501, gid: 20 },
-        "owned-marker",
-      ),
-    ).rejects.toBe(closeFailure)
-  })
+        "owned-marker"
+      )
+    ).rejects.toBe(closeFailure);
+  });
 
-  return it("preserves validation and close failures together", async function() {
-    const closeFailure = new Error("private close failure")
+  return it("preserves validation and close failures together", async function () {
+    const closeFailure = new Error("private close failure");
     const close = vi.fn(async () => {
-      throw closeFailure
-    }
-    )
-    const { handle } = markerHandle({ close, content: "replaced-marker" })
-    let failure: unknown
+      throw closeFailure;
+    });
+    const { handle } = markerHandle({ close, content: "replaced-marker" });
+    let failure: unknown;
 
     try {
       await inspectAndCloseOwnedMarker(
         handle,
         stableRead().expected,
         { uid: 501, gid: 20 },
-        "owned-marker",
-      )
-    }
-    catch (error) {
-      failure = error
+        "owned-marker"
+      );
+    } catch (error) {
+      failure = error;
     }
 
-    expect(failure).toBeInstanceOf(AggregateError)
-    const aggregate = failure as AggregateError
-    expect(aggregate.errors).toHaveLength(2)
+    expect(failure).toBeInstanceOf(AggregateError);
+    const aggregate = failure as AggregateError;
+    expect(aggregate.errors).toHaveLength(2);
     expect(aggregate.errors[0]).toMatchObject({
       message: "Owned lifecycle marker identity or capability changed",
-    })
-    expect(aggregate.errors[1]).toBe(closeFailure)
-    return expect(close).toHaveBeenCalledTimes(1)
-  })
-})
+    });
+    expect(aggregate.errors[1]).toBe(closeFailure);
+    return expect(close).toHaveBeenCalledTimes(1);
+  });
+});

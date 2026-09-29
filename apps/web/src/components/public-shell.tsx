@@ -1,93 +1,106 @@
-"use client"
+"use client";
 
-import { type ReactNode, useEffect, useRef } from "react"
-import { Menu } from "lucide-react"
-import { IconButton, buttonVariants, cn } from "@darkfactory/ui"
+import { type ReactNode, useEffect, useRef } from "react";
+import { Menu } from "lucide-react";
+import { IconButton, buttonVariants, cn } from "@darkfactory/ui";
 import {
   Dialog,
   DialogContent,
   DialogTrigger,
-} from "@darkfactory/ui/client/dialog"
+} from "@darkfactory/ui/client/dialog";
 
 import {
   EXPOSED_ROUTE_PATHS,
   PUBLIC_NAVIGATION,
   SUPPORT_NAVIGATION,
   isRouteExposed,
-} from "../lib/navigation.ts"
-import { useUiState, useUiStoreApi } from "../lib/ui-store.tsx"
-import { BrandLink } from "./brand-mark.tsx"
-import { NavigationLinks } from "./navigation-links.tsx"
-import { ThemeMenu } from "./theme-menu.tsx"
+} from "../lib/navigation.ts";
+import { useUiState, useUiStoreApi } from "../lib/ui-store.tsx";
+import { BrandLink } from "./brand-mark.tsx";
+import { NavigationLinks } from "./navigation-links.tsx";
+import { ThemeMenu } from "./theme-menu.tsx";
 
 export const getPublicNavigationModel = (
-  availableRoutes: readonly string[],
+  availableRoutes: readonly string[]
 ) => {
-  const routes = PUBLIC_NAVIGATION.filter((item) => (
+  const routes = PUBLIC_NAVIGATION.filter((item) =>
     isRouteExposed(item.href, availableRoutes)
-  ))
-  const support = SUPPORT_NAVIGATION.filter((item) => (
+  );
+  const support = SUPPORT_NAVIGATION.filter((item) =>
     isRouteExposed(item.href, availableRoutes)
-  ))
+  );
   return {
     all: [...routes, ...support],
     primary: routes.filter((item) => item.href !== "/sign-in"),
     showNavigation: routes.length + support.length > 1,
     signIn: routes.find((item) => item.href === "/sign-in"),
     support,
-  }
-}
+  };
+};
 
 export interface PublicNavigationProps {
-  readonly availableRoutes?: readonly string[]
+  readonly availableRoutes?: readonly string[];
 }
 
 export const PublicHeader = ({
   availableRoutes = EXPOSED_ROUTE_PATHS,
 }: PublicNavigationProps) => {
-  const store = useUiStoreApi()
-  const mobileNavigationOpen = useUiState((state) => state.mobileNavigationOpen)
-  const navigation = getPublicNavigationModel(availableRoutes)
-  const headerRef = useRef<HTMLElement>(null)
+  const store = useUiStoreApi();
+  const mobileNavigationOpen = useUiState(
+    (state) => state.mobileNavigationOpen
+  );
+  const navigation = getPublicNavigationModel(availableRoutes);
+  const headerRef = useRef<HTMLElement>(null);
   useEffect(() => {
-    const shell = headerRef.current?.parentElement
-    if (!mobileNavigationOpen || shell === null || shell === undefined) return
-    const wasInert = shell.inert
-    shell.inert = true
+    const shell = headerRef.current?.parentElement;
+    if (!mobileNavigationOpen || shell === null || shell === undefined) return;
+    const wasInert = shell.inert;
+    shell.inert = true;
     return () => {
-      shell.inert = wasInert
-      return undefined
-    }
-  }
-  , [mobileNavigationOpen])
+      shell.inert = wasInert;
+      return undefined;
+    };
+  }, [mobileNavigationOpen]);
 
   return (
-    <header className="sticky top-0 z-overlay border-b border-border bg-background" ref={headerRef}>
+    <header
+      className="sticky top-0 z-overlay border-b border-border bg-background"
+      ref={headerRef}
+    >
       <div className="df-container flex min-h-18 items-center justify-between gap-4">
         <BrandLink />
         {navigation.showNavigation ? (
           <nav aria-label="Primary navigation" className="hidden lg:block">
             <NavigationLinks items={navigation.primary} />
-        </nav>
+          </nav>
         ) : null}
         <div className="flex items-center gap-1">
           <ThemeMenu />
           {navigation.showNavigation && navigation.signIn ? (
             <a
-              className={cn(buttonVariants({ variant: "secondary" }), "hidden lg:inline-flex")}
+              className={cn(
+                buttonVariants({ variant: "secondary" }),
+                "hidden lg:inline-flex"
+              )}
               href={navigation.signIn.href}
             >
               {navigation.signIn.label}
-          </a>
+            </a>
           ) : null}
           {navigation.showNavigation ? (
             <Dialog
               modal={false}
-              onOpenChange={(open) => store.getState().setMobileNavigationOpen(open)}
+              onOpenChange={(open) =>
+                store.getState().setMobileNavigationOpen(open)
+              }
               open={mobileNavigationOpen}
             >
               <DialogTrigger asChild>
-                <IconButton aria-label="Open navigation" className="lg:hidden" variant="ghost">
+                <IconButton
+                  aria-label="Open navigation"
+                  className="lg:hidden"
+                  variant="ghost"
+                >
                   <Menu aria-hidden="true" />
                 </IconButton>
               </DialogTrigger>
@@ -106,25 +119,26 @@ export const PublicHeader = ({
                   />
                 </nav>
               </DialogContent>
-          </Dialog>
+            </Dialog>
           ) : null}
         </div>
       </div>
-  </header>
-  )
-}
+    </header>
+  );
+};
 
 export const PublicFooter = ({
   availableRoutes = EXPOSED_ROUTE_PATHS,
 }: PublicNavigationProps) => {
-  const navigation = getPublicNavigationModel(availableRoutes)
+  const navigation = getPublicNavigationModel(availableRoutes);
   return (
     <footer className="border-t border-border py-10">
       <div className="df-container flex flex-col gap-8 lg:flex-row lg:items-end lg:justify-between">
         <div className="max-w-md space-y-3">
           <BrandLink />
           <p className="text-sm leading-6 text-muted-foreground">
-            A domain-neutral foundation for production applications and inspectable AI workflows.
+            A domain-neutral foundation for production applications and
+            inspectable AI workflows.
           </p>
         </div>
         {navigation.showNavigation ? (
@@ -136,16 +150,15 @@ export const PublicFooter = ({
                 linkClassName="px-2"
               />
             </nav>
-        </div>
+          </div>
         ) : null}
       </div>
-  </footer>
-
-  )
-}
+    </footer>
+  );
+};
 
 export interface PublicShellProps extends PublicNavigationProps {
-  readonly children: ReactNode
+  readonly children: ReactNode;
 }
 
 export const PublicShell = ({
@@ -158,5 +171,5 @@ export const PublicShell = ({
       {children}
     </main>
     <PublicFooter availableRoutes={availableRoutes} />
-</div>
-)
+  </div>
+);

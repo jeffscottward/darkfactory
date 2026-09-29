@@ -2,30 +2,27 @@ import {
   AdminUsersPersistenceError,
   InvalidAdminUsersCursorError,
   type AdminUsersRepository,
-} from "@darkfactory/db/server"
+} from "@darkfactory/db/server";
 
-import type {
-  AdminUsersListInput,
-  AdminUsersListOutput,
-} from "../contract.ts"
+import type { AdminUsersListInput, AdminUsersListOutput } from "../contract.ts";
 
-export type AdminUsersServiceErrorCode = "BAD_REQUEST" | "STORAGE_ERROR"
+export type AdminUsersServiceErrorCode = "BAD_REQUEST" | "STORAGE_ERROR";
 
 export class AdminUsersServiceError extends Error {
-  readonly code: AdminUsersServiceErrorCode
+  readonly code: AdminUsersServiceErrorCode;
   constructor(code: AdminUsersServiceErrorCode, message: string) {
-    super(message)
-    this.name = "AdminUsersServiceError"
-    this.code = code
+    super(message);
+    this.name = "AdminUsersServiceError";
+    this.code = code;
   }
 }
 
 export type AdminUsersService = Readonly<{
-  list: (input: AdminUsersListInput) => Promise<AdminUsersListOutput>
-}>
+  list: (input: AdminUsersListInput) => Promise<AdminUsersListOutput>;
+}>;
 
 export const createAdminUsersService = (
-  repository: AdminUsersRepository,
+  repository: AdminUsersRepository
 ): AdminUsersService => ({
   list: async (input) => {
     try {
@@ -33,16 +30,24 @@ export const createAdminUsersService = (
         limit: input.limit ?? 20,
         ...(input.query === undefined ? {} : { query: input.query.trim() }),
         ...(input.cursor === undefined ? {} : { cursor: input.cursor }),
-      })
-    }
-    catch (error) {
+      });
+    } catch (error) {
       if (error instanceof InvalidAdminUsersCursorError) {
-        throw new AdminUsersServiceError("BAD_REQUEST", "Invalid user directory cursor")
+        throw new AdminUsersServiceError(
+          "BAD_REQUEST",
+          "Invalid user directory cursor"
+        );
       }
       if (error instanceof AdminUsersPersistenceError) {
-        throw new AdminUsersServiceError("STORAGE_ERROR", "User directory is unavailable")
+        throw new AdminUsersServiceError(
+          "STORAGE_ERROR",
+          "User directory is unavailable"
+        );
       }
-      throw new AdminUsersServiceError("STORAGE_ERROR", "User directory is unavailable")
+      throw new AdminUsersServiceError(
+        "STORAGE_ERROR",
+        "User directory is unavailable"
+      );
     }
-  }
-})
+  },
+});

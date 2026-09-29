@@ -1,23 +1,23 @@
-type AnalyticsSource = "api" | "system" | "web" | "worker"
+type AnalyticsSource = "api" | "system" | "web" | "worker";
 
 type CanonicalAnalyticsProperties = Readonly<{
-  action?: string
-  entityId?: string
-  entityType?: string
-  outcome?: "success" | "failure"
-  requestId?: string
-  source?: AnalyticsSource
-  traceId?: string
-}>
+  action?: string;
+  entityId?: string;
+  entityType?: string;
+  outcome?: "success" | "failure";
+  requestId?: string;
+  source?: AnalyticsSource;
+  traceId?: string;
+}>;
 
 type CanonicalAnalyticsCapture = Readonly<{
-  consent: "granted" | "denied" | "unknown"
-  distinctId: string
-  event: string
-  eventId: string
-  properties: CanonicalAnalyticsProperties
-  timestamp?: string
-}>
+  consent: "granted" | "denied" | "unknown";
+  distinctId: string;
+  event: string;
+  eventId: string;
+  properties: CanonicalAnalyticsProperties;
+  timestamp?: string;
+}>;
 
 const captureKeys = new Set([
   "consent",
@@ -26,7 +26,7 @@ const captureKeys = new Set([
   "eventId",
   "properties",
   "timestamp",
-])
+]);
 const propertyKeys = new Set([
   "action",
   "entityId",
@@ -35,126 +35,119 @@ const propertyKeys = new Set([
   "requestId",
   "source",
   "traceId",
-])
-const safeToken = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/
+]);
+const safeToken = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/;
 const sources: ReadonlySet<AnalyticsSource> = new Set([
   "api",
   "system",
   "web",
   "worker",
-])
+]);
 
 const snapshotDataRecord = (
   value: unknown,
-  allowed: ReadonlySet<string>,
+  allowed: ReadonlySet<string>
 ): Readonly<Record<string, unknown>> | undefined => {
   try {
     if (typeof value !== "object" || value === null || Array.isArray(value)) {
-      return undefined
+      return undefined;
     }
-    if (Object.getPrototypeOf(value) !== Object.prototype) return undefined
+    if (Object.getPrototypeOf(value) !== Object.prototype) return undefined;
 
-    const keys = Reflect.ownKeys(value)
-    if (keys.length > allowed.size) return undefined
+    const keys = Reflect.ownKeys(value);
+    if (keys.length > allowed.size) return undefined;
     for (const key of keys) {
-      if (typeof key !== "string" || !allowed.has(key)) return undefined
+      if (typeof key !== "string" || !allowed.has(key)) return undefined;
     }
 
-    const snapshot: Record<string, unknown> = {}
+    const snapshot: Record<string, unknown> = {};
     for (const key of keys as string[]) {
-      const descriptor = Object.getOwnPropertyDescriptor(value, key)
+      const descriptor = Object.getOwnPropertyDescriptor(value, key);
       if (
         descriptor === undefined ||
         !descriptor.enumerable ||
         !("value" in descriptor)
-      ) return undefined
+      )
+        return undefined;
 
       Object.defineProperty(snapshot, key, {
         configurable: false,
         enumerable: true,
         value: descriptor.value,
         writable: false,
-      })
+      });
     }
-    return Object.freeze(snapshot)
+    return Object.freeze(snapshot);
+  } catch {
+    return undefined;
   }
-  catch {
-    return undefined
-  }
-}
+};
 
 const isSafeToken = (value: unknown): value is string => {
-  return typeof value === "string" && safeToken.test(value)
-}
+  return typeof value === "string" && safeToken.test(value);
+};
 
-const isOptionalSafeToken = (
-  value: unknown,
-): value is string | undefined => value === undefined || isSafeToken(value)
+const isOptionalSafeToken = (value: unknown): value is string | undefined =>
+  value === undefined || isSafeToken(value);
 
 const isIsoTimestamp = (value: unknown): value is string => {
-  if (typeof value !== "string" || value.length > 32) return false
+  if (typeof value !== "string" || value.length > 32) return false;
 
-  const parsed = new Date(value)
-  return !Number.isNaN(parsed.valueOf()) && parsed.toISOString() === value
-}
+  const parsed = new Date(value);
+  return !Number.isNaN(parsed.valueOf()) && parsed.toISOString() === value;
+};
 
 const isAnalyticsSource = (value: unknown): value is AnalyticsSource => {
-  return typeof value === "string" && sources.has(value as AnalyticsSource)
-}
+  return typeof value === "string" && sources.has(value as AnalyticsSource);
+};
 
 export const consentSkipReason = (
-  input: CanonicalAnalyticsCapture,
+  input: CanonicalAnalyticsCapture
 ): "consent-denied" | "consent-unknown" | undefined => {
-  if (input.consent === "denied") return "consent-denied"
-  if (input.consent === "unknown") return "consent-unknown"
-  return undefined
-}
+  if (input.consent === "denied") return "consent-denied";
+  if (input.consent === "unknown") return "consent-unknown";
+  return undefined;
+};
 
 export const snapshotAnalyticsCapture = (
-  input: unknown,
+  input: unknown
 ): CanonicalAnalyticsCapture | undefined => {
-  const capture = snapshotDataRecord(input, captureKeys)
-  if (!capture) return undefined
+  const capture = snapshotDataRecord(input, captureKeys);
+  if (!capture) return undefined;
 
-  const consent = capture["consent"]
-  const distinctId = capture["distinctId"]
-  const event = capture["event"]
-  const eventId = capture["eventId"]
-  const rawProperties = capture["properties"]
-  const timestamp = capture["timestamp"]
+  const consent = capture["consent"];
+  const distinctId = capture["distinctId"];
+  const event = capture["event"];
+  const eventId = capture["eventId"];
+  const rawProperties = capture["properties"];
+  const timestamp = capture["timestamp"];
 
-  if (
-    consent !== "granted" &&
-    consent !== "denied" &&
-    consent !== "unknown"
-  ) return undefined
-  if (!isSafeToken(distinctId)) return undefined
-  if (!isSafeToken(event)) return undefined
-  if (!isSafeToken(eventId)) return undefined
-  if (timestamp !== undefined && !isIsoTimestamp(timestamp)) return undefined
+  if (consent !== "granted" && consent !== "denied" && consent !== "unknown")
+    return undefined;
+  if (!isSafeToken(distinctId)) return undefined;
+  if (!isSafeToken(event)) return undefined;
+  if (!isSafeToken(eventId)) return undefined;
+  if (timestamp !== undefined && !isIsoTimestamp(timestamp)) return undefined;
 
-  const propertySnapshot = snapshotDataRecord(rawProperties, propertyKeys)
-  if (!propertySnapshot) return undefined
+  const propertySnapshot = snapshotDataRecord(rawProperties, propertyKeys);
+  if (!propertySnapshot) return undefined;
 
-  const action = propertySnapshot["action"]
-  const entityId = propertySnapshot["entityId"]
-  const entityType = propertySnapshot["entityType"]
-  const outcome = propertySnapshot["outcome"]
-  const requestId = propertySnapshot["requestId"]
-  const source = propertySnapshot["source"]
-  const traceId = propertySnapshot["traceId"]
+  const action = propertySnapshot["action"];
+  const entityId = propertySnapshot["entityId"];
+  const entityType = propertySnapshot["entityType"];
+  const outcome = propertySnapshot["outcome"];
+  const requestId = propertySnapshot["requestId"];
+  const source = propertySnapshot["source"];
+  const traceId = propertySnapshot["traceId"];
 
-  if (!isOptionalSafeToken(action)) return undefined
-  if (!isOptionalSafeToken(entityId)) return undefined
-  if (!isOptionalSafeToken(entityType)) return undefined
-  if (!isOptionalSafeToken(requestId)) return undefined
-  if (!isOptionalSafeToken(traceId)) return undefined
-  if (
-    outcome !== undefined &&
-    outcome !== "success" &&
-    outcome !== "failure"
-  ) return undefined
-  if (source !== undefined && !isAnalyticsSource(source)) return undefined
+  if (!isOptionalSafeToken(action)) return undefined;
+  if (!isOptionalSafeToken(entityId)) return undefined;
+  if (!isOptionalSafeToken(entityType)) return undefined;
+  if (!isOptionalSafeToken(requestId)) return undefined;
+  if (!isOptionalSafeToken(traceId)) return undefined;
+  if (outcome !== undefined && outcome !== "success" && outcome !== "failure")
+    return undefined;
+  if (source !== undefined && !isAnalyticsSource(source)) return undefined;
 
   const properties: CanonicalAnalyticsProperties = Object.freeze({
     ...(action === undefined ? {} : { action }),
@@ -164,7 +157,7 @@ export const snapshotAnalyticsCapture = (
     ...(requestId === undefined ? {} : { requestId }),
     ...(source === undefined ? {} : { source }),
     ...(traceId === undefined ? {} : { traceId }),
-  })
+  });
 
   return Object.freeze({
     consent,
@@ -173,12 +166,12 @@ export const snapshotAnalyticsCapture = (
     eventId,
     properties,
     ...(timestamp === undefined ? {} : { timestamp }),
-  })
-}
+  });
+};
 
-export const invalidCaptureResult = () => ({
-  status: "failed",
-  category: "invalid-capture",
-  retryable: false,
-} as const)
-
+export const invalidCaptureResult = () =>
+  ({
+    status: "failed",
+    category: "invalid-capture",
+    retryable: false,
+  }) as const;

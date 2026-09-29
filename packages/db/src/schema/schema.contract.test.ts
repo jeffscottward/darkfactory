@@ -1,5 +1,5 @@
-import { PgDialect, getTableConfig } from "drizzle-orm/pg-core"
-import { describe, expect, it, vi } from "vitest"
+import { PgDialect, getTableConfig } from "drizzle-orm/pg-core";
+import { describe, expect, it, vi } from "vitest";
 import {
   ADDRESS_TYPES,
   COLOR_SCHEMES,
@@ -27,60 +27,58 @@ import {
   userPreferences,
   users,
   verifications,
-} from "./index.ts"
+} from "./index.ts";
 
 const columnNames = (table: Parameters<typeof getTableConfig>[0]): string[] => {
-  return getTableConfig(table).columns.map((column) => column.name)
-}
+  return getTableConfig(table).columns.map((column) => column.name);
+};
 
-const column = (
-  table: Parameters<typeof getTableConfig>[0],
-  name: string,
-) => getTableConfig(table).columns.find((candidate) => candidate.name === name)!
+const column = (table: Parameters<typeof getTableConfig>[0], name: string) =>
+  getTableConfig(table).columns.find((candidate) => candidate.name === name)!;
 
 const indexNames = (table: Parameters<typeof getTableConfig>[0]): string[] => {
   return getTableConfig(table).indexes.flatMap((entry) => {
-    return entry.config.name === undefined ? [] : [entry.config.name]
-  }
-  )
-}
+    return entry.config.name === undefined ? [] : [entry.config.name];
+  });
+};
 
 const indexSignature = (
   table: Parameters<typeof getTableConfig>[0],
-  name: string,
+  name: string
 ): Array<readonly [string | undefined, string]> => {
   const entry = getTableConfig(table).indexes.find(
-    (candidate) => candidate.config.name === name,
-  )!
+    (candidate) => candidate.config.name === name
+  )!;
   return entry.config.columns.map((candidate) => {
     const indexed = candidate as {
-      name?: string
-      indexConfig?: { order?: string }
-    }
-    return [indexed.name, indexed.indexConfig?.order ?? "asc"] as const
-  }
-  )
-}
+      name?: string;
+      indexConfig?: { order?: string };
+    };
+    return [indexed.name, indexed.indexConfig?.order ?? "asc"] as const;
+  });
+};
 
 const checkNames = (table: Parameters<typeof getTableConfig>[0]): string[] => {
-  return getTableConfig(table).checks.map((entry) => entry.name)
-}
+  return getTableConfig(table).checks.map((entry) => entry.name);
+};
 
 const foreignKey = (
   table: Parameters<typeof getTableConfig>[0],
-  localColumnName: string,
-) => getTableConfig(table).foreignKeys.find((key) => {
-  return key.reference().columns.some((candidate) => candidate.name === localColumnName)
-}
-)!
+  localColumnName: string
+) =>
+  getTableConfig(table).foreignKeys.find((key) => {
+    return key
+      .reference()
+      .columns.some((candidate) => candidate.name === localColumnName);
+  })!;
 
-describe("Better Auth 1.6.24 schema", function() {
-  it("uses the required core tables and supported user extensions", function() {
-    expect(getTableConfig(users).name).toBe("user")
-    expect(getTableConfig(sessions).name).toBe("session")
-    expect(getTableConfig(accounts).name).toBe("account")
-    expect(getTableConfig(verifications).name).toBe("verification")
-    expect(getTableConfig(rateLimit).name).toBe("rate_limit")
+describe("Better Auth 1.6.24 schema", function () {
+  it("uses the required core tables and supported user extensions", function () {
+    expect(getTableConfig(users).name).toBe("user");
+    expect(getTableConfig(sessions).name).toBe("session");
+    expect(getTableConfig(accounts).name).toBe("account");
+    expect(getTableConfig(verifications).name).toBe("verification");
+    expect(getTableConfig(rateLimit).name).toBe("rate_limit");
 
     expect(columnNames(users)).toEqual([
       "id",
@@ -92,7 +90,7 @@ describe("Better Auth 1.6.24 schema", function() {
       "updated_at",
       "role",
       "status",
-    ])
+    ]);
     expect(columnNames(sessions)).toEqual([
       "id",
       "expires_at",
@@ -102,7 +100,7 @@ describe("Better Auth 1.6.24 schema", function() {
       "ip_address",
       "user_agent",
       "user_id",
-    ])
+    ]);
     expect(columnNames(accounts)).toEqual([
       "id",
       "account_id",
@@ -117,7 +115,7 @@ describe("Better Auth 1.6.24 schema", function() {
       "password",
       "created_at",
       "updated_at",
-    ])
+    ]);
     expect(columnNames(verifications)).toEqual([
       "id",
       "identifier",
@@ -125,79 +123,78 @@ describe("Better Auth 1.6.24 schema", function() {
       "expires_at",
       "created_at",
       "updated_at",
-    ])
-
+    ]);
 
     expect(columnNames(rateLimit)).toEqual([
       "id",
       "key",
       "count",
       "last_request",
-    ])
-    expect(column(rateLimit, "id").primary).toBe(true)
-    expect(column(rateLimit, "key").isUnique).toBe(true)
-    expect(column(rateLimit, "count").getSQLType()).toBe("integer")
-    expect(column(rateLimit, "last_request").getSQLType()).toBe("bigint")
-    expect(indexNames(rateLimit)).toContain("rate_limit_last_request_idx")
-    expect(USER_ROLES).toEqual(["member", "admin"])
-    expect(USER_STATUSES).toEqual(["active", "suspended", "deactivated"])
+    ]);
+    expect(column(rateLimit, "id").primary).toBe(true);
+    expect(column(rateLimit, "key").isUnique).toBe(true);
+    expect(column(rateLimit, "count").getSQLType()).toBe("integer");
+    expect(column(rateLimit, "last_request").getSQLType()).toBe("bigint");
+    expect(indexNames(rateLimit)).toContain("rate_limit_last_request_idx");
+    expect(USER_ROLES).toEqual(["member", "admin"]);
+    expect(USER_STATUSES).toEqual(["active", "suspended", "deactivated"]);
     return expect(checkNames(users)).toEqual(
-      expect.arrayContaining(["user_role_check", "user_status_check"]),
-    )
-  })
+      expect.arrayContaining(["user_role_check", "user_status_check"])
+    );
+  });
 
-  it("keeps credential storage nullable and deletes auth dependants with users", function() {
-    expect(column(accounts, "password").notNull).toBe(false)
-    expect(foreignKey(sessions, "user_id").onDelete).toBe("cascade")
-    expect(foreignKey(accounts, "user_id").onDelete).toBe("cascade")
-    expect(indexNames(sessions)).toContain("session_user_id_idx")
-    return expect(indexNames(accounts)).toContain("account_user_id_idx")
-  })
+  it("keeps credential storage nullable and deletes auth dependants with users", function () {
+    expect(column(accounts, "password").notNull).toBe(false);
+    expect(foreignKey(sessions, "user_id").onDelete).toBe("cascade");
+    expect(foreignKey(accounts, "user_id").onDelete).toBe("cascade");
+    expect(indexNames(sessions)).toContain("session_user_id_idx");
+    return expect(indexNames(accounts)).toContain("account_user_id_idx");
+  });
 
-  it("stores every auth timestamp with timezone", function() {
+  it("stores every auth timestamp with timezone", function () {
     for (const table of [users, sessions, accounts, verifications]) {
       for (const candidate of getTableConfig(table).columns.filter((entry) => {
-        return entry.name.endsWith("_at")
-      }
-      )) {
+        return entry.name.endsWith("_at");
+      })) {
         expect(candidate.getSQLType()).toMatch(
-          /^timestamp(?: \(3\))? with time zone$/,
-        )
+          /^timestamp(?: \(3\))? with time zone$/
+        );
       }
     }
     return expect(column(users, "created_at").getSQLType()).toBe(
-      "timestamp (3) with time zone",
-    )
-  })
+      "timestamp (3) with time zone"
+    );
+  });
 
-  return it("matches Better Auth generated updatedAt callbacks and defaults", function() {
+  return it("matches Better Auth generated updatedAt callbacks and defaults", function () {
     for (const table of [users, sessions, accounts, verifications]) {
-      expect(typeof column(table, "updated_at").onUpdateFn).toBe("function")
+      expect(typeof column(table, "updated_at").onUpdateFn).toBe("function");
     }
 
-    expect(column(users, "updated_at").default).toBeDefined()
-    expect(column(verifications, "updated_at").default).toBeDefined()
-    expect(column(sessions, "updated_at").default).toBeUndefined()
-    expect(column(accounts, "updated_at").default).toBeDefined()
+    expect(column(users, "updated_at").default).toBeDefined();
+    expect(column(verifications, "updated_at").default).toBeDefined();
+    expect(column(sessions, "updated_at").default).toBeUndefined();
+    expect(column(accounts, "updated_at").default).toBeDefined();
 
-    const currentTime = new Date("2026-01-02T03:04:05.678Z")
-    vi.useFakeTimers()
+    const currentTime = new Date("2026-01-02T03:04:05.678Z");
+    vi.useFakeTimers();
     try {
-      vi.setSystemTime(currentTime)
-      const results=[];for (const table of [users, sessions, accounts, verifications]) {
-        const updatedAt = column(table, "updated_at").onUpdateFn!()
-        expect(updatedAt).toEqual(currentTime)
-        results.push(expect(updatedAt).not.toBe(currentTime))
-      };return results;
+      vi.setSystemTime(currentTime);
+      const results = [];
+      for (const table of [users, sessions, accounts, verifications]) {
+        const updatedAt = column(table, "updated_at").onUpdateFn!();
+        expect(updatedAt).toEqual(currentTime);
+        results.push(expect(updatedAt).not.toBe(currentTime));
+      }
+      return results;
+    } finally {
+      vi.useRealTimers();
     }
-    finally {
-      vi.useRealTimers()
-    }
-  })
-})
+  });
+});
 
-describe("DarkFactory-owned schema", function() {
-  it("defines the complete profiles contract with deliberate nullability", function() {
+describe("DarkFactory-owned schema", function () {
+  it("defines the complete profiles contract with deliberate nullability", function () {
     expect(columnNames(profiles)).toEqual([
       "user_id",
       "first_name",
@@ -213,37 +210,37 @@ describe("DarkFactory-owned schema", function() {
       "date_of_birth",
       "created_at",
       "updated_at",
-    ])
-    expect(column(profiles, "user_id").primary).toBe(true)
-    expect(column(profiles, "date_of_birth").notNull).toBe(false)
-    return expect(foreignKey(profiles, "user_id").onDelete).toBe("cascade")
-  })
+    ]);
+    expect(column(profiles, "user_id").primary).toBe(true);
+    expect(column(profiles, "date_of_birth").notNull).toBe(false);
+    return expect(foreignKey(profiles, "user_id").onDelete).toBe("cascade");
+  });
 
-  it("enforces typed addresses and at most one primary address per user", function() {
-    expect(ADDRESS_TYPES).toEqual(["home", "work", "other"])
-    expect(checkNames(addresses)).toContain("addresses_type_check")
-    expect(indexNames(addresses)).toContain("addresses_user_id_idx")
+  it("enforces typed addresses and at most one primary address per user", function () {
+    expect(ADDRESS_TYPES).toEqual(["home", "work", "other"]);
+    expect(checkNames(addresses)).toContain("addresses_type_check");
+    expect(indexNames(addresses)).toContain("addresses_user_id_idx");
     expect(indexSignature(addresses, "addresses_user_id_idx")).toEqual([
       ["user_id", "asc"],
       ["is_primary", "desc"],
       ["created_at", "asc"],
       ["id", "asc"],
-    ])
+    ]);
 
     const primaryIndex = getTableConfig(addresses).indexes.find(
-      (entry) => entry.config.name === "addresses_one_primary_per_user_idx",
-    )!
-    expect(primaryIndex.config.unique).toBe(true)
-    expect(primaryIndex.config.where).toBeDefined()
+      (entry) => entry.config.name === "addresses_one_primary_per_user_idx"
+    )!;
+    expect(primaryIndex.config.unique).toBe(true);
+    expect(primaryIndex.config.where).toBeDefined();
     const primaryPredicate = new PgDialect().sqlToQuery(
-      primaryIndex.config.where!,
-    ).sql
-    expect(primaryPredicate).toContain('"addresses"."is_primary" = true')
-    return expect(foreignKey(addresses, "user_id").onDelete).toBe("cascade")
-  })
+      primaryIndex.config.where!
+    ).sql;
+    expect(primaryPredicate).toContain('"addresses"."is_primary" = true');
+    return expect(foreignKey(addresses, "user_id").onDelete).toBe("cascade");
+  });
 
-  it("persists the complete settled preference domains", function() {
-    expect(PREFERENCE_MODES).toEqual(["light", "dark", "system"])
+  it("persists the complete settled preference domains", function () {
+    expect(PREFERENCE_MODES).toEqual(["light", "dark", "system"]);
     expect(COLOR_SCHEMES).toEqual([
       "neutral",
       "slate",
@@ -255,8 +252,8 @@ describe("DarkFactory-owned schema", function() {
       "red",
       "rose",
       "violet",
-    ])
-    expect(PROFILE_VISIBILITIES).toEqual(["private", "members", "public"])
+    ]);
+    expect(PROFILE_VISIBILITIES).toEqual(["private", "members", "public"]);
     expect(columnNames(userPreferences)).toEqual([
       "user_id",
       "mode",
@@ -268,37 +265,38 @@ describe("DarkFactory-owned schema", function() {
       "profile_visibility",
       "created_at",
       "updated_at",
-    ])
+    ]);
     expect(checkNames(userPreferences)).toEqual(
       expect.arrayContaining([
         "user_preferences_mode_check",
         "user_preferences_color_scheme_check",
         "user_preferences_profile_visibility_check",
-      ]),
-    )
-    return expect(foreignKey(userPreferences, "user_id").onDelete).toBe("cascade")
-  })
+      ])
+    );
+    return expect(foreignKey(userPreferences, "user_id").onDelete).toBe(
+      "cascade"
+    );
+  });
 
-  it("defines bounded contact throttles with an expiry lookup", function() {
+  it("defines bounded contact throttles with an expiry lookup", function () {
     expect(columnNames(contactRateLimits)).toEqual([
       "key_hash",
       "window_started_at",
       "request_count",
       "expires_at",
-    ])
+    ]);
     expect(indexNames(contactRateLimits)).toEqual([
       "contact_rate_limits_expires_at_idx",
-    ])
+    ]);
     return expect(checkNames(contactRateLimits)).toEqual([
       "contact_rate_limits_key_hash_check",
       "contact_rate_limits_request_count_check",
       "contact_rate_limits_window_check",
-    ])
-  })
+    ]);
+  });
 
-
-  it("defines neutral feature items with bounded object metadata and an owner index", function() {
-    expect(FEATURE_ITEM_STATUSES).toEqual(["draft", "active", "archived"])
+  it("defines neutral feature items with bounded object metadata and an owner index", function () {
+    expect(FEATURE_ITEM_STATUSES).toEqual(["draft", "active", "archived"]);
     expect(columnNames(featureItems)).toEqual([
       "id",
       "name",
@@ -308,24 +306,26 @@ describe("DarkFactory-owned schema", function() {
       "owner_id",
       "created_at",
       "updated_at",
-    ])
-    expect(column(featureItems, "metadata").getSQLType()).toBe("jsonb")
-    expect(indexNames(featureItems)).toContain("feature_items_owner_id_idx")
+    ]);
+    expect(column(featureItems, "metadata").getSQLType()).toBe("jsonb");
+    expect(indexNames(featureItems)).toContain("feature_items_owner_id_idx");
     expect(indexSignature(featureItems, "feature_items_owner_id_idx")).toEqual([
       ["owner_id", "asc"],
       ["updated_at", "desc"],
       ["id", "desc"],
-    ])
+    ]);
     expect(checkNames(featureItems)).toEqual(
       expect.arrayContaining([
         "feature_items_status_check",
         "feature_items_metadata_check",
-      ]),
-    )
-    return expect(foreignKey(featureItems, "owner_id").onDelete).toBe("cascade")
-  })
+      ])
+    );
+    return expect(foreignKey(featureItems, "owner_id").onDelete).toBe(
+      "cascade"
+    );
+  });
 
-  it("defines durable outbox and redacted audit storage", function() {
+  it("defines durable outbox and redacted audit storage", function () {
     expect(columnNames(outboxEvents)).toEqual([
       "id",
       "event_type",
@@ -344,7 +344,7 @@ describe("DarkFactory-owned schema", function() {
       "fence",
       "last_error",
       "dead_at",
-    ])
+    ]);
     expect(columnNames(auditRecords)).toEqual([
       "id",
       "actor_user_id",
@@ -354,22 +354,26 @@ describe("DarkFactory-owned schema", function() {
       "metadata",
       "request_id",
       "created_at",
-    ])
-    expect(column(outboxEvents, "published_at").notNull).toBe(false)
-    expect(column(auditRecords, "actor_user_id").notNull).toBe(false)
-    expect(checkNames(outboxEvents)).toContain("outbox_events_attempt_count_check")
-    expect(indexNames(outboxEvents)).toContain("outbox_events_unpublished_idx")
+    ]);
+    expect(column(outboxEvents, "published_at").notNull).toBe(false);
+    expect(column(auditRecords, "actor_user_id").notNull).toBe(false);
+    expect(checkNames(outboxEvents)).toContain(
+      "outbox_events_attempt_count_check"
+    );
+    expect(indexNames(outboxEvents)).toContain("outbox_events_unpublished_idx");
     expect(indexNames(auditRecords)).toEqual(
       expect.arrayContaining([
         "audit_records_actor_user_id_idx",
         "audit_records_entity_idx",
         "audit_records_request_id_idx",
-      ]),
-    )
-    return expect(foreignKey(auditRecords, "actor_user_id").onDelete).toBe("set null")
-  })
+      ])
+    );
+    return expect(foreignKey(auditRecords, "actor_user_id").onDelete).toBe(
+      "set null"
+    );
+  });
 
-  it("defines normalized, bounded workflow durability tables", function() {
+  it("defines normalized, bounded workflow durability tables", function () {
     expect(columnNames(workflowRuns)).toEqual([
       "id",
       "owner_id",
@@ -380,7 +384,7 @@ describe("DarkFactory-owned schema", function() {
       "head_hash",
       "created_at",
       "updated_at",
-    ])
+    ]);
     expect(columnNames(workflowJournal)).toEqual([
       "run_id",
       "sequence",
@@ -392,7 +396,7 @@ describe("DarkFactory-owned schema", function() {
       "previous_hash",
       "hash",
       "request_hash",
-    ])
+    ]);
     expect(columnNames(workflowSnapshots)).toEqual([
       "run_id",
       "sequence",
@@ -404,7 +408,7 @@ describe("DarkFactory-owned schema", function() {
       "effect_hash",
       "effect_scope",
       "updated_at",
-    ])
+    ]);
     expect(columnNames(workflowApprovals)).toEqual([
       "id",
       "run_id",
@@ -421,7 +425,7 @@ describe("DarkFactory-owned schema", function() {
       "decision_request_hash",
       "created_at",
       "decided_at",
-    ])
+    ]);
     expect(columnNames(workflowEvidence)).toEqual([
       "id",
       "run_id",
@@ -430,7 +434,7 @@ describe("DarkFactory-owned schema", function() {
       "summary",
       "data",
       "created_at",
-    ])
+    ]);
     expect(columnNames(workflowOmpResources)).toEqual([
       "run_id",
       "owner_id",
@@ -444,7 +448,7 @@ describe("DarkFactory-owned schema", function() {
       "last_error",
       "created_at",
       "updated_at",
-    ])
+    ]);
     expect(columnNames(workflowMessages)).toEqual([
       "id",
       "run_id",
@@ -453,9 +457,9 @@ describe("DarkFactory-owned schema", function() {
       "author_id",
       "content",
       "created_at",
-    ])
+    ]);
 
-    expect(foreignKey(workflowRuns, "owner_id").onDelete).toBe("cascade")
+    expect(foreignKey(workflowRuns, "owner_id").onDelete).toBe("cascade");
     for (const table of [
       workflowJournal,
       workflowSnapshots,
@@ -463,46 +467,59 @@ describe("DarkFactory-owned schema", function() {
       workflowEvidence,
       workflowMessages,
     ]) {
-      expect(foreignKey(table, "run_id").onDelete).toBe("cascade")
+      expect(foreignKey(table, "run_id").onDelete).toBe("cascade");
     }
-    expect(foreignKey(workflowApprovals, "decided_by").onDelete).toBe("no action")
-    expect(foreignKey(workflowMessages, "author_id").onDelete).toBe("set null")
-    expect(foreignKey(workflowOmpResources, "run_id").onDelete).toBe("restrict")
-    expect(foreignKey(workflowOmpResources, "owner_id").onDelete).toBe("restrict")
-    expect(foreignKey(workflowOmpResources, "evidence_id").onDelete).toBe("restrict")
+    expect(foreignKey(workflowApprovals, "decided_by").onDelete).toBe(
+      "no action"
+    );
+    expect(foreignKey(workflowMessages, "author_id").onDelete).toBe("set null");
+    expect(foreignKey(workflowOmpResources, "run_id").onDelete).toBe(
+      "restrict"
+    );
+    expect(foreignKey(workflowOmpResources, "owner_id").onDelete).toBe(
+      "restrict"
+    );
+    expect(foreignKey(workflowOmpResources, "evidence_id").onDelete).toBe(
+      "restrict"
+    );
 
-    expect(indexNames(workflowRuns)).toContain("workflow_runs_owner_updated_idx")
-    expect(indexNames(workflowRuns)).toContain("workflow_runs_owner_created_idx")
-    expect(
-      indexNames(workflowRuns)
-        .filter((name) => name === "workflow_runs_owner_created_idx"),
-    ).toHaveLength(1)
     expect(indexNames(workflowRuns)).toContain(
-      "workflow_runs_nonterminal_capacity_idx",
-    )
+      "workflow_runs_owner_updated_idx"
+    );
+    expect(indexNames(workflowRuns)).toContain(
+      "workflow_runs_owner_created_idx"
+    );
+    expect(
+      indexNames(workflowRuns).filter(
+        (name) => name === "workflow_runs_owner_created_idx"
+      )
+    ).toHaveLength(1);
+    expect(indexNames(workflowRuns)).toContain(
+      "workflow_runs_nonterminal_capacity_idx"
+    );
     expect(indexNames(workflowJournal)).toContain(
-      "workflow_journal_event_id_unique_idx",
-    )
+      "workflow_journal_event_id_unique_idx"
+    );
     expect(indexNames(workflowApprovals)).toContain(
-      "workflow_approvals_pending_run_idx",
-    )
+      "workflow_approvals_pending_run_idx"
+    );
     expect(indexNames(workflowEvidence)).toContain(
-      "workflow_evidence_run_created_idx",
-    )
+      "workflow_evidence_run_created_idx"
+    );
     expect(indexNames(workflowMessages)).toContain(
-      "workflow_messages_run_created_idx",
-    )
+      "workflow_messages_run_created_idx"
+    );
     expect(indexNames(workflowMessages)).toContain(
-      "workflow_messages_run_idempotency_idx",
-    )
+      "workflow_messages_run_idempotency_idx"
+    );
     expect(checkNames(workflowRuns)).toEqual(
       expect.arrayContaining([
         "workflow_runs_machine_check",
         "workflow_runs_state_check",
         "workflow_runs_head_sequence_check",
         "workflow_runs_head_hash_check",
-      ]),
-    )
+      ])
+    );
     expect(checkNames(workflowJournal)).toEqual(
       expect.arrayContaining([
         "workflow_journal_sequence_check",
@@ -510,39 +527,40 @@ describe("DarkFactory-owned schema", function() {
         "workflow_journal_previous_hash_check",
         "workflow_journal_hash_check",
         "workflow_journal_request_hash_check",
-      ]),
-    )
+      ])
+    );
     expect(checkNames(workflowSnapshots)).toEqual(
       expect.arrayContaining([
         "workflow_snapshots_context_check",
         "workflow_snapshots_effect_hash_check",
-      ]),
-    )
+      ])
+    );
     expect(checkNames(workflowEvidence)).toContain(
-      "workflow_evidence_data_check",
-    )
+      "workflow_evidence_data_check"
+    );
     expect(checkNames(workflowEvidence)).toContain(
-      "workflow_evidence_request_hash_check",
-    )
+      "workflow_evidence_request_hash_check"
+    );
     expect(checkNames(workflowMessages)).toContain(
-      "workflow_messages_content_check",
-    )
+      "workflow_messages_content_check"
+    );
     expect(checkNames(workflowMessages)).toContain(
-      "workflow_messages_idempotency_key_check",
-    )
+      "workflow_messages_idempotency_key_check"
+    );
     return expect(checkNames(workflowMessages)).toContain(
-      "workflow_messages_request_hash_check",
-    )
-  })
+      "workflow_messages_request_hash_check"
+    );
+  });
 
-  it("defines one owner-created workflow admission index", function() {
+  it("defines one owner-created workflow admission index", function () {
     return expect(
-      indexNames(workflowRuns)
-        .filter((name) => name === "workflow_runs_owner_created_idx"),
-    ).toEqual(["workflow_runs_owner_created_idx"])
-  })
+      indexNames(workflowRuns).filter(
+        (name) => name === "workflow_runs_owner_created_idx"
+      )
+    ).toEqual(["workflow_runs_owner_created_idx"]);
+  });
 
-  it("extends the outbox with bounded idempotent fenced leases", function() {
+  it("extends the outbox with bounded idempotent fenced leases", function () {
     expect(columnNames(outboxEvents)).toEqual([
       "id",
       "event_type",
@@ -561,23 +579,23 @@ describe("DarkFactory-owned schema", function() {
       "fence",
       "last_error",
       "dead_at",
-    ])
+    ]);
     expect(indexNames(outboxEvents)).toEqual(
       expect.arrayContaining([
         "outbox_events_handler_idempotency_unique_idx",
         "outbox_events_due_idx",
         "outbox_events_lease_expiry_idx",
-      ]),
-    )
+      ])
+    );
     expect(
       indexSignature(
         outboxEvents,
-        "outbox_events_handler_idempotency_unique_idx",
-      ),
+        "outbox_events_handler_idempotency_unique_idx"
+      )
     ).toEqual([
       ["handler", "asc"],
       ["idempotency_key", "asc"],
-    ])
+    ]);
     return expect(checkNames(outboxEvents)).toEqual(
       expect.arrayContaining([
         "outbox_events_payload_check",
@@ -586,12 +604,13 @@ describe("DarkFactory-owned schema", function() {
         "outbox_events_fence_check",
         "outbox_events_lease_check",
         "outbox_events_last_error_check",
-      ]),
-    )
-  })
+      ])
+    );
+  });
 
-  return it("stores all DarkFactory timestamps in UTC-capable columns", function() {
-    const results1=[];for (const table of [
+  return it("stores all DarkFactory timestamps in UTC-capable columns", function () {
+    const results1 = [];
+    for (const table of [
       profiles,
       addresses,
       userPreferences,
@@ -599,12 +618,16 @@ describe("DarkFactory-owned schema", function() {
       outboxEvents,
       auditRecords,
     ]) {
-      const results2=[];for (const candidate of getTableConfig(table).columns.filter((entry) => {
-        return entry.name.endsWith("_at")
+      const results2 = [];
+      for (const candidate of getTableConfig(table).columns.filter((entry) => {
+        return entry.name.endsWith("_at");
+      })) {
+        results2.push(
+          expect(candidate.getSQLType()).toBe("timestamp with time zone")
+        );
       }
-      )) {
-        results2.push(expect(candidate.getSQLType()).toBe("timestamp with time zone"))
-      }results1.push(results2)
-    };return results1;
-  })
-})
+      results1.push(results2);
+    }
+    return results1;
+  });
+});

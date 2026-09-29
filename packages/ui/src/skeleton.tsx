@@ -1,6 +1,6 @@
-import type { ComponentPropsWithRef } from "react"
+import type { ComponentPropsWithRef } from "react";
 
-import { cn } from "./utilities.ts"
+import { cn } from "./utilities.ts";
 
 export interface SkeletonProps
   extends Omit<ComponentPropsWithRef<"div">, "aria-hidden"> {}
@@ -11,14 +11,14 @@ export const Skeleton = ({ className, ...props }: SkeletonProps) => (
     aria-hidden="true"
     className={cn(
       "animate-pulse rounded-sm bg-muted motion-reduce:animate-none",
-      className,
+      className
     )}
   />
-)
+);
 
 export interface SkeletonGroupProps
   extends Omit<ComponentPropsWithRef<"div">, "aria-label"> {
-  label: string
+  label: string;
 }
 
 export const SkeletonGroup = ({
@@ -33,4 +33,4 @@ export const SkeletonGroup = ({
     aria-label={label}
     className={cn("space-y-3", className)}
   />
-)
+);

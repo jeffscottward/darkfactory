@@ -1,11 +1,11 @@
-import { ContactForm } from "../../../components/contact/contact-form.tsx"
-import { PublicPage } from "../_components/public-content.tsx"
+import { ContactForm } from "../../../components/contact/contact-form.tsx";
+import { PublicPage } from "../_components/public-content.tsx";
 
 export const metadata = {
   title: "Contact",
   description:
     "Send DarkFactory a bounded contact request and receive a truthful delivery result.",
-}
+};
 
 const expectations = [
   {
@@ -23,7 +23,7 @@ const expectations = [
     description:
       "Your contact details are used to handle this request. Submitting the form does not opt you into marketing messages.",
   },
-] as const
+] as const;
 
 export default function ContactPage() {
   return (
@@ -34,7 +34,8 @@ export default function ContactPage() {
     >
       <section className="grid gap-12 py-16 md:grid-cols-12 md:gap-8 md:py-20">
         <div className="md:col-span-5">
-          <p className="text-sm font-semibold tracking-wide text-primary">Before you send
+          <p className="text-sm font-semibold tracking-wide text-primary">
+            Before you send
           </p>
           <h2
             className="mt-4 font-heading text-3xl font-semibold tracking-tight text-foreground"
@@ -54,7 +55,7 @@ export default function ContactPage() {
                 <p className="mt-2 text-base leading-7 text-muted-foreground">
                   {expectation.description}
                 </p>
-            </div>
+              </div>
             ))}
           </section>
         </div>
@@ -62,6 +63,6 @@ export default function ContactPage() {
           <ContactForm />
         </div>
       </section>
-  </PublicPage>
-  )
+    </PublicPage>
+  );
 }

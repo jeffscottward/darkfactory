@@ -1,17 +1,25 @@
-import { spawnSync } from "node:child_process"
-import { chmod, mkdtemp, mkdir, readFile, rm, symlink, writeFile } from "node:fs/promises"
-import { tmpdir } from "node:os"
-import { join } from "node:path"
-import { fileURLToPath } from "node:url"
+import { spawnSync } from "node:child_process";
+import {
+  chmod,
+  mkdtemp,
+  mkdir,
+  readFile,
+  rm,
+  symlink,
+  writeFile,
+} from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 
-import { describe, expect, it, vi } from "vitest"
+import { describe, expect, it, vi } from "vitest";
 import {
   assertOwnedE2ERunRootsReady,
   createE2ERunPaths,
   createOwnedE2ELifecycleStateWriter,
   E2E_LIFECYCLE_STATE_FILE_NAME,
   removeOwnedE2ERunArtifacts,
-} from "../../tests/e2e/helpers/run-artifacts.ts"
+} from "../../tests/e2e/helpers/run-artifacts.ts";
 
 import {
   collectProcessDiagnostics,
@@ -28,18 +36,18 @@ import {
   runArtifactScannerCli,
   runJourneyCli,
   serializeJourneyProgress,
-} from "./cli.ts"
+} from "./cli.ts";
 import {
   decodeOwnedRunAdoption,
   encodeOwnedRunAdoption,
   encodeOwnedRunProof,
   prepareOwnedRun,
-} from "./system.ts"
-import { runOwnedCommand } from "./process.ts"
+} from "./system.ts";
+import { runOwnedCommand } from "./process.ts";
 
 const streams = () => {
-  const output: string[] = []
-  const errors: string[] = []
+  const output: string[] = [];
+  const errors: string[] = [];
   return {
     output,
     errors,
@@ -47,40 +55,53 @@ const streams = () => {
       writeOutput: (value: string) => output.push(value),
       writeError: (value: string) => errors.push(value),
     },
-  }
-}
-const SCANNER_REPORT_NONCE = "r".repeat(43)
+  };
+};
+const SCANNER_REPORT_NONCE = "r".repeat(43);
 const scannerEnvelope = (
   report: Readonly<Record<string, unknown>>,
-  reportNonce = SCANNER_REPORT_NONCE,
-): string => JSON.stringify({
-  kind: "darkfactory-artifact-scanner-report",
-  version: 1,
-  reportNonce,
-  report,
-})
+  reportNonce = SCANNER_REPORT_NONCE
+): string =>
+  JSON.stringify({
+    kind: "darkfactory-artifact-scanner-report",
+    version: 1,
+    reportNonce,
+    report,
+  });
 const scannerReportFrom = (value: string): Record<string, unknown> => {
-  return (JSON.parse(value) as { report: Record<string, unknown> }).report
-}
+  return (JSON.parse(value) as { report: Record<string, unknown> }).report;
+};
 
 describe("E2E lifecycle CLIs", () => {
   it("maps malformed invocations to usage exit code 2", async () => {
-    const scanner = streams()
-    await expect(runArtifactScannerCli([], "/unused", scanner.streams)).resolves.toBe(2)
-    expect(scanner.errors.join("")).toContain("Usage")
-    const invalidNonce = streams()
-    await expect(runArtifactScannerCli([
-      "--run-id", "safe_run",
-      "--ownership", "unused-proof",
-      "--report-nonce", "raw path /tmp/private",
-    ], "/unused", invalidNonce.streams)).resolves.toBe(2)
-    expect(invalidNonce.errors.join("")).toContain("Usage")
+    const scanner = streams();
+    await expect(
+      runArtifactScannerCli([], "/unused", scanner.streams)
+    ).resolves.toBe(2);
+    expect(scanner.errors.join("")).toContain("Usage");
+    const invalidNonce = streams();
+    await expect(
+      runArtifactScannerCli(
+        [
+          "--run-id",
+          "safe_run",
+          "--ownership",
+          "unused-proof",
+          "--report-nonce",
+          "raw path /tmp/private",
+        ],
+        "/unused",
+        invalidNonce.streams
+      )
+    ).resolves.toBe(2);
+    expect(invalidNonce.errors.join("")).toContain("Usage");
 
-    const runner = streams()
-    await expect(runJourneyCli(["unknown"], "/unused", runner.streams)).resolves.toBe(2)
-    return expect(runner.errors.join("")).toContain("Usage")
-  }
-  )
+    const runner = streams();
+    await expect(
+      runJourneyCli(["unknown"], "/unused", runner.streams)
+    ).resolves.toBe(2);
+    return expect(runner.errors.join("")).toContain("Usage");
+  });
 
   it("serializes progress as one bounded secret-free JSON line", () => {
     const rendered = serializeJourneyProgress({
@@ -89,61 +110,56 @@ describe("E2E lifecycle CLIs", () => {
       stage: "playwright-finished",
       playwrightOk: false,
       processTreeTerminated: true,
-    })
+    });
 
-    expect(rendered.endsWith("\n")).toBe(true)
-    expect(rendered.slice(0, -1)).not.toContain("\n")
-    expect(Buffer.byteLength(rendered, "utf8")).toBeLessThanOrEqual(1_025)
+    expect(rendered.endsWith("\n")).toBe(true);
+    expect(rendered.slice(0, -1)).not.toContain("\n");
+    expect(Buffer.byteLength(rendered, "utf8")).toBeLessThanOrEqual(1_025);
     expect(JSON.parse(rendered)).toEqual({
       spec: "tests/e2e/auth.spec.ts",
       runId: "safe_run",
       stage: "playwright-finished",
       playwrightOk: false,
       processTreeTerminated: true,
-    })
-    return expect(rendered).not.toMatch(/password|token|authorization|cookie|https?:/iu)
-  }
-  )
+    });
+    return expect(rendered).not.toMatch(
+      /password|token|authorization|cookie|https?:/iu
+    );
+  });
 
   it("emits canonical runJourneyCli progress through the real stream renderer", async () => {
-    const cli = streams()
-    const exitCode = await runJourneyCli(
-      ["e2e"],
-      "/workspace",
-      cli.streams,
-      {
-        listSpecs: async () => ["tests/e2e/auth.spec.ts"],
-        persistState: () => undefined,
-        createRunId: () => "canonical_progress_run",
-        createHmacKey: () => "k".repeat(43),
-        prepareRun: async () => ({
-          adoption: "private-adoption",
-          ownership: "private-ownership",
-        }),
-        runPlaywright: async () => ({
-          exitCode: 0,
-          treeTerminated: true,
-          lifecycleStatus: "stopped",
-          lifecycleStage: "server-ready",
-          lifecycleObservation: "state",
-          lifecycleObservationReason: "observed-state",
-          nestedServerTerminated: true,
-        }),
-        scanArtifacts: async () => ({
-          ok: true,
-          scannedEntries: 1,
-          findings: [],
-          purged: false,
-          reason: "clean",
-        }),
-      },
-    )
+    const cli = streams();
+    const exitCode = await runJourneyCli(["e2e"], "/workspace", cli.streams, {
+      listSpecs: async () => ["tests/e2e/auth.spec.ts"],
+      persistState: () => undefined,
+      createRunId: () => "canonical_progress_run",
+      createHmacKey: () => "k".repeat(43),
+      prepareRun: async () => ({
+        adoption: "private-adoption",
+        ownership: "private-ownership",
+      }),
+      runPlaywright: async () => ({
+        exitCode: 0,
+        treeTerminated: true,
+        lifecycleStatus: "stopped",
+        lifecycleStage: "server-ready",
+        lifecycleObservation: "state",
+        lifecycleObservationReason: "observed-state",
+        nestedServerTerminated: true,
+      }),
+      scanArtifacts: async () => ({
+        ok: true,
+        scannedEntries: 1,
+        findings: [],
+        purged: false,
+        reason: "clean",
+      }),
+    });
 
-    expect(exitCode).toBe(0)
+    expect(exitCode).toBe(0);
     const progress = cli.errors.map((line) => {
-      return JSON.parse(line) as { stage: string }
-    }
-    )
+      return JSON.parse(line) as { stage: string };
+    });
     expect(progress.map((event) => event.stage)).toEqual([
       "created",
       "prepared",
@@ -152,27 +168,26 @@ describe("E2E lifecycle CLIs", () => {
       "scan-start",
       "scan-finished",
       "result",
-    ])
+    ]);
     expect(progress[3]).toMatchObject({
       playwrightOk: true,
       processTreeTerminated: true,
-    })
-    expect(progress[5]).toMatchObject({ scanOk: true, purged: false })
-    expect(progress[6]).toMatchObject({ ok: true })
+    });
+    expect(progress[5]).toMatchObject({ scanOk: true, purged: false });
+    expect(progress[6]).toMatchObject({ ok: true });
     expect(JSON.parse(cli.output.join(""))).toMatchObject({
       ok: true,
       completed: 1,
-    })
-    const rendered = JSON.stringify({ progress, output: cli.output })
+    });
+    const rendered = JSON.stringify({ progress, output: cli.output });
     return expect(rendered).not.toMatch(
       /private-adoption|private-ownership|k{43}|password|token|https?:/iu
-    )
-  }
-  )
+    );
+  });
 
   it("emits only a safe scanner category while persisting the generic scan failure", async () => {
-    const cli = streams()
-    const persisted: unknown[] = []
+    const cli = streams();
+    const persisted: unknown[] = [];
     const exitCode = await runJourneyCli(["e2e"], "/workspace", cli.streams, {
       listSpecs: async () => ["tests/e2e/auth.spec.ts"],
       persistState: (state) => persisted.push(state),
@@ -199,24 +214,23 @@ describe("E2E lifecycle CLIs", () => {
         reason: "private raw archive error /tmp/private.zip",
         failureCategory: "archive-validation",
       }),
-    })
+    });
 
-    expect(exitCode).toBe(1)
+    expect(exitCode).toBe(1);
     expect(cli.errors.join("")).toContain(
-      "scanFailureCategory=archive-validation",
-    )
-    const persistedResult = JSON.stringify(persisted.at(-1))
-    expect(persistedResult).toContain('"reason":"scan-failed"')
-    expect(persistedResult).not.toContain("failureCategory")
+      "scanFailureCategory=archive-validation"
+    );
+    const persistedResult = JSON.stringify(persisted.at(-1));
+    expect(persistedResult).toContain('"reason":"scan-failed"');
+    expect(persistedResult).not.toContain("failureCategory");
     return expect(`${persistedResult}${cli.errors.join("")}`).not.toMatch(
-      /private raw archive error|\/tmp\/private\.zip/u,
-    )
-  }
-  )
+      /private raw archive error|\/tmp\/private\.zip/u
+    );
+  });
 
   it("persists an injected webserver failure and emits a filter-visible safe summary", async () => {
-    const root = await mkdtemp(join(tmpdir(), "darkfactory-e2e-cli-state-"))
-    const cli = streams()
+    const root = await mkdtemp(join(tmpdir(), "darkfactory-e2e-cli-state-"));
+    const cli = streams();
     try {
       const exitCode = await runJourneyCli(["e2e"], root, cli.streams, {
         listSpecs: async () => ["tests/e2e/auth.spec.ts"],
@@ -243,52 +257,52 @@ describe("E2E lifecycle CLIs", () => {
           purged: true,
           reason: "clean",
         }),
-      })
+      });
 
-      expect(exitCode).toBe(1)
+      expect(exitCode).toBe(1);
       const persisted = await readFile(
         join(root, "test-results", "e2e-runner-state.json"),
-        "utf8",
-      )
+        "utf8"
+      );
       expect(JSON.parse(persisted)).toMatchObject({
         version: 1,
         phase: "result",
         report: {
           ok: false,
           completed: 1,
-          results: [{
-            runId: "webserver_state_run",
-            stage: "execute",
-            playwrightExitCode: 1,
-            diagnostics: [],
-            lifecycleStatus: "startup-failed",
-            lifecycleStage: "module-loading",
-            lifecycleObservation: "missing",
-            lifecycleObservationReason: "inputs-missing",
-            processTreeTerminated: true,
-            scan: { ok: true, purged: true },
-          }],
+          results: [
+            {
+              runId: "webserver_state_run",
+              stage: "execute",
+              playwrightExitCode: 1,
+              diagnostics: [],
+              lifecycleStatus: "startup-failed",
+              lifecycleStage: "module-loading",
+              lifecycleObservation: "missing",
+              lifecycleObservationReason: "inputs-missing",
+              processTreeTerminated: true,
+              scan: { ok: true, purged: true },
+            },
+          ],
         },
-      })
+      });
       expect(cli.errors).toContain(
         "Error: E2E runner failed stage=execute process=terminated " +
           "lifecycleStatus=startup-failed lifecycleStage=module-loading " +
           "lifecycleObservation=missing " +
           "lifecycleObservationReason=inputs-missing " +
-          "playwrightOk=false treeTerminated=true scanOk=true purged=true\n",
-      )
+          "playwrightOk=false treeTerminated=true scanOk=true purged=true\n"
+      );
       return expect(`${persisted}${cli.errors.join("")}`).not.toMatch(
-        /private@example|domain\.test|token=|Password123|private-adoption|private-ownership|w{43}/iu,
-      )
+        /private@example|domain\.test|token=|Password123|private-adoption|private-ownership|w{43}/iu
+      );
+    } finally {
+      await rm(root, { force: true, recursive: true });
     }
-    finally {
-      await rm(root, { force: true, recursive: true })
-    }
-  }
-  )
+  });
 
   it("fails generically without claiming a final report when state persistence fails", async () => {
-    const cli = streams()
+    const cli = streams();
     const exitCode = await runJourneyCli(["e2e"], "/workspace", cli.streams, {
       listSpecs: async () => ["tests/e2e/auth.spec.ts"],
       createRunId: () => "state_write_failure_run",
@@ -298,7 +312,7 @@ describe("E2E lifecycle CLIs", () => {
         ownership: "private-ownership",
       }),
       persistState: () => {
-        throw new Error("private filesystem detail")
+        throw new Error("private filesystem detail");
       },
       runPlaywright: async () => ({ exitCode: 0, treeTerminated: true }),
       scanArtifacts: async () => ({
@@ -308,24 +322,26 @@ describe("E2E lifecycle CLIs", () => {
         purged: false,
         reason: "clean",
       }),
-    })
+    });
 
-    expect(exitCode).toBe(1)
-    expect(cli.errors.filter((line) => {
-      return line === "Error: E2E runner state persistence failed\n"
-    }
-    )).toHaveLength(1)
-    expect(cli.output).toEqual([])
-    expect(cli.errors.join("")).not.toContain('"stage":"result"')
-    expect(cli.errors.join("")).not.toContain('"ok":true')
-    return expect(cli.errors.join("")).not.toContain("private filesystem detail")
-  }
-  )
+    expect(exitCode).toBe(1);
+    expect(
+      cli.errors.filter((line) => {
+        return line === "Error: E2E runner state persistence failed\n";
+      })
+    ).toHaveLength(1);
+    expect(cli.output).toEqual([]);
+    expect(cli.errors.join("")).not.toContain('"stage":"result"');
+    expect(cli.errors.join("")).not.toContain('"ok":true');
+    return expect(cli.errors.join("")).not.toContain(
+      "private filesystem detail"
+    );
+  });
 
   it("loads the live entrypoint through the exact package-script launcher", async () => {
-    const repositoryPath = fileURLToPath(new URL("../../", import.meta.url))
-    const state = join(repositoryPath, "test-results", "e2e-runner-state.json")
-    const stateBefore = await readFile(state, "utf8").catch(() => undefined)
+    const repositoryPath = fileURLToPath(new URL("../../", import.meta.url));
+    const state = join(repositoryPath, "test-results", "e2e-runner-state.json");
+    const stateBefore = await readFile(state, "utf8").catch(() => undefined);
     const result = await runOwnedCommand(
       "corepack",
       ["pnpm", "run", "test:e2e", "--", "extra-arg"],
@@ -334,312 +350,356 @@ describe("E2E lifecycle CLIs", () => {
         env: process.env,
         maxOutputBytes: 64 * 1024,
         timeoutMillis: 30_000,
-      },
-    )
+      }
+    );
 
     expect(result).toMatchObject({
       exitCode: 2,
       reason: "completed",
       treeTerminated: true,
-    })
+    });
     expect(result.stderr).toContain(
-      '{"kind":"darkfactory-e2e-entry","version":1}\n',
-    )
-    expect(result.stderr).toContain("Usage: e2e-run <e2e|a11y>")
-    expect(result.stdout).not.toMatch(/playwright|web-server\.ts/iu)
+      '{"kind":"darkfactory-e2e-entry","version":1}\n'
+    );
+    expect(result.stderr).toContain("Usage: e2e-run <e2e|a11y>");
+    expect(result.stdout).not.toMatch(/playwright|web-server\.ts/iu);
     expect(result.stderr).not.toMatch(
-      /Process from config\.webServer|https?:|password|token|authorization|cookie/iu,
-    )
-    const stateAfter = await readFile(state, "utf8").catch(() => undefined)
-    return expect(stateAfter).toBe(stateBefore)
-  }
-  , 30_000)
+      /Process from config\.webServer|https?:|password|token|authorization|cookie/iu
+    );
+    const stateAfter = await readFile(state, "utf8").catch(() => undefined);
+    return expect(stateAfter).toBe(stateBefore);
+  }, 30_000);
 
   it("launches the scanner directly without a package-manager proxy", () => {
-    const scanner = createArtifactScannerInvocation("/workspace", "/trusted/node", {
-      runId: "run_safe",
-      ownership: "[ownership]",
-      reportNonce: "[nonce]",
-      purgeOwned: true,
-    })
+    const scanner = createArtifactScannerInvocation(
+      "/workspace",
+      "/trusted/node",
+      {
+        runId: "run_safe",
+        ownership: "[ownership]",
+        reportNonce: "[nonce]",
+        purgeOwned: true,
+      }
+    );
 
-    expect(scanner.command).toBe("/trusted/node")
+    expect(scanner.command).toBe("/trusted/node");
     expect(scanner.options).toMatchObject({
       maxOutputBytes: 1024 * 1024,
       timeoutMillis: 45_000,
-    })
+    });
     expect(scanner.arguments.slice(0, 2)).toEqual([
       "--experimental-strip-types",
       "./scripts/e2e/scan-artifacts.ts",
-    ])
-    expect(scanner.arguments).not.toContain("corepack")
-    return expect(scanner.arguments).not.toContain("pnpm")
-  }
-  )
+    ]);
+    expect(scanner.arguments).not.toContain("corepack");
+    return expect(scanner.arguments).not.toContain("pnpm");
+  });
 
   it("captures the nonce-bound report from the real external scanner entrypoint", async () => {
-    const repositoryPath = fileURLToPath(new URL("../../", import.meta.url))
-    const runId = `scanner_entry_${process.pid}_${Date.now()}`
-    const reportNonce = "s".repeat(43)
-    const proof = await prepareOwnedRun(repositoryPath, runId, "no-binary")
-    const runRoot = join(
-      repositoryPath,
-      "test-results",
-      "e2e-runs",
-      runId,
-    )
+    const repositoryPath = fileURLToPath(new URL("../../", import.meta.url));
+    const runId = `scanner_entry_${process.pid}_${Date.now()}`;
+    const reportNonce = "s".repeat(43);
+    const proof = await prepareOwnedRun(repositoryPath, runId, "no-binary");
+    const runRoot = join(repositoryPath, "test-results", "e2e-runs", runId);
     const evidenceRoot = join(
       repositoryPath,
       "test-results",
       "evidence",
-      runId,
-    )
+      runId
+    );
     try {
       await writeFile(
         join(runRoot, "playwright-report.json"),
-        '{"suites":[{"title":"clean","specs":[{"title":"browser journey","tests":[{"results":[{"status":"passed"}]}]}]}],"stats":{"expected":1,"skipped":0,"unexpected":0,"flaky":0}}',
-      )
-      await mkdir(join(evidenceRoot, "axe"))
-      await mkdir(join(evidenceRoot, "manifests"))
+        '{"suites":[{"title":"clean","specs":[{"title":"browser journey","tests":[{"results":[{"status":"passed"}]}]}]}],"stats":{"expected":1,"skipped":0,"unexpected":0,"flaky":0}}'
+      );
+      await mkdir(join(evidenceRoot, "axe"));
+      await mkdir(join(evidenceRoot, "manifests"));
       await writeFile(
         join(evidenceRoot, "axe", "safe.json"),
-        '{"violations":[]}',
-      )
+        '{"violations":[]}'
+      );
       await writeFile(
         join(evidenceRoot, "manifests", "clean.json"),
-        `{"version":1,"runId":"${runId}","artifacts":[{"kind":"axe","path":"axe/safe.json","sha256":"78a234aa54f3d529454290261c7a814cfc0c7221a501428a13816a79cc43ba8e"}]}`,
-      )
+        `{"version":1,"runId":"${runId}","artifacts":[{"kind":"axe","path":"axe/safe.json","sha256":"78a234aa54f3d529454290261c7a814cfc0c7221a501428a13816a79cc43ba8e"}]}`
+      );
 
-      const scanner = createArtifactScannerInvocation(repositoryPath, process.execPath, {
-        runId,
-        ownership: encodeOwnedRunProof(proof),
-        reportNonce,
-        purgeOwned: true,
-      })
+      const scanner = createArtifactScannerInvocation(
+        repositoryPath,
+        process.execPath,
+        {
+          runId,
+          ownership: encodeOwnedRunProof(proof),
+          reportNonce,
+          purgeOwned: true,
+        }
+      );
       const result = await runOwnedCommand(
         scanner.command,
         scanner.arguments,
-        scanner.options,
-      )
+        scanner.options
+      );
       const report = parseExternalScannerReport(
         result.stdout,
         result.stderr,
-        reportNonce,
-      )
+        reportNonce
+      );
 
       expect(report).toMatchObject({
         ok: true,
         purged: true,
         scannedEntries: 5,
         reason: "Artifacts were clean; failed-run evidence was purged",
-      })
+      });
       expect(result).toMatchObject({
         exitCode: 0,
         reason: "completed",
         treeTerminated: true,
-      })
+      });
       await expect(readFile(runRoot, "utf8")).rejects.toMatchObject({
         code: "ENOENT",
-      })
-      return await expect(readFile(evidenceRoot, "utf8")).rejects.toMatchObject({
-        code: "ENOENT",
-      })
+      });
+      return await expect(readFile(evidenceRoot, "utf8")).rejects.toMatchObject(
+        {
+          code: "ENOENT",
+        }
+      );
+    } finally {
+      await rm(runRoot, { force: true, recursive: true });
+      await rm(evidenceRoot, { force: true, recursive: true });
     }
-    finally {
-      await rm(runRoot, { force: true, recursive: true })
-      await rm(evidenceRoot, { force: true, recursive: true })
-    }
-  }
-  , 30_000)
+  }, 30_000);
 
   it("returns zero for clean fixtures and nonzero while purging only a contaminated owned run", async () => {
-    const root = await mkdtemp(join(tmpdir(), "darkfactory-e2e-cli-"))
+    const root = await mkdtemp(join(tmpdir(), "darkfactory-e2e-cli-"));
     try {
       const cleanOwnership = encodeOwnedRunProof(
-        await prepareOwnedRun(root, "clean_run", "no-binary"),
-      )
+        await prepareOwnedRun(root, "clean_run", "no-binary")
+      );
       await writeFile(
-        join(root, "test-results", "e2e-runs", "clean_run", "playwright-report.json"),
-        '{"suites":[{"title":"clean","specs":[{"title":"browser journey","tests":[{"results":[{"status":"passed"}]}]}]}],"stats":{"expected":1,"skipped":0,"unexpected":0,"flaky":0}}',
-      )
+        join(
+          root,
+          "test-results",
+          "e2e-runs",
+          "clean_run",
+          "playwright-report.json"
+        ),
+        '{"suites":[{"title":"clean","specs":[{"title":"browser journey","tests":[{"results":[{"status":"passed"}]}]}]}],"stats":{"expected":1,"skipped":0,"unexpected":0,"flaky":0}}'
+      );
       const cleanManifests = join(
         root,
         "test-results",
         "evidence",
         "clean_run",
-        "manifests",
-      )
-      await mkdir(cleanManifests)
+        "manifests"
+      );
+      await mkdir(cleanManifests);
       const cleanAxe = join(
         root,
         "test-results",
         "evidence",
         "clean_run",
-        "axe",
-      )
-      await mkdir(cleanAxe)
-      await writeFile(join(cleanAxe, "safe.json"), '{"violations":[]}')
+        "axe"
+      );
+      await mkdir(cleanAxe);
+      await writeFile(join(cleanAxe, "safe.json"), '{"violations":[]}');
       await writeFile(
         join(cleanManifests, "clean.json"),
-        '{"version":1,"runId":"clean_run","artifacts":[{"kind":"axe","path":"axe/safe.json","sha256":"78a234aa54f3d529454290261c7a814cfc0c7221a501428a13816a79cc43ba8e"}]}',
-      )
-      const clean = streams()
-      await expect(runArtifactScannerCli(
-        [
-          "--run-id", "clean_run",
-          "--ownership", cleanOwnership,
-          "--report-nonce", SCANNER_REPORT_NONCE,
-        ],
-        root,
-        clean.streams,
-      )).resolves.toBe(0)
+        '{"version":1,"runId":"clean_run","artifacts":[{"kind":"axe","path":"axe/safe.json","sha256":"78a234aa54f3d529454290261c7a814cfc0c7221a501428a13816a79cc43ba8e"}]}'
+      );
+      const clean = streams();
+      await expect(
+        runArtifactScannerCli(
+          [
+            "--run-id",
+            "clean_run",
+            "--ownership",
+            cleanOwnership,
+            "--report-nonce",
+            SCANNER_REPORT_NONCE,
+          ],
+          root,
+          clean.streams
+        )
+      ).resolves.toBe(0);
       expect(scannerReportFrom(clean.output.join(""))).toMatchObject({
         ok: true,
         purged: false,
-      })
+      });
 
-      const owned = join(root, "test-results", "e2e-runs", "poisoned_run")
-      const other = join(root, "test-results", "e2e-runs", "other_run")
+      const owned = join(root, "test-results", "e2e-runs", "poisoned_run");
+      const other = join(root, "test-results", "e2e-runs", "other_run");
       const poisonedOwnership = encodeOwnedRunProof(
-        await prepareOwnedRun(root, "poisoned_run", "no-binary"),
-      )
-      await mkdir(other, { recursive: true })
-      await writeFile(join(owned, "test.trace"), '{"expected":"BrowserReset123!"}')
-      await writeFile(join(other, "safe.txt"), "must remain")
-      const contaminated = streams()
-      await expect(runArtifactScannerCli(
-        [
-          "--run-id", "poisoned_run",
-          "--ownership", poisonedOwnership,
-          "--report-nonce", SCANNER_REPORT_NONCE,
-        ],
-        root,
-        contaminated.streams,
-      )).resolves.toBe(1)
-      const rendered = contaminated.errors.join("")
+        await prepareOwnedRun(root, "poisoned_run", "no-binary")
+      );
+      await mkdir(other, { recursive: true });
+      await writeFile(
+        join(owned, "test.trace"),
+        '{"expected":"BrowserReset123!"}'
+      );
+      await writeFile(join(other, "safe.txt"), "must remain");
+      const contaminated = streams();
+      await expect(
+        runArtifactScannerCli(
+          [
+            "--run-id",
+            "poisoned_run",
+            "--ownership",
+            poisonedOwnership,
+            "--report-nonce",
+            SCANNER_REPORT_NONCE,
+          ],
+          root,
+          contaminated.streams
+        )
+      ).resolves.toBe(1);
+      const rendered = contaminated.errors.join("");
       expect(scannerReportFrom(rendered)).toMatchObject({
         ok: false,
         scannedEntries: 0,
         purged: true,
         failureCategory: "evidence-contamination",
-      })
-      expect(rendered).not.toContain("BrowserReset123")
-      await expect(readFile(join(other, "safe.txt"), "utf8")).resolves.toBe("must remain")
-      return await expect(readFile(join(owned, "test.trace"), "utf8")).rejects.toMatchObject({ code: "ENOENT" })
+      });
+      expect(rendered).not.toContain("BrowserReset123");
+      await expect(readFile(join(other, "safe.txt"), "utf8")).resolves.toBe(
+        "must remain"
+      );
+      return await expect(
+        readFile(join(owned, "test.trace"), "utf8")
+      ).rejects.toMatchObject({ code: "ENOENT" });
+    } finally {
+      await rm(root, { force: true, recursive: true });
     }
-    finally {
-      await rm(root, { force: true, recursive: true })
-    }
-  }
-  )
+  });
 
   it("purges truncated archives and unreadable outputs while preserving sibling runs", async () => {
-    const root = await mkdtemp(join(tmpdir(), "darkfactory-e2e-cli-errors-"))
+    const root = await mkdtemp(join(tmpdir(), "darkfactory-e2e-cli-errors-"));
     try {
-      const sibling = join(root, "test-results", "e2e-runs", "prior_run")
-      await mkdir(sibling, { recursive: true })
-      await writeFile(join(sibling, "safe.txt"), "prior evidence")
+      const sibling = join(root, "test-results", "e2e-runs", "prior_run");
+      await mkdir(sibling, { recursive: true });
+      await writeFile(join(sibling, "safe.txt"), "prior evidence");
 
-      const truncated = join(root, "test-results", "e2e-runs", "truncated_run")
+      const truncated = join(root, "test-results", "e2e-runs", "truncated_run");
       const truncatedOwnership = encodeOwnedRunProof(
-        await prepareOwnedRun(root, "truncated_run", "no-binary"),
-      )
-      await writeFile(join(truncated, "test.trace.zip"), "not a ZIP archive")
-      const truncatedStreams = streams()
-      await expect(runArtifactScannerCli(
-        [
-          "--run-id", "truncated_run",
-          "--ownership", truncatedOwnership,
-          "--report-nonce", SCANNER_REPORT_NONCE,
-        ],
-        root,
-        truncatedStreams.streams,
-      )).resolves.toBe(1)
-      expect(scannerReportFrom(truncatedStreams.errors.join(""))).toMatchObject({
-        ok: false,
-        purged: true,
-        failureCategory: "archive-validation",
-      })
-      await expect(readFile(join(truncated, "test.trace.zip"), "utf8"))
-        .rejects.toMatchObject({ code: "ENOENT" })
+        await prepareOwnedRun(root, "truncated_run", "no-binary")
+      );
+      await writeFile(join(truncated, "test.trace.zip"), "not a ZIP archive");
+      const truncatedStreams = streams();
+      await expect(
+        runArtifactScannerCli(
+          [
+            "--run-id",
+            "truncated_run",
+            "--ownership",
+            truncatedOwnership,
+            "--report-nonce",
+            SCANNER_REPORT_NONCE,
+          ],
+          root,
+          truncatedStreams.streams
+        )
+      ).resolves.toBe(1);
+      expect(scannerReportFrom(truncatedStreams.errors.join(""))).toMatchObject(
+        {
+          ok: false,
+          purged: true,
+          failureCategory: "archive-validation",
+        }
+      );
+      await expect(
+        readFile(join(truncated, "test.trace.zip"), "utf8")
+      ).rejects.toMatchObject({ code: "ENOENT" });
 
-      const unreadable = join(root, "test-results", "e2e-runs", "unreadable_run")
-      const unreadableOwnership = encodeOwnedRunProof(
-        await prepareOwnedRun(root, "unreadable_run", "no-binary"),
-      )
-      const privateFile = join(unreadable, "report.json")
-      await writeFile(privateFile, '{"status":"failed"}')
-      await chmod(privateFile, 0)
-      const unreadableStreams = streams()
-      await expect(runArtifactScannerCli(
-        [
-          "--run-id", "unreadable_run",
-          "--ownership", unreadableOwnership,
-          "--report-nonce", SCANNER_REPORT_NONCE,
-        ],
+      const unreadable = join(
         root,
-        unreadableStreams.streams,
-      )).resolves.toBe(1)
-      expect(scannerReportFrom(unreadableStreams.errors.join(""))).toMatchObject({
+        "test-results",
+        "e2e-runs",
+        "unreadable_run"
+      );
+      const unreadableOwnership = encodeOwnedRunProof(
+        await prepareOwnedRun(root, "unreadable_run", "no-binary")
+      );
+      const privateFile = join(unreadable, "report.json");
+      await writeFile(privateFile, '{"status":"failed"}');
+      await chmod(privateFile, 0);
+      const unreadableStreams = streams();
+      await expect(
+        runArtifactScannerCli(
+          [
+            "--run-id",
+            "unreadable_run",
+            "--ownership",
+            unreadableOwnership,
+            "--report-nonce",
+            SCANNER_REPORT_NONCE,
+          ],
+          root,
+          unreadableStreams.streams
+        )
+      ).resolves.toBe(1);
+      expect(
+        scannerReportFrom(unreadableStreams.errors.join(""))
+      ).toMatchObject({
         ok: false,
         purged: true,
-      })
-      await expect(readFile(privateFile, "utf8")).rejects.toMatchObject({ code: "ENOENT" })
-      return await expect(readFile(join(sibling, "safe.txt"), "utf8")).resolves.toBe("prior evidence")
+      });
+      await expect(readFile(privateFile, "utf8")).rejects.toMatchObject({
+        code: "ENOENT",
+      });
+      return await expect(
+        readFile(join(sibling, "safe.txt"), "utf8")
+      ).resolves.toBe("prior evidence");
+    } finally {
+      await rm(root, { force: true, recursive: true });
     }
-    finally {
-      await rm(root, { force: true, recursive: true })
-    }
-  }
-  )
+  });
 
   it("discovers only regular top-level specs and rejects matching symlinks", async () => {
-    const root = await mkdtemp(join(tmpdir(), "darkfactory-e2e-discovery-"))
+    const root = await mkdtemp(join(tmpdir(), "darkfactory-e2e-discovery-"));
     try {
-      const directory = join(root, "tests", "e2e")
-      await mkdir(directory, { recursive: true })
-      await writeFile(join(directory, "auth.spec.ts"), "export {}")
+      const directory = join(root, "tests", "e2e");
+      await mkdir(directory, { recursive: true });
+      await writeFile(join(directory, "auth.spec.ts"), "export {}");
       await expect(discoverJourneySpecs(root)).resolves.toEqual([
         "tests/e2e/auth.spec.ts",
-      ])
-      await symlink("auth.spec.ts", join(directory, "linked.spec.ts"))
+      ]);
+      await symlink("auth.spec.ts", join(directory, "linked.spec.ts"));
       return await expect(discoverJourneySpecs(root)).rejects.toThrow(
-        "E2E journey candidates must be regular files",
-      )
+        "E2E journey candidates must be regular files"
+      );
+    } finally {
+      await rm(root, { force: true, recursive: true });
     }
-    finally {
-      await rm(root, { force: true, recursive: true })
-    }
-  }
-  )
+  });
 
   it("inherits only the explicit Playwright environment allowlist", () => {
-    const environment = createPlaywrightEnvironment({
-      APP_ENV: "production",
-      DATABASE_URL: "postgres://isolated",
-      DEBUG: "*",
-      GROQ_API_KEY: "must-not-inherit",
-      HOME: "/safe-home",
-      NODE_OPTIONS: "--require=untrusted",
-      OPENAI_API_KEY: "must-not-inherit",
-      PORTLESS_PORT: "43123",
-    }, {
-      E2E_EMAIL_PREVIEW_HMAC_KEY: "isolated-hmac",
-      E2E_RUN_ID: "run_1",
-    })
+    const environment = createPlaywrightEnvironment(
+      {
+        APP_ENV: "production",
+        DATABASE_URL: "postgres://isolated",
+        DEBUG: "*",
+        GROQ_API_KEY: "must-not-inherit",
+        HOME: "/safe-home",
+        NODE_OPTIONS: "--require=untrusted",
+        OPENAI_API_KEY: "must-not-inherit",
+        PORTLESS_PORT: "43123",
+      },
+      {
+        E2E_EMAIL_PREVIEW_HMAC_KEY: "isolated-hmac",
+        E2E_RUN_ID: "run_1",
+      }
+    );
 
-    expect(environment["APP_ENV"]).toBe("test")
-    expect(environment["DATABASE_URL"]).toBe("postgres://isolated")
-    expect(environment["PORTLESS_PORT"]).toBe("43123")
-    expect(environment["HOME"]).toBe("/safe-home")
-    expect(environment["E2E_RUN_ID"]).toBe("run_1")
-    expect(environment["E2E_EMAIL_PREVIEW_HMAC_KEY"]).toBe("isolated-hmac")
-    expect(environment["DEBUG"]).toBeUndefined()
-    expect(environment["GROQ_API_KEY"]).toBe("")
-    expect(environment["OPENAI_API_KEY"]).toBeUndefined()
-    return expect(environment["NODE_OPTIONS"]).toBeUndefined()
-  }
-  )
+    expect(environment["APP_ENV"]).toBe("test");
+    expect(environment["DATABASE_URL"]).toBe("postgres://isolated");
+    expect(environment["PORTLESS_PORT"]).toBe("43123");
+    expect(environment["HOME"]).toBe("/safe-home");
+    expect(environment["E2E_RUN_ID"]).toBe("run_1");
+    expect(environment["E2E_EMAIL_PREVIEW_HMAC_KEY"]).toBe("isolated-hmac");
+    expect(environment["DEBUG"]).toBeUndefined();
+    expect(environment["GROQ_API_KEY"]).toBe("");
+    expect(environment["OPENAI_API_KEY"]).toBeUndefined();
+    return expect(environment["NODE_OPTIONS"]).toBeUndefined();
+  });
 
   it("maps only exact ANSI-stripped webserver lifecycle failure lines", () => {
     const missing = {
@@ -647,24 +707,26 @@ describe("E2E lifecycle CLIs", () => {
       lifecycleStage: "unavailable" as const,
       lifecycleObservation: "missing" as const,
       lifecycleObservationReason: "inputs-missing" as const,
-    }
+    };
     const startup =
-      "\u001b[2K[WebServer] Error: E2E lifecycle startup failed during validation.\u001b[0m\n"
+      "\u001b[2K[WebServer] Error: E2E lifecycle startup failed during validation.\u001b[0m\n";
     expect(observeWebServerLifecycleFailure("", startup)).toEqual({
       lifecycleStatus: "startup-failed",
       lifecycleStage: "validation",
       lifecycleObservation: "stderr",
       lifecycleObservationReason: "observed-stderr",
-    })
-    expect(observeWebServerLifecycleFailure(
-      "Error: E2E lifecycle cleanup failed during server-ready. Resources retained.\n",
-      "",
-    )).toEqual({
+    });
+    expect(
+      observeWebServerLifecycleFailure(
+        "Error: E2E lifecycle cleanup failed during server-ready. Resources retained.\n",
+        ""
+      )
+    ).toEqual({
       lifecycleStatus: "cleanup-failed",
       lifecycleStage: "server-ready",
       lifecycleObservation: "stderr",
       lifecycleObservationReason: "observed-stderr",
-    })
+    });
     for (const nearMatch of [
       "E2E lifecycle startup failed during validation.",
       "Error: E2E lifecycle cleanup failed during server-ready.",
@@ -674,106 +736,115 @@ describe("E2E lifecycle CLIs", () => {
       "Error: E2E lifecycle startup failed during unknown.",
       "Error: E2E lifecycle startup failed during validation",
     ]) {
-      expect(observeWebServerLifecycleFailure("", nearMatch)).toBeUndefined()
+      expect(observeWebServerLifecycleFailure("", nearMatch)).toBeUndefined();
     }
-    expect(observeWebServerLifecycleFailure(
-      "",
-      startup +
-        "Error: E2E lifecycle cleanup failed during server-ready. Resources retained.\n",
-    )).toBeUndefined()
-    expect(observeWebServerLifecycleFailure("", startup + startup)).toBeUndefined()
+    expect(
+      observeWebServerLifecycleFailure(
+        "",
+        startup +
+          "Error: E2E lifecycle cleanup failed during server-ready. Resources retained.\n"
+      )
+    ).toBeUndefined();
+    expect(
+      observeWebServerLifecycleFailure("", startup + startup)
+    ).toBeUndefined();
     const invalid = {
       ...missing,
       lifecycleObservation: "invalid" as const,
       lifecycleObservationReason: "state-invalid" as const,
-    }
-    expect(resolveLifecycleObservation(invalid, "", startup)).toBe(invalid)
+    };
+    expect(resolveLifecycleObservation(invalid, "", startup)).toBe(invalid);
     expect(resolveLifecycleObservation(missing, "", startup)).toEqual({
       lifecycleStatus: "startup-failed",
       lifecycleStage: "validation",
       lifecycleObservation: "stderr",
       lifecycleObservationReason: "observed-stderr",
-    })
-    return expect(resolveLifecycleObservation(
-      missing,
-      "ordinary browser output",
-      "ordinary browser error",
-    )).toBe(missing)
-  }
-  )
+    });
+    return expect(
+      resolveLifecycleObservation(
+        missing,
+        "ordinary browser output",
+        "ordinary browser error"
+      )
+    ).toBe(missing);
+  });
 
   it("observes the exact adopted lifecycle state before scanner cleanup", async () => {
-    const root = fileURLToPath(new URL("../../", import.meta.url))
-    const runId = `reader_${process.pid}_${Date.now()}`
-    const proof = await prepareOwnedRun(root, runId, "no-binary")
-    const paths = createE2ERunPaths(runId)
-    const statePath = join(paths.root, E2E_LIFECYCLE_STATE_FILE_NAME)
+    const root = fileURLToPath(new URL("../../", import.meta.url));
+    const runId = `reader_${process.pid}_${Date.now()}`;
+    const proof = await prepareOwnedRun(root, runId, "no-binary");
+    const paths = createE2ERunPaths(runId);
+    const statePath = join(paths.root, E2E_LIFECYCLE_STATE_FILE_NAME);
     const outsideStatePath = join(
       root,
       "test-results",
-      `.outside-lifecycle-${process.pid}-${Date.now()}.json`,
-    )
+      `.outside-lifecycle-${process.pid}-${Date.now()}.json`
+    );
     try {
-      await assertOwnedE2ERunRootsReady(paths, encodeOwnedRunAdoption(proof))
-      await expect(observeE2ELifecycle({
-        E2E_RUN_ID: runId,
-        E2E_RUN_ADOPTION: encodeOwnedRunAdoption(proof),
-      })).resolves.toEqual({
+      await assertOwnedE2ERunRootsReady(paths, encodeOwnedRunAdoption(proof));
+      await expect(
+        observeE2ELifecycle({
+          E2E_RUN_ID: runId,
+          E2E_RUN_ADOPTION: encodeOwnedRunAdoption(proof),
+        })
+      ).resolves.toEqual({
         lifecycleStatus: "unavailable",
         lifecycleStage: "unavailable",
         lifecycleObservation: "missing",
         lifecycleObservationReason: "state-missing",
-      })
-      const writer = await createOwnedE2ELifecycleStateWriter(paths)
+      });
+      const writer = await createOwnedE2ELifecycleStateWriter(paths);
       await writer.write({
         version: 1,
         status: "starting",
         stage: "artifact-isolation",
-      })
+      });
       await writer.write({
         version: 1,
         status: "starting",
         stage: "module-loading",
-      })
+      });
       await writer.write({
         version: 1,
         status: "startup-failed",
         stage: "module-loading",
-      })
+      });
 
-      await expect(observeE2ELifecycle({
-        E2E_RUN_ID: runId,
-        E2E_RUN_ADOPTION: encodeOwnedRunAdoption(proof),
-      })).resolves.toEqual({
+      await expect(
+        observeE2ELifecycle({
+          E2E_RUN_ID: runId,
+          E2E_RUN_ADOPTION: encodeOwnedRunAdoption(proof),
+        })
+      ).resolves.toEqual({
         lifecycleStatus: "startup-failed",
         lifecycleStage: "module-loading",
         lifecycleObservation: "state",
         lifecycleObservationReason: "observed-state",
-      })
-      const encodedAdoption = encodeOwnedRunAdoption(proof)
+      });
+      const encodedAdoption = encodeOwnedRunAdoption(proof);
       const canonicalAdoption = Buffer.from(
         encodedAdoption,
-        "base64url",
-      ).toString("utf8")
+        "base64url"
+      ).toString("utf8");
       const adoptionValue = JSON.parse(canonicalAdoption) as {
         e2e: {
-          marker: { dev: number; ino: number }
-          root: { dev: number; ino: number }
-        }
+          marker: { dev: number; ino: number };
+          root: { dev: number; ino: number };
+        };
         evidence: {
-          marker: { dev: number; ino: number }
-          root: { dev: number; ino: number }
-        }
-      }
-      const negativeIdentity = structuredClone(adoptionValue)
-      negativeIdentity.e2e.root.dev = -1
+          marker: { dev: number; ino: number };
+          root: { dev: number; ino: number };
+        };
+      };
+      const negativeIdentity = structuredClone(adoptionValue);
+      negativeIdentity.e2e.root.dev = -1;
       const extraIdentity = {
         ...adoptionValue,
         e2e: {
           ...adoptionValue.e2e,
           root: { ...adoptionValue.e2e.root, extra: true },
         },
-      }
+      };
       for (const invalidCanonical of [
         JSON.stringify({ ...adoptionValue, nonce: "must-not-survive" }),
         JSON.stringify({ ...adoptionValue, extra: true }),
@@ -781,106 +852,111 @@ describe("E2E lifecycle CLIs", () => {
         JSON.stringify(negativeIdentity),
         ` ${canonicalAdoption}`,
       ]) {
-        expect(() => decodeOwnedRunAdoption(
-          Buffer.from(invalidCanonical, "utf8").toString("base64url"),
-          runId,
-        )).toThrow(/adoption/i)
+        expect(() =>
+          decodeOwnedRunAdoption(
+            Buffer.from(invalidCanonical, "utf8").toString("base64url"),
+            runId
+          )
+        ).toThrow(/adoption/i);
       }
       expect(() => {
-        return decodeOwnedRunAdoption(`${encodedAdoption}=`, runId)
-      }
-      ).toThrow(/adoption/i)
-      const staleAdoption = structuredClone(adoptionValue)
-      staleAdoption.e2e.root.ino += 1
-      await expect(observeE2ELifecycle({
-        E2E_RUN_ID: runId,
-        E2E_RUN_ADOPTION: Buffer.from(
-          JSON.stringify(staleAdoption),
-          "utf8",
-        ).toString("base64url"),
-      })).resolves.toEqual({
+        return decodeOwnedRunAdoption(`${encodedAdoption}=`, runId);
+      }).toThrow(/adoption/i);
+      const staleAdoption = structuredClone(adoptionValue);
+      staleAdoption.e2e.root.ino += 1;
+      await expect(
+        observeE2ELifecycle({
+          E2E_RUN_ID: runId,
+          E2E_RUN_ADOPTION: Buffer.from(
+            JSON.stringify(staleAdoption),
+            "utf8"
+          ).toString("base64url"),
+        })
+      ).resolves.toEqual({
         lifecycleStatus: "unavailable",
         lifecycleStage: "unavailable",
         lifecycleObservation: "invalid",
         lifecycleObservationReason: "adoption-invalid",
-      })
-      await writeFile(
-        statePath,
-        "{}",
-        "utf8",
-      )
-      await expect(observeE2ELifecycle({
-        E2E_RUN_ID: runId,
-        E2E_RUN_ADOPTION: encodeOwnedRunAdoption(proof),
-      })).resolves.toEqual({
+      });
+      await writeFile(statePath, "{}", "utf8");
+      await expect(
+        observeE2ELifecycle({
+          E2E_RUN_ID: runId,
+          E2E_RUN_ADOPTION: encodeOwnedRunAdoption(proof),
+        })
+      ).resolves.toEqual({
         lifecycleStatus: "unavailable",
         lifecycleStage: "unavailable",
         lifecycleObservation: "invalid",
         lifecycleObservationReason: "state-invalid",
-      })
+      });
       for (const invalidState of [
         '{"version":1,"status":"startup-failed","stage":"module-loading","extra":true}',
         '{"version":1,"status":"ready","stage":"module-loading"}',
         ' {"version":1,"status":"startup-failed","stage":"module-loading"}',
       ]) {
-        await writeFile(statePath, invalidState, "utf8")
-        await expect(observeE2ELifecycle({
-          E2E_RUN_ID: runId,
-          E2E_RUN_ADOPTION: encodeOwnedRunAdoption(proof),
-        })).resolves.toEqual({
+        await writeFile(statePath, invalidState, "utf8");
+        await expect(
+          observeE2ELifecycle({
+            E2E_RUN_ID: runId,
+            E2E_RUN_ADOPTION: encodeOwnedRunAdoption(proof),
+          })
+        ).resolves.toEqual({
           lifecycleStatus: "unavailable",
           lifecycleStage: "unavailable",
           lifecycleObservation: "invalid",
           lifecycleObservationReason: "state-invalid",
-        })
+        });
       }
-      await rm(statePath)
+      await rm(statePath);
       await writeFile(
         outsideStatePath,
         '{"version":1,"status":"startup-failed","stage":"module-loading"}',
-        { encoding: "utf8", mode: 0o600 },
-      )
-      await symlink(outsideStatePath, statePath)
-      await expect(observeE2ELifecycle({
-        E2E_RUN_ID: runId,
-        E2E_RUN_ADOPTION: encodeOwnedRunAdoption(proof),
-      })).resolves.toEqual({
+        { encoding: "utf8", mode: 0o600 }
+      );
+      await symlink(outsideStatePath, statePath);
+      await expect(
+        observeE2ELifecycle({
+          E2E_RUN_ID: runId,
+          E2E_RUN_ADOPTION: encodeOwnedRunAdoption(proof),
+        })
+      ).resolves.toEqual({
         lifecycleStatus: "unavailable",
         lifecycleStage: "unavailable",
         lifecycleObservation: "invalid",
         lifecycleObservationReason: "state-invalid",
-      })
-      await expect(observeE2ELifecycle({
-        E2E_RUN_ID: "../unsafe",
-        E2E_RUN_ADOPTION: encodeOwnedRunAdoption(proof),
-      })).resolves.toEqual({
+      });
+      await expect(
+        observeE2ELifecycle({
+          E2E_RUN_ID: "../unsafe",
+          E2E_RUN_ADOPTION: encodeOwnedRunAdoption(proof),
+        })
+      ).resolves.toEqual({
         lifecycleStatus: "unavailable",
         lifecycleStage: "unavailable",
         lifecycleObservation: "invalid",
         lifecycleObservationReason: "paths-failed",
-      })
+      });
       return await expect(observeE2ELifecycle({})).resolves.toEqual({
         lifecycleStatus: "unavailable",
         lifecycleStage: "unavailable",
         lifecycleObservation: "missing",
         lifecycleObservationReason: "inputs-missing",
-      })
+      });
+    } finally {
+      await rm(outsideStatePath, { force: true });
+      await removeOwnedE2ERunArtifacts(paths).catch(() => undefined);
+      await rm(paths.evidence, { force: true, recursive: true });
     }
-    finally {
-      await rm(outsideStatePath, { force: true })
-      await removeOwnedE2ERunArtifacts(paths).catch(() => undefined)
-      await rm(paths.evidence, { force: true, recursive: true })
-    }
-  }
-  )
+  });
   it("observes a passing Playwright SIGTERM race as stopped", async () => {
-    const root = fileURLToPath(new URL("../../", import.meta.url))
-    const runId = `clean_signal_reader_${process.pid}_${Date.now()}`
-    const proof = await prepareOwnedRun(root, runId, "no-binary")
-    const paths = createE2ERunPaths(runId)
+    const root = fileURLToPath(new URL("../../", import.meta.url));
+    const runId = `clean_signal_reader_${process.pid}_${Date.now()}`;
+    const proof = await prepareOwnedRun(root, runId, "no-binary");
+    const paths = createE2ERunPaths(runId);
     try {
-      await assertOwnedE2ERunRootsReady(paths, encodeOwnedRunAdoption(proof))
-      const writer = await createOwnedE2ELifecycleStateWriter(paths)
+      await assertOwnedE2ERunRootsReady(paths, encodeOwnedRunAdoption(proof));
+      const writer = await createOwnedE2ELifecycleStateWriter(paths);
       for (const stage of [
         "artifact-isolation",
         "module-loading",
@@ -890,28 +966,36 @@ describe("E2E lifecycle CLIs", () => {
         "database-seed",
         "server-spawn",
       ] as const) {
-        await writer.write({ version: 1, status: "starting", stage })
+        await writer.write({ version: 1, status: "starting", stage });
       }
       await writer.write({
         version: 1,
         status: "stopped",
         stage: "server-spawn",
-      })
+      });
       await writeFile(
         join(paths.root, "playwright-report.json"),
         JSON.stringify({
-          suites: [{ specs: [{ tests: [{ results: [{ status: "passed" }] }] }] }],
+          suites: [
+            { specs: [{ tests: [{ results: [{ status: "passed" }] }] }] },
+          ],
         }),
-        { mode: 0o600 },
-      )
+        { mode: 0o600 }
+      );
 
-      return await expect(finalizeAndObserveE2ELifecycle({
-        E2E_RUN_ID: runId,
-        E2E_RUN_ADOPTION: encodeOwnedRunAdoption(proof),
-      }, {
-        exitCode: 0,
-        treeTerminated: true,
-      }, root)).resolves.toEqual({
+      return await expect(
+        finalizeAndObserveE2ELifecycle(
+          {
+            E2E_RUN_ID: runId,
+            E2E_RUN_ADOPTION: encodeOwnedRunAdoption(proof),
+          },
+          {
+            exitCode: 0,
+            treeTerminated: true,
+          },
+          root
+        )
+      ).resolves.toEqual({
         finalizationFailed: false,
         nestedServerTerminated: true,
         lifecycle: {
@@ -920,28 +1004,26 @@ describe("E2E lifecycle CLIs", () => {
           lifecycleObservation: "state",
           lifecycleObservationReason: "observed-state",
         },
-      })
+      });
+    } finally {
+      await removeOwnedE2ERunArtifacts(paths).catch(() => undefined);
+      await rm(paths.evidence, { force: true, recursive: true });
     }
-    finally {
-      await removeOwnedE2ERunArtifacts(paths).catch(() => undefined)
-      await rm(paths.evidence, { force: true, recursive: true })
-    }
-  }
-  )
+  });
 
   it("preserves post-probe startup failure through the Node type-stripping entrypoint boundary", async () => {
-    const root = fileURLToPath(new URL("../../", import.meta.url))
-    const runId = `subprocess_reader_${process.pid}_${Date.now()}`
-    const proof = await prepareOwnedRun(root, runId, "no-binary")
-    const paths = createE2ERunPaths(runId)
+    const root = fileURLToPath(new URL("../../", import.meta.url));
+    const runId = `subprocess_reader_${process.pid}_${Date.now()}`;
+    const proof = await prepareOwnedRun(root, runId, "no-binary");
+    const paths = createE2ERunPaths(runId);
     const canaryPath = join(
       root,
       "test-results",
-      `.lifecycle-observer-${process.pid}-${Date.now()}.ts`,
-    )
+      `.lifecycle-observer-${process.pid}-${Date.now()}.ts`
+    );
     try {
-      await assertOwnedE2ERunRootsReady(paths, encodeOwnedRunAdoption(proof))
-      const writer = await createOwnedE2ELifecycleStateWriter(paths)
+      await assertOwnedE2ERunRootsReady(paths, encodeOwnedRunAdoption(proof));
+      const writer = await createOwnedE2ELifecycleStateWriter(paths);
       for (const stage of [
         "artifact-isolation",
         "module-loading",
@@ -952,20 +1034,22 @@ describe("E2E lifecycle CLIs", () => {
         "server-spawn",
         "server-probed",
       ] as const) {
-        await writer.write({ version: 1, status: "starting", stage })
+        await writer.write({ version: 1, status: "starting", stage });
       }
       await writer.write({
         version: 1,
         status: "startup-failed",
         stage: "server-probed",
-      })
+      });
       await writeFile(
         join(paths.root, "playwright-report.json"),
         JSON.stringify({
-          suites: [{ specs: [{ tests: [{ results: [{ status: "failed" }] }] }] }],
+          suites: [
+            { specs: [{ tests: [{ results: [{ status: "failed" }] }] }] },
+          ],
         }),
-        { mode: 0o600 },
-      )
+        { mode: 0o600 }
+      );
       await writeFile(
         canaryPath,
         `import { finalizeAndObserveE2ELifecycle } from "../scripts/e2e/cli.ts"\n` +
@@ -974,8 +1058,8 @@ describe("E2E lifecycle CLIs", () => {
           `  E2E_RUN_ADOPTION: process.env["E2E_RUN_ADOPTION"],\n` +
           `}, { exitCode: 1, treeTerminated: true })\n` +
           `process.stdout.write(\`\${JSON.stringify(finalized)}\\n\`)\n`,
-        "utf8",
-      )
+        "utf8"
+      );
       const result = spawnSync(
         process.execPath,
         ["--experimental-strip-types", "--no-warnings", canaryPath],
@@ -991,12 +1075,12 @@ describe("E2E lifecycle CLIs", () => {
             PATH: process.env["PATH"] ?? "",
           },
           timeout: 30_000,
-        },
-      )
-      expect(result.status, `${result.stdout}${result.stderr}`).toBe(0)
+        }
+      );
+      expect(result.status, `${result.stdout}${result.stderr}`).toBe(0);
       const observationLine = result.stdout
         .split(/\r?\n/u)
-        .find((line) => line.startsWith('{"finalizationFailed"'))
+        .find((line) => line.startsWith('{"finalizationFailed"'));
       return expect(JSON.parse(observationLine ?? "null")).toEqual({
         finalizationFailed: false,
         nestedServerTerminated: false,
@@ -1006,16 +1090,13 @@ describe("E2E lifecycle CLIs", () => {
           lifecycleObservation: "state",
           lifecycleObservationReason: "observed-state",
         },
-      })
+      });
+    } finally {
+      await rm(canaryPath, { force: true });
+      await removeOwnedE2ERunArtifacts(paths).catch(() => undefined);
+      await rm(paths.evidence, { force: true, recursive: true });
     }
-    finally {
-      await rm(canaryPath, { force: true })
-      await removeOwnedE2ERunArtifacts(paths).catch(() => undefined)
-      await rm(paths.evidence, { force: true, recursive: true })
-    }
-  }
-  , 30_000)
-
+  }, 30_000);
 
   it("accepts only an authenticated, exact, bounded scanner envelope", () => {
     const cleanReport = {
@@ -1024,18 +1105,19 @@ describe("E2E lifecycle CLIs", () => {
       findings: [],
       purged: false,
       reason: "E2E artifacts passed external secret scanning",
-    }
-    const cleanLine = scannerEnvelope(cleanReport)
-    const clean = parseScannerReport(cleanLine, SCANNER_REPORT_NONCE)
-    expect(clean).toEqual(cleanReport)
-    expect(parseScannerReport(
-      `pnpm lifecycle noise\n${cleanLine}\nDone in 1s\n`,
-      SCANNER_REPORT_NONCE,
-    )).toEqual(clean)
-    expect(parseScannerReport(
-      `${cleanLine}\n${cleanLine}\n`,
-      SCANNER_REPORT_NONCE,
-    )).toBeUndefined()
+    };
+    const cleanLine = scannerEnvelope(cleanReport);
+    const clean = parseScannerReport(cleanLine, SCANNER_REPORT_NONCE);
+    expect(clean).toEqual(cleanReport);
+    expect(
+      parseScannerReport(
+        `pnpm lifecycle noise\n${cleanLine}\nDone in 1s\n`,
+        SCANNER_REPORT_NONCE
+      )
+    ).toEqual(clean);
+    expect(
+      parseScannerReport(`${cleanLine}\n${cleanLine}\n`, SCANNER_REPORT_NONCE)
+    ).toBeUndefined();
 
     const purgedFailure = {
       ok: false,
@@ -1044,37 +1126,38 @@ describe("E2E lifecycle CLIs", () => {
       purged: true,
       reason: "E2E artifact scanning failed; owned run outputs were purged",
       failureCategory: "evidence-contract-validation",
-    }
-    expect(parseScannerReport(
-      scannerEnvelope(purgedFailure),
-      SCANNER_REPORT_NONCE,
-    )).toMatchObject({
+    };
+    expect(
+      parseScannerReport(scannerEnvelope(purgedFailure), SCANNER_REPORT_NONCE)
+    ).toMatchObject({
       ok: false,
       scannedEntries: 0,
       purged: true,
       failureCategory: "evidence-contract-validation",
-    })
+    });
     const findingFailure = {
       ok: false,
       scannedEntries: 0,
-      findings: [{
-        category: "secret-assignment",
-        path: "artifact-0123456789abcdef",
-      }],
+      findings: [
+        {
+          category: "secret-assignment",
+          path: "artifact-0123456789abcdef",
+        },
+      ],
       purged: true,
-      reason: "Sensitive artifact patterns were detected; owned run evidence was purged",
+      reason:
+        "Sensitive artifact patterns were detected; owned run evidence was purged",
       failureCategory: "evidence-contamination",
-    }
-    expect(parseScannerReport(
-      scannerEnvelope(findingFailure),
-      SCANNER_REPORT_NONCE,
-    )).toMatchObject({
+    };
+    expect(
+      parseScannerReport(scannerEnvelope(findingFailure), SCANNER_REPORT_NONCE)
+    ).toMatchObject({
       ok: false,
       scannedEntries: 0,
       findings: [{ category: "secret-assignment" }],
       purged: true,
       failureCategory: "evidence-contamination",
-    })
+    });
 
     const invalidReports = [
       { ...cleanReport, scannedEntries: -1 },
@@ -1089,18 +1172,17 @@ describe("E2E lifecycle CLIs", () => {
       },
       {
         ...findingFailure,
-        findings: [{
-          category: "secret-assignment",
-          path: "artifact-0123456789abcdef",
-          raw: "/tmp/private",
-        }],
+        findings: [
+          {
+            category: "secret-assignment",
+            path: "artifact-0123456789abcdef",
+            raw: "/tmp/private",
+          },
+        ],
       },
       {
         ...findingFailure,
-        findings: [
-          findingFailure.findings[0],
-          findingFailure.findings[0],
-        ],
+        findings: [findingFailure.findings[0], findingFailure.findings[0]],
       },
       {
         ...findingFailure,
@@ -1121,10 +1203,12 @@ describe("E2E lifecycle CLIs", () => {
       },
       {
         ...cleanReport,
-        findings: [{
-          category: "browser-password",
-          path: "artifact-0123456789abcdef",
-        }],
+        findings: [
+          {
+            category: "browser-password",
+            path: "artifact-0123456789abcdef",
+          },
+        ],
       },
       {
         ...cleanReport,
@@ -1154,22 +1238,25 @@ describe("E2E lifecycle CLIs", () => {
         reason: "Owned E2E artifact scanner initialization failed safely",
         failureCategory: "archive-validation",
       },
-    ]
+    ];
     for (const invalid of invalidReports) {
-      expect(parseScannerReport(
-        scannerEnvelope(invalid),
-        SCANNER_REPORT_NONCE,
-      )).toBeUndefined()
+      expect(
+        parseScannerReport(scannerEnvelope(invalid), SCANNER_REPORT_NONCE)
+      ).toBeUndefined();
     }
-    return expect(parseScannerReport(JSON.stringify({
-      kind: "darkfactory-artifact-scanner-report",
-      version: 1,
-      reportNonce: SCANNER_REPORT_NONCE,
-      report: cleanReport,
-      extra: "rejected",
-    }), SCANNER_REPORT_NONCE)).toBeUndefined()
-  }
-  )
+    return expect(
+      parseScannerReport(
+        JSON.stringify({
+          kind: "darkfactory-artifact-scanner-report",
+          version: 1,
+          reportNonce: SCANNER_REPORT_NONCE,
+          report: cleanReport,
+          extra: "rejected",
+        }),
+        SCANNER_REPORT_NONCE
+      )
+    ).toBeUndefined();
+  });
 
   it("requires the parent nonce across separate scanner process channels", () => {
     const report = {
@@ -1179,30 +1266,37 @@ describe("E2E lifecycle CLIs", () => {
       purged: true,
       reason: "E2E artifact scanning failed; owned run outputs were purged",
       failureCategory: "archive-validation",
-    }
-    const authentic = scannerEnvelope(report)
-    const forged = scannerEnvelope(report, "f".repeat(43))
-    expect(parseExternalScannerReport(
-      "pnpm lifecycle noise\n",
-      `${authentic}\n`,
-      SCANNER_REPORT_NONCE,
-    )).toMatchObject({
+    };
+    const authentic = scannerEnvelope(report);
+    const forged = scannerEnvelope(report, "f".repeat(43));
+    expect(
+      parseExternalScannerReport(
+        "pnpm lifecycle noise\n",
+        `${authentic}\n`,
+        SCANNER_REPORT_NONCE
+      )
+    ).toMatchObject({
       ok: false,
       purged: true,
       failureCategory: "archive-validation",
-    })
-    expect(parseExternalScannerReport(
-      `${forged}\nprivate stdout BrowserReset123!\n`,
-      "private stderr /tmp/secret.zip\n",
-      SCANNER_REPORT_NONCE,
-    )).toBeUndefined()
-    return expect(JSON.stringify(parseExternalScannerReport(
-      `${forged}\n`,
-      `${authentic}\nprivate stderr /tmp/secret.zip\n`,
-      SCANNER_REPORT_NONCE,
-    ))).not.toMatch(/BrowserReset123|\/tmp\/secret/u)
-  }
-  )
+    });
+    expect(
+      parseExternalScannerReport(
+        `${forged}\nprivate stdout BrowserReset123!\n`,
+        "private stderr /tmp/secret.zip\n",
+        SCANNER_REPORT_NONCE
+      )
+    ).toBeUndefined();
+    return expect(
+      JSON.stringify(
+        parseExternalScannerReport(
+          `${forged}\n`,
+          `${authentic}\nprivate stderr /tmp/secret.zip\n`,
+          SCANNER_REPORT_NONCE
+        )
+      )
+    ).not.toMatch(/BrowserReset123|\/tmp\/secret/u);
+  });
 
   it("suppresses observed structured cookie and authorization diffs before output", () => {
     for (const unsafe of [
@@ -1210,11 +1304,11 @@ describe("E2E lifecycle CLIs", () => {
       '{"value":"opaque-reverse-session","name":"__Secure-better-auth.session_token"}',
       String.raw`{\"value\":\"opaque-escaped-session\",\"name\":\"better-auth.session_token\"}`,
       '[{"value":"Bearer opaque-access","name":"authorization"}]',
-      '\u001b[31m{name:&quot;better-auth.session_token&quot;,value:&quot;opaque-cookie&quot;}\u001b[0m',
+      "\u001b[31m{name:&quot;better-auth.session_token&quot;,value:&quot;opaque-cookie&quot;}\u001b[0m",
     ]) {
-      const redacted = redactProcessOutput(unsafe)
-      expect(redacted).toBe("[REDACTED SENSITIVE PROCESS OUTPUT]\n")
-      expect(redacted).not.toContain("opaque-")
+      const redacted = redactProcessOutput(unsafe);
+      expect(redacted).toBe("[REDACTED SENSITIVE PROCESS OUTPUT]\n");
+      expect(redacted).not.toContain("opaque-");
     }
     for (const unsafe of [
       '{"authorization":"Bearer direct-value"}',
@@ -1222,36 +1316,36 @@ describe("E2E lifecycle CLIs", () => {
       '{"name":"authorization","value":"Bearer ordered-value"}',
       '{"value":"Bearer reverse-value","name":"authorization"}',
       String.raw`{\"name\":\"authorization\",\"value\":\"Bearer escaped-value\"}`,
-      '\u001b[31m{&quot;authorization&quot;:&quot;Bearer ansi-value&quot;}\u001b[0m',
+      "\u001b[31m{&quot;authorization&quot;:&quot;Bearer ansi-value&quot;}\u001b[0m",
       "authorization: Bearer opaque-header-value",
     ]) {
-      const redacted = redactProcessOutput(`normal test title\n${unsafe}\n`)
-      expect(redacted).toContain("normal test title")
-      expect(redacted).toContain("[REDACTED SENSITIVE PROCESS OUTPUT]")
-      expect(redacted).not.toContain("-value")
+      const redacted = redactProcessOutput(`normal test title\n${unsafe}\n`);
+      expect(redacted).toContain("normal test title");
+      expect(redacted).toContain("[REDACTED SENSITIVE PROCESS OUTPUT]");
+      expect(redacted).not.toContain("-value");
     }
     expect(redactProcessOutput("password validation title\n")).toBe(
-      "password validation title\n",
-    )
+      "password validation title\n"
+    );
     expect(redactProcessOutput("database connection failed\n")).toBe(
-      "database connection failed\n",
-    )
+      "database connection failed\n"
+    );
     const ansiSplit = redactProcessOutput(
-      "normal test title\nBrowserAuth\u001b[31m123!\u001b[0m\n",
-    )
-    expect(ansiSplit).toContain("normal test title")
-    expect(ansiSplit).not.toContain("123!")
+      "normal test title\nBrowserAuth\u001b[31m123!\u001b[0m\n"
+    );
+    expect(ansiSplit).toContain("normal test title");
+    expect(ansiSplit).not.toContain("123!");
     for (const unsafe of [
       "BrowserReset\u001b[35m456!\u001b[0m",
       "/api/auth/verify-email/opaque\u001b[31m-verification-token\u001b[0m",
       "https://darkfactory.localhost/reset-password?token=opaque\u001b[32m-reset-token\u001b[0m",
       "/reset-password?callbackURL=%2Fdashboard&amp;token=opaque-html-token",
     ]) {
-      const redacted = redactProcessOutput(`normal title\n${unsafe}\n`)
-      expect(redacted).toContain("normal title")
-      expect(redacted).toContain("[REDACTED SENSITIVE PROCESS OUTPUT]")
-      expect(redacted).not.toContain("opaque")
-      expect(redacted).not.toContain("456!")
+      const redacted = redactProcessOutput(`normal title\n${unsafe}\n`);
+      expect(redacted).toContain("normal title");
+      expect(redacted).toContain("[REDACTED SENSITIVE PROCESS OUTPUT]");
+      expect(redacted).not.toContain("opaque");
+      expect(redacted).not.toContain("456!");
     }
     for (const unsafe of [
       '{"resetToken":"opaqueResetToken123456789"}',
@@ -1265,32 +1359,34 @@ describe("E2E lifecycle CLIs", () => {
       String.raw`{\"clientSecret\":\"OpaqueClientValue123456789\"}`,
       String.raw`{\"password\":\"OpaquePasswordValue123456789\"}`,
     ]) {
-      const redacted = redactProcessOutput(`safe diagnostic\n${unsafe}\n`)
-      expect(redacted).toContain("safe diagnostic")
-      expect(redacted).toContain("[REDACTED SENSITIVE PROCESS OUTPUT]")
-      expect(redacted).not.toContain("Opaque")
-      expect(redacted).not.toContain("opaque")
+      const redacted = redactProcessOutput(`safe diagnostic\n${unsafe}\n`);
+      expect(redacted).toContain("safe diagnostic");
+      expect(redacted).toContain("[REDACTED SENSITIVE PROCESS OUTPUT]");
+      expect(redacted).not.toContain("Opaque");
+      expect(redacted).not.toContain("opaque");
     }
     expect(redactProcessOutput("x".repeat(16 * 1024 + 1))).toBe(
-      "[REDACTED OVERSIZED PROCESS OUTPUT]\n",
-    )
+      "[REDACTED OVERSIZED PROCESS OUTPUT]\n"
+    );
     expect(
       redactProcessOutput(
         "database authentication failed for db-user and db-passphrase",
-        ["db-user", "db-passphrase"],
-      ),
-    ).toBe("database authentication failed for [REDACTED] and [REDACTED]")
+        ["db-user", "db-passphrase"]
+      )
+    ).toBe("database authentication failed for [REDACTED] and [REDACTED]");
     const url = redactProcessOutput(
-      "https://darkfactory.localhost/api/auth/verify-email/opaque-token?callbackURL=/portal",
-    )
-    expect(url).not.toContain("opaque-token")
-    expect(redactProcessOutput("safe failure summary")).toBe("safe failure summary")
-    return expect(redactProcessOutput("")).toBe("")
-  }
-  )
+      "https://darkfactory.localhost/api/auth/verify-email/opaque-token?callbackURL=/portal"
+    );
+    expect(url).not.toContain("opaque-token");
+    expect(redactProcessOutput("safe failure summary")).toBe(
+      "safe failure summary"
+    );
+    return expect(redactProcessOutput("")).toBe("");
+  });
 
   it("redacts pretty-printed multiline authorization, session, and token structures", () => {
-    const results1=[];for (const unsafe of [
+    const results1 = [];
+    for (const unsafe of [
       [
         "{",
         '  "name": "authorization",',
@@ -1311,24 +1407,25 @@ describe("E2E lifecycle CLIs", () => {
       ].join("\n"),
     ]) {
       const rendered = redactProcessOutput(
-        `safe diagnostic before\n${unsafe}\nsafe diagnostic after\n`,
-      )
-      expect(rendered).toContain("safe diagnostic before\n")
-      expect(rendered).toContain("safe diagnostic after\n")
-      expect(rendered).toContain("[REDACTED SENSITIVE PROCESS OUTPUT]\n")
-      results1.push(expect(rendered).not.toMatch(
-        /Opaque(?:AuthorizationValue|SessionValue|ResetTokenValue)123456789/u,
-      ))
-    };return results1;
-  })
+        `safe diagnostic before\n${unsafe}\nsafe diagnostic after\n`
+      );
+      expect(rendered).toContain("safe diagnostic before\n");
+      expect(rendered).toContain("safe diagnostic after\n");
+      expect(rendered).toContain("[REDACTED SENSITIVE PROCESS OUTPUT]\n");
+      results1.push(
+        expect(rendered).not.toMatch(
+          /Opaque(?:AuthorizationValue|SessionValue|ResetTokenValue)123456789/u
+        )
+      );
+    }
+    return results1;
+  });
 
   it("redacts authorization and session pairs across the full bounded output", () => {
-    const results2=[];for (const [name, value] of [
+    const results2 = [];
+    for (const [name, value] of [
       ["authorization", "Bearer OpaqueLongAuthorizationValue123456789"],
-      [
-        "__Secure-better-auth.session_token",
-        "OpaqueLongSessionValue123456789",
-      ],
+      ["__Secure-better-auth.session_token", "OpaqueLongSessionValue123456789"],
     ]) {
       const unsafe = [
         "{",
@@ -1336,71 +1433,80 @@ describe("E2E lifecycle CLIs", () => {
         `  "padding": "${"a".repeat(513)}",`,
         `  "value": "${value}"`,
         "}",
-      ].join("\n")
+      ].join("\n");
       const rendered = redactProcessOutput(
-        `safe long diagnostic\n${unsafe}\nsafe long tail\n`,
-      )
-      expect(rendered).toContain("safe long diagnostic\n")
-      expect(rendered).toContain("safe long tail\n")
-      expect(rendered).toContain("[REDACTED SENSITIVE PROCESS OUTPUT]\n")
-      results2.push(expect(rendered).not.toContain(value))
-    };return results2;
-  })
+        `safe long diagnostic\n${unsafe}\nsafe long tail\n`
+      );
+      expect(rendered).toContain("safe long diagnostic\n");
+      expect(rendered).toContain("safe long tail\n");
+      expect(rendered).toContain("[REDACTED SENSITIVE PROCESS OUTPUT]\n");
+      results2.push(expect(rendered).not.toContain(value));
+    }
+    return results2;
+  });
 
   it("fails closed for Unicode format controls in sensitive structures", () => {
-    const results3=[];for (const unsafe of [
+    const results3 = [];
+    for (const unsafe of [
       "safe diagnostic\nauthori\u200bzation: Bearer OpaqueZeroWidthValue123456789",
       "safe diagnostic\nsession\u202e_token=OpaqueBidiValue123456789",
     ]) {
-      const rendered = redactProcessOutput(unsafe)
-      expect(rendered).toBe("[REDACTED SENSITIVE PROCESS OUTPUT]\n")
-      results3.push(expect(rendered).not.toMatch(/safe diagnostic|Opaque|authorization|session/u))
-    };return results3;
-  })
+      const rendered = redactProcessOutput(unsafe);
+      expect(rendered).toBe("[REDACTED SENSITIVE PROCESS OUTPUT]\n");
+      results3.push(
+        expect(rendered).not.toMatch(
+          /safe diagnostic|Opaque|authorization|session/u
+        )
+      );
+    }
+    return results3;
+  });
 
   it("redacts context-free Bearer and Basic credentials", () => {
-    const results4=[];for (const [scheme, credential] of [
+    const results4 = [];
+    for (const [scheme, credential] of [
       ["Bearer", "OpaqueContextBearerValue123456789"],
       ["Basic", "Q29udGV4dEJhc2ljVmFsdWUxMjM0NTY3ODk="],
     ]) {
       const rendered = redactProcessOutput(
-        `safe credential diagnostic\nx-obfuscated: ${scheme} ${credential}\nsafe credential tail\n`,
-      )
-      expect(rendered).toContain("safe credential diagnostic\n")
-      expect(rendered).toContain("safe credential tail\n")
-      expect(rendered).toContain("[REDACTED SENSITIVE PROCESS OUTPUT]\n")
-      results4.push(expect(rendered).not.toContain(credential))
-    };return results4;
-  })
+        `safe credential diagnostic\nx-obfuscated: ${scheme} ${credential}\nsafe credential tail\n`
+      );
+      expect(rendered).toContain("safe credential diagnostic\n");
+      expect(rendered).toContain("safe credential tail\n");
+      expect(rendered).toContain("[REDACTED SENSITIVE PROCESS OUTPUT]\n");
+      results4.push(expect(rendered).not.toContain(credential));
+    }
+    return results4;
+  });
 
   it("redacts a compact-only credential ending at the final byte", () => {
-    const credential = "OpaqueCompactCredential123456789"
+    const credential = "OpaqueCompactCredential123456789";
     const rendered = redactProcessOutput(
-      `authori zation: Bea rer ${credential}`,
-    )
-    expect(rendered).toBe("[REDACTED SENSITIVE PROCESS OUTPUT]\n")
-    return expect(rendered).not.toContain(credential)
-  })
+      `authori zation: Bea rer ${credential}`
+    );
+    expect(rendered).toBe("[REDACTED SENSITIVE PROCESS OUTPUT]\n");
+    return expect(rendered).not.toContain(credential);
+  });
 
   it("redacts a multiline compact credential ending at the final byte", () => {
-    const credential = "OpaqueMultilineCompactCredential123456789"
+    const credential = "OpaqueMultilineCompactCredential123456789";
     const rendered = redactProcessOutput(
-      `authori\nzation: Bea\nrer ${credential}`,
-    )
-    expect(rendered).toBe("[REDACTED SENSITIVE PROCESS OUTPUT]\n")
-    return expect(rendered).not.toContain(credential)
-  })
+      `authori\nzation: Bea\nrer ${credential}`
+    );
+    expect(rendered).toBe("[REDACTED SENSITIVE PROCESS OUTPUT]\n");
+    return expect(rendered).not.toContain(credential);
+  });
 
   it("redacts a split credential after an overlapping direct decoy", () => {
-    const direct = "OpaqueDirectCredential123456789"
-    const split = "OpaqueSplitCredential123456789"
+    const direct = "OpaqueDirectCredential123456789";
+    const split = "OpaqueSplitCredential123456789";
     const rendered = redactProcessOutput(
-      `authorization: ${direct}\nauthori\nzation: Bea\nrer ${split}`,
-    )
-    expect(rendered).toContain("[REDACTED SENSITIVE PROCESS OUTPUT]\n")
-    expect(rendered).not.toContain(direct)
-    return expect(rendered).not.toContain(split)
-  })
+      `authorization: ${direct}\nauthori\nzation: Bea\nrer ${split}`
+    );
+    expect(rendered).toContain("[REDACTED SENSITIVE PROCESS OUTPUT]\n");
+    expect(rendered).not.toContain(direct);
+    return expect(rendered).not.toContain(split);
+  });
 
   it("inspects printable ASCII escapes without mutating safe output", () => {
     for (const [unsafe, credential] of [
@@ -1422,218 +1528,226 @@ describe("E2E lifecycle CLIs", () => {
       ],
     ]) {
       const rendered = redactProcessOutput(
-        `safe escaped diagnostic\n${unsafe}\nsafe escaped tail\n`,
-      )
-      expect(rendered).toContain("safe escaped diagnostic\n")
-      expect(rendered).toContain("safe escaped tail\n")
-      expect(rendered).toContain("[REDACTED SENSITIVE PROCESS OUTPUT]\n")
-      expect(rendered).not.toContain(credential)
+        `safe escaped diagnostic\n${unsafe}\nsafe escaped tail\n`
+      );
+      expect(rendered).toContain("safe escaped diagnostic\n");
+      expect(rendered).toContain("safe escaped tail\n");
+      expect(rendered).toContain("[REDACTED SENSITIVE PROCESS OUTPUT]\n");
+      expect(rendered).not.toContain(credential);
     }
 
-    const safeLiteral = String.raw`safe literal \u0041 diagnostic`
-    expect(redactProcessOutput(safeLiteral)).toBe(safeLiteral)
-    const safeEntity = "safe literal &#65; diagnostic"
-    return expect(redactProcessOutput(safeEntity)).toBe(safeEntity)
-  })
+    const safeLiteral = String.raw`safe literal \u0041 diagnostic`;
+    expect(redactProcessOutput(safeLiteral)).toBe(safeLiteral);
+    const safeEntity = "safe literal &#65; diagnostic";
+    return expect(redactProcessOutput(safeEntity)).toBe(safeEntity);
+  });
 
   it("redacts relative auth-route tokens across the full bounded query", () => {
-    const results5=[];for (const route of ["reset-password", "verify-email"]) {
+    const results5 = [];
+    for (const route of ["reset-password", "verify-email"]) {
       const rendered = redactProcessOutput(
-        `safe route diagnostic\n/${route}?padding=${"a".repeat(513)}&token=shortSecret\nsafe route tail\n`,
-      )
-      expect(rendered).toContain("safe route diagnostic\n")
-      expect(rendered).toContain("safe route tail\n")
-      expect(rendered).toContain("[REDACTED SENSITIVE PROCESS OUTPUT]\n")
-      results5.push(expect(rendered).not.toContain("shortSecret"))
-    };return results5;
-  })
+        `safe route diagnostic\n/${route}?padding=${"a".repeat(513)}&token=shortSecret\nsafe route tail\n`
+      );
+      expect(rendered).toContain("safe route diagnostic\n");
+      expect(rendered).toContain("safe route tail\n");
+      expect(rendered).toContain("[REDACTED SENSITIVE PROCESS OUTPUT]\n");
+      results5.push(expect(rendered).not.toContain("shortSecret"));
+    }
+    return results5;
+  });
 
   it("normalizes OSC and interleaved C0 controls before structural redaction", () => {
-    const results6=[];for (const unsafe of [
+    const results6 = [];
+    for (const unsafe of [
       '{"authori\u001b]0;terminal-title\u0007zation":"Be\u0000arer Opa\u0008queAuthorizationValue123456789"}',
       '{"name":"__Secure-better-auth.sess\u0000ion_token","value":"OpaqueSess\u0008ionValue123456789"}',
       '{"access\u001b]8;;https://safe.invalid\u001b\\_token":"OpaqueAccess\u0007TokenValue123456789"}',
       '{"authori\nzation":"Bea\nrer OpaqueLineSplitValue123456789"}',
     ]) {
       const rendered = redactProcessOutput(
-        `safe control diagnostic\n${unsafe}\nsafe control tail\n`,
-      )
-      expect(rendered).toContain("safe control diagnostic\n")
-      expect(rendered).toContain("safe control tail\n")
-      expect(rendered).toContain("[REDACTED SENSITIVE PROCESS OUTPUT]\n")
-      results6.push(expect(rendered).not.toMatch(
-        /Opaque|terminal-title|safe\.invalid|[\u0000-\u0009\u000b-\u001f\u007f]/u,
-      ))
-    };return results6;
-  })
+        `safe control diagnostic\n${unsafe}\nsafe control tail\n`
+      );
+      expect(rendered).toContain("safe control diagnostic\n");
+      expect(rendered).toContain("safe control tail\n");
+      expect(rendered).toContain("[REDACTED SENSITIVE PROCESS OUTPUT]\n");
+      results6.push(
+        expect(rendered).not.toMatch(
+          /Opaque|terminal-title|safe\.invalid|[\u0000-\u0009\u000b-\u001f\u007f]/u
+        )
+      );
+    }
+    return results6;
+  });
 
   it("fails closed for untrusted terminal normalization and aggregate oversize output", () => {
     for (const unsafe of [
       "safe diagnostic\nauthorization: Bearer OpaqueUntrustedOsc123456789\u001b]0;unterminated",
       "safe diagnostic\nauthorization: Bearer OpaqueUntrustedCsi123456789\u001b[31",
     ]) {
-      const rendered = redactProcessOutput(unsafe)
-      expect(rendered).toBe("[REDACTED SENSITIVE PROCESS OUTPUT]\n")
-      expect(rendered).not.toMatch(/safe diagnostic|OpaqueUntrusted|authorization/u)
+      const rendered = redactProcessOutput(unsafe);
+      expect(rendered).toBe("[REDACTED SENSITIVE PROCESS OUTPUT]\n");
+      expect(rendered).not.toMatch(
+        /safe diagnostic|OpaqueUntrusted|authorization/u
+      );
     }
 
-    const aggregateOversize = Array.from(
-      { length: 17 },
-      () => "x".repeat(1_024),
-    ).join("\n")
+    const aggregateOversize = Array.from({ length: 17 }, () =>
+      "x".repeat(1_024)
+    ).join("\n");
     return expect(redactProcessOutput(aggregateOversize)).toBe(
-      "[REDACTED OVERSIZED PROCESS OUTPUT]\n",
-    )
-  })
+      "[REDACTED OVERSIZED PROCESS OUTPUT]\n"
+    );
+  });
 
   it("preserves nonprintable encoded literals in safe diagnostics", () => {
-    const results7=[];for (const safe of [
+    const results7 = [];
+    for (const safe of [
       String.raw`safe Unicode literal \u001f`,
       "safe decimal entity &#31;",
       "safe hexadecimal entity &#x7f;",
       "safe malformed entity &#;",
     ]) {
-      results7.push(expect(redactProcessOutput(safe)).toBe(safe))
-    };return results7;
-  })
+      results7.push(expect(redactProcessOutput(safe)).toBe(safe));
+    }
+    return results7;
+  });
 
   it("fails closed when structural matching metadata cannot be trusted", () => {
-    const originalMatchAll = String.prototype.matchAll
+    const originalMatchAll = String.prototype.matchAll;
     const missingText = Object.assign([], {
       index: 0,
-    }) as unknown as RegExpMatchArray
-    const recordSpy = vi.spyOn(String.prototype, "matchAll")
-      .mockImplementationOnce(() => [missingText].values() as never)
+    }) as unknown as RegExpMatchArray;
+    const recordSpy = vi
+      .spyOn(String.prototype, "matchAll")
+      .mockImplementationOnce(() => [missingText].values() as never);
     try {
       expect(redactProcessOutput("safe matcher input")).toBe(
-        "[REDACTED SENSITIVE PROCESS OUTPUT]\n",
-      )
-    }
-    finally {
-      recordSpy.mockRestore()
+        "[REDACTED SENSITIVE PROCESS OUTPUT]\n"
+      );
+    } finally {
+      recordSpy.mockRestore();
     }
 
     const outsideSource = Object.assign(
       ["authorization:OpaqueMatcherCredential123456789"],
-      { index: 999 },
-    ) as unknown as RegExpMatchArray
-    const offsetSpy = vi.spyOn(String.prototype, "matchAll")
+      { index: 999 }
+    ) as unknown as RegExpMatchArray;
+    const offsetSpy = vi
+      .spyOn(String.prototype, "matchAll")
       .mockImplementation(function (
         this: string,
-        pattern: RegExp,
+        pattern: RegExp
       ): ReturnType<typeof String.prototype.matchAll> {
         if (String(this) === "safecompact") {
-          return [outsideSource].values() as never
+          return [outsideSource].values() as never;
         }
-        return originalMatchAll.call(this, pattern)
-      }
-      )
+        return originalMatchAll.call(this, pattern);
+      });
     try {
       return expect(redactProcessOutput("safe compact")).toBe(
-        "[REDACTED SENSITIVE PROCESS OUTPUT]\n",
-      )
+        "[REDACTED SENSITIVE PROCESS OUTPUT]\n"
+      );
+    } finally {
+      offsetSpy.mockRestore();
     }
-    finally {
-      offsetSpy.mockRestore()
-    }
-  })
+  });
 
   it("fails closed when normalized and emitted line views disagree", () => {
-    const unsafe = "authorization: OpaqueLineViewCredential123456789"
-    const missingOutputLines = vi.spyOn(String.prototype, "match")
-      .mockReturnValueOnce(null)
+    const unsafe = "authorization: OpaqueLineViewCredential123456789";
+    const missingOutputLines = vi
+      .spyOn(String.prototype, "match")
+      .mockReturnValueOnce(null);
     try {
       expect(redactProcessOutput(unsafe)).toBe(
-        "[REDACTED SENSITIVE PROCESS OUTPUT]\n",
-      )
-    }
-    finally {
-      missingOutputLines.mockRestore()
+        "[REDACTED SENSITIVE PROCESS OUTPUT]\n"
+      );
+    } finally {
+      missingOutputLines.mockRestore();
     }
 
-    const missingInspectionLines = vi.spyOn(String.prototype, "match")
+    const missingInspectionLines = vi
+      .spyOn(String.prototype, "match")
       .mockReturnValueOnce([unsafe] as RegExpMatchArray)
-      .mockReturnValueOnce(null)
+      .mockReturnValueOnce(null);
     try {
       return expect(redactProcessOutput(unsafe)).toBe(
-        "[REDACTED SENSITIVE PROCESS OUTPUT]\n",
-      )
+        "[REDACTED SENSITIVE PROCESS OUTPUT]\n"
+      );
+    } finally {
+      missingInspectionLines.mockRestore();
     }
-    finally {
-      missingInspectionLines.mockRestore()
-    }
-  })
+  });
 
   it("bounds expansion and fails closed for untrusted known values", () => {
-    const malformedKnown = "secret\u001b]unterminated"
+    const malformedKnown = "secret\u001b]unterminated";
     expect(redactProcessOutput("safe", [malformedKnown])).toBe(
-      "[REDACTED SENSITIVE PROCESS OUTPUT]\n",
-    )
+      "[REDACTED SENSITIVE PROCESS OUTPUT]\n"
+    );
 
-    const controlCompactedKnown = "a\u0000b\u0000c\u0000"
-    expect(redactProcessOutput("safe", [controlCompactedKnown])).toBe("safe")
+    const controlCompactedKnown = "a\u0000b\u0000c\u0000";
+    expect(redactProcessOutput("safe", [controlCompactedKnown])).toBe("safe");
 
-    expect(redactProcessOutput(
-      "secret".repeat(2_000),
-      ["secret"],
-    )).toBe("[REDACTED OVERSIZED PROCESS OUTPUT]\n")
-    expect(redactProcessOutput(
-      "a@b.co ".repeat(2_000),
-    )).toBe("[REDACTED OVERSIZED PROCESS OUTPUT]\n")
+    expect(redactProcessOutput("secret".repeat(2_000), ["secret"])).toBe(
+      "[REDACTED OVERSIZED PROCESS OUTPUT]\n"
+    );
+    expect(redactProcessOutput("a@b.co ".repeat(2_000))).toBe(
+      "[REDACTED OVERSIZED PROCESS OUTPUT]\n"
+    );
 
     const throwingValues = new Proxy([] as string[], {
       get(target, property, receiver) {
         if (property === Symbol.iterator) {
-          throw new Error("Injected known-value iterator failure")
+          throw new Error("Injected known-value iterator failure");
         }
-        return Reflect.get(target, property, receiver)
-      }
-    })
+        return Reflect.get(target, property, receiver);
+      },
+    });
     return expect(redactProcessOutput("safe", throwingValues)).toBe(
-      "[REDACTED SENSITIVE PROCESS OUTPUT]\n",
-    )
-  })
+      "[REDACTED SENSITIVE PROCESS OUTPUT]\n"
+    );
+  });
 
   it("preserves safe lines around adjacent and separated sensitive blocks", () => {
-    const rendered = redactProcessOutput([
-      "safe before",
-      "authorization: Bearer OpaqueFirstCredential123456789",
-      "authorization: Basic Q29tcGFjdFNlY29uZENyZWRlbnRpYWw=",
-      "safe middle",
-      "api_key=OpaqueApiKeyCredential123456789",
-      "safe after",
-      "",
-    ].join("\n"))
-    expect(rendered).toBe([
-      "safe before",
-      "[REDACTED SENSITIVE PROCESS OUTPUT]",
-      "safe middle",
-      "[REDACTED SENSITIVE PROCESS OUTPUT]",
-      "safe after",
-      "",
-    ].join("\n"))
-    return expect(redactProcessOutput("plain")).toBe("plain")
-  })
+    const rendered = redactProcessOutput(
+      [
+        "safe before",
+        "authorization: Bearer OpaqueFirstCredential123456789",
+        "authorization: Basic Q29tcGFjdFNlY29uZENyZWRlbnRpYWw=",
+        "safe middle",
+        "api_key=OpaqueApiKeyCredential123456789",
+        "safe after",
+        "",
+      ].join("\n")
+    );
+    expect(rendered).toBe(
+      [
+        "safe before",
+        "[REDACTED SENSITIVE PROCESS OUTPUT]",
+        "safe middle",
+        "[REDACTED SENSITIVE PROCESS OUTPUT]",
+        "safe after",
+        "",
+      ].join("\n")
+    );
+    return expect(redactProcessOutput("plain")).toBe("plain");
+  });
 
   it("fails closed when a compact credential has an untrusted boundary", () => {
-    const credential = "OpaqueBoundaryCredential123456789"
+    const credential = "OpaqueBoundaryCredential123456789";
     const rendered = redactProcessOutput(
-      `authori zation: ${credential}\u00a0unsafe-boundary`,
-    )
-    expect(rendered).toBe("[REDACTED SENSITIVE PROCESS OUTPUT]\n")
-    return expect(rendered).not.toContain(credential)
-  })
+      `authori zation: ${credential}\u00a0unsafe-boundary`
+    );
+    expect(rendered).toBe("[REDACTED SENSITIVE PROCESS OUTPUT]\n");
+    return expect(rendered).not.toContain(credential);
+  });
 
   it("attributes safe diagnostics with default redaction values", () => {
-    expect(collectProcessDiagnostics(
-      "plain stdout",
-      "plain stderr",
-    )).toEqual([
+    expect(collectProcessDiagnostics("plain stdout", "plain stderr")).toEqual([
       "stdout: plain stdout",
       "stderr: plain stderr",
-    ])
-    return expect(collectProcessDiagnostics("", "")).toEqual([])
-  })
+    ]);
+    return expect(collectProcessDiagnostics("", "")).toEqual([]);
+  });
 
   it("retains only bounded redacted failure tails for per-spec reports", () => {
     const diagnostics = collectProcessDiagnostics(
@@ -1651,23 +1765,24 @@ describe("E2E lifecycle CLIs", () => {
         "E2E_EMAIL_PREVIEW_HMAC_KEY=OpaquePreviewHmac123456789",
         "latest stderr",
       ].join("\n"),
-      ["databasePasswordValue"],
-    )
+      ["databasePasswordValue"]
+    );
 
-    expect(diagnostics).toHaveLength(8)
+    expect(diagnostics).toHaveLength(8);
     expect(diagnostics).toContain(
-      "stderr: Error: Process from config.webServer was not able to start. Exit code: 1",
-    )
-    expect(diagnostics.join("\n")).toContain("[REDACTED EMAIL]")
-    expect(diagnostics.join("\n")).toContain("[REDACTED URL]")
-    expect(diagnostics.join("\n")).toContain("[REDACTED SENSITIVE PROCESS OUTPUT]")
-    expect(diagnostics.join("\n")).not.toContain("user@domain.test")
-    expect(diagnostics.join("\n")).not.toContain("attempt=failed")
-    expect(diagnostics.join("\n")).not.toContain("databasePasswordValue")
-    expect(diagnostics.join("\n")).not.toContain("OpaquePreviewHmac")
-    return expect(diagnostics.every((line) => line.length <= 408)).toBe(true)
-  }
-  )
+      "stderr: Error: Process from config.webServer was not able to start. Exit code: 1"
+    );
+    expect(diagnostics.join("\n")).toContain("[REDACTED EMAIL]");
+    expect(diagnostics.join("\n")).toContain("[REDACTED URL]");
+    expect(diagnostics.join("\n")).toContain(
+      "[REDACTED SENSITIVE PROCESS OUTPUT]"
+    );
+    expect(diagnostics.join("\n")).not.toContain("user@domain.test");
+    expect(diagnostics.join("\n")).not.toContain("attempt=failed");
+    expect(diagnostics.join("\n")).not.toContain("databasePasswordValue");
+    expect(diagnostics.join("\n")).not.toContain("OpaquePreviewHmac");
+    return expect(diagnostics.every((line) => line.length <= 408)).toBe(true);
+  });
 
   it("extracts only exact allowlisted diagnostics from oversized output", () => {
     const oversized = [
@@ -1677,25 +1792,25 @@ describe("E2E lifecycle CLIs", () => {
       "Error: Process from config.webServer was not able to start. Exit code: 1",
       ...Array.from(
         { length: 5 },
-        () => "Error: Dashboard session proof failed: path=/dashboard rendered=error directStatus=500",
+        () =>
+          "Error: Dashboard session proof failed: path=/dashboard rendered=error directStatus=500"
       ),
-    ].join("\n")
-    const diagnostics = collectProcessDiagnostics("", oversized)
-    expect(diagnostics).toHaveLength(3)
+    ].join("\n");
+    const diagnostics = collectProcessDiagnostics("", oversized);
+    expect(diagnostics).toHaveLength(3);
 
     expect(diagnostics).toContain(
-      "stderr: Error: Process from config.webServer was not able to start. Exit code: 1",
-    )
+      "stderr: Error: Process from config.webServer was not able to start. Exit code: 1"
+    );
     expect(diagnostics).toContain(
-      "stderr: Dashboard session proof failed: path=/dashboard rendered=error directStatus=500",
-    )
+      "stderr: Dashboard session proof failed: path=/dashboard rendered=error directStatus=500"
+    );
     expect(diagnostics).toContain(
-      "stderr: [REDACTED OVERSIZED PROCESS OUTPUT]",
-    )
-    expect(diagnostics.join("\n")).not.toContain("PRIVATE KEY")
-    return expect(diagnostics.join("\n")).not.toContain("A".repeat(100))
-  }
-  )
+      "stderr: [REDACTED OVERSIZED PROCESS OUTPUT]"
+    );
+    expect(diagnostics.join("\n")).not.toContain("PRIVATE KEY");
+    return expect(diagnostics.join("\n")).not.toContain("A".repeat(100));
+  });
 
   it("rejects near-miss allowlisted diagnostics from oversized output", () => {
     const nearMisses = [
@@ -1706,31 +1821,30 @@ describe("E2E lifecycle CLIs", () => {
       "Error: Dashboard session proof failed: path=/dashboard rendered=error directStatus=099",
       "Error: Dashboard session proof failed: path=/dashboard rendered=error directStatus=600",
       `prefix\rError: Dashboard session proof failed: path=/dashboard rendered=error directStatus=500`,
-    ]
+    ];
 
-    const results8=[];for (const nearMiss of nearMisses) {
-      results8.push(expect(collectProcessDiagnostics(
-        "",
-        `${"x".repeat(17 * 1024)}\n${nearMiss}`,
-      )).toEqual(["stderr: [REDACTED OVERSIZED PROCESS OUTPUT]"]))
-    };return results8;
-  }
-  )
+    const results8 = [];
+    for (const nearMiss of nearMisses) {
+      results8.push(
+        expect(
+          collectProcessDiagnostics("", `${"x".repeat(17 * 1024)}\n${nearMiss}`)
+        ).toEqual(["stderr: [REDACTED OVERSIZED PROCESS OUTPUT]"])
+      );
+    }
+    return results8;
+  });
 
   return it("matches exact CRLF diagnostics without shared regular-expression state", () => {
     const oversized = [
       "x".repeat(17 * 1024),
       "Error: Dashboard session proof failed: path=/dashboard rendered=other directStatus=404",
-    ].join("\r\n")
+    ].join("\r\n");
     const expected = [
       "stderr: Dashboard session proof failed: path=/dashboard rendered=other directStatus=404",
       "stderr: [REDACTED OVERSIZED PROCESS OUTPUT]",
-    ]
+    ];
 
-    expect(collectProcessDiagnostics("", oversized)).toEqual(expected)
-    return expect(collectProcessDiagnostics("", oversized)).toEqual(expected)
-  }
-  )
-}
-
-)
+    expect(collectProcessDiagnostics("", oversized)).toEqual(expected);
+    return expect(collectProcessDiagnostics("", oversized)).toEqual(expected);
+  });
+});

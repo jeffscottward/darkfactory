@@ -10,8 +10,8 @@ import {
   type WorkflowProjection,
   type WorkflowRepository,
   type WorkflowRetainedResourceClaim,
-} from "@darkfactory/db/server/workflow"
-import type { OutboxEvent } from "@darkfactory/db/schema"
+} from "@darkfactory/db/server/workflow";
+import type { OutboxEvent } from "@darkfactory/db/schema";
 import {
   WORKFLOW_MACHINE_ID,
   MAX_WORKFLOW_HUMAN_REQUEST_BYTES_V1,
@@ -31,7 +31,7 @@ import {
   type WorkflowEventV1,
   type WorkflowJournalEntryV1,
   type WorkflowSnapshotV1,
-} from "@darkfactory/state/workflow"
+} from "@darkfactory/state/workflow";
 
 import {
   DEFAULT_OMP_VERIFIER_MAX_RESULT_BYTES,
@@ -43,12 +43,12 @@ import {
   OMP_VERIFIER_COMMAND_IDENTITY,
   OmpWorkspaceBusyError,
   type OmpCliAdapter,
-} from "./omp.ts"
+} from "./omp.ts";
 import {
   WorkflowPlanEvidenceError,
   parseWorkflowPlanEvidenceV1,
   type WorkflowPlanEvidenceV1,
-} from "./plan-evidence.ts"
+} from "./plan-evidence.ts";
 import {
   WORKFLOW_EFFECT_HANDLER_V1,
   WORKFLOW_EFFECT_HANDLER_V2,
@@ -60,91 +60,102 @@ import {
   type WorkflowEffectHandler,
   type WorkflowOutboxPort,
   type WorkflowWorkerItemResult,
-} from "./workflow-worker.ts"
-import type { WayfinderExecutionPort } from "./wayfinder.ts"
-const MAX_WORKFLOW_FINALIZATION_EVIDENCE_BYTES = 48 * 1_024
+} from "./workflow-worker.ts";
+import type { WayfinderExecutionPort } from "./wayfinder.ts";
+const MAX_WORKFLOW_FINALIZATION_EVIDENCE_BYTES = 48 * 1_024;
 
-
-const MAX_EFFECT_ATTEMPTS = 3
-const BASE_RETRY_MILLISECONDS = 1_000
+const MAX_EFFECT_ATTEMPTS = 3;
+const BASE_RETRY_MILLISECONDS = 1_000;
 
 export class WorkflowProjectionVerificationError extends Error {
-  readonly reason: string
+  readonly reason: string;
 
   constructor(reason: string) {
-    super(`Workflow projection verification failed: ${reason}`)
-    this.name = "WorkflowProjectionVerificationError"
-    this.reason = reason
+    super(`Workflow projection verification failed: ${reason}`);
+    this.name = "WorkflowProjectionVerificationError";
+    this.reason = reason;
   }
 }
 
 export type VerifiedWorkflowProjection = Readonly<{
-  persistence: WorkflowProjection
-  snapshot: WorkflowSnapshotV1
-  journal: readonly WorkflowJournalEntryV1[]
-}>
+  persistence: WorkflowProjection;
+  snapshot: WorkflowSnapshotV1;
+  journal: readonly WorkflowJournalEntryV1[];
+}>;
 
 export type WorkflowCompletionMetadata = Readonly<{
-  ownerId: string
-  runId: string
-  effectId: string
-  effectKind: WorkflowEffectKindV1
-  outboxId: string
-  leaseOwner: string
-  fence: number
-  effectScope: WorkflowEffectScopeV1
-}>
+  ownerId: string;
+  runId: string;
+  effectId: string;
+  effectKind: WorkflowEffectKindV1;
+  outboxId: string;
+  leaseOwner: string;
+  fence: number;
+  effectScope: WorkflowEffectScopeV1;
+}>;
 
 export type WorkflowApplication = Readonly<{
-  repository: WorkflowRepository
-  createRun: (input: Readonly<{
-    ownerId: string
-    runId?: string
-    event: Extract<WorkflowEventV1, { type: "RUN_SUBMITTED" }>
-  }>) => Promise<VerifiedWorkflowProjection>
-  transition: (input: Readonly<{
-    ownerId: string
-    runId: string
-    event: WorkflowEventV1
-  }>) => Promise<VerifiedWorkflowProjection>
-  addMessage: (input: AddWorkflowMessageInput & Readonly<{
-    id: string
-    event: Extract<WorkflowEventV1, { type: "OPERATOR_MESSAGE_ADDED" }>
-  }>) => Promise<VerifiedWorkflowProjection>
-  decideApproval: (input: Readonly<{
-    ownerId: string
-    runId: string
-    approval: DecideWorkflowApprovalInput
-    event: WorkflowEventV1
-  }>) => Promise<VerifiedWorkflowProjection>
+  repository: WorkflowRepository;
+  createRun: (
+    input: Readonly<{
+      ownerId: string;
+      runId?: string;
+      event: Extract<WorkflowEventV1, { type: "RUN_SUBMITTED" }>;
+    }>
+  ) => Promise<VerifiedWorkflowProjection>;
+  transition: (
+    input: Readonly<{
+      ownerId: string;
+      runId: string;
+      event: WorkflowEventV1;
+    }>
+  ) => Promise<VerifiedWorkflowProjection>;
+  addMessage: (
+    input: AddWorkflowMessageInput &
+      Readonly<{
+        id: string;
+        event: Extract<WorkflowEventV1, { type: "OPERATOR_MESSAGE_ADDED" }>;
+      }>
+  ) => Promise<VerifiedWorkflowProjection>;
+  decideApproval: (
+    input: Readonly<{
+      ownerId: string;
+      runId: string;
+      approval: DecideWorkflowApprovalInput;
+      event: WorkflowEventV1;
+    }>
+  ) => Promise<VerifiedWorkflowProjection>;
   findProjection: (
     ownerId: string,
-    runId: string,
-  ) => Promise<VerifiedWorkflowProjection | null>
+    runId: string
+  ) => Promise<VerifiedWorkflowProjection | null>;
   listProjections: (
     ownerId: string,
-    runIds: readonly string[],
-  ) => Promise<readonly VerifiedWorkflowProjection[]>
+    runIds: readonly string[]
+  ) => Promise<readonly VerifiedWorkflowProjection[]>;
   completeEffect: (
-    input: WorkflowCompletionMetadata & Readonly<{ result: WorkflowEffectCompletion }>,
-  ) => Promise<VerifiedWorkflowProjection | null>
+    input: WorkflowCompletionMetadata &
+      Readonly<{ result: WorkflowEffectCompletion }>
+  ) => Promise<VerifiedWorkflowProjection | null>;
   failEffect: (
-    input: WorkflowCompletionMetadata & Readonly<{ result: WorkflowEffectFailure }>,
-  ) => Promise<VerifiedWorkflowProjection | null>
-}>
+    input: WorkflowCompletionMetadata &
+      Readonly<{ result: WorkflowEffectFailure }>
+  ) => Promise<VerifiedWorkflowProjection | null>;
+}>;
 
 export type WorkflowApplicationOptions = Readonly<{
-  now?: () => Date
-  generateId?: () => string
-}>
-
+  now?: () => Date;
+  generateId?: () => string;
+}>;
 
 const snapshotFrom = (projection: WorkflowProjection): WorkflowSnapshotV1 => {
   if (
     projection.snapshot.machineId !== WORKFLOW_MACHINE_ID ||
     projection.snapshot.machineVersion !== WORKFLOW_MACHINE_VERSION
   ) {
-    throw new WorkflowProjectionVerificationError("Unsupported workflow snapshot version")
+    throw new WorkflowProjectionVerificationError(
+      "Unsupported workflow snapshot version"
+    );
   }
   return {
     machineId: WORKFLOW_MACHINE_ID,
@@ -152,98 +163,112 @@ const snapshotFrom = (projection: WorkflowProjection): WorkflowSnapshotV1 => {
     state: projection.snapshot.state,
     sequence: projection.snapshot.sequence,
     journalHeadHash: projection.snapshot.journalHeadHash,
-    context: projection.snapshot.context as unknown as WorkflowSnapshotV1["context"]
-  }
-}
+    context: projection.snapshot
+      .context as unknown as WorkflowSnapshotV1["context"],
+  };
+};
 
 const journalFrom = (
-  projection: WorkflowProjection,
-): readonly WorkflowJournalEntryV1[] => projection.journal.map((entry) => ({
-  sequence: entry.sequence,
-  previousHash: entry.previousHash,
-  hash: entry.hash,
-  event: entry.event as unknown as WorkflowEventV1,
-}))
+  projection: WorkflowProjection
+): readonly WorkflowJournalEntryV1[] =>
+  projection.journal.map((entry) => ({
+    sequence: entry.sequence,
+    previousHash: entry.previousHash,
+    hash: entry.hash,
+    event: entry.event as unknown as WorkflowEventV1,
+  }));
 
-const verifyProjection = (projection: WorkflowProjection): VerifiedWorkflowProjection => {
-  const snapshot = snapshotFrom(projection)
-  const journal = journalFrom(projection)
+const verifyProjection = (
+  projection: WorkflowProjection
+): VerifiedWorkflowProjection => {
+  const snapshot = snapshotFrom(projection);
+  const journal = journalFrom(projection);
   const initialSnapshot = createInitialWorkflowSnapshotV1({
     runId: projection.run.id,
     ownerId: projection.run.ownerId,
-  })
+  });
   const integrity = verifyWorkflowProjectionV1({
     initialSnapshot,
     snapshot,
     journal,
-  })
+  });
   if (!integrity.ok) {
-    throw new WorkflowProjectionVerificationError(integrity.reason)
+    throw new WorkflowProjectionVerificationError(integrity.reason);
   }
-  return Object.freeze({ persistence: projection, snapshot, journal })
-}
+  return Object.freeze({ persistence: projection, snapshot, journal });
+};
 
 const persistedSnapshot = (
-  snapshot: WorkflowSnapshotV1,
+  snapshot: WorkflowSnapshotV1
 ): PersistedWorkflowSnapshot => {
-  const pending = snapshot.context.pendingEffect
+  const pending = snapshot.context.pendingEffect;
   return {
     machineId: snapshot.machineId,
     machineVersion: snapshot.machineVersion,
     state: snapshot.state,
     sequence: snapshot.sequence,
     journalHeadHash: snapshot.journalHeadHash,
-    context: snapshot.context as unknown as PersistedWorkflowSnapshot["context"],
+    context:
+      snapshot.context as unknown as PersistedWorkflowSnapshot["context"],
     ...(pending === null
       ? {}
       : {
           effectHash: hashWorkflowEffectProposalV1(pending),
           effectScope: canonicalJsonV1(pending.scope),
         }),
-  }
-}
+  };
+};
 
 const persistedEffects = (
   ownerId: string,
-  effects: readonly WorkflowEffectV1[],
-): readonly WorkflowEffectInput[] => effects.map((effect) => ({
-  id: effect.id,
-  handler: WORKFLOW_EFFECT_HANDLER_V2,
-  idempotencyKey: effect.idempotencyKey,
-  eventType: "WORKFLOW_EFFECT_REQUESTED",
-  payload: {
-    ownerId,
-    effectId: effect.id,
-    effectKind: effect.kind,
-    effectScope: effect.scope,
-    task: effect.payload,
-  } as unknown as WorkflowEffectInput["payload"],
-}))
+  effects: readonly WorkflowEffectV1[]
+): readonly WorkflowEffectInput[] =>
+  effects.map((effect) => ({
+    id: effect.id,
+    handler: WORKFLOW_EFFECT_HANDLER_V2,
+    idempotencyKey: effect.idempotencyKey,
+    eventType: "WORKFLOW_EFFECT_REQUESTED",
+    payload: {
+      ownerId,
+      effectId: effect.id,
+      effectKind: effect.kind,
+      effectScope: effect.scope,
+      task: effect.payload,
+    } as unknown as WorkflowEffectInput["payload"],
+  }));
 
 export const workflowApprovalIdFor = (snapshot: WorkflowSnapshotV1): string => {
-  const pending = snapshot.context.pendingEffect
+  const pending = snapshot.context.pendingEffect;
   if (snapshot.state !== "awaitingApproval" || pending?.kind !== "implement") {
-    throw new Error("Workflow approval requires an awaiting implementation effect")
+    throw new Error(
+      "Workflow approval requires an awaiting implementation effect"
+    );
+  } else {
+    return `approval-${sha256Hex(
+      canonicalJsonV1({
+        runId: snapshot.context.runId,
+        sequence: snapshot.sequence,
+        journalHeadHash: snapshot.journalHeadHash,
+        effectHash: hashWorkflowEffectProposalV1(pending),
+      })
+    )}`;
   }
-  else {
-    return `approval-${sha256Hex(canonicalJsonV1({
-      runId: snapshot.context.runId,
-      sequence: snapshot.sequence,
-      journalHeadHash: snapshot.journalHeadHash,
-      effectHash: hashWorkflowEffectProposalV1(pending),
-    }))}`
-  }
-}
+};
 
-const completionEventId = (effectId: string): string => `effect-${effectId}-succeeded`
-const failureEventId = (effectId: string): string => `effect-${effectId}-failed`
-const evidenceIdFor = (effectId: string, status: "succeeded" | "failed"): string => {
-  return `evidence-${effectId}-${status}`
-}
+const completionEventId = (effectId: string): string =>
+  `effect-${effectId}-succeeded`;
+const failureEventId = (effectId: string): string =>
+  `effect-${effectId}-failed`;
+const evidenceIdFor = (
+  effectId: string,
+  status: "succeeded" | "failed"
+): string => {
+  return `evidence-${effectId}-${status}`;
+};
 const validImplementationArtifact = (
-  result: WorkflowEffectCompletion,
+  result: WorkflowEffectCompletion
 ): boolean => {
-  const artifact = result.implementationArtifact
+  const artifact = result.implementationArtifact;
   if (
     artifact === undefined ||
     artifact === null ||
@@ -255,14 +280,13 @@ const validImplementationArtifact = (
     !/^[a-f0-9]{64}$/u.test(artifact.digest) ||
     sha256Hex(artifact.content) !== artifact.digest
   ) {
-    return false
+    return false;
   }
-  let parsed: unknown
+  let parsed: unknown;
   try {
-    parsed = JSON.parse(artifact.content)
-  }
-  catch {
-    return false
+    parsed = JSON.parse(artifact.content);
+  } catch {
+    return false;
   }
   if (
     typeof parsed !== "object" ||
@@ -272,19 +296,21 @@ const validImplementationArtifact = (
     !Array.isArray((parsed as { entries?: unknown }).entries) ||
     JSON.stringify(parsed) !== artifact.content
   ) {
-    return false
+    return false;
   }
-  const entries = (parsed as {
-    entries: readonly Readonly<Record<string, unknown>>[]
-  }).entries
+  const entries = (
+    parsed as {
+      entries: readonly Readonly<Record<string, unknown>>[];
+    }
+  ).entries;
   if (
     entries.length === 0 ||
     entries.length > 512 ||
     entries.length !== result.changedPaths.length
   ) {
-    return false
+    return false;
   }
-  const paths: string[] = []
+  const paths: string[] = [];
   for (const entry of entries) {
     if (
       typeof entry !== "object" ||
@@ -292,55 +318,50 @@ const validImplementationArtifact = (
       Array.isArray(entry) ||
       !isWorkflowRelativePathV1(entry["path"])
     ) {
-      return false
+      return false;
     }
-    const path = entry["path"] as string
-    const kind = entry["kind"]
-    const keys = Object.keys(entry).sort().join(",")
-    if (
-      (kind === "directory" || kind === "deleted") &&
-      keys !== "kind,path"
-    ) {
-      return false
+    const path = entry["path"] as string;
+    const kind = entry["kind"];
+    const keys = Object.keys(entry).sort().join(",");
+    if ((kind === "directory" || kind === "deleted") && keys !== "kind,path") {
+      return false;
     }
     if (
       kind === "symlink" &&
-      (
-        keys !== "kind,path,target" ||
+      (keys !== "kind,path,target" ||
         typeof entry["target"] !== "string" ||
         Buffer.byteLength(entry["target"]) > 4_096 ||
-        /[\u0000]/u.test(entry["target"])
-      )
+        /[\u0000]/u.test(entry["target"]))
     ) {
-      return false
+      return false;
     }
     if (kind === "file") {
-      const contentBase64 = entry["contentBase64"]
-      const mode = entry["mode"]
+      const contentBase64 = entry["contentBase64"];
+      const mode = entry["mode"];
       if (
         keys !== "contentBase64,kind,mode,path" ||
         typeof contentBase64 !== "string" ||
         !Number.isSafeInteger(mode) ||
         (mode as number) < 0 ||
         (mode as number) > 0o777 ||
-        Buffer.from(contentBase64, "base64").toString("base64") !== contentBase64
+        Buffer.from(contentBase64, "base64").toString("base64") !==
+          contentBase64
       ) {
-        return false
+        return false;
       }
+    } else if (!["directory", "deleted", "symlink"].includes(String(kind))) {
+      return false;
     }
-    else if (!["directory", "deleted", "symlink"].includes(String(kind))) {
-      return false
-    }
-    paths.push(path)
+    paths.push(path);
   }
-  return JSON.stringify(paths) === JSON.stringify(result.changedPaths)
-}
+  return JSON.stringify(paths) === JSON.stringify(result.changedPaths);
+};
 
 const validVerificationEvidence = (
   result: WorkflowEffectCompletion,
-  expectedChangeDigest: string,
+  expectedChangeDigest: string
 ): boolean => {
-  const verification = result.verification
+  const verification = result.verification;
   if (
     verification === undefined ||
     verification === null ||
@@ -352,7 +373,6 @@ const validVerificationEvidence = (
     result.changeHash !== expectedChangeDigest ||
     !/^[a-f0-9]{64}$/u.test(verification.implementationArtifactDigest) ||
     !/^[a-f0-9]{64}$/u.test(verification.manifestDigest) ||
-
     verification.status !== "succeeded" ||
     verification.exitCode !== 0 ||
     !Number.isSafeInteger(verification.durationMs) ||
@@ -360,154 +380,160 @@ const validVerificationEvidence = (
     !Number.isSafeInteger(verification.resultBytes) ||
     verification.resultBytes <= 0 ||
     verification.resultBytes > DEFAULT_OMP_VERIFIER_MAX_RESULT_BYTES ||
-    Buffer.byteLength(verification.resultSummary) !== verification.resultBytes ||
+    Buffer.byteLength(verification.resultSummary) !==
+      verification.resultBytes ||
     verification.resultSummary.trim().length === 0 ||
     !/^[a-f0-9]{64}$/u.test(verification.digest ?? "")
   ) {
-    return false
+    return false;
   }
-  return ompVerificationDigestFor({
-    commandIdentity: OMP_VERIFIER_COMMAND_IDENTITY,
-    imageDigest: verification.imageDigest,
-    configDigest: verification.configDigest,
-    argvIdentity: OMP_VERIFIER_ARGV_IDENTITY,
-    implementationChangeDigest: verification.implementationChangeDigest,
-    implementationArtifactDigest: verification.implementationArtifactDigest,
-    manifestDigest: verification.manifestDigest,
-    exitCode: 0,
-    resultSummary: verification.resultSummary,
-  }) === verification.digest
-}
-
+  return (
+    ompVerificationDigestFor({
+      commandIdentity: OMP_VERIFIER_COMMAND_IDENTITY,
+      imageDigest: verification.imageDigest,
+      configDigest: verification.configDigest,
+      argvIdentity: OMP_VERIFIER_ARGV_IDENTITY,
+      implementationChangeDigest: verification.implementationChangeDigest,
+      implementationArtifactDigest: verification.implementationArtifactDigest,
+      manifestDigest: verification.manifestDigest,
+      exitCode: 0,
+      resultSummary: verification.resultSummary,
+    }) === verification.digest
+  );
+};
 
 const completionPlanEvidence = (
   effectKind: WorkflowEffectKindV1,
-  result: WorkflowEffectCompletion,
+  result: WorkflowEffectCompletion
 ): WorkflowPlanEvidenceV1 | null => {
   if (effectKind === "plan") {
     try {
-      return parseWorkflowPlanEvidenceV1(result.plan)
-    }
-    catch (error) {
+      return parseWorkflowPlanEvidenceV1(result.plan);
+    } catch (error) {
       if (error instanceof WorkflowPlanEvidenceError) {
         throw new WorkflowProjectionVerificationError(
-          "plan completion lacks digest-bound review evidence",
-        )
+          "plan completion lacks digest-bound review evidence"
+        );
       }
-      throw error
+      throw error;
     }
-  }
-  else if (result.plan !== null) {
+  } else if (result.plan !== null) {
     throw new WorkflowProjectionVerificationError(
-      "non-plan completion contains plan evidence",
-    )
+      "non-plan completion contains plan evidence"
+    );
+  } else {
+    return null;
   }
-  else {
-    return null
-  }
-}
-
+};
 
 export const createWorkflowApplication = (
   repository: WorkflowRepository,
-  applicationOptions: WorkflowApplicationOptions = {},
+  applicationOptions: WorkflowApplicationOptions = {}
 ): WorkflowApplication => {
-  const now = applicationOptions.now ?? (() => new Date())
-  const generateId = applicationOptions.generateId ?? (() => crypto.randomUUID())
+  const now = applicationOptions.now ?? (() => new Date());
+  const generateId =
+    applicationOptions.generateId ?? (() => crypto.randomUUID());
   const requirePlanEvidence = async (
     ownerId: string,
     runId: string,
     evidenceId: string,
-    digest: string,
+    digest: string
   ): Promise<WorkflowPlanEvidenceV1> => {
     const evidence = await repository.findEvidenceByOwner(
       evidenceId,
       runId,
-      ownerId,
-    )
+      ownerId
+    );
     if (evidence === null) {
       throw new WorkflowProjectionVerificationError(
-        "Digest-bound plan evidence is missing",
-      )
+        "Digest-bound plan evidence is missing"
+      );
     }
     if (evidence.kind !== "plan.succeeded") {
       throw new WorkflowProjectionVerificationError(
-        "Digest-bound plan evidence has an invalid kind",
-      )
+        "Digest-bound plan evidence has an invalid kind"
+      );
     }
     try {
-      return parseWorkflowPlanEvidenceV1(evidence.data["plan"], digest)
-    }
-    catch (error) {
+      return parseWorkflowPlanEvidenceV1(evidence.data["plan"], digest);
+    } catch (error) {
       if (error instanceof WorkflowPlanEvidenceError) {
         throw new WorkflowProjectionVerificationError(
-          "Digest-bound plan evidence is invalid",
-        )
-      }
-      else {
-        throw error
+          "Digest-bound plan evidence is invalid"
+        );
+      } else {
+        throw error;
       }
     }
-  }
+  };
 
   const verifyDurablePlan = async (
-    projection: VerifiedWorkflowProjection,
+    projection: VerifiedWorkflowProjection
   ): Promise<VerifiedWorkflowProjection> => {
-    const evidenceId = projection.snapshot.context.planEvidenceId
-    const digest = projection.snapshot.context.planHash
+    const evidenceId = projection.snapshot.context.planEvidenceId;
+    const digest = projection.snapshot.context.planHash;
     if (evidenceId === null || digest === null) {
       if (evidenceId !== null || digest !== null) {
         throw new WorkflowProjectionVerificationError(
-          "Plan evidence identity is incomplete",
-        )
+          "Plan evidence identity is incomplete"
+        );
       }
-      return projection
+      return projection;
     }
     await requirePlanEvidence(
       projection.persistence.run.ownerId,
       projection.persistence.run.id,
       evidenceId,
-      digest,
-    )
-    return projection
-  }
-
+      digest
+    );
+    return projection;
+  };
 
   const findProjection = async (
     ownerId: string,
-    runId: string,
+    runId: string
   ): Promise<VerifiedWorkflowProjection | null> => {
-    const found = await repository.findProjectionByOwner(runId, ownerId)
-    return found === null ? null : verifyDurablePlan(verifyProjection(found))
-  }
+    const found = await repository.findProjectionByOwner(runId, ownerId);
+    return found === null ? null : verifyDurablePlan(verifyProjection(found));
+  };
 
   const listProjections = async (
     ownerId: string,
-    runIds: readonly string[],
+    runIds: readonly string[]
   ): Promise<readonly VerifiedWorkflowProjection[]> => {
-    const found = await repository.listProjectionsByOwner(ownerId, runIds)
-    return Object.freeze(found.map(verifyProjection))
-  }
+    const found = await repository.listProjectionsByOwner(ownerId, runIds);
+    return Object.freeze(found.map(verifyProjection));
+  };
 
-  const transitionEvent = async (input: Readonly<{
-    ownerId: string
-    runId: string
-    event: WorkflowEventV1
-  }>): Promise<VerifiedWorkflowProjection> => {
-    const current = await findProjection(input.ownerId, input.runId)
-    if (current === null) throw new WorkflowRunNotFoundError()
-    if (current.journal.some((entry) => entry.event.eventId === input.event.eventId)) {
-      return current
+  const transitionEvent = async (
+    input: Readonly<{
+      ownerId: string;
+      runId: string;
+      event: WorkflowEventV1;
+    }>
+  ): Promise<VerifiedWorkflowProjection> => {
+    const current = await findProjection(input.ownerId, input.runId);
+    if (current === null) throw new WorkflowRunNotFoundError();
+    if (
+      current.journal.some(
+        (entry) => entry.event.eventId === input.event.eventId
+      )
+    ) {
+      return current;
     }
     if (input.event.type === "PLAN_SUCCEEDED") {
       await requirePlanEvidence(
         input.ownerId,
         input.runId,
         input.event.planEvidenceId,
-        input.event.planHash,
-      )
+        input.event.planHash
+      );
     }
-    const transitioned = transitionWorkflowV1(current.snapshot, input.event, "live")
+    const transitioned = transitionWorkflowV1(
+      current.snapshot,
+      input.event,
+      "live"
+    );
     const appended = await repository.append({
       runId: input.runId,
       ownerId: input.ownerId,
@@ -516,41 +542,45 @@ export const createWorkflowApplication = (
       event: input.event as unknown as PersistedWorkflowEvent,
       snapshot: persistedSnapshot(transitioned.snapshot),
       effects: persistedEffects(input.ownerId, transitioned.effects),
-    })
-    return verifyDurablePlan(verifyProjection(appended.projection))
-  }
+    });
+    return verifyDurablePlan(verifyProjection(appended.projection));
+  };
 
   const addMessage = async (
-    input: AddWorkflowMessageInput & Readonly<{
-      id: string
-      event: Extract<WorkflowEventV1, { type: "OPERATOR_MESSAGE_ADDED" }>
-    }>,
+    input: AddWorkflowMessageInput &
+      Readonly<{
+        id: string;
+        event: Extract<WorkflowEventV1, { type: "OPERATOR_MESSAGE_ADDED" }>;
+      }>
   ): Promise<VerifiedWorkflowProjection> => {
-    const current = await findProjection(input.ownerId, input.runId)
-    if (current === null) throw new WorkflowRunNotFoundError()
+    const current = await findProjection(input.ownerId, input.runId);
+    if (current === null) throw new WorkflowRunNotFoundError();
     const existing = current.journal.find(
-      (entry) => entry.event.eventId === input.event.eventId,
-    )
+      (entry) => entry.event.eventId === input.event.eventId
+    );
     if (
       existing !== undefined &&
-      (
-        existing.event.type !== "OPERATOR_MESSAGE_ADDED" ||
-        existing.event.messageId !== input.id
-      )
+      (existing.event.type !== "OPERATOR_MESSAGE_ADDED" ||
+        existing.event.messageId !== input.id)
     ) {
-      throw new WorkflowConcurrencyError()
+      throw new WorkflowConcurrencyError();
     }
 
-    let append: Parameters<WorkflowRepository["addMessageAndAppend"]>[0]["append"] =
-      null
+    let append: Parameters<
+      WorkflowRepository["addMessageAndAppend"]
+    >[0]["append"] = null;
     if (existing === undefined) {
       if (
         current.snapshot.state === "completed" ||
         current.snapshot.state === "cancelled"
       ) {
-        throw new WorkflowRunTerminalError(current.snapshot.state)
+        throw new WorkflowRunTerminalError(current.snapshot.state);
       }
-      const transitioned = transitionWorkflowV1(current.snapshot, input.event, "live")
+      const transitioned = transitionWorkflowV1(
+        current.snapshot,
+        input.event,
+        "live"
+      );
       append = {
         runId: input.runId,
         ownerId: input.ownerId,
@@ -559,31 +589,33 @@ export const createWorkflowApplication = (
         event: input.event as unknown as PersistedWorkflowEvent,
         snapshot: persistedSnapshot(transitioned.snapshot),
         effects: persistedEffects(input.ownerId, transitioned.effects),
-      }
+      };
     }
     const added = await repository.addMessageAndAppend({
       ...input,
       event: input.event as unknown as PersistedWorkflowEvent,
       append,
-    })
-    return verifyProjection(added.projection)
-  }
+    });
+    return verifyProjection(added.projection);
+  };
 
-  const decideApproval = async (input: Readonly<{
-    ownerId: string
-    runId: string
-    approval: DecideWorkflowApprovalInput
-    event: WorkflowEventV1
-  }>): Promise<VerifiedWorkflowProjection> => {
-    const current = await findProjection(input.ownerId, input.runId)
-    if (current === null) throw new WorkflowRunNotFoundError()
+  const decideApproval = async (
+    input: Readonly<{
+      ownerId: string;
+      runId: string;
+      approval: DecideWorkflowApprovalInput;
+      event: WorkflowEventV1;
+    }>
+  ): Promise<VerifiedWorkflowProjection> => {
+    const current = await findProjection(input.ownerId, input.runId);
+    if (current === null) throw new WorkflowRunNotFoundError();
     const existing = current.journal.find(
-      (entry) => entry.event.eventId === input.event.eventId,
-    )
-    const effectiveEvent = existing?.event ?? input.event
+      (entry) => entry.event.eventId === input.event.eventId
+    );
+    const effectiveEvent = existing?.event ?? input.event;
     const transitioned = existing
       ? { snapshot: current.snapshot, effects: Object.freeze([]) }
-      : transitionWorkflowV1(current.snapshot, effectiveEvent, "live")
+      : transitionWorkflowV1(current.snapshot, effectiveEvent, "live");
     const appended = await repository.decideApprovalAndAppend({
       approval: input.approval,
       append: {
@@ -595,38 +627,36 @@ export const createWorkflowApplication = (
         snapshot: persistedSnapshot(transitioned.snapshot),
         effects: persistedEffects(input.ownerId, transitioned.effects),
       },
-    })
-    return verifyProjection(appended.projection)
-  }
+    });
+    return verifyProjection(appended.projection);
+  };
 
   const finalizeTransition = async (
     input: WorkflowCompletionMetadata &
       Readonly<{ result: WorkflowEffectCompletion | WorkflowEffectFailure }>,
     status: "succeeded" | "failed",
-    proposedEvent: WorkflowEventV1,
+    proposedEvent: WorkflowEventV1
   ): Promise<VerifiedWorkflowProjection | null> => {
-    const current = await findProjection(input.ownerId, input.runId)
-    if (current === null) throw new WorkflowRunNotFoundError()
+    const current = await findProjection(input.ownerId, input.runId);
+    if (current === null) throw new WorkflowRunNotFoundError();
     if (
       status === "succeeded" &&
       input.effectKind === "verify" &&
-      (
-        !("eventType" in input.result) ||
+      (!("eventType" in input.result) ||
         current.snapshot.context.changeHash === null ||
         !validVerificationEvidence(
           input.result as WorkflowEffectCompletion,
-          current.snapshot.context.changeHash,
-        )
-      )
+          current.snapshot.context.changeHash
+        ))
     ) {
       throw new WorkflowProjectionVerificationError(
-        "verification completion is not bound to implementation evidence",
-      )
+        "verification completion is not bound to implementation evidence"
+      );
     }
     const existing = current.journal.find(
-      (entry) => entry.event.eventId === proposedEvent.eventId,
-    )
-    let event: WorkflowEventV1
+      (entry) => entry.event.eventId === proposedEvent.eventId
+    );
+    let event: WorkflowEventV1;
     if (existing !== undefined && proposedEvent.type === "PLAN_SUCCEEDED") {
       if (
         existing.event.type !== "PLAN_SUCCEEDED" ||
@@ -636,52 +666,52 @@ export const createWorkflowApplication = (
           canonicalJsonV1(proposedEvent.implementationScope)
       ) {
         throw new WorkflowProjectionVerificationError(
-          "replayed plan completion does not match durable evidence",
-        )
+          "replayed plan completion does not match durable evidence"
+        );
       }
-      event = existing.event
+      event = existing.event;
+    } else {
+      event = existing?.event ?? proposedEvent;
     }
-    else {
-      event = existing?.event ?? proposedEvent
-    }
-    const transitioned = existing === undefined
-      ? transitionWorkflowV1(current.snapshot, event, "live")
-      : { snapshot: current.snapshot, effects: Object.freeze([]) }
-    const approval = input.effectKind === "plan" && status === "succeeded"
-      ? (() => {
-          const approvalId = workflowApprovalIdFor(transitioned.snapshot)
-          const binding = createWorkflowApprovalBindingV1(
-            approvalId,
-            transitioned.snapshot,
-          )
-          return {
-            id: approvalId,
-            runId: input.runId,
-            ownerId: input.ownerId,
-            machineId: binding.machineId,
-            machineVersion: binding.machineVersion,
-            eventVersion: binding.eventVersion,
-            snapshotSequence: binding.snapshotSequence,
-            journalHeadHash: binding.journalHeadHash,
-            effectHash: binding.effectHash,
-            effectScope: canonicalJsonV1(binding.effectScope),
-          }
-      }
-        )()
-      : undefined
+    const transitioned =
+      existing === undefined
+        ? transitionWorkflowV1(current.snapshot, event, "live")
+        : { snapshot: current.snapshot, effects: Object.freeze([]) };
+    const approval =
+      input.effectKind === "plan" && status === "succeeded"
+        ? (() => {
+            const approvalId = workflowApprovalIdFor(transitioned.snapshot);
+            const binding = createWorkflowApprovalBindingV1(
+              approvalId,
+              transitioned.snapshot
+            );
+            return {
+              id: approvalId,
+              runId: input.runId,
+              ownerId: input.ownerId,
+              machineId: binding.machineId,
+              machineVersion: binding.machineVersion,
+              eventVersion: binding.eventVersion,
+              snapshotSequence: binding.snapshotSequence,
+              journalHeadHash: binding.journalHeadHash,
+              effectHash: binding.effectHash,
+              effectScope: canonicalJsonV1(binding.effectScope),
+            };
+          })()
+        : undefined;
     const evidenceData = {
       effectId: input.effectId,
       effectKind: input.effectKind,
       effectScope: canonicalJsonV1(input.effectScope),
       ...input.result,
-    }
+    };
     if (
       Buffer.byteLength(canonicalJsonV1(evidenceData)) >
       MAX_WORKFLOW_FINALIZATION_EVIDENCE_BYTES
     ) {
       throw new WorkflowProjectionVerificationError(
-        "effect completion evidence exceeds the durable envelope",
-      )
+        "effect completion evidence exceeds the durable envelope"
+      );
     }
 
     const finalized = await repository.finalizeEffect({
@@ -713,36 +743,33 @@ export const createWorkflowApplication = (
         >[0]["data"],
       },
       ...(approval === undefined ? {} : { approval }),
-    })
-    if (finalized.projection === null) return null
-    return verifyDurablePlan(verifyProjection(finalized.projection))
-  }
+    });
+    if (finalized.projection === null) return null;
+    return verifyDurablePlan(verifyProjection(finalized.projection));
+  };
 
   const completeEffect = async (
-    input: WorkflowCompletionMetadata & Readonly<{ result: WorkflowEffectCompletion }>,
+    input: WorkflowCompletionMetadata &
+      Readonly<{ result: WorkflowEffectCompletion }>
   ): Promise<VerifiedWorkflowProjection | null> => {
-    const eventId = completionEventId(input.effectId)
-    const evidenceId = evidenceIdFor(input.effectId, "succeeded")
+    const eventId = completionEventId(input.effectId);
+    const evidenceId = evidenceIdFor(input.effectId, "succeeded");
     if (
       input.result.status !== "succeeded" ||
       input.result.exitCode !== 0 ||
-      (
-        input.effectKind === "plan" &&
-        input.result.eventType !== "PLAN_SUCCEEDED"
-      ) ||
-      (
-        input.effectKind === "verify" &&
-          input.result.eventType !== "VERIFICATION_SUCCEEDED"
-      )
+      (input.effectKind === "plan" &&
+        input.result.eventType !== "PLAN_SUCCEEDED") ||
+      (input.effectKind === "verify" &&
+        input.result.eventType !== "VERIFICATION_SUCCEEDED")
     ) {
       throw new WorkflowProjectionVerificationError(
-        "effect completion lacks trusted success evidence",
-      )
+        "effect completion lacks trusted success evidence"
+      );
     }
 
-    const plan = completionPlanEvidence(input.effectKind, input.result)
+    const plan = completionPlanEvidence(input.effectKind, input.result);
 
-    let implementationChangeHash: string | null = null
+    let implementationChangeHash: string | null = null;
     if (input.effectKind === "implement") {
       if (
         input.result.eventType !== "IMPLEMENTATION_SUCCEEDED" ||
@@ -750,65 +777,68 @@ export const createWorkflowApplication = (
         !/^[a-f0-9]{64}$/u.test(input.result.changeHash) ||
         input.result.changedPaths.length === 0 ||
         input.result.changedPaths.length > 512 ||
-        Buffer.byteLength(JSON.stringify(input.result.changedPaths)) > 8 * 1_024 ||
+        Buffer.byteLength(JSON.stringify(input.result.changedPaths)) >
+          8 * 1_024 ||
         !input.result.changedPaths.every(isWorkflowRelativePathV1) ||
         !validImplementationArtifact(input.result)
       ) {
         throw new WorkflowProjectionVerificationError(
-          "implementation completion lacks bounded change evidence",
-        )
+          "implementation completion lacks bounded change evidence"
+        );
       }
-      implementationChangeHash = input.result.changeHash
+      implementationChangeHash = input.result.changeHash;
     }
-    const occurredAt = now().toISOString()
-    const event: WorkflowEventV1 = input.effectKind === "plan"
-      ? {
-          type: "PLAN_SUCCEEDED",
-          eventId,
-          eventVersion: 1,
-          machineVersion: 1,
-          occurredAt,
-          planEvidenceId: evidenceId,
-          planHash: plan!.digest,
-          implementationScope: input.effectScope,
-        }
-      : input.effectKind === "implement"
+    const occurredAt = now().toISOString();
+    const event: WorkflowEventV1 =
+      input.effectKind === "plan"
         ? {
-            type: "IMPLEMENTATION_SUCCEEDED",
+            type: "PLAN_SUCCEEDED",
             eventId,
             eventVersion: 1,
             machineVersion: 1,
             occurredAt,
-            implementationEvidenceId: evidenceId,
-            changeHash: implementationChangeHash!,
-            verificationScope: input.effectScope,
+            planEvidenceId: evidenceId,
+            planHash: plan!.digest,
+            implementationScope: input.effectScope,
           }
-        : {
-            type: "VERIFICATION_SUCCEEDED",
-            eventId,
-            eventVersion: 1,
-            machineVersion: 1,
-            occurredAt,
-            verificationEvidenceId: evidenceId,
-          }
-    return finalizeTransition(input, "succeeded", event)
-  }
+        : input.effectKind === "implement"
+          ? {
+              type: "IMPLEMENTATION_SUCCEEDED",
+              eventId,
+              eventVersion: 1,
+              machineVersion: 1,
+              occurredAt,
+              implementationEvidenceId: evidenceId,
+              changeHash: implementationChangeHash!,
+              verificationScope: input.effectScope,
+            }
+          : {
+              type: "VERIFICATION_SUCCEEDED",
+              eventId,
+              eventVersion: 1,
+              machineVersion: 1,
+              occurredAt,
+              verificationEvidenceId: evidenceId,
+            };
+    return finalizeTransition(input, "succeeded", event);
+  };
 
   const failEffect = async (
-    input: WorkflowCompletionMetadata & Readonly<{ result: WorkflowEffectFailure }>,
+    input: WorkflowCompletionMetadata &
+      Readonly<{ result: WorkflowEffectFailure }>
   ): Promise<VerifiedWorkflowProjection | null> => {
     if (
       input.result.changedPaths.length > 512 ||
-      Buffer.byteLength(JSON.stringify(input.result.changedPaths)) > 8 * 1_024 ||
-      (input.result.changedPaths.length > 0 && input.result.changeHash === null) ||
-      (
-        input.result.changeHash !== null &&
-        !/^[a-f0-9]{64}$/u.test(input.result.changeHash)
-      )
+      Buffer.byteLength(JSON.stringify(input.result.changedPaths)) >
+        8 * 1_024 ||
+      (input.result.changedPaths.length > 0 &&
+        input.result.changeHash === null) ||
+      (input.result.changeHash !== null &&
+        !/^[a-f0-9]{64}$/u.test(input.result.changeHash))
     ) {
       throw new WorkflowProjectionVerificationError(
-        "effect failure has invalid change evidence",
-      )
+        "effect failure has invalid change evidence"
+      );
     }
     return finalizeTransition(input, "failed", {
       type: "EFFECT_FAILED",
@@ -821,8 +851,8 @@ export const createWorkflowApplication = (
         code: input.result.failureCode,
         retryable: input.result.retryable,
       },
-    })
-  }
+    });
+  };
 
   return Object.freeze({
     repository,
@@ -832,33 +862,38 @@ export const createWorkflowApplication = (
     addMessage,
     decideApproval,
     createRun: async (input) => {
-      const runId = input.runId ?? generateId()
-      const initial = createInitialWorkflowSnapshotV1({ runId, ownerId: input.ownerId })
-      const transitioned = transitionWorkflowV1(initial, input.event, "live")
+      const runId = input.runId ?? generateId();
+      const initial = createInitialWorkflowSnapshotV1({
+        runId,
+        ownerId: input.ownerId,
+      });
+      const transitioned = transitionWorkflowV1(initial, input.event, "live");
       const created = await repository.createRun({
         id: runId,
         ownerId: input.ownerId,
         event: input.event as unknown as PersistedWorkflowEvent,
         snapshot: persistedSnapshot(transitioned.snapshot),
         effects: persistedEffects(input.ownerId, transitioned.effects),
-      })
-      return verifyProjection(created)
+      });
+      return verifyProjection(created);
     },
     completeEffect,
     failEffect,
-  })
-}
+  });
+};
 
-const isRecord = (value: unknown): value is Readonly<Record<string, unknown>> => {
-  return typeof value === "object" && value !== null && !Array.isArray(value)
-}
+const isRecord = (
+  value: unknown
+): value is Readonly<Record<string, unknown>> => {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+};
 
 const requiredString = (value: unknown, field: string): string => {
   if (typeof value !== "string" || value.length === 0 || value.length > 1_024) {
-    throw new TypeError(`Invalid workflow effect ${field}`)
+    throw new TypeError(`Invalid workflow effect ${field}`);
   }
-  return value
-}
+  return value;
+};
 
 const requiredTaskTitle = (value: unknown): string => {
   if (
@@ -867,26 +902,25 @@ const requiredTaskTitle = (value: unknown): string => {
     new TextEncoder().encode(value).byteLength > 1_024 ||
     /[\u0000-\u001F\u007F]/u.test(value)
   ) {
-    throw new TypeError("Invalid workflow effect task title")
+    throw new TypeError("Invalid workflow effect task title");
+  } else {
+    return value;
   }
-  else {
-    return value
-  }
-}
+};
 
 const workflowExecutionMetadataFor = (
-  task: Readonly<Record<string, unknown>>,
+  task: Readonly<Record<string, unknown>>
 ): Readonly<{
-  executionMode?: "pilot" | "wayfinder"
-  humanRequest?: string
+  executionMode?: "pilot" | "wayfinder";
+  humanRequest?: string;
 }> => {
-  const executionMode = task["executionMode"]
-  const humanRequest = task["humanRequest"]
+  const executionMode = task["executionMode"];
+  const humanRequest = task["humanRequest"];
   if (executionMode === undefined && humanRequest === undefined) {
-    return Object.freeze({})
+    return Object.freeze({});
   }
   if (executionMode === "pilot" && humanRequest === undefined) {
-    return Object.freeze({ executionMode })
+    return Object.freeze({ executionMode });
   }
   if (
     executionMode === "wayfinder" &&
@@ -897,16 +931,16 @@ const workflowExecutionMetadataFor = (
       MAX_WORKFLOW_HUMAN_REQUEST_BYTES_V1 &&
     !/[\u0000-\u001F\u007F]/u.test(humanRequest)
   ) {
-    return Object.freeze({ executionMode, humanRequest })
+    return Object.freeze({ executionMode, humanRequest });
   }
-  throw new TypeError("Invalid workflow effect execution metadata")
-}
+  throw new TypeError("Invalid workflow effect execution metadata");
+};
 
 const workflowPlanClarificationFor = (
-  task: Readonly<Record<string, unknown>>,
+  task: Readonly<Record<string, unknown>>
 ): Readonly<{ planClarification?: string }> => {
-  const planClarification = task["planClarification"]
-  if (planClarification === undefined) return Object.freeze({})
+  const planClarification = task["planClarification"];
+  if (planClarification === undefined) return Object.freeze({});
   if (
     typeof planClarification !== "string" ||
     planClarification.length === 0 ||
@@ -915,34 +949,32 @@ const workflowPlanClarificationFor = (
       MAX_WORKFLOW_HUMAN_REQUEST_BYTES_V1 ||
     /[\u0000-\u001F\u007F]/u.test(planClarification)
   ) {
-    throw new TypeError("Invalid workflow plan clarification")
+    throw new TypeError("Invalid workflow plan clarification");
   }
-  return Object.freeze({ planClarification })
-}
+  return Object.freeze({ planClarification });
+};
 
 const requiredInteger = (value: unknown, field: string): number => {
   if (!Number.isSafeInteger(value) || (value as number) < 0) {
-    throw new TypeError(`Invalid workflow effect ${field}`)
+    throw new TypeError(`Invalid workflow effect ${field}`);
   }
-  return value as number
-}
+  return value as number;
+};
 
 const parseScope = (value: unknown): WorkflowEffectScopeV1 => {
-  return parseWorkflowEffectScopeV1(value)
-}
+  return parseWorkflowEffectScopeV1(value);
+};
 
 const parseClaim = (
   row: OutboxEvent,
-  expectedHandler: WorkflowEffectHandler,
+  expectedHandler: WorkflowEffectHandler
 ): Readonly<{
-  claim: ClaimedWorkflowEffect
-  metadata: WorkflowCompletionMetadata
+  claim: ClaimedWorkflowEffect;
+  metadata: WorkflowCompletionMetadata;
 }> => {
   if (
-    (
-      expectedHandler !== WORKFLOW_EFFECT_HANDLER_V1 &&
-      expectedHandler !== WORKFLOW_EFFECT_HANDLER_V2
-    ) ||
+    (expectedHandler !== WORKFLOW_EFFECT_HANDLER_V1 &&
+      expectedHandler !== WORKFLOW_EFFECT_HANDLER_V2) ||
     row.handler !== expectedHandler ||
     row.aggregateType !== "workflow_run" ||
     row.idempotencyKey === null ||
@@ -950,28 +982,32 @@ const parseClaim = (
     row.fence <= 0 ||
     !isRecord(row.payload)
   ) {
-    throw new TypeError("Invalid claimed workflow effect")
+    throw new TypeError("Invalid claimed workflow effect");
   }
-  const payload = row.payload
-  const task = payload["task"]
-  if (!isRecord(task)) throw new TypeError("Invalid workflow effect task metadata")
-  const effectKind = requiredString(payload["effectKind"], "kind")
-  if (effectKind !== "plan" && effectKind !== "implement" && effectKind !== "verify") {
-    throw new TypeError("Invalid workflow effect kind")
+  const payload = row.payload;
+  const task = payload["task"];
+  if (!isRecord(task))
+    throw new TypeError("Invalid workflow effect task metadata");
+  const effectKind = requiredString(payload["effectKind"], "kind");
+  if (
+    effectKind !== "plan" &&
+    effectKind !== "implement" &&
+    effectKind !== "verify"
+  ) {
+    throw new TypeError("Invalid workflow effect kind");
   }
-  const effectScope = parseScope(payload["effectScope"])
-  const ownerId = requiredString(payload["ownerId"], "ownerId")
-  const effectId = requiredString(payload["effectId"], "effectId")
-  const executionMetadata = workflowExecutionMetadataFor(task)
-  const planClarification = workflowPlanClarificationFor(task)
+  const effectScope = parseScope(payload["effectScope"]);
+  const ownerId = requiredString(payload["ownerId"], "ownerId");
+  const effectId = requiredString(payload["effectId"], "effectId");
+  const executionMetadata = workflowExecutionMetadataFor(task);
+  const planClarification = workflowPlanClarificationFor(task);
   if (
     planClarification.planClarification !== undefined &&
-    (
-      row.handler !== WORKFLOW_EFFECT_HANDLER_V2 ||
-      effectKind !== "plan"
-    )
+    (row.handler !== WORKFLOW_EFFECT_HANDLER_V2 || effectKind !== "plan")
   ) {
-    throw new TypeError("Workflow effect handler does not support plan clarification")
+    throw new TypeError(
+      "Workflow effect handler does not support plan clarification"
+    );
   }
   const taskMetadata = Object.freeze({
     taskId: requiredTaskTitle(task["taskId"]),
@@ -981,7 +1017,7 @@ const parseClaim = (
     sourceSequence: requiredInteger(task["sourceSequence"], "sourceSequence"),
     ...executionMetadata,
     ...planClarification,
-  })
+  });
   return Object.freeze({
     claim: Object.freeze({
       id: row.id,
@@ -1013,101 +1049,105 @@ const parseClaim = (
       leaseOwner: row.leaseOwner,
       fence: row.fence,
     }),
-  })
-}
+  });
+};
 
 export type WorkflowRepositoryOutboxAdapterOptions = Readonly<{
-  repository: WorkflowRepository
-  application: WorkflowApplication
-  now?: () => Date
-}>
+  repository: WorkflowRepository;
+  application: WorkflowApplication;
+  now?: () => Date;
+}>;
 
 export const createWorkflowRepositoryOutboxAdapter = (
-  options: WorkflowRepositoryOutboxAdapterOptions,
+  options: WorkflowRepositoryOutboxAdapterOptions
 ): WorkflowOutboxPort => {
-  const now = options.now ?? (() => new Date())
-  const claims = new Map<string, ReturnType<typeof parseClaim>>()
-  const owned = (input: Readonly<{ id: string; leaseOwner: string; fenceToken: number }>) => {
-    const parsed = claims.get(input.id)
+  const now = options.now ?? (() => new Date());
+  const claims = new Map<string, ReturnType<typeof parseClaim>>();
+  const owned = (
+    input: Readonly<{ id: string; leaseOwner: string; fenceToken: number }>
+  ) => {
+    const parsed = claims.get(input.id);
     if (
       parsed === undefined ||
       parsed.claim.leaseOwner !== input.leaseOwner ||
       parsed.claim.fenceToken !== input.fenceToken
     ) {
-      return null
+      return null;
     }
-    return parsed
-  }
+    return parsed;
+  };
 
   return Object.freeze({
     claimDueEffects: async (input) => {
-      const rows = await options.repository.claimDueEffects(input)
+      const rows = await options.repository.claimDueEffects(input);
       return rows.map((row) => {
-        const parsed = parseClaim(row, input.handler)
-        claims.set(row.id, parsed)
-        return parsed.claim
-      }
-      )
+        const parsed = parseClaim(row, input.handler);
+        claims.set(row.id, parsed);
+        return parsed.claim;
+      });
     },
     heartbeatEffect: async (input) => {
-      if (owned(input) === null) return false
+      if (owned(input) === null) return false;
       try {
         const renewed = await options.repository.heartbeatEffect({
           id: input.id,
           leaseOwner: input.leaseOwner,
           fence: input.fenceToken,
           leaseMilliseconds: input.leaseMilliseconds,
-        })
-        if (!renewed) claims.delete(input.id)
-        return renewed
-      }
-      catch (error) {
-        claims.delete(input.id)
-        throw error
+        });
+        if (!renewed) claims.delete(input.id);
+        return renewed;
+      } catch (error) {
+        claims.delete(input.id);
+        throw error;
       }
     },
     completeEffect: async (input) => {
-      const parsed = owned(input)
-      if (parsed === null) return false
+      const parsed = owned(input);
+      if (parsed === null) return false;
       try {
         const projection = await options.application.completeEffect({
           ...parsed.metadata,
           result: input.result,
-        })
-        return projection !== null
-      }
-      finally {
-        claims.delete(input.id)
+        });
+        return projection !== null;
+      } finally {
+        claims.delete(input.id);
       }
     },
     failEffect: async (input) => {
-      const parsed = owned(input)
-      if (parsed === null) return "unpersisted" as const
+      const parsed = owned(input);
+      if (parsed === null) return "unpersisted" as const;
       try {
-        if (input.result.retryable && parsed.claim.attemptCount + 1 < MAX_EFFECT_ATTEMPTS) {
+        if (
+          input.result.retryable &&
+          parsed.claim.attemptCount + 1 < MAX_EFFECT_ATTEMPTS
+        ) {
           const retried = await options.repository.failEffect({
             id: input.id,
             leaseOwner: input.leaseOwner,
             fence: input.fenceToken,
             error: input.result.failureCode,
             retryAt: new Date(
-              now().getTime() + BASE_RETRY_MILLISECONDS * 2 ** parsed.claim.attemptCount,
+              now().getTime() +
+                BASE_RETRY_MILLISECONDS * 2 ** parsed.claim.attemptCount
             ),
-          })
-          return retried ? "retry" as const : "unpersisted" as const
+          });
+          return retried ? ("retry" as const) : ("unpersisted" as const);
         }
         const projection = await options.application.failEffect({
           ...parsed.metadata,
           result: input.result,
-        })
-        return projection !== null ? "persisted" as const : "unpersisted" as const
+        });
+        return projection !== null
+          ? ("persisted" as const)
+          : ("unpersisted" as const);
+      } finally {
+        claims.delete(input.id);
       }
-      finally {
-        claims.delete(input.id)
-      }
-    }
-  })
-}
+    },
+  });
+};
 
 export type WorkflowRetainedResourcePort = Pick<
   WorkflowRepository,
@@ -1116,36 +1156,36 @@ export type WorkflowRetainedResourcePort = Pick<
   | "releaseRetainedResource"
   | "completeRetainedResource"
   | "failRetainedResource"
->
+>;
 
 export type WorkflowTerminalReconcilerResult = Readonly<{
-  runId: string
-  status: "completed"
-}>
+  runId: string;
+  status: "completed";
+}>;
 
 export type WorkflowTerminalReconciler = Readonly<{
-  runOnce: () => Promise<readonly WorkflowTerminalReconcilerResult[]>
-  stop: () => Promise<void>
-}>
+  runOnce: () => Promise<readonly WorkflowTerminalReconcilerResult[]>;
+  stop: () => Promise<void>;
+}>;
 
 export const createWorkflowTerminalReconciler = (
   options: Readonly<{
-    repository: WorkflowRetainedResourcePort
-    leaseOwner: string
+    repository: WorkflowRetainedResourcePort;
+    leaseOwner: string;
     cleanup: (
       claim: WorkflowRetainedResourceClaim,
-      signal: AbortSignal,
-    ) => Promise<void>
-    limit?: number
-    leaseMilliseconds?: number
-    heartbeatMilliseconds?: number
-    now?: () => Date
-  }>,
+      signal: AbortSignal
+    ) => Promise<void>;
+    limit?: number;
+    leaseMilliseconds?: number;
+    heartbeatMilliseconds?: number;
+    now?: () => Date;
+  }>
 ): WorkflowTerminalReconciler => {
-  const limit = options.limit ?? 8
-  const leaseMilliseconds = options.leaseMilliseconds ?? 30_000
-  const heartbeatMilliseconds = options.heartbeatMilliseconds ?? 10_000
-  const now = options.now ?? (() => new Date())
+  const limit = options.limit ?? 8;
+  const leaseMilliseconds = options.leaseMilliseconds ?? 30_000;
+  const heartbeatMilliseconds = options.heartbeatMilliseconds ?? 10_000;
+  const now = options.now ?? (() => new Date());
   if (
     !Number.isSafeInteger(limit) ||
     limit <= 0 ||
@@ -1157,74 +1197,73 @@ export const createWorkflowTerminalReconciler = (
     heartbeatMilliseconds <= 0 ||
     heartbeatMilliseconds >= leaseMilliseconds
   ) {
-    throw new TypeError("Invalid retained resource reconciler bounds")
+    throw new TypeError("Invalid retained resource reconciler bounds");
   }
-  let stopping = false
-  let activeRun: Promise<readonly WorkflowTerminalReconcilerResult[]> | null = null
-  const activeControllers = new Set<AbortController>()
+  let stopping = false;
+  let activeRun: Promise<readonly WorkflowTerminalReconcilerResult[]> | null =
+    null;
+  const activeControllers = new Set<AbortController>();
   const processClaim = async (
-    claim: WorkflowRetainedResourceClaim,
-  ): Promise<Readonly<{
-    result?: WorkflowTerminalReconcilerResult
-    persistenceError?: unknown
-  }>> => {
-    const abortController = new AbortController()
-    activeControllers.add(abortController)
-    let leaseLost = false
-    let heartbeatTail = Promise.resolve(true)
+    claim: WorkflowRetainedResourceClaim
+  ): Promise<
+    Readonly<{
+      result?: WorkflowTerminalReconcilerResult;
+      persistenceError?: unknown;
+    }>
+  > => {
+    const abortController = new AbortController();
+    activeControllers.add(abortController);
+    let leaseLost = false;
+    let heartbeatTail = Promise.resolve(true);
     const queueHeartbeat = (): Promise<boolean> => {
       heartbeatTail = heartbeatTail.then(async (stillOwned) => {
-        if (!stillOwned) return false
+        if (!stillOwned) return false;
         try {
           const renewed = await options.repository.heartbeatRetainedResource({
             runId: claim.runId,
             leaseOwner: claim.leaseOwner,
             fence: claim.fence,
             leaseMilliseconds,
-          })
+          });
           if (!renewed) {
-            leaseLost = true
-            abortController.abort()
+            leaseLost = true;
+            abortController.abort();
           }
-          return renewed
+          return renewed;
+        } catch {
+          leaseLost = true;
+          abortController.abort();
+          return false;
         }
-        catch {
-          leaseLost = true
-          abortController.abort()
-          return false
-        }
-      }
-      )
-      return heartbeatTail
-    }
-    let heartbeatTimer: ReturnType<typeof setInterval> | undefined
-    let heartbeatsStopped = false
+      });
+      return heartbeatTail;
+    };
+    let heartbeatTimer: ReturnType<typeof setInterval> | undefined;
+    let heartbeatsStopped = false;
     const stopHeartbeats = async (): Promise<void> => {
-      heartbeatsStopped = true
+      heartbeatsStopped = true;
       if (heartbeatTimer !== undefined) {
-        clearInterval(heartbeatTimer)
-        heartbeatTimer = undefined
+        clearInterval(heartbeatTimer);
+        heartbeatTimer = undefined;
       }
-      await heartbeatTail
-    }
+      await heartbeatTail;
+    };
     try {
-      if (!(await queueHeartbeat())) return Object.freeze({})
-      heartbeatTimer = setInterval(
-        () => {
-          if (!heartbeatsStopped) {
-            return void queueHeartbeat()
-          };return
-        },
-        heartbeatMilliseconds
-      )
-      await options.cleanup(claim, abortController.signal)
-      await stopHeartbeats()
-      if (leaseLost) return Object.freeze({})
+      if (!(await queueHeartbeat())) return Object.freeze({});
+      heartbeatTimer = setInterval(() => {
+        if (!heartbeatsStopped) {
+          return void queueHeartbeat();
+        }
+        return;
+      }, heartbeatMilliseconds);
+      await options.cleanup(claim, abortController.signal);
+      await stopHeartbeats();
+      if (leaseLost) return Object.freeze({});
       const completed = await options.repository.completeRetainedResource({
         runId: claim.runId,
         leaseOwner: claim.leaseOwner,
         fence: claim.fence,
-      })
+      });
       return completed
         ? Object.freeze({
             result: Object.freeze({
@@ -1232,13 +1271,12 @@ export const createWorkflowTerminalReconciler = (
               status: "completed" as const,
             }),
           })
-        : Object.freeze({})
-    }
-    catch (error) {
-      await stopHeartbeats()
-      if (leaseLost) return Object.freeze({})
+        : Object.freeze({});
+    } catch (error) {
+      await stopHeartbeats();
+      if (leaseLost) return Object.freeze({});
       const release = async (
-        retryAt?: Date,
+        retryAt?: Date
       ): Promise<Readonly<{ persistenceError?: unknown }>> => {
         try {
           await options.repository.releaseRetainedResource({
@@ -1246,98 +1284,98 @@ export const createWorkflowTerminalReconciler = (
             leaseOwner: claim.leaseOwner,
             fence: claim.fence,
             ...(retryAt === undefined ? {} : { retryAt }),
-          })
-          return Object.freeze({})
+          });
+          return Object.freeze({});
+        } catch (persistenceError) {
+          return Object.freeze({ persistenceError });
         }
-        catch (persistenceError) {
-          return Object.freeze({ persistenceError })
-        }
-      }
-      if (stopping || abortController.signal.aborted) return release()
+      };
+      if (stopping || abortController.signal.aborted) return release();
       if (error instanceof OmpWorkspaceBusyError) {
-        return release(new Date(now().getTime() + heartbeatMilliseconds))
+        return release(new Date(now().getTime() + heartbeatMilliseconds));
       }
-      const message = error instanceof Error
-        ? error.message
-        : "OMP retained resource cleanup failed"
+      const message =
+        error instanceof Error
+          ? error.message
+          : "OMP retained resource cleanup failed";
       try {
         await options.repository.failRetainedResource({
           runId: claim.runId,
           leaseOwner: claim.leaseOwner,
           fence: claim.fence,
           error: message,
-        })
-        return Object.freeze({})
+        });
+        return Object.freeze({});
+      } catch (persistenceError) {
+        return Object.freeze({ persistenceError });
       }
-      catch (persistenceError) {
-        return Object.freeze({ persistenceError })
-      }
+    } finally {
+      await stopHeartbeats();
+      activeControllers.delete(abortController);
     }
-    finally {
-      await stopHeartbeats()
-      activeControllers.delete(abortController)
-    }
-  }
-  const performRun = async (): Promise<readonly WorkflowTerminalReconcilerResult[]> => {
-    if (stopping) return Object.freeze([])
+  };
+  const performRun = async (): Promise<
+    readonly WorkflowTerminalReconcilerResult[]
+  > => {
+    if (stopping) return Object.freeze([]);
     const claims = await options.repository.claimRetainedResources({
       leaseOwner: options.leaseOwner,
       limit,
       leaseMilliseconds,
-    })
-    if (stopping) return Object.freeze([])
-    const settled = await Promise.all(claims.map(processClaim))
-    const failed = settled.find(
-      (item) => item.persistenceError !== undefined,
-    )
-    if (failed?.persistenceError !== undefined) throw failed.persistenceError
-    return Object.freeze(settled.flatMap((item) => {
-      return item.result === undefined ? [] : [item.result]
-    }
-    ))
-  }
+    });
+    if (stopping) return Object.freeze([]);
+    const settled = await Promise.all(claims.map(processClaim));
+    const failed = settled.find((item) => item.persistenceError !== undefined);
+    if (failed?.persistenceError !== undefined) throw failed.persistenceError;
+    return Object.freeze(
+      settled.flatMap((item) => {
+        return item.result === undefined ? [] : [item.result];
+      })
+    );
+  };
   const runOnce = (): Promise<readonly WorkflowTerminalReconcilerResult[]> => {
-    if (activeRun !== null) return activeRun
-    activeRun = performRun().finally(() => activeRun = null)
-    return activeRun
-  }
+    if (activeRun !== null) return activeRun;
+    activeRun = performRun().finally(() => (activeRun = null));
+    return activeRun;
+  };
   const stop = async (): Promise<void> => {
-    stopping = true
-    for (const controller of activeControllers) controller.abort()
-    await activeRun
-  }
-  return Object.freeze({ runOnce, stop })
-}
+    stopping = true;
+    for (const controller of activeControllers) controller.abort();
+    await activeRun;
+  };
+  return Object.freeze({ runOnce, stop });
+};
 
-export type WorkflowRuntimeOptions = WorkflowApplicationOptions & Readonly<{
-  repository: WorkflowRepository
-  adapter: OmpCliAdapter
-  wayfinderAdapter?: WayfinderExecutionPort
-  leaseOwner: string
-  authorizeRepository: (ownerId: string, repositoryId: string) => boolean
-  leaseMilliseconds?: number
-  heartbeatMilliseconds?: number
-  batchSize?: number
-  cleanupLeaseMilliseconds?: number
-  cleanupHeartbeatMilliseconds?: number
-  cleanupBatchSize?: number
-}>
+export type WorkflowRuntimeOptions = WorkflowApplicationOptions &
+  Readonly<{
+    repository: WorkflowRepository;
+    adapter: OmpCliAdapter;
+    wayfinderAdapter?: WayfinderExecutionPort;
+    leaseOwner: string;
+    authorizeRepository: (ownerId: string, repositoryId: string) => boolean;
+    leaseMilliseconds?: number;
+    heartbeatMilliseconds?: number;
+    batchSize?: number;
+    cleanupLeaseMilliseconds?: number;
+    cleanupHeartbeatMilliseconds?: number;
+    cleanupBatchSize?: number;
+  }>;
 
 export type WorkflowRuntime = Readonly<{
-  application: WorkflowApplication
-  runOnce: () => Promise<readonly WorkflowWorkerItemResult[]>
-  stop: () => Promise<void>
-}>
+  application: WorkflowApplication;
+  runOnce: () => Promise<readonly WorkflowWorkerItemResult[]>;
+  stop: () => Promise<void>;
+}>;
 
 export const createWorkflowRuntime = (
-  options: WorkflowRuntimeOptions,
+  options: WorkflowRuntimeOptions
 ): WorkflowRuntime => {
-  const application = createWorkflowApplication(options.repository, options)
+  const application = createWorkflowApplication(options.repository, options);
   const outbox = createWorkflowRepositoryOutboxAdapter({
     repository: options.repository,
     application,
     ...(options.now === undefined ? {} : { now: options.now }),
-  })
+  });
   const worker = createWorkflowOutboxWorker({
     repository: outbox,
     adapter: options.adapter,
@@ -1352,21 +1390,23 @@ export const createWorkflowRuntime = (
     ...(options.heartbeatMilliseconds === undefined
       ? {}
       : { heartbeatMilliseconds: options.heartbeatMilliseconds }),
-    ...(options.batchSize === undefined ? {} : { batchSize: options.batchSize }),
-  })
+    ...(options.batchSize === undefined
+      ? {}
+      : { batchSize: options.batchSize }),
+  });
   const reconciler = createWorkflowTerminalReconciler({
     repository: options.repository,
     leaseOwner: options.leaseOwner,
     ...(options.now === undefined ? {} : { now: options.now }),
     cleanup: async (claim, signal) => {
       const recovered = workflowImplementationRecoveryFromEvidence(
-        claim.evidenceData,
-      )
+        claim.evidenceData
+      );
       return await options.adapter.cleanupRetainedWorkspace({
         cwd: recovered.scope.repositoryId,
         recovery: recovered.recovery,
         signal,
-      })
+      });
     },
     ...(options.cleanupLeaseMilliseconds === undefined
       ? {}
@@ -1377,42 +1417,40 @@ export const createWorkflowRuntime = (
     ...(options.cleanupHeartbeatMilliseconds === undefined
       ? {}
       : { heartbeatMilliseconds: options.cleanupHeartbeatMilliseconds }),
-  })
-  let stopping = false
-  let activeRun: Promise<readonly WorkflowWorkerItemResult[]> | null = null
+  });
+  let stopping = false;
+  let activeRun: Promise<readonly WorkflowWorkerItemResult[]> | null = null;
   const runOnce = (): Promise<readonly WorkflowWorkerItemResult[]> => {
-    if (activeRun !== null) return activeRun
-    if (stopping) return Promise.resolve(Object.freeze([]))
+    if (activeRun !== null) return activeRun;
+    if (stopping) return Promise.resolve(Object.freeze([]));
     activeRun = (async () => {
       const [workerResults] = await Promise.all([
         worker.runOnce(),
         reconciler.runOnce(),
-      ])
-      return workerResults
-    }
-    )().finally(() => activeRun = null)
-    return activeRun
-  }
+      ]);
+      return workerResults;
+    })().finally(() => (activeRun = null));
+    return activeRun;
+  };
   const stop = async (): Promise<void> => {
-    stopping = true
-    const running = activeRun
+    stopping = true;
+    const running = activeRun;
     const settled = await Promise.allSettled([
       worker.stop(),
       reconciler.stop(),
       running ?? Promise.resolve(),
-    ])
+    ]);
     const errors = settled.flatMap((result) => {
-      return result.status === "rejected" ? [result.reason] : []
-    }
-    )
-    if (errors.length === 1) throw errors[0]
+      return result.status === "rejected" ? [result.reason] : [];
+    });
+    if (errors.length === 1) throw errors[0];
     if (errors.length > 1) {
-      throw new AggregateError(errors, "Workflow runtime shutdown failed")
+      throw new AggregateError(errors, "Workflow runtime shutdown failed");
     }
-  }
+  };
   return Object.freeze({
     application,
     runOnce,
-    stop
-  })
-}
+    stop,
+  });
+};

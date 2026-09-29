@@ -1,33 +1,33 @@
-import type { AiPort, AiRequest, AiResult } from "./index.ts"
+import type { AiPort, AiRequest, AiResult } from "./index.ts";
 
 export type RecordingAiPortOptions = Readonly<{
-  result: AiResult
-}>
+  result: AiResult;
+}>;
 
 export type RecordingAiPort = AiPort &
   Readonly<{
-    requests: readonly AiRequest[]
-  }>
+    requests: readonly AiRequest[];
+  }>;
 
 export const createRecordingAiPort = (
-  options: RecordingAiPortOptions,
+  options: RecordingAiPortOptions
 ): RecordingAiPort => {
-  const requests: AiRequest[] = []
-  const result = Object.freeze({ ...options.result }) as AiResult
+  const requests: AiRequest[] = [];
+  const result = Object.freeze({ ...options.result }) as AiResult;
 
   return Object.freeze({
     get requests(): readonly AiRequest[] {
-      return requests
+      return requests;
     },
     generateText: async (request: AiRequest): Promise<AiResult> => {
       requests.push(
         Object.freeze(
           request.signal === undefined
             ? { prompt: request.prompt }
-            : { prompt: request.prompt, signal: request.signal },
-        ),
-      )
-      return result
-    }
-  })
-}
+            : { prompt: request.prompt, signal: request.signal }
+        )
+      );
+      return result;
+    },
+  });
+};

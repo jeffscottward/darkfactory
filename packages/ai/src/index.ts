@@ -1,9 +1,9 @@
 export type AiRequest = Readonly<{
-  prompt: string
-  signal?: AbortSignal | undefined
-}>
+  prompt: string;
+  signal?: AbortSignal | undefined;
+}>;
 
-export type AiDisabledReason = "disabled" | "not_configured"
+export type AiDisabledReason = "disabled" | "not_configured";
 
 export type AiFailureCategory =
   | "aborted"
@@ -13,37 +13,37 @@ export type AiFailureCategory =
   | "provider_rejected"
   | "provider_unavailable"
   | "invalid_response"
-  | "unknown"
+  | "unknown";
 
 export type AiResult =
   | Readonly<{
-      status: "generated"
-      text: string
+      status: "generated";
+      text: string;
     }>
   | Readonly<{
-      status: "disabled"
-      reason: AiDisabledReason
+      status: "disabled";
+      reason: AiDisabledReason;
     }>
   | Readonly<{
-      status: "failed"
-      category: AiFailureCategory
-      retryable: boolean
-      statusCode?: number | undefined
-    }>
+      status: "failed";
+      category: AiFailureCategory;
+      retryable: boolean;
+      statusCode?: number | undefined;
+    }>;
 
 export type AiPort = Readonly<{
-  generateText: (request: AiRequest) => Promise<AiResult>
-}>
+  generateText: (request: AiRequest) => Promise<AiResult>;
+}>;
 
 export const createDisabledAiPort = (
-  reason: AiDisabledReason = "disabled",
+  reason: AiDisabledReason = "disabled"
 ): AiPort => {
   const result: AiResult = Object.freeze({
     status: "disabled",
     reason,
-  })
+  });
 
   return Object.freeze({
     generateText: async (): Promise<AiResult> => result,
-  })
-}
+  });
+};

@@ -1,6 +1,6 @@
-import { readFile } from "node:fs/promises"
+import { readFile } from "node:fs/promises";
 
-import { describe, expect, it, vi } from "vitest"
+import { describe, expect, it, vi } from "vitest";
 
 import {
   OPERATOR_DEVELOPMENT_PROFILE,
@@ -16,28 +16,28 @@ import {
   type CommandResult,
   type DevelopmentProfile,
   type ProcessAdapter,
-} from "./lifecycle.ts"
-import { runDevelopmentCli } from "./cli.ts"
+} from "./lifecycle.ts";
+import { runDevelopmentCli } from "./cli.ts";
 
-const TEST_CWD = "/workspace/darkfactory"
+const TEST_CWD = "/workspace/darkfactory";
 
 const result = (stdout = "", exitCode = 0, stderr = ""): CommandResult => ({
   exitCode,
   stdout,
   stderr,
-})
+});
 
 const storedArguments = (profile: DevelopmentProfile): readonly string[] => [
   profile.routeName,
   profile.command.executable,
   ...profile.command.arguments,
-]
+];
 
 const pm2Process = (
   profile: DevelopmentProfile,
   status: string,
   processId: number,
-  overrides: Record<string, unknown> = {},
+  overrides: Record<string, unknown> = {}
 ) => ({
   name: profile.processName,
   pm_id: processId,
@@ -49,13 +49,11 @@ const pm2Process = (
     [PM2_ENVIRONMENT_VERSION_KEY]: PM2_ENVIRONMENT_VERSION,
     ...overrides,
   },
-})
+});
 
 const routeOutput = (...profiles: readonly DevelopmentProfile[]): string => {
-  return `Active routes:\n${profiles.map((profile, index) => (
-    `  ${profile.canonicalUrl} -> localhost:${4700 + index}`
-  )).join("\n")}\n`
-}
+  return `Active routes:\n${profiles.map((profile, index) => `  ${profile.canonicalUrl} -> localhost:${4700 + index}`).join("\n")}\n`;
+};
 
 describe("operator development lifecycle", () => {
   it("defines exact independent web and operator ownership profiles", () => {
@@ -67,7 +65,7 @@ describe("operator development lifecycle", () => {
         executable: "bun",
         arguments: ["run", "dev"],
       },
-    })
+    });
     return expect(OPERATOR_DEVELOPMENT_PROFILE).toEqual({
       processName: "darkfactory-operator-dev",
       routeName: "operator.darkfactory",
@@ -82,117 +80,136 @@ describe("operator development lifecycle", () => {
           "--filter=@darkfactory/operator-app",
         ],
       },
-    })
-  }
-  )
+    });
+  });
 
   it("starts idempotently and stops each profile without adopting the other process", async () => {
     const states = new Map([
       [WEB_DEVELOPMENT_PROFILE.processName, "online"],
       [OPERATOR_DEVELOPMENT_PROFILE.processName, "absent"],
-    ])
+    ]);
     const ids = new Map([
       [WEB_DEVELOPMENT_PROFILE.processName, 7],
       [OPERATOR_DEVELOPMENT_PROFILE.processName, 19],
-    ])
-    const calls: Array<Readonly<{
-      command: string
-      arguments: readonly string[]
-      options?: CommandOptions | undefined
-    }>> = []
+    ]);
+    const calls: Array<
+      Readonly<{
+        command: string;
+        arguments: readonly string[];
+        options?: CommandOptions | undefined;
+      }>
+    > = [];
 
-    const processList = (): string => JSON.stringify([
-      ...[WEB_DEVELOPMENT_PROFILE, OPERATOR_DEVELOPMENT_PROFILE]
-        .filter((profile) => states.get(profile.processName) !== "absent")
-        .map((profile) => pm2Process(
-          profile,
-          states.get(profile.processName)!,
-          ids.get(profile.processName)!,
-        )),
-    ])
+    const processList = (): string =>
+      JSON.stringify([
+        ...[WEB_DEVELOPMENT_PROFILE, OPERATOR_DEVELOPMENT_PROFILE]
+          .filter((profile) => states.get(profile.processName) !== "absent")
+          .map((profile) =>
+            pm2Process(
+              profile,
+              states.get(profile.processName)!,
+              ids.get(profile.processName)!
+            )
+          ),
+      ]);
     const onlineProfiles = (): readonly DevelopmentProfile[] => {
-      return [WEB_DEVELOPMENT_PROFILE, OPERATOR_DEVELOPMENT_PROFILE]
-        .filter((profile) => states.get(profile.processName) === "online")
-    }
+      return [WEB_DEVELOPMENT_PROFILE, OPERATOR_DEVELOPMENT_PROFILE].filter(
+        (profile) => states.get(profile.processName) === "online"
+      );
+    };
 
     const respond = (
       command: string,
       arguments_: readonly string[],
-      options?: CommandOptions,
+      options?: CommandOptions
     ): CommandResult => {
-      calls.push({ command, arguments: [...arguments_], options })
-      if (command === "pm2" && arguments_[0] === "jlist") return result(processList())
+      calls.push({ command, arguments: [...arguments_], options });
+      if (command === "pm2" && arguments_[0] === "jlist")
+        return result(processList());
       if (command === "portless" && arguments_[0] === "list") {
-        return result(routeOutput(...onlineProfiles()))
+        return result(routeOutput(...onlineProfiles()));
       }
       if (command === "portless" && arguments_[0] === "get") {
-        const profile = [WEB_DEVELOPMENT_PROFILE, OPERATOR_DEVELOPMENT_PROFILE]
-          .find((candidate) => candidate.routeName === arguments_[1])
+        const profile = [
+          WEB_DEVELOPMENT_PROFILE,
+          OPERATOR_DEVELOPMENT_PROFILE,
+        ].find((candidate) => candidate.routeName === arguments_[1]);
         return profile && states.get(profile.processName) === "online"
           ? result(`${profile.canonicalUrl}\n`)
-          : result("", 1)
+          : result("", 1);
       }
       if (command === "pm2" && arguments_[0] === "start") {
         if (arguments_[1] === "portless") {
-          const nameIndex = arguments_.indexOf("--name")
-          states.set(arguments_[nameIndex + 1]!, "online")
+          const nameIndex = arguments_.indexOf("--name");
+          states.set(arguments_[nameIndex + 1]!, "online");
+        } else {
+          const processId = Number(arguments_[1]);
+          const profile = [
+            WEB_DEVELOPMENT_PROFILE,
+            OPERATOR_DEVELOPMENT_PROFILE,
+          ].find((candidate) => ids.get(candidate.processName) === processId);
+          if (profile) states.set(profile.processName, "online");
         }
-        else {
-          const processId = Number(arguments_[1])
-          const profile = [WEB_DEVELOPMENT_PROFILE, OPERATOR_DEVELOPMENT_PROFILE]
-            .find((candidate) => ids.get(candidate.processName) === processId)
-          if (profile) states.set(profile.processName, "online")
-        }
-        return result()
+        return result();
       }
       if (command === "pm2" && arguments_[0] === "stop") {
-        const processId = Number(arguments_[1])
-        const profile = [WEB_DEVELOPMENT_PROFILE, OPERATOR_DEVELOPMENT_PROFILE]
-          .find((candidate) => ids.get(candidate.processName) === processId)
-        if (profile) states.set(profile.processName, "stopped")
-        return result()
+        const processId = Number(arguments_[1]);
+        const profile = [
+          WEB_DEVELOPMENT_PROFILE,
+          OPERATOR_DEVELOPMENT_PROFILE,
+        ].find((candidate) => ids.get(candidate.processName) === processId);
+        if (profile) states.set(profile.processName, "stopped");
+        return result();
       }
-      return result()
-    }
+      return result();
+    };
 
     const process: ProcessAdapter = {
       workingDirectory: TEST_CWD,
       pm2DaemonAvailable: async () => true,
-      probeHttps: async (url) => onlineProfiles().some((profile) => profile.canonicalUrl === url),
-      run: async (command, arguments_, options) => respond(command, arguments_, options),
-      runInteractive: async (command, arguments_, options) => respond(command, arguments_, options),
-    }
+      probeHttps: async (url) =>
+        onlineProfiles().some((profile) => profile.canonicalUrl === url),
+      run: async (command, arguments_, options) =>
+        respond(command, arguments_, options),
+      runInteractive: async (command, arguments_, options) =>
+        respond(command, arguments_, options),
+    };
 
     const firstOperatorStart = await runDevelopmentAction(
       "start",
       process,
       undefined,
-      OPERATOR_DEVELOPMENT_PROFILE,
-    )
+      OPERATOR_DEVELOPMENT_PROFILE
+    );
     const secondOperatorStart = await runDevelopmentAction(
       "start",
       process,
       undefined,
-      OPERATOR_DEVELOPMENT_PROFILE,
-    )
+      OPERATOR_DEVELOPMENT_PROFILE
+    );
 
     expect(firstOperatorStart).toMatchObject({
       ok: true,
       changed: true,
       processStatus: "online",
       canonicalUrl: OPERATOR_DEVELOPMENT_PROFILE.canonicalUrl,
-    })
+    });
     expect(secondOperatorStart).toMatchObject({
       ok: true,
       changed: false,
       processStatus: "online",
-    })
+    });
 
-    const operatorStarts = calls.filter(({ command, arguments: arguments_ }) => {
-      return command === "pm2" && arguments_[0] === "start" && arguments_[1] === "portless"
-    }
-    )
-    expect(operatorStarts).toHaveLength(1)
+    const operatorStarts = calls.filter(
+      ({ command, arguments: arguments_ }) => {
+        return (
+          command === "pm2" &&
+          arguments_[0] === "start" &&
+          arguments_[1] === "portless"
+        );
+      }
+    );
+    expect(operatorStarts).toHaveLength(1);
     expect(operatorStarts[0]?.arguments).toEqual([
       "start",
       "portless",
@@ -202,225 +219,252 @@ describe("operator development lifecycle", () => {
       OPERATOR_DEVELOPMENT_PROFILE.processName,
       "--",
       ...storedArguments(OPERATOR_DEVELOPMENT_PROFILE),
-    ])
+    ]);
     expect(operatorStarts[0]?.options?.environment).toEqual({
       PORTLESS_PORT: "443",
       [PM2_ENVIRONMENT_VERSION_KEY]: PM2_ENVIRONMENT_VERSION,
-    })
-    expect(operatorStarts[0]?.options?.environment).not.toHaveProperty("DATABASE_URL")
-    expect(operatorStarts[0]?.options?.environment).not.toHaveProperty("BETTER_AUTH_SECRET")
+    });
+    expect(operatorStarts[0]?.options?.environment).not.toHaveProperty(
+      "DATABASE_URL"
+    );
+    expect(operatorStarts[0]?.options?.environment).not.toHaveProperty(
+      "BETTER_AUTH_SECRET"
+    );
 
-    await expect(runDevelopmentAction(
-      "logs",
-      process,
-      undefined,
-      OPERATOR_DEVELOPMENT_PROFILE,
-    )).resolves.toMatchObject({ ok: true, processId: 19 })
-    expect(calls.some(({ command, arguments: arguments_ }) => (
-      command === "pm2" &&
-      arguments_.join(" ") === "logs 19 --lines 200 --nostream"
-    ))).toBe(true)
+    await expect(
+      runDevelopmentAction(
+        "logs",
+        process,
+        undefined,
+        OPERATOR_DEVELOPMENT_PROFILE
+      )
+    ).resolves.toMatchObject({ ok: true, processId: 19 });
+    expect(
+      calls.some(
+        ({ command, arguments: arguments_ }) =>
+          command === "pm2" &&
+          arguments_.join(" ") === "logs 19 --lines 200 --nostream"
+      )
+    ).toBe(true);
 
-    await expect(runDevelopmentAction(
-      "stop",
-      process,
-      undefined,
-      OPERATOR_DEVELOPMENT_PROFILE,
-    )).resolves.toMatchObject({ ok: true, changed: true })
-    await expect(inspectDevelopmentState(
-      process,
-      WEB_DEVELOPMENT_PROFILE,
-    )).resolves.toMatchObject({ ok: true, processStatus: "online" })
-    expect(states.get(OPERATOR_DEVELOPMENT_PROFILE.processName)).toBe("stopped")
-    expect(states.get(WEB_DEVELOPMENT_PROFILE.processName)).toBe("online")
+    await expect(
+      runDevelopmentAction(
+        "stop",
+        process,
+        undefined,
+        OPERATOR_DEVELOPMENT_PROFILE
+      )
+    ).resolves.toMatchObject({ ok: true, changed: true });
+    await expect(
+      inspectDevelopmentState(process, WEB_DEVELOPMENT_PROFILE)
+    ).resolves.toMatchObject({ ok: true, processStatus: "online" });
+    expect(states.get(OPERATOR_DEVELOPMENT_PROFILE.processName)).toBe(
+      "stopped"
+    );
+    expect(states.get(WEB_DEVELOPMENT_PROFILE.processName)).toBe("online");
 
-    await expect(runDevelopmentAction(
-      "stop",
-      process,
-      undefined,
-      WEB_DEVELOPMENT_PROFILE,
-    )).resolves.toMatchObject({ ok: true, changed: true })
-    return expect(calls.filter(({ command, arguments: arguments_ }) => (
-      command === "pm2" && arguments_[0] === "stop"
-    )).map(({ arguments: arguments_ }) => arguments_[1])).toEqual(["19", "7"])
-  }
-  )
+    await expect(
+      runDevelopmentAction("stop", process, undefined, WEB_DEVELOPMENT_PROFILE)
+    ).resolves.toMatchObject({ ok: true, changed: true });
+    return expect(
+      calls
+        .filter(
+          ({ command, arguments: arguments_ }) =>
+            command === "pm2" && arguments_[0] === "stop"
+        )
+        .map(({ arguments: arguments_ }) => arguments_[1])
+    ).toEqual(["19", "7"]);
+  });
 
   it("waits for the canonical route to become healthy after a new PM2 start", async () => {
-    let online = false
-    let routeProbes = 0
-    const calls: Array<Readonly<{
-      command: string
-      arguments: readonly string[]
-    }>> = []
+    let online = false;
+    let routeProbes = 0;
+    const calls: Array<
+      Readonly<{
+        command: string;
+        arguments: readonly string[];
+      }>
+    > = [];
     const respond = async (
       command: string,
-      arguments_: readonly string[],
+      arguments_: readonly string[]
     ): Promise<CommandResult> => {
-      calls.push({ command, arguments: [...arguments_] })
+      calls.push({ command, arguments: [...arguments_] });
       if (command === "pm2" && arguments_[0] === "jlist") {
-        return result(JSON.stringify(online
-          ? [pm2Process(OPERATOR_DEVELOPMENT_PROFILE, "online", 19)]
-          : []
-        ))
+        return result(
+          JSON.stringify(
+            online
+              ? [pm2Process(OPERATOR_DEVELOPMENT_PROFILE, "online", 19)]
+              : []
+          )
+        );
       }
       if (command === "pm2" && arguments_[0] === "start") {
-        online = true
-        return result()
+        online = true;
+        return result();
       }
       if (command === "portless" && arguments_[0] === "list") {
-        return result(online ? routeOutput(OPERATOR_DEVELOPMENT_PROFILE) : "")
+        return result(online ? routeOutput(OPERATOR_DEVELOPMENT_PROFILE) : "");
       }
       if (command === "portless" && arguments_[0] === "get") {
-        return result(`${OPERATOR_DEVELOPMENT_PROFILE.canonicalUrl}\n`)
+        return result(`${OPERATOR_DEVELOPMENT_PROFILE.canonicalUrl}\n`);
       }
-      return result()
-    }
+      return result();
+    };
     const probeHttps = async (): Promise<boolean> => {
-      routeProbes += 1
-      return routeProbes > 1
-    }
+      routeProbes += 1;
+      return routeProbes > 1;
+    };
     const process: ProcessAdapter = {
       workingDirectory: TEST_CWD,
       pm2DaemonAvailable: async () => true,
       probeHttps,
       run: respond,
       runInteractive: async () => result(),
-    }
+    };
 
-    await expect(runDevelopmentAction(
-      "start",
-      process,
-      undefined,
-      OPERATOR_DEVELOPMENT_PROFILE,
-    )).resolves.toMatchObject({
+    await expect(
+      runDevelopmentAction(
+        "start",
+        process,
+        undefined,
+        OPERATOR_DEVELOPMENT_PROFILE
+      )
+    ).resolves.toMatchObject({
       ok: true,
       changed: true,
       processStatus: "online",
       routeHealthy: true,
       canonicalUrl: OPERATOR_DEVELOPMENT_PROFILE.canonicalUrl,
       reason: `${OPERATOR_DEVELOPMENT_PROFILE.processName} is online at ${OPERATOR_DEVELOPMENT_PROFILE.canonicalUrl}`,
-    })
-    expect(routeProbes).toBe(2)
-    return expect(calls.filter(({ command, arguments: arguments_ }) => {
-      return command === "pm2" && arguments_[0] === "start"
-    }
-    )).toHaveLength(1)
-  }
-  )
+    });
+    expect(routeProbes).toBe(2);
+    return expect(
+      calls.filter(({ command, arguments: arguments_ }) => {
+        return command === "pm2" && arguments_[0] === "start";
+      })
+    ).toHaveLength(1);
+  });
 
   it("waits through the observed cold compile after the previous final probe", async () => {
-    vi.useFakeTimers()
-    vi.setSystemTime(0)
+    vi.useFakeTimers();
+    vi.setSystemTime(0);
     try {
-      let online = false
-      let routeProbes = 0
-      const healthyAfterMs = 15_000
+      let online = false;
+      let routeProbes = 0;
+      const healthyAfterMs = 15_000;
       const respond = async (
         command: string,
-        arguments_: readonly string[],
+        arguments_: readonly string[]
       ): Promise<CommandResult> => {
         if (command === "pm2" && arguments_[0] === "jlist") {
-          return result(JSON.stringify(online
-            ? [pm2Process(OPERATOR_DEVELOPMENT_PROFILE, "online", 19)]
-            : []
-          ))
+          return result(
+            JSON.stringify(
+              online
+                ? [pm2Process(OPERATOR_DEVELOPMENT_PROFILE, "online", 19)]
+                : []
+            )
+          );
         }
         if (command === "pm2" && arguments_[0] === "start") {
-          online = true
-          return result()
+          online = true;
+          return result();
         }
         if (command === "portless" && arguments_[0] === "list") {
-          return result(online ? routeOutput(OPERATOR_DEVELOPMENT_PROFILE) : "")
+          return result(
+            online ? routeOutput(OPERATOR_DEVELOPMENT_PROFILE) : ""
+          );
         }
         if (command === "portless" && arguments_[0] === "get") {
-          return result(`${OPERATOR_DEVELOPMENT_PROFILE.canonicalUrl}\n`)
+          return result(`${OPERATOR_DEVELOPMENT_PROFILE.canonicalUrl}\n`);
         }
-        return result()
-      }
+        return result();
+      };
       const probeHttps = async (): Promise<boolean> => {
-        routeProbes += 1
-        return Date.now() >= healthyAfterMs
-      }
+        routeProbes += 1;
+        return Date.now() >= healthyAfterMs;
+      };
       const process: ProcessAdapter = {
         workingDirectory: TEST_CWD,
         pm2DaemonAvailable: async () => true,
         probeHttps,
         run: respond,
         runInteractive: async () => result(),
-      }
+      };
 
       const reportPromise = runDevelopmentAction(
         "start",
         process,
         undefined,
-        OPERATOR_DEVELOPMENT_PROFILE,
-      )
-      await vi.runAllTimersAsync()
+        OPERATOR_DEVELOPMENT_PROFILE
+      );
+      await vi.runAllTimersAsync();
 
       await expect(reportPromise).resolves.toMatchObject({
         ok: true,
         changed: true,
         processStatus: "online",
         routeHealthy: true,
-      })
-      expect(routeProbes).toBe(61)
-      return expect(Date.now()).toBe(healthyAfterMs)
+      });
+      expect(routeProbes).toBe(61);
+      return expect(Date.now()).toBe(healthyAfterMs);
+    } finally {
+      vi.useRealTimers();
     }
-    finally {
-      vi.useRealTimers()
-    }
-  }
-  )
+  });
 
   it("stops post-start readiness checks at the retry bound and returns the last report", async () => {
-    vi.useFakeTimers()
-    vi.setSystemTime(0)
+    vi.useFakeTimers();
+    vi.setSystemTime(0);
     try {
-      let online = false
-      let postStartInspections = 0
+      let online = false;
+      let postStartInspections = 0;
       const respond = async (
         command: string,
-        arguments_: readonly string[],
+        arguments_: readonly string[]
       ): Promise<CommandResult> => {
         if (command === "pm2" && arguments_[0] === "jlist") {
-          if (!online) return result("[]")
-          postStartInspections += 1
-          return result(JSON.stringify([
-            pm2Process(
-              OPERATOR_DEVELOPMENT_PROFILE,
-              "online",
-              postStartInspections,
-            ),
-          ]))
+          if (!online) return result("[]");
+          postStartInspections += 1;
+          return result(
+            JSON.stringify([
+              pm2Process(
+                OPERATOR_DEVELOPMENT_PROFILE,
+                "online",
+                postStartInspections
+              ),
+            ])
+          );
         }
         if (command === "pm2" && arguments_[0] === "start") {
-          online = true
-          return result()
+          online = true;
+          return result();
         }
         if (command === "portless" && arguments_[0] === "list") {
-          return result(online ? routeOutput(OPERATOR_DEVELOPMENT_PROFILE) : "")
+          return result(
+            online ? routeOutput(OPERATOR_DEVELOPMENT_PROFILE) : ""
+          );
         }
         if (command === "portless" && arguments_[0] === "get") {
-          return result(`${OPERATOR_DEVELOPMENT_PROFILE.canonicalUrl}\n`)
+          return result(`${OPERATOR_DEVELOPMENT_PROFILE.canonicalUrl}\n`);
         }
-        return result()
-      }
+        return result();
+      };
       const process: ProcessAdapter = {
         workingDirectory: TEST_CWD,
         pm2DaemonAvailable: async () => true,
         probeHttps: async () => false,
         run: respond,
         runInteractive: async () => result(),
-      }
+      };
 
       const reportPromise = runDevelopmentAction(
         "start",
         process,
         undefined,
-        OPERATOR_DEVELOPMENT_PROFILE,
-      )
-      await vi.runAllTimersAsync()
+        OPERATOR_DEVELOPMENT_PROFILE
+      );
+      await vi.runAllTimersAsync();
 
       await expect(reportPromise).resolves.toMatchObject({
         ok: false,
@@ -429,71 +473,71 @@ describe("operator development lifecycle", () => {
         processId: POST_START_READINESS_MAX_RETRIES + 1,
         routeHealthy: false,
         reason: `${OPERATOR_DEVELOPMENT_PROFILE.processName} is online but its portless route is unhealthy`,
-      })
-      expect(postStartInspections).toBe(POST_START_READINESS_MAX_RETRIES + 1)
+      });
+      expect(postStartInspections).toBe(POST_START_READINESS_MAX_RETRIES + 1);
       return expect(Date.now()).toBe(
-        POST_START_READINESS_MAX_RETRIES * POST_START_READINESS_RETRY_DELAY_MS,
-      )
+        POST_START_READINESS_MAX_RETRIES * POST_START_READINESS_RETRY_DELAY_MS
+      );
+    } finally {
+      vi.useRealTimers();
     }
-    finally {
-      vi.useRealTimers()
-    }
-  }
-  )
+  });
 
   it("returns a terminal post-start state without another readiness retry", async () => {
-    vi.useFakeTimers()
-    vi.setSystemTime(0)
+    vi.useFakeTimers();
+    vi.setSystemTime(0);
     try {
-      let online = false
-      let postStartInspections = 0
-      let routeProbes = 0
+      let online = false;
+      let postStartInspections = 0;
+      let routeProbes = 0;
       const respond = async (
         command: string,
-        arguments_: readonly string[],
+        arguments_: readonly string[]
       ): Promise<CommandResult> => {
         if (command === "pm2" && arguments_[0] === "jlist") {
-          if (!online) return result("[]")
-          postStartInspections += 1
-          return result(JSON.stringify([
-            pm2Process(
-              OPERATOR_DEVELOPMENT_PROFILE,
-              postStartInspections === 1 ? "online" : "errored",
-              19,
-            ),
-          ]))
+          if (!online) return result("[]");
+          postStartInspections += 1;
+          return result(
+            JSON.stringify([
+              pm2Process(
+                OPERATOR_DEVELOPMENT_PROFILE,
+                postStartInspections === 1 ? "online" : "errored",
+                19
+              ),
+            ])
+          );
         }
         if (command === "pm2" && arguments_[0] === "start") {
-          online = true
-          return result()
+          online = true;
+          return result();
         }
         if (command === "portless" && arguments_[0] === "list") {
-          return result(routeOutput(OPERATOR_DEVELOPMENT_PROFILE))
+          return result(routeOutput(OPERATOR_DEVELOPMENT_PROFILE));
         }
         if (command === "portless" && arguments_[0] === "get") {
-          return result(`${OPERATOR_DEVELOPMENT_PROFILE.canonicalUrl}\n`)
+          return result(`${OPERATOR_DEVELOPMENT_PROFILE.canonicalUrl}\n`);
         }
-        return result()
-      }
+        return result();
+      };
       const probeHttps = async (): Promise<boolean> => {
-        routeProbes += 1
-        return false
-      }
+        routeProbes += 1;
+        return false;
+      };
       const process: ProcessAdapter = {
         workingDirectory: TEST_CWD,
         pm2DaemonAvailable: async () => true,
         probeHttps,
         run: respond,
         runInteractive: async () => result(),
-      }
+      };
 
       const reportPromise = runDevelopmentAction(
         "start",
         process,
         undefined,
-        OPERATOR_DEVELOPMENT_PROFILE,
-      )
-      await vi.runAllTimersAsync()
+        OPERATOR_DEVELOPMENT_PROFILE
+      );
+      await vi.runAllTimersAsync();
 
       await expect(reportPromise).resolves.toMatchObject({
         ok: false,
@@ -502,125 +546,136 @@ describe("operator development lifecycle", () => {
         processId: 19,
         routeHealthy: false,
         reason: `${OPERATOR_DEVELOPMENT_PROFILE.processName} is errored`,
-      })
-      expect(postStartInspections).toBe(2)
-      expect(routeProbes).toBe(1)
-      return expect(Date.now()).toBe(POST_START_READINESS_RETRY_DELAY_MS)
+      });
+      expect(postStartInspections).toBe(2);
+      expect(routeProbes).toBe(1);
+      return expect(Date.now()).toBe(POST_START_READINESS_RETRY_DELAY_MS);
+    } finally {
+      vi.useRealTimers();
     }
-    finally {
-      vi.useRealTimers()
-    }
-  }
-  )
+  });
 
   it("selects only the operator identity for operator CLI status", async () => {
-    const output: string[] = []
-    const errors: string[] = []
+    const output: string[] = [];
+    const errors: string[] = [];
     const process: ProcessAdapter = {
       workingDirectory: TEST_CWD,
       pm2DaemonAvailable: async () => true,
-      probeHttps: async (url) => url === OPERATOR_DEVELOPMENT_PROFILE.canonicalUrl,
+      probeHttps: async (url) =>
+        url === OPERATOR_DEVELOPMENT_PROFILE.canonicalUrl,
       run: async (command, arguments_) => {
         if (command === "pm2") {
-          return result(JSON.stringify([
-            pm2Process(WEB_DEVELOPMENT_PROFILE, "online", 7),
-            pm2Process(OPERATOR_DEVELOPMENT_PROFILE, "online", 19),
-          ]))
+          return result(
+            JSON.stringify([
+              pm2Process(WEB_DEVELOPMENT_PROFILE, "online", 7),
+              pm2Process(OPERATOR_DEVELOPMENT_PROFILE, "online", 19),
+            ])
+          );
         }
         if (arguments_[0] === "list") {
-          return result(routeOutput(WEB_DEVELOPMENT_PROFILE, OPERATOR_DEVELOPMENT_PROFILE))
+          return result(
+            routeOutput(WEB_DEVELOPMENT_PROFILE, OPERATOR_DEVELOPMENT_PROFILE)
+          );
         }
-        return result(`${OPERATOR_DEVELOPMENT_PROFILE.canonicalUrl}\n`)
+        return result(`${OPERATOR_DEVELOPMENT_PROFILE.canonicalUrl}\n`);
       },
       runInteractive: async () => result(),
-    }
+    };
 
-    await expect(runDevelopmentCli(["operator", "status"], {
-      process,
-      writeOutput: (value) => output.push(value),
-      writeError: (value) => errors.push(value),
-    })).resolves.toBe(0)
+    await expect(
+      runDevelopmentCli(["operator", "status"], {
+        process,
+        writeOutput: (value) => output.push(value),
+        writeError: (value) => errors.push(value),
+      })
+    ).resolves.toBe(0);
 
-    expect(errors).toEqual([])
+    expect(errors).toEqual([]);
     return expect(JSON.parse(output[0]!)).toMatchObject({
       processId: 19,
       canonicalUrl: "https://operator.darkfactory.localhost",
       reason: expect.stringContaining("darkfactory-operator-dev"),
-    })
-  }
-  )
+    });
+  });
 
   it("keeps root process commands independent and leaves deploy:web unchanged", async () => {
-    const rootPackage = JSON.parse(await readFile(
-      new URL("../../package.json", import.meta.url),
-      "utf8",
-    )) as { scripts: Record<string, string> }
+    const rootPackage = JSON.parse(
+      await readFile(new URL("../../package.json", import.meta.url), "utf8")
+    ) as { scripts: Record<string, string> };
 
     expect(rootPackage.scripts["dev"]).toBe(
-      "bunx --no-install turbo run dev --filter=@darkfactory/web",
-    )
-    expect(rootPackage.scripts["dev:https"]).toBe(
-      "bun scripts/dev.ts start",
-    )
+      "bunx --no-install turbo run dev --filter=@darkfactory/web"
+    );
+    expect(rootPackage.scripts["dev:https"]).toBe("bun scripts/dev.ts start");
     expect(rootPackage.scripts["operator:dev"]).toBe(
-      "bun run operator:bindings && bun scripts/dev.ts operator start",
-    )
+      "bun run operator:bindings && bun scripts/dev.ts operator start"
+    );
     expect(rootPackage.scripts["operator:status"]).toBe(
-      "bun scripts/dev.ts operator status",
-    )
+      "bun scripts/dev.ts operator status"
+    );
     expect(rootPackage.scripts["operator:logs"]).toBe(
-      "bun scripts/dev.ts operator logs",
-    )
+      "bun scripts/dev.ts operator logs"
+    );
     expect(rootPackage.scripts["operator:stop"]).toBe(
-      "bun scripts/dev.ts operator stop",
-    )
+      "bun scripts/dev.ts operator stop"
+    );
     expect(rootPackage.scripts["operator:bindings"]).toBe(
-      "bun scripts/dev-bindings.ts operator",
-    )
+      "bun scripts/dev-bindings.ts operator"
+    );
     return expect(rootPackage.scripts["deploy:web"]).toBe(
-      "bun run deploy:web:validate && corepack pnpm --filter @darkfactory/web exec bunx --no-install vinext-cloudflare deploy",
-    )
-  }
-  )
+      "bun run deploy:web:validate && corepack pnpm --filter @darkfactory/web exec bunx --no-install vinext-cloudflare deploy"
+    );
+  });
 
   it("allows macOS text encoding metadata for both owned process profiles", () => {
-    const results=[];for (const [profile, processId] of [
+    const results = [];
+    for (const [profile, processId] of [
       [WEB_DEVELOPMENT_PROFILE, 7],
       [OPERATOR_DEVELOPMENT_PROFILE, 19],
     ] as const) {
-      results.push(expect(parsePm2ProcessList(JSON.stringify([
-        pm2Process(profile, "online", processId, {
-          env: { __CF_USER_TEXT_ENCODING: "0x1F5:0x0:0x0" },
-        }),
-      ]), TEST_CWD, profile)).toEqual({
-        status: "online",
-        processId,
-      }))
-    };return results;
-  }
-  )
+      results.push(
+        expect(
+          parsePm2ProcessList(
+            JSON.stringify([
+              pm2Process(profile, "online", processId, {
+                env: { __CF_USER_TEXT_ENCODING: "0x1F5:0x0:0x0" },
+              }),
+            ]),
+            TEST_CWD,
+            profile
+          )
+        ).toEqual({
+          status: "online",
+          processId,
+        })
+      );
+    }
+    return results;
+  });
 
   return it("validates operator ownership independently from the web process", () => {
     const source = JSON.stringify([
       pm2Process(WEB_DEVELOPMENT_PROFILE, "online", 7),
       pm2Process(OPERATOR_DEVELOPMENT_PROFILE, "online", 19),
-    ])
+    ]);
 
-    expect(parsePm2ProcessList(
-      source,
-      TEST_CWD,
-      WEB_DEVELOPMENT_PROFILE,
-    )).toEqual({ status: "online", processId: 7 })
-    expect(parsePm2ProcessList(
-      source,
-      TEST_CWD,
-      OPERATOR_DEVELOPMENT_PROFILE,
-    )).toEqual({ status: "online", processId: 19 })
-    expect(() => parsePm2ProcessList(JSON.stringify([
-      pm2Process(OPERATOR_DEVELOPMENT_PROFILE, "online", 19, {
-        args: storedArguments(WEB_DEVELOPMENT_PROFILE),
-      }),
-    ]), TEST_CWD, OPERATOR_DEVELOPMENT_PROFILE)).toThrow(/unexpected command/i)
+    expect(
+      parsePm2ProcessList(source, TEST_CWD, WEB_DEVELOPMENT_PROFILE)
+    ).toEqual({ status: "online", processId: 7 });
+    expect(
+      parsePm2ProcessList(source, TEST_CWD, OPERATOR_DEVELOPMENT_PROFILE)
+    ).toEqual({ status: "online", processId: 19 });
+    expect(() =>
+      parsePm2ProcessList(
+        JSON.stringify([
+          pm2Process(OPERATOR_DEVELOPMENT_PROFILE, "online", 19, {
+            args: storedArguments(WEB_DEVELOPMENT_PROFILE),
+          }),
+        ]),
+        TEST_CWD,
+        OPERATOR_DEVELOPMENT_PROFILE
+      )
+    ).toThrow(/unexpected command/i);
     const safePersistedEnvironment = {
       PATH: "/safe/bin",
       HOME: "/safe/home",
@@ -630,27 +685,37 @@ describe("operator development lifecycle", () => {
       NODE_APP_INSTANCE: "0",
       unique_id: "safe-process-id",
       [OPERATOR_DEVELOPMENT_PROFILE.processName]: "{}",
-    }
-    expect(parsePm2ProcessList(JSON.stringify([
-      pm2Process(OPERATOR_DEVELOPMENT_PROFILE, "online", 19, {
-        env: safePersistedEnvironment,
-      }),
-    ]), TEST_CWD, OPERATOR_DEVELOPMENT_PROFILE)).toEqual({
+    };
+    expect(
+      parsePm2ProcessList(
+        JSON.stringify([
+          pm2Process(OPERATOR_DEVELOPMENT_PROFILE, "online", 19, {
+            env: safePersistedEnvironment,
+          }),
+        ]),
+        TEST_CWD,
+        OPERATOR_DEVELOPMENT_PROFILE
+      )
+    ).toEqual({
       status: "online",
       processId: 19,
-    })
-    return expect(parsePm2ProcessList(JSON.stringify([
-      pm2Process(OPERATOR_DEVELOPMENT_PROFILE, "stopped", 19, {
-        env: {
-          ...safePersistedEnvironment,
-          NPM_TOKEN: "must-not-persist",
-        },
-      }),
-    ]), TEST_CWD, OPERATOR_DEVELOPMENT_PROFILE)).toEqual({
+    });
+    return expect(
+      parsePm2ProcessList(
+        JSON.stringify([
+          pm2Process(OPERATOR_DEVELOPMENT_PROFILE, "stopped", 19, {
+            env: {
+              ...safePersistedEnvironment,
+              NPM_TOKEN: "must-not-persist",
+            },
+          }),
+        ]),
+        TEST_CWD,
+        OPERATOR_DEVELOPMENT_PROFILE
+      )
+    ).toEqual({
       status: "stale",
       processId: 19,
-    })
-  }
-  )
-}
-)
+    });
+  });
+});

@@ -1,4 +1,4 @@
-"use client"
+"use client";
 
 import {
   createContext,
@@ -6,80 +6,79 @@ import {
   useContext,
   useState,
   useSyncExternalStore,
-} from "react"
+} from "react";
 import {
   DEFAULT_UI_PREFERENCES,
   isPalette,
   isThemeMode,
-} from "@darkfactory/state"
+} from "@darkfactory/state";
 import {
   createUiStore,
   UI_STATE_VERSION,
   type UiState,
   type UiStore,
   type UiStateSnapshot,
-} from "@darkfactory/state/client"
+} from "@darkfactory/state/client";
 
 import {
   DEFAULT_ANONYMOUS_THEME,
   MAX_ANONYMOUS_THEME_SNAPSHOT_LENGTH,
   type AnonymousThemePreference,
-} from "./theme.ts"
-
+} from "./theme.ts";
 
 interface AnonymousThemeSnapshot extends AnonymousThemePreference {
-  readonly version: typeof UI_STATE_VERSION
+  readonly version: typeof UI_STATE_VERSION;
 }
 
 const isRecord = (value: unknown): value is Record<string, unknown> => {
-  return typeof value === "object" && value !== null && !Array.isArray(value)
-}
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+};
 
 export const parseAnonymousThemeSnapshot = (
-  serializedSnapshot: unknown,
+  serializedSnapshot: unknown
 ): Readonly<AnonymousThemeSnapshot> | null => {
   if (
-    typeof serializedSnapshot !== "string"
-    || serializedSnapshot.length === 0
-    || serializedSnapshot.length > MAX_ANONYMOUS_THEME_SNAPSHOT_LENGTH
-  ) return null
+    typeof serializedSnapshot !== "string" ||
+    serializedSnapshot.length === 0 ||
+    serializedSnapshot.length > MAX_ANONYMOUS_THEME_SNAPSHOT_LENGTH
+  )
+    return null;
 
   try {
-    const snapshot = JSON.parse(serializedSnapshot) as unknown
-    if (!isRecord(snapshot)) return null
-    const keys = Object.keys(snapshot)
+    const snapshot = JSON.parse(serializedSnapshot) as unknown;
+    if (!isRecord(snapshot)) return null;
+    const keys = Object.keys(snapshot);
     if (
-      keys.length !== 3
-      || !keys.every((key) => (
-        key === "version"
-        || key === "themeMode"
-        || key === "palette"
-      ))
-      || snapshot["version"] !== UI_STATE_VERSION
-      || !isThemeMode(snapshot["themeMode"])
-      || !isPalette(snapshot["palette"])
-    ) return null
+      keys.length !== 3 ||
+      !keys.every(
+        (key) => key === "version" || key === "themeMode" || key === "palette"
+      ) ||
+      snapshot["version"] !== UI_STATE_VERSION ||
+      !isThemeMode(snapshot["themeMode"]) ||
+      !isPalette(snapshot["palette"])
+    )
+      return null;
     return {
       version: UI_STATE_VERSION,
       themeMode: snapshot["themeMode"],
       palette: snapshot["palette"],
-    }
+    };
+  } catch {
+    return null;
   }
-  catch {
-    return null
-  }
-}
+};
 
 export const serializeAnonymousThemePreference = (
-  preference: Readonly<AnonymousThemePreference>,
-): string => JSON.stringify({
-  version: UI_STATE_VERSION,
-  themeMode: preference.themeMode,
-  palette: preference.palette,
-})
+  preference: Readonly<AnonymousThemePreference>
+): string =>
+  JSON.stringify({
+    version: UI_STATE_VERSION,
+    themeMode: preference.themeMode,
+    palette: preference.palette,
+  });
 
 export const createAnonymousUiStateSnapshot = (
-  preference: Readonly<AnonymousThemePreference>,
+  preference: Readonly<AnonymousThemePreference>
 ): UiStateSnapshot => ({
   version: UI_STATE_VERSION,
   state: {
@@ -87,55 +86,54 @@ export const createAnonymousUiStateSnapshot = (
     themeMode: preference.themeMode,
     palette: preference.palette,
   },
-})
+});
 
-const UiStoreContext = createContext<UiStore | null>(null)
-const UiStoreProvider = UiStoreContext.Provider
+const UiStoreContext = createContext<UiStore | null>(null);
+const UiStoreProvider = UiStoreContext.Provider;
 
 export const UiStateProvider = ({
   children,
   initialPreference,
 }: {
-  readonly children: ReactNode
-  readonly initialPreference: Readonly<AnonymousThemePreference>
+  readonly children: ReactNode;
+  readonly initialPreference: Readonly<AnonymousThemePreference>;
 }) => {
   const [store] = useState(() => {
-    const createdStore = createUiStore()
-    createdStore.getState().hydrate(
-      JSON.stringify(createAnonymousUiStateSnapshot(initialPreference)),
-    )
-    return createdStore
-  }
-  )
-  return <UiStoreProvider value={store}>{children}
-  </UiStoreProvider>
-}
+    const createdStore = createUiStore();
+    createdStore
+      .getState()
+      .hydrate(
+        JSON.stringify(createAnonymousUiStateSnapshot(initialPreference))
+      );
+    return createdStore;
+  });
+  return <UiStoreProvider value={store}>{children}</UiStoreProvider>;
+};
 
 export const useUiStoreApi = (): UiStore => {
-  const store = useContext(UiStoreContext)
-  if (store === null) throw new Error("UiStateProvider is required.")
-  return store
-}
+  const store = useContext(UiStoreContext);
+  if (store === null) throw new Error("UiStateProvider is required.");
+  return store;
+};
 
 export const useUiState = <Selection,>(
-  selector: (state: UiState) => Selection,
+  selector: (state: UiState) => Selection
 ): Selection => {
-  const store = useUiStoreApi()
+  const store = useUiStoreApi();
   return useSyncExternalStore(
     store.subscribe,
     () => selector(store.getState()),
-    () => selector(store.getState()),
-  )
-}
-
+    () => selector(store.getState())
+  );
+};
 
 export const parseAnonymousThemePreference = (
-  serializedSnapshot: unknown,
+  serializedSnapshot: unknown
 ): Readonly<AnonymousThemePreference> => {
-  const snapshot = parseAnonymousThemeSnapshot(serializedSnapshot)
-  if (snapshot === null) return DEFAULT_ANONYMOUS_THEME
+  const snapshot = parseAnonymousThemeSnapshot(serializedSnapshot);
+  if (snapshot === null) return DEFAULT_ANONYMOUS_THEME;
   return {
     themeMode: snapshot.themeMode,
     palette: snapshot.palette,
-  }
-}
+  };
+};

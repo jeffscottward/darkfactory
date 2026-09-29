@@ -1,40 +1,37 @@
-import {
-  createAuth,
-  type DarkFactoryAuth,
-} from "@darkfactory/auth/server"
-import { composeDatabaseProfile } from "@darkfactory/config/database"
-import { parseServerEnv } from "@darkfactory/config/server"
-import { createRequestDatabase } from "@darkfactory/db/server"
-import { selectEmailPort } from "@darkfactory/email/server"
+import { createAuth, type DarkFactoryAuth } from "@darkfactory/auth/server";
+import { composeDatabaseProfile } from "@darkfactory/config/database";
+import { parseServerEnv } from "@darkfactory/config/server";
+import { createRequestDatabase } from "@darkfactory/db/server";
+import { selectEmailPort } from "@darkfactory/email/server";
 
 import {
   OPERATOR_APP_ORIGIN,
   assertLocalOperatorEnvironment,
-} from "./operator-environment.ts"
+} from "./operator-environment.ts";
 
-export type OperatorBackgroundTaskScheduler = (task: Promise<unknown>) => void
+export type OperatorBackgroundTaskScheduler = (task: Promise<unknown>) => void;
 
 export interface OperatorAuthRuntime {
-  readonly auth: DarkFactoryAuth
-  readonly close: () => Promise<void>
+  readonly auth: DarkFactoryAuth;
+  readonly close: () => Promise<void>;
 }
 
-type OperatorServerEnv = ReturnType<typeof parseServerEnv>
-type OperatorAuthDatabase = Parameters<typeof createAuth>[0]["database"]
+type OperatorServerEnv = ReturnType<typeof parseServerEnv>;
+type OperatorAuthDatabase = Parameters<typeof createAuth>[0]["database"];
 
 export const createOperatorAuthForDatabase = (
   database: OperatorAuthDatabase,
   env: OperatorServerEnv,
-  scheduleBackgroundTask: OperatorBackgroundTaskScheduler = () => undefined,
+  scheduleBackgroundTask: OperatorBackgroundTaskScheduler = () => undefined
 ): DarkFactoryAuth => {
-  assertLocalOperatorEnvironment(env)
+  assertLocalOperatorEnvironment(env);
   const email = selectEmailPort({
     environment: env.APP_ENV,
     transport: env.EMAIL_TRANSPORT,
     resendApiKey: env.RESEND_API_KEY,
     from: env.EMAIL_FROM,
     trustedAppOrigin: OPERATOR_APP_ORIGIN,
-  })
+  });
   return createAuth({
     database,
     email,
@@ -43,48 +40,50 @@ export const createOperatorAuthForDatabase = (
     trustedOrigins: [OPERATOR_APP_ORIGIN],
     rateLimitEnabled: env.APP_ENV !== "test",
     scheduleBackgroundTask,
-  })
-}
+  });
+};
 
-export const createOperatorAuthRuntime = async (): Promise<OperatorAuthRuntime> => {
-  const env = parseServerEnv(process.env)
-  assertLocalOperatorEnvironment(env)
-  const databaseProfile = composeDatabaseProfile(env)
-  const database = await createRequestDatabase({
-    connectionString: databaseProfile.connection.connectionString,
-  })
-  const pendingTasks = new Set<Promise<unknown>>()
-  const scheduleBackgroundTask: OperatorBackgroundTaskScheduler = (task) => {
-    let observed: Promise<unknown>
-    observed = task.catch(() => undefined).finally(() => pendingTasks.delete(observed))
-    return pendingTasks.add(observed)
-  }
+export const createOperatorAuthRuntime =
+  async (): Promise<OperatorAuthRuntime> => {
+    const env = parseServerEnv(process.env);
+    assertLocalOperatorEnvironment(env);
+    const databaseProfile = composeDatabaseProfile(env);
+    const database = await createRequestDatabase({
+      connectionString: databaseProfile.connection.connectionString,
+    });
+    const pendingTasks = new Set<Promise<unknown>>();
+    const scheduleBackgroundTask: OperatorBackgroundTaskScheduler = (task) => {
+      let observed: Promise<unknown>;
+      observed = task
+        .catch(() => undefined)
+        .finally(() => pendingTasks.delete(observed));
+      return pendingTasks.add(observed);
+    };
 
-  const auth = createOperatorAuthForDatabase(
-    database.db,
-    env,
-    scheduleBackgroundTask,
-  )
+    const auth = createOperatorAuthForDatabase(
+      database.db,
+      env,
+      scheduleBackgroundTask
+    );
 
-  return Object.freeze({
-    auth,
-    close: async () => {
-      while (pendingTasks.size > 0) {
-        await Promise.allSettled([...pendingTasks])
-      }
-      return await database.close()
-    }
-  })
-}
+    return Object.freeze({
+      auth,
+      close: async () => {
+        while (pendingTasks.size > 0) {
+          await Promise.allSettled([...pendingTasks]);
+        }
+        return await database.close();
+      },
+    });
+  };
 
-export const withOperatorAuth = async <Result,>(
-  operation: (auth: DarkFactoryAuth) => Promise<Result>,
+export const withOperatorAuth = async <Result>(
+  operation: (auth: DarkFactoryAuth) => Promise<Result>
 ): Promise<Result> => {
-  const runtime = await createOperatorAuthRuntime()
+  const runtime = await createOperatorAuthRuntime();
   try {
-    return await operation(runtime.auth)
+    return await operation(runtime.auth);
+  } finally {
+    await runtime.close();
   }
-  finally {
-    await runtime.close()
-  }
-}
+};

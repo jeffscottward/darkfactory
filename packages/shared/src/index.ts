@@ -1,52 +1,50 @@
-declare const identifierBrand: unique symbol
+declare const identifierBrand: unique symbol;
 
 export type Identifier<Kind extends string> = string & {
-  readonly [identifierBrand]: Kind
-}
+  readonly [identifierBrand]: Kind;
+};
 
 type IdentifierSource = string & {
-  readonly [identifierBrand]?: never
-}
+  readonly [identifierBrand]?: never;
+};
 
-export const createIdentifier = <Kind extends string,>(
-  value: IdentifierSource,
+export const createIdentifier = <Kind extends string>(
+  value: IdentifierSource
 ): Identifier<Kind> => {
   if (value.length === 0) {
-    throw new TypeError("Identifier must not be empty")
+    throw new TypeError("Identifier must not be empty");
   }
 
-  return value as Identifier<Kind>
-}
+  return value as Identifier<Kind>;
+};
 
 export type Success<Value> = Readonly<{
-  ok: true
-  value: Value
-}>
+  ok: true;
+  value: Value;
+}>;
 
 export type Failure<Reason> = Readonly<{
-  ok: false
-  error: Reason
-}>
+  ok: false;
+  error: Reason;
+}>;
 
-export type Result<Value, Reason> = Success<Value> | Failure<Reason>
+export type Result<Value, Reason> = Success<Value> | Failure<Reason>;
 
-type ResultValue<MatchedResult> = MatchedResult extends Success<infer Value>
-  ? Value
-  : never
+type ResultValue<MatchedResult> =
+  MatchedResult extends Success<infer Value> ? Value : never;
 
-type ResultReason<MatchedResult> = MatchedResult extends Failure<infer Reason>
-  ? Reason
-  : never
+type ResultReason<MatchedResult> =
+  MatchedResult extends Failure<infer Reason> ? Reason : never;
 
-export const success = <Value,>(value: Value): Success<Value> => ({
+export const success = <Value>(value: Value): Success<Value> => ({
   ok: true,
   value,
-})
+});
 
-export const failure = <Reason,>(error: Reason): Failure<Reason> => ({
+export const failure = <Reason>(error: Reason): Failure<Reason> => ({
   ok: false,
   error,
-})
+});
 
 export const matchResult = <
   MatchedResult extends Result<unknown, unknown>,
@@ -55,27 +53,27 @@ export const matchResult = <
 >(
   result: MatchedResult,
   handlers: Readonly<{
-    success: (value: ResultValue<MatchedResult>) => SuccessOutput
-    failure: (error: ResultReason<MatchedResult>) => FailureOutput
-  }>,
+    success: (value: ResultValue<MatchedResult>) => SuccessOutput;
+    failure: (error: ResultReason<MatchedResult>) => FailureOutput;
+  }>
 ): SuccessOutput | FailureOutput => {
   if (result.ok) {
-    return handlers.success(result.value as ResultValue<MatchedResult>)
+    return handlers.success(result.value as ResultValue<MatchedResult>);
   }
 
-  return handlers.failure(result.error as ResultReason<MatchedResult>)
-}
+  return handlers.failure(result.error as ResultReason<MatchedResult>);
+};
 
 export type NormalizedError = Readonly<{
-  code: "UNEXPECTED_ERROR"
-  message: "An unexpected error occurred."
-}>
+  code: "UNEXPECTED_ERROR";
+  message: "An unexpected error occurred.";
+}>;
 
 const NORMALIZED_UNKNOWN_ERROR: NormalizedError = Object.freeze({
   code: "UNEXPECTED_ERROR",
   message: "An unexpected error occurred.",
-})
+});
 
 export const normalizeUnknownError = (_error: unknown): NormalizedError => {
-  return NORMALIZED_UNKNOWN_ERROR
-}
+  return NORMALIZED_UNKNOWN_ERROR;
+};

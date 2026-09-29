@@ -1,25 +1,28 @@
-import { PageHeader, buttonVariants } from "@darkfactory/ui"
-import { FilePlus2 } from "lucide-react"
+import { PageHeader, buttonVariants } from "@darkfactory/ui";
+import { FilePlus2 } from "lucide-react";
 
-import { FeatureItemsWorkspace } from "../../../components/portal/feature-items-workspace.tsx"
+import { FeatureItemsWorkspace } from "../../../components/portal/feature-items-workspace.tsx";
 
-export const metadata = { title: "Feature items" }
+export const metadata = { title: "Feature items" };
 
 export default function FeatureItemsPage() {
   return (
     <div className="space-y-10">
       <PageHeader
-        actions={(
-          <a className={buttonVariants({ variant: "primary" })} href="/feature-items/new">
+        actions={
+          <a
+            className={buttonVariants({ variant: "primary" })}
+            href="/feature-items/new"
+          >
             <FilePlus2 aria-hidden="true" className="size-4" />
             Create feature item
-      </a>
-        )}
+          </a>
+        }
         description="Owner-scoped starter records backed by the typed featureItems oRPC contract."
         eyebrow="Vertical slice"
         title="Feature items"
       />
       <FeatureItemsWorkspace />
-  </div>
-  )
+    </div>
+  );
 }

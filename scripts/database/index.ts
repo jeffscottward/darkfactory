@@ -1,60 +1,60 @@
-import type { PrepareSeedIdentities } from "@darkfactory/db/server"
+import type { PrepareSeedIdentities } from "@darkfactory/db/server";
 
-type DevelopmentEnvironment = "development" | "test"
+type DevelopmentEnvironment = "development" | "test";
 
-const CONFIRMATION_PREFIX = "--confirm-environment="
-const CONFIRMATION_USAGE = "--confirm-environment=<development|test>"
+const CONFIRMATION_PREFIX = "--confirm-environment=";
+const CONFIRMATION_USAGE = "--confirm-environment=<development|test>";
 
 const commandFrom = (argument: string | undefined): "seed" | "reset" => {
-  if (argument === "seed" || argument === "reset") return argument
-  throw new Error("Database command must be either seed or reset")
-}
+  if (argument === "seed" || argument === "reset") return argument;
+  throw new Error("Database command must be either seed or reset");
+};
 const developmentEnvironmentFrom = (
-  value: string | undefined,
+  value: string | undefined
 ): DevelopmentEnvironment => {
-  if (value === "development" || value === "test") return value
+  if (value === "development" || value === "test") return value;
   throw new Error(
-    "APP_ENV must be explicitly set to development or test for database seed/reset",
-  )
-}
+    "APP_ENV must be explicitly set to development or test for database seed/reset"
+  );
+};
 
 const confirmationEnvironmentFrom = (
   arguments_: readonly string[],
-  environment: DevelopmentEnvironment,
+  environment: DevelopmentEnvironment
 ): DevelopmentEnvironment => {
-  const explicitArguments = arguments_[0] === "--"
-    ? arguments_.slice(1)
-    : arguments_
+  const explicitArguments =
+    arguments_[0] === "--" ? arguments_.slice(1) : arguments_;
   if (explicitArguments.length === 0) {
-    throw new Error(`Database seed/reset requires ${CONFIRMATION_USAGE}`)
+    throw new Error(`Database seed/reset requires ${CONFIRMATION_USAGE}`);
   }
 
   const confirmations = explicitArguments.filter((argument) => {
-    return argument === "--confirm-environment" ||
-    argument.startsWith(CONFIRMATION_PREFIX)
-  }
-  )
+    return (
+      argument === "--confirm-environment" ||
+      argument.startsWith(CONFIRMATION_PREFIX)
+    );
+  });
   if (confirmations.length > 1) {
-    throw new Error("Database confirmation must be provided exactly once")
+    throw new Error("Database confirmation must be provided exactly once");
   }
   if (explicitArguments.length !== 1 || confirmations.length !== 1) {
-    throw new Error(`Database confirmation must use ${CONFIRMATION_USAGE}`)
+    throw new Error(`Database confirmation must use ${CONFIRMATION_USAGE}`);
   }
 
-  const value = confirmations[0]?.slice(CONFIRMATION_PREFIX.length)
+  const value = confirmations[0]?.slice(CONFIRMATION_PREFIX.length);
   if (value !== "development" && value !== "test") {
-    throw new Error(`Database confirmation must use ${CONFIRMATION_USAGE}`)
+    throw new Error(`Database confirmation must use ${CONFIRMATION_USAGE}`);
   }
   if (value !== environment) {
-    throw new Error("Database confirmation must match APP_ENV exactly")
+    throw new Error("Database confirmation must match APP_ENV exactly");
   }
-  return value
-}
+  return value;
+};
 
 const main = async (): Promise<void> => {
-  const command = commandFrom(process.argv[2])
-  const environment = developmentEnvironmentFrom(process.env["APP_ENV"])
-  confirmationEnvironmentFrom(process.argv.slice(3), environment)
+  const command = commandFrom(process.argv[2]);
+  const environment = developmentEnvironmentFrom(process.env["APP_ENV"]);
+  confirmationEnvironmentFrom(process.argv.slice(3), environment);
 
   const [authModule, configModule, databaseConfigModule, databaseModule] =
     await Promise.all([
@@ -62,43 +62,44 @@ const main = async (): Promise<void> => {
       import("@darkfactory/config/server"),
       import("@darkfactory/config/database"),
       import("@darkfactory/db/server"),
-    ])
+    ]);
 
-  const env = configModule.parseServerEnv(process.env)
-  const profile = databaseConfigModule.composeDatabaseProfile(env)
+  const env = configModule.parseServerEnv(process.env);
+  const profile = databaseConfigModule.composeDatabaseProfile(env);
   const resource = databaseModule.createNodeDatabase({
     connectionString: profile.connection.connectionString,
-  })
-  let output = ""
+  });
+  let output = "";
 
   try {
     if (command === "reset") {
       const result = await databaseModule.resetDevelopment(resource.db, {
         environment,
-      })
-      output = JSON.stringify(result)
-    }
-    else {
+      });
+      output = JSON.stringify(result);
+    } else {
       const prepareIdentity: PrepareSeedIdentities = async (identities) => {
-        return await authModule.ensureDevelopmentSeedIdentity({
-          environment,
-          secret: env.BETTER_AUTH_SECRET,
-          baseURL: env.BETTER_AUTH_URL,
-          trustedOrigins: [env.APP_URL],
-        }, identities)
-      }
+        return await authModule.ensureDevelopmentSeedIdentity(
+          {
+            environment,
+            secret: env.BETTER_AUTH_SECRET,
+            baseURL: env.BETTER_AUTH_URL,
+            trustedOrigins: [env.APP_URL],
+          },
+          identities
+        );
+      };
 
       const result = await databaseModule.seedDevelopment(resource.db, {
         environment,
         prepareIdentity,
-      })
-      output = JSON.stringify(result)
+      });
+      output = JSON.stringify(result);
     }
+  } finally {
+    await resource.close();
   }
-  finally {
-    await resource.close()
-  }
-  process.stdout.write(`${output}\n`)
-}
+  process.stdout.write(`${output}\n`);
+};
 
-await main()
+await main();

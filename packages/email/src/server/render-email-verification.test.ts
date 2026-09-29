@@ -1,52 +1,68 @@
-import { describe, expect, it } from "vitest"
+import { describe, expect, it } from "vitest";
 
-import type { EmailVerificationEmailInput } from "../index.ts"
-import { renderEmailVerificationEmail } from "./render-email-verification.ts"
+import type { EmailVerificationEmailInput } from "../index.ts";
+import { renderEmailVerificationEmail } from "./render-email-verification.ts";
 
-const verificationToken = "header.payload.signature"
-const callbackUrl = "/verify-email?verified=1"
+const verificationToken = "header.payload.signature";
+const callbackUrl = "/verify-email?verified=1";
 const verificationUrl =
   `https://darkfactory.localhost/api/auth/verify-email?token=${verificationToken}` +
-  `&callbackURL=${encodeURIComponent(callbackUrl)}`
+  `&callbackURL=${encodeURIComponent(callbackUrl)}`;
 const verificationInput: EmailVerificationEmailInput = {
   to: "member@domain.test",
   recipientName: "Alice Adams",
   verificationUrl,
   expiresInMinutes: 60,
-}
+};
 
-describe("renderEmailVerificationEmail", function() {
-  it("renders an accessible verification action and honest expiry guidance", async function() {
-    const rendered = await renderEmailVerificationEmail(verificationInput)
+describe("renderEmailVerificationEmail", function () {
+  it("renders an accessible verification action and honest expiry guidance", async function () {
+    const rendered = await renderEmailVerificationEmail(verificationInput);
 
-    expect(rendered.subject).toBe("Verify your DarkFactory email")
-    expect(rendered.html).toMatch(/<html[^>]*lang="en"/)
-    expect(rendered.html).toContain("<main")
-    expect(rendered.html).toContain("<h1")
-    expect(rendered.html).toContain('aria-label="Verify your DarkFactory email"')
-    expect(rendered.text).toMatch(/Verify your email/i)
-    expect(rendered.text).toContain("60 minutes")
-    expect(rendered.text).toContain(verificationUrl)
-    return expect(rendered.text).toContain("If you did not create or request access to this account")
-  })
+    expect(rendered.subject).toBe("Verify your DarkFactory email");
+    expect(rendered.html).toMatch(/<html[^>]*lang="en"/);
+    expect(rendered.html).toContain("<main");
+    expect(rendered.html).toContain("<h1");
+    expect(rendered.html).toContain(
+      'aria-label="Verify your DarkFactory email"'
+    );
+    expect(rendered.text).toMatch(/Verify your email/i);
+    expect(rendered.text).toContain("60 minutes");
+    expect(rendered.text).toContain(verificationUrl);
+    return expect(rendered.text).toContain(
+      "If you did not create or request access to this account"
+    );
+  });
 
-  it("escapes recipient content and confines the token to the verification URL", async function() {
-    const dangerousName = '<img src=x onerror="alert(1)">'
+  it("escapes recipient content and confines the token to the verification URL", async function () {
+    const dangerousName = '<img src=x onerror="alert(1)">';
     const rendered = await renderEmailVerificationEmail({
       ...verificationInput,
       recipientName: dangerousName,
-    })
+    });
 
-    expect(rendered.html).not.toContain(dangerousName)
-    expect(rendered.html).toContain("&lt;img src=x onerror=&quot;alert(1)&quot;&gt;")
-    expect(rendered.html).toContain(`href="${verificationUrl.replaceAll("&", "&amp;")}"`)
-    expect(rendered.html.match(new RegExp(verificationToken.replaceAll(".", "\\."), "g"))).toHaveLength(1)
-    expect(rendered.text.match(new RegExp(verificationToken.replaceAll(".", "\\."), "g"))).toHaveLength(1)
-    expect(rendered.html).not.toMatch(/verification token/i)
-    return expect(rendered.text).not.toMatch(/verification token/i)
-  })
+    expect(rendered.html).not.toContain(dangerousName);
+    expect(rendered.html).toContain(
+      "&lt;img src=x onerror=&quot;alert(1)&quot;&gt;"
+    );
+    expect(rendered.html).toContain(
+      `href="${verificationUrl.replaceAll("&", "&amp;")}"`
+    );
+    expect(
+      rendered.html.match(
+        new RegExp(verificationToken.replaceAll(".", "\\."), "g")
+      )
+    ).toHaveLength(1);
+    expect(
+      rendered.text.match(
+        new RegExp(verificationToken.replaceAll(".", "\\."), "g")
+      )
+    ).toHaveLength(1);
+    expect(rendered.html).not.toMatch(/verification token/i);
+    return expect(rendered.text).not.toMatch(/verification token/i);
+  });
 
-  it("rejects attacker origins, credentials, fragments, unsafe paths, duplicate queries, and callbacks", async function() {
+  it("rejects attacker origins, credentials, fragments, unsafe paths, duplicate queries, and callbacks", async function () {
     const unsafeUrls = [
       verificationUrl.replace("darkfactory.localhost", "attacker.test"),
       verificationUrl.replace("https://", "https://user:password@"),
@@ -54,93 +70,103 @@ describe("renderEmailVerificationEmail", function() {
       verificationUrl.replace("/api/auth/verify-email", "/verify-email"),
       verificationUrl.replace(
         encodeURIComponent(callbackUrl),
-        encodeURIComponent("https://attacker.test/verify-email?verified=1"),
+        encodeURIComponent("https://attacker.test/verify-email?verified=1")
       ),
       verificationUrl.replace("header.payload.signature", "nested/token"),
       `${verificationUrl}&token=second-token`,
-    ]
+    ];
 
-    const results=[];for (const unsafeUrl of unsafeUrls) {
-      results.push(await expect(
-        renderEmailVerificationEmail({
-          ...verificationInput,
-          verificationUrl: unsafeUrl,
-        }),
-      ).rejects.toThrowError(
-        "verificationUrl must be a trusted email verification URL",
-      ))
-    };return results;
-  })
+    const results = [];
+    for (const unsafeUrl of unsafeUrls) {
+      results.push(
+        await expect(
+          renderEmailVerificationEmail({
+            ...verificationInput,
+            verificationUrl: unsafeUrl,
+          })
+        ).rejects.toThrowError(
+          "verificationUrl must be a trusted email verification URL"
+        )
+      );
+    }
+    return results;
+  });
 
-  it("accepts an explicitly configured trusted application origin", async function() {
-    const trustedAppOrigin = "https://app.domain.test"
+  it("accepts an explicitly configured trusted application origin", async function () {
+    const trustedAppOrigin = "https://app.domain.test";
     const configuredInput = {
       ...verificationInput,
       verificationUrl: verificationUrl.replace(
         "https://darkfactory.localhost",
-        trustedAppOrigin,
+        trustedAppOrigin
       ),
-    }
+    };
 
     const rendered = await renderEmailVerificationEmail(configuredInput, {
       trustedAppOrigin,
-    })
+    });
 
-    return expect(rendered.text).toContain(configuredInput.verificationUrl)
-  })
+    return expect(rendered.text).toContain(configuredInput.verificationUrl);
+  });
 
-  it("rejects non-positive or fractional expiry windows", async function() {
+  it("rejects non-positive or fractional expiry windows", async function () {
     await expect(
       renderEmailVerificationEmail({
         ...verificationInput,
         expiresInMinutes: 0,
-      }),
-    ).rejects.toThrowError("expiresInMinutes must be a positive integer")
+      })
+    ).rejects.toThrowError("expiresInMinutes must be a positive integer");
     return await expect(
       renderEmailVerificationEmail({
         ...verificationInput,
         expiresInMinutes: 1.5,
-      }),
-    ).rejects.toThrowError("expiresInMinutes must be a positive integer")
-  })
+      })
+    ).rejects.toThrowError("expiresInMinutes must be a positive integer");
+  });
 
-  it("uses a generic greeting and singular expiry guidance when no name is available", async function() {
+  it("uses a generic greeting and singular expiry guidance when no name is available", async function () {
     const rendered = await renderEmailVerificationEmail({
       to: verificationInput.to,
       verificationUrl: verificationInput.verificationUrl,
       expiresInMinutes: 1,
-    })
+    });
 
-    expect(rendered.text).toContain("Hello,")
-    expect(rendered.text).toContain("1 minute")
-    return expect(rendered.text).not.toContain("1 minutes")
-  })
+    expect(rendered.text).toContain("Hello,");
+    expect(rendered.text).toContain("1 minute");
+    return expect(rendered.text).not.toContain("1 minutes");
+  });
 
-  return it("rejects malformed configured origins, verification URLs, and callback URLs", async function() {
+  return it("rejects malformed configured origins, verification URLs, and callback URLs", async function () {
     for (const trustedAppOrigin of ["not a URL", "http://app.domain.test"]) {
-      await expect(renderEmailVerificationEmail(verificationInput, {
-        trustedAppOrigin,
-      })).rejects.toThrowError(
-        "verificationUrl must be a trusted email verification URL",
-      )
+      await expect(
+        renderEmailVerificationEmail(verificationInput, {
+          trustedAppOrigin,
+        })
+      ).rejects.toThrowError(
+        "verificationUrl must be a trusted email verification URL"
+      );
     }
 
-    await expect(renderEmailVerificationEmail({
-      ...verificationInput,
-      verificationUrl: "not a URL",
-    })).rejects.toThrowError(
-      "verificationUrl must be a trusted email verification URL",
-    )
+    await expect(
+      renderEmailVerificationEmail({
+        ...verificationInput,
+        verificationUrl: "not a URL",
+      })
+    ).rejects.toThrowError(
+      "verificationUrl must be a trusted email verification URL"
+    );
 
     const malformedCallbackUrl = verificationUrl.replace(
       encodeURIComponent(callbackUrl),
-      encodeURIComponent("http://["),
-    )
-    return await expect(renderEmailVerificationEmail({
-      ...verificationInput,
-      verificationUrl: malformedCallbackUrl,
-    })).rejects.toThrowError(
-      "verificationUrl must be a trusted email verification URL",
-    )
-  })
-})
+      encodeURIComponent("http://[")
+    );
+    return await expect(
+      renderEmailVerificationEmail({
+        ...verificationInput,
+        verificationUrl: malformedCallbackUrl,
+      })
+    ).rejects.toThrowError(
+      "verificationUrl must be a trusted email verification URL"
+    );
+  });
+});

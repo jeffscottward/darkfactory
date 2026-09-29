@@ -1,7 +1,7 @@
-import { spawnSync } from "node:child_process"
-import { readFileSync, readSync } from "node:fs"
-import { extname } from "node:path"
-import { inspectBunRuntime } from "../ci/bun-runtime.ts"
+import { spawnSync } from "node:child_process";
+import { readFileSync, readSync } from "node:fs";
+import { extname } from "node:path";
+import { inspectBunRuntime } from "../ci/bun-runtime.ts";
 
 const BIOME_EXTENSIONS = new Set([
   ".cjs",
@@ -15,9 +15,9 @@ const BIOME_EXTENSIONS = new Set([
   ".mts",
   ".ts",
   ".tsx",
-])
+]);
 
-const MARKDOWN_EXTENSIONS = new Set([".markdown", ".md"])
+const MARKDOWN_EXTENSIONS = new Set([".markdown", ".md"]);
 
 const STAGED_PATH_ARGUMENTS = [
   "diff",
@@ -25,29 +25,30 @@ const STAGED_PATH_ARGUMENTS = [
   "--name-only",
   "--diff-filter=ACMR",
   "-z",
-]
+];
 
 function formatCommand(executable, arguments_) {
   return [executable, ...arguments_]
     .map((argument) => JSON.stringify(argument))
-    .join(" ")
+    .join(" ");
 }
 
 function failureExitCode(executable, arguments_, result) {
-  const exitCode = Number.isInteger(result.status) && result.status > 0 ? result.status : 1
+  const exitCode =
+    Number.isInteger(result.status) && result.status > 0 ? result.status : 1;
   console.error(
-    `[hook] failed (${exitCode}): ${formatCommand(executable, arguments_)}`,
-  )
+    `[hook] failed (${exitCode}): ${formatCommand(executable, arguments_)}`
+  );
 
   if (result.error) {
-    console.error(result.error.message)
+    console.error(result.error.message);
   }
 
   if (result.signal) {
-    console.error(`[hook] terminated by ${result.signal}`)
+    console.error(`[hook] terminated by ${result.signal}`);
   }
 
-  return exitCode
+  return exitCode;
 }
 
 function readStagedPaths() {
@@ -55,189 +56,217 @@ function readStagedPaths() {
     encoding: "utf8",
     shell: false,
     stdio: ["ignore", "pipe", "inherit"],
-  })
+  });
 
   if (result.status !== 0) {
     return {
       exitCode: failureExitCode("git", STAGED_PATH_ARGUMENTS, result),
       paths: [],
-    }
+    };
   }
 
   return {
     exitCode: 0,
     paths: result.stdout.split("\0").filter(Boolean),
-  }
+  };
 }
 
 function isCivetPath(path) {
-  return extname(path).toLowerCase() === ".civet"
+  return extname(path).toLowerCase() === ".civet";
 }
 
 function selectBiomePaths(paths) {
   return paths.filter((path) => {
-    return BIOME_EXTENSIONS.has(extname(path).toLowerCase())
-  }
-  )
+    return BIOME_EXTENSIONS.has(extname(path).toLowerCase());
+  });
 }
 
 function selectMarkdownPaths(paths) {
   return paths.filter((path) => {
-    return MARKDOWN_EXTENSIONS.has(extname(path).toLowerCase())
-  }
-  )
+    return MARKDOWN_EXTENSIONS.has(extname(path).toLowerCase());
+  });
 }
 
-type BunScriptRunner = (scripts: readonly string[], paths?: readonly string[]) => number
+type BunScriptRunner = (
+  scripts: readonly string[],
+  paths?: readonly string[]
+) => number;
 
-function runBunScripts(scripts: readonly string[], paths: readonly string[] = []) {
-  const safePaths = paths.map((path) => `./${path}`)
+function runBunScripts(
+  scripts: readonly string[],
+  paths: readonly string[] = []
+) {
+  const safePaths = paths.map((path) => `./${path}`);
 
   for (const script of scripts) {
     const arguments_ =
       safePaths.length === 0
         ? ["run", script]
-        : ["run", script, "--", ...safePaths]
+        : ["run", script, "--", ...safePaths];
     const result = spawnSync("bun", arguments_, {
       shell: false,
       stdio: "inherit",
-    })
+    });
 
     if (result.error || result.signal || result.status !== 0) {
-      return failureExitCode("bun", arguments_, result)
+      return failureExitCode("bun", arguments_, result);
     }
   }
 
-  return 0
+  return 0;
 }
 
 function warnBunRuntime(): void {
   const warn = (detail: string): void => {
-    console.error(`[hook] WARNING: Bun runtime differs from the pinned toolchain (${detail}); continuing, but local results may differ from CI`)
-  }
+    console.error(
+      `[hook] WARNING: Bun runtime differs from the pinned toolchain (${detail}); continuing, but local results may differ from CI`
+    );
+  };
   try {
     const pathResolved = spawnSync("bun", ["--version"], {
       encoding: "utf8",
       shell: false,
       stdio: ["ignore", "pipe", "inherit"],
       timeout: 10_000,
-    })
-    if (pathResolved.error || pathResolved.signal || pathResolved.status !== 0) {
-      warn(`PATH bun --version failed: ${pathResolved.error?.message ?? pathResolved.signal ?? `exit ${pathResolved.status}`}`)
-      return
+    });
+    if (
+      pathResolved.error ||
+      pathResolved.signal ||
+      pathResolved.status !== 0
+    ) {
+      warn(
+        `PATH bun --version failed: ${pathResolved.error?.message ?? pathResolved.signal ?? `exit ${pathResolved.status}`}`
+      );
+      return;
     }
     const inspection = inspectBunRuntime(
       readFileSync(".bun-version", "utf8"),
-      (globalThis as typeof globalThis & { Bun?: { version?: string } }).Bun?.version ?? "",
-      { exitCode: pathResolved.status, stdout: pathResolved.stdout },
-    )
+      (globalThis as typeof globalThis & { Bun?: { version?: string } }).Bun
+        ?.version ?? "",
+      { exitCode: pathResolved.status, stdout: pathResolved.stdout }
+    );
     if (!inspection.ok) {
-      warn(inspection.detail)
+      warn(inspection.detail);
     }
-  }
-  catch (error) {
-    warn(error instanceof Error ? error.message : String(error))
+  } catch (error) {
+    warn(error instanceof Error ? error.message : String(error));
   }
 }
 
 export function runPreCommit() {
-  const staged = readStagedPaths()
+  const staged = readStagedPaths();
 
   if (staged.exitCode !== 0) {
-    return staged.exitCode
+    return staged.exitCode;
   }
 
-  const biomePaths = selectBiomePaths(staged.paths)
-  const markdownPaths = selectMarkdownPaths(staged.paths)
+  const biomePaths = selectBiomePaths(staged.paths);
+  const markdownPaths = selectMarkdownPaths(staged.paths);
 
   if (biomePaths.length === 0 && markdownPaths.length === 0) {
     if (staged.paths.some(isCivetPath)) {
       console.error(
-        "[hook] staged Civet validation is deferred to mandatory bun run verify:prepush before push.",
-      )
+        "[hook] staged Civet validation is deferred to mandatory bun run verify:prepush before push."
+      );
     }
 
-    return 0
+    return 0;
   }
 
   if (biomePaths.length > 0) {
     const biomeExitCode = runBunScripts(
       ["format:staged", "lint:staged"],
-      biomePaths,
-    )
+      biomePaths
+    );
 
     if (biomeExitCode !== 0) {
-      return biomeExitCode
+      return biomeExitCode;
     }
   }
 
   if (markdownPaths.length > 0) {
-    return runBunScripts(["lint:markdown:staged"], markdownPaths)
+    return runBunScripts(["lint:markdown:staged"], markdownPaths);
   }
 
-  return 0
+  return 0;
 }
 
-export const PRE_PUSH_SCRIPTS: readonly string[] = Object.freeze(["verify:prepush"])
+export const PRE_PUSH_SCRIPTS: readonly string[] = Object.freeze([
+  "verify:prepush",
+]);
 
-const MAX_PUSH_INPUT_BYTES = 64 * 1024
-const MAX_PUSH_REFS = 256
-const OBJECT_ID = /^(?:[a-f0-9]{40}|[a-f0-9]{64})$/
-const ZERO_ID = /^0+$/
+const MAX_PUSH_INPUT_BYTES = 64 * 1024;
+const MAX_PUSH_REFS = 256;
+const OBJECT_ID = /^(?:[a-f0-9]{40}|[a-f0-9]{64})$/;
+const ZERO_ID = /^0+$/;
 
-type PushTarget = { remoteName: string; remoteUrl: string }
+type PushTarget = { remoteName: string; remoteUrl: string };
 type PushDependencies = {
-  readInput?: () => string
-  runScripts?: BunScriptRunner
-}
+  readInput?: () => string;
+  runScripts?: BunScriptRunner;
+};
 
 function readPushInput(): string {
-  const buffer = Buffer.alloc(MAX_PUSH_INPUT_BYTES + 1)
-  let length = 0
+  const buffer = Buffer.alloc(MAX_PUSH_INPUT_BYTES + 1);
+  let length = 0;
   while (length < buffer.length) {
-    const count = readSync(0, buffer, length, buffer.length - length, null)
+    const count = readSync(0, buffer, length, buffer.length - length, null);
     if (count === 0) {
-      return buffer.toString("utf8", 0, length)
+      return buffer.toString("utf8", 0, length);
     }
-    length += count
+    length += count;
   }
-  throw new Error("pre-push STDIN exceeds 64 KiB")
+  throw new Error("pre-push STDIN exceeds 64 KiB");
 }
 
 function parsePushInput(input: string) {
   if (Buffer.byteLength(input, "utf8") > MAX_PUSH_INPUT_BYTES) {
-    throw new Error("pre-push STDIN exceeds 64 KiB")
+    throw new Error("pre-push STDIN exceeds 64 KiB");
   }
-  const lines = input.endsWith("\n") ? input.slice(0, -1).split("\n") : input.split("\n")
+  const lines = input.endsWith("\n")
+    ? input.slice(0, -1).split("\n")
+    : input.split("\n");
   if (lines.length > MAX_PUSH_REFS) {
-    throw new Error("pre-push exceeds 256 ref updates")
+    throw new Error("pre-push exceeds 256 ref updates");
   }
-  const destinations = new Set<string>()
-  let objectIdLength = 0
+  const destinations = new Set<string>();
+  let objectIdLength = 0;
   return lines.map((line) => {
-    const fields = line.trim().split(/[ \t]+/)
+    const fields = line.trim().split(/[ \t]+/);
     if (fields.length !== 4 || /[\0-\x08\x0b-\x1f\x7f]/.test(line)) {
-      throw new Error("expected four fields per pre-push STDIN line")
+      throw new Error("expected four fields per pre-push STDIN line");
     }
-    const [localRef, localId, remoteRef, remoteId] = fields
-    if (!OBJECT_ID.test(localId) || !OBJECT_ID.test(remoteId) || localId.length !== remoteId.length) {
-      throw new Error("pre-push object IDs must be full, matching SHA-1 or SHA-256 IDs")
+    const [localRef, localId, remoteRef, remoteId] = fields;
+    if (
+      !OBJECT_ID.test(localId) ||
+      !OBJECT_ID.test(remoteId) ||
+      localId.length !== remoteId.length
+    ) {
+      throw new Error(
+        "pre-push object IDs must be full, matching SHA-1 or SHA-256 IDs"
+      );
     }
     if (objectIdLength !== 0 && objectIdLength !== localId.length) {
-      throw new Error("pre-push cannot mix object ID formats")
+      throw new Error("pre-push cannot mix object ID formats");
     }
-    objectIdLength = localId.length
-    if (!/^refs\/(?:heads|tags)\/.+/.test(remoteRef) || destinations.has(remoteRef)) {
-      throw new Error("pre-push requires distinct branch or tag destinations")
+    objectIdLength = localId.length;
+    if (
+      !/^refs\/(?:heads|tags)\/.+/.test(remoteRef) ||
+      destinations.has(remoteRef)
+    ) {
+      throw new Error("pre-push requires distinct branch or tag destinations");
     }
-    destinations.add(remoteRef)
-    const deletion = ZERO_ID.test(localId)
-    if (deletion ? localRef !== "(delete)" || ZERO_ID.test(remoteId) : localRef === "(delete)" || localRef.startsWith("-")) {
-      throw new Error("inconsistent pre-push source or deletion record")
+    destinations.add(remoteRef);
+    const deletion = ZERO_ID.test(localId);
+    if (
+      deletion
+        ? localRef !== "(delete)" || ZERO_ID.test(remoteId)
+        : localRef === "(delete)" || localRef.startsWith("-")
+    ) {
+      throw new Error("inconsistent pre-push source or deletion record");
     }
-    return { localId, remoteRef, deletion }
-  }
-  )
+    return { localId, remoteRef, deletion };
+  });
 }
 
 function runPushGit(arguments_: string[]) {
@@ -247,89 +276,116 @@ function runPushGit(arguments_: string[]) {
     stdio: ["ignore", "pipe", "inherit"],
     maxBuffer: 1024 * 1024,
     timeout: 30000,
-  })
+  });
   if (result.error || result.signal || result.status !== 0) {
-    return { exitCode: failureExitCode("git", arguments_, result), stdout: "" }
+    return { exitCode: failureExitCode("git", arguments_, result), stdout: "" };
   }
-  return { exitCode: 0, stdout: result.stdout }
+  return { exitCode: 0, stdout: result.stdout };
 }
 
 function readPushCommit(revision: string) {
-  const result = runPushGit(["rev-parse", "--verify", "--end-of-options", `${revision}^{commit}`])
+  const result = runPushGit([
+    "rev-parse",
+    "--verify",
+    "--end-of-options",
+    `${revision}^{commit}`,
+  ]);
   if (result.exitCode === 0 && !OBJECT_ID.test(result.stdout.trim())) {
-    throw new Error("git did not resolve a full commit ID")
+    throw new Error("git did not resolve a full commit ID");
   }
-  return { exitCode: result.exitCode, commit: result.stdout.trim() }
+  return { exitCode: result.exitCode, commit: result.stdout.trim() };
 }
 
 function checkPushCheckout(expectedHead: string) {
-  const current = readPushCommit("HEAD")
+  const current = readPushCommit("HEAD");
   if (current.exitCode !== 0) {
-    return current.exitCode
+    return current.exitCode;
   }
   if (current.commit !== expectedHead) {
-    throw new Error("HEAD changed during pre-push; retry from the pushed commit")
+    throw new Error(
+      "HEAD changed during pre-push; retry from the pushed commit"
+    );
   }
   // Untracked and ignored files cannot reach the pushed commit, so only tracked changes block.
-  const status = runPushGit(["status", "--porcelain=v1", "-z", "--untracked-files=no", "--ignore-submodules=none"])
+  const status = runPushGit([
+    "status",
+    "--porcelain=v1",
+    "-z",
+    "--untracked-files=no",
+    "--ignore-submodules=none",
+  ]);
   if (status.exitCode !== 0) {
-    return status.exitCode
+    return status.exitCode;
   }
   if (status.stdout.length > 0) {
-    throw new Error("pre-push requires committed tracked files: commit or stash staged and unstaged changes to tracked files")
+    throw new Error(
+      "pre-push requires committed tracked files: commit or stash staged and unstaged changes to tracked files"
+    );
   }
-  return 0
+  return 0;
 }
 
 export function runPrePush(
   argv: readonly string[] = process.argv.slice(2),
-  dependencies: PushDependencies = {},
+  dependencies: PushDependencies = {}
 ): number {
   try {
-    if (argv.length !== 2 || argv.some((value) => value.trim().length === 0 || /[\0-\x1f\x7f]/.test(value))) {
-      throw new Error("pre-push requires exactly Git's remote name and destination URL arguments")
+    if (
+      argv.length !== 2 ||
+      argv.some(
+        (value) => value.trim().length === 0 || /[\0-\x1f\x7f]/.test(value)
+      )
+    ) {
+      throw new Error(
+        "pre-push requires exactly Git's remote name and destination URL arguments"
+      );
     }
-    const updates = parsePushInput((dependencies.readInput ?? readPushInput)())
+    const updates = parsePushInput((dependencies.readInput ?? readPushInput)());
     for (const update of updates) {
-      const checked = runPushGit(["check-ref-format", update.remoteRef])
+      const checked = runPushGit(["check-ref-format", update.remoteRef]);
       if (checked.exitCode !== 0) {
-        return checked.exitCode
+        return checked.exitCode;
       }
     }
-    const sources = updates.filter((update) => !update.deletion)
+    const sources = updates.filter((update) => !update.deletion);
     if (sources.length === 0) {
-      console.error("[hook] deletion-only push: no source to verify; local CI not run")
-      return 0
+      console.error(
+        "[hook] deletion-only push: no source to verify; local CI not run"
+      );
+      return 0;
     }
-    const head = readPushCommit("HEAD")
+    const head = readPushCommit("HEAD");
     if (head.exitCode !== 0) {
-      return head.exitCode
+      return head.exitCode;
     }
     for (const source of sources) {
-      const pushed = readPushCommit(source.localId)
+      const pushed = readPushCommit(source.localId);
       if (pushed.exitCode !== 0) {
-        return pushed.exitCode
+        return pushed.exitCode;
       }
       if (pushed.commit !== head.commit) {
-        throw new Error("every pushed source must resolve to current HEAD; check out and verify each different commit separately")
+        throw new Error(
+          "every pushed source must resolve to current HEAD; check out and verify each different commit separately"
+        );
       }
     }
-    const checkoutStatus = checkPushCheckout(head.commit)
+    const checkoutStatus = checkPushCheckout(head.commit);
     if (checkoutStatus !== 0) {
-      return checkoutStatus
+      return checkoutStatus;
     }
-    warnBunRuntime()
+    warnBunRuntime();
     for (const script of PRE_PUSH_SCRIPTS) {
-      const status = (dependencies.runScripts ?? runBunScripts)([script])
+      const status = (dependencies.runScripts ?? runBunScripts)([script]);
       if (status !== 0) {
-        console.error(`[hook] mandatory local lane failed: ${script}`)
-        return Number.isInteger(status) && status > 0 ? status : 1
+        console.error(`[hook] mandatory local lane failed: ${script}`);
+        return Number.isInteger(status) && status > 0 ? status : 1;
       }
     }
-    return checkPushCheckout(head.commit)
-  }
-  catch (error) {
-    console.error(`[hook] pre-push blocked: ${error instanceof Error ? error.message : String(error)}`)
-    return 1
+    return checkPushCheckout(head.commit);
+  } catch (error) {
+    console.error(
+      `[hook] pre-push blocked: ${error instanceof Error ? error.message : String(error)}`
+    );
+    return 1;
   }
 }

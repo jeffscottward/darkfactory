@@ -1,25 +1,29 @@
 // @vitest-environment jsdom
 
-import { cleanup, fireEvent, render, screen } from "@testing-library/react"
-import { createElement } from "react"
-import { afterEach, describe, expect, it, vi } from "vitest"
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { createElement } from "react";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 const approvalPanel = vi.hoisted(() => ({
   onApprove: undefined as (() => void) | undefined,
-}))
+}));
 
 vi.mock("./approval-panel.tsx", () => ({
   ApprovalPanel: ({ onApprove }: { readonly onApprove: () => void }) => {
-    approvalPanel.onApprove = onApprove
-    return createElement("button", { onClick: onApprove }, "Invoke approval callback")
-  }
-}))
+    approvalPanel.onApprove = onApprove;
+    return createElement(
+      "button",
+      { onClick: onApprove },
+      "Invoke approval callback"
+    );
+  },
+}));
 
 import type {
   OperatorGateway,
   OperatorRunDetailOutput,
-} from "./operator-client.ts"
-import { OperatorRunDetail } from "./operator-run-detail.tsx"
+} from "./operator-client.ts";
+import { OperatorRunDetail } from "./operator-run-detail.tsx";
 
 const output: OperatorRunDetailOutput = {
   run: {
@@ -40,7 +44,7 @@ const output: OperatorRunDetailOutput = {
   evidence: [],
   messages: [],
   canRequestPlanRevision: false,
-}
+};
 
 const gatewayWith = (approve: OperatorGateway["approve"]): OperatorGateway => ({
   submit: vi.fn(async () => output),
@@ -56,30 +60,33 @@ const gatewayWith = (approve: OperatorGateway["approve"]): OperatorGateway => ({
     availability: "installed",
     tracker: "local-markdown",
   })),
-  startWayfinder: vi.fn<OperatorGateway["startWayfinder"]>(async (_request, _scope) => ({
-    runId: "run-wayfinder",
-    status: "queued",
-    tracker: "local-markdown",
-  })),
-})
+  startWayfinder: vi.fn<OperatorGateway["startWayfinder"]>(
+    async (_request, _scope) => ({
+      runId: "run-wayfinder",
+      status: "queued",
+      tracker: "local-markdown",
+    })
+  ),
+});
 
 afterEach(() => {
-  cleanup()
-  return approvalPanel.onApprove = undefined
-}
-)
+  cleanup();
+  return (approvalPanel.onApprove = undefined);
+});
 
 describe("operator run approval guard", () => {
   return it("does not approve when a child callback fires without a binding", async () => {
-    const approve = vi.fn(async () => output)
-    render(<OperatorRunDetail gateway={gatewayWith(approve)} id={output.run.id} />)
+    const approve = vi.fn(async () => output);
+    render(
+      <OperatorRunDetail gateway={gatewayWith(approve)} id={output.run.id} />
+    );
 
-    await screen.findByRole("heading", { name: "Approval guard" })
-    fireEvent.click(screen.getByRole("button", { name: "Invoke approval callback" }))
+    await screen.findByRole("heading", { name: "Approval guard" });
+    fireEvent.click(
+      screen.getByRole("button", { name: "Invoke approval callback" })
+    );
 
-    expect(approvalPanel.onApprove).toBeTypeOf("function")
-    return expect(approve).not.toHaveBeenCalled()
-  }
-  )
-}
-)
+    expect(approvalPanel.onApprove).toBeTypeOf("function");
+    return expect(approve).not.toHaveBeenCalled();
+  });
+});

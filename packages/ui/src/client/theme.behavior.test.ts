@@ -1,153 +1,163 @@
-import { isValidElement, type ReactElement } from "react"
-import { beforeEach, describe, expect, it, vi } from "vitest"
+import { isValidElement, type ReactElement } from "react";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
-type ThemePreference = Readonly<{ themeMode: string; palette: string }>
-type PreferenceChange = (preference: ThemePreference) => void
-type PreferenceChangeMock = ReturnType<typeof vi.fn<PreferenceChange>>
+type ThemePreference = Readonly<{ themeMode: string; palette: string }>;
+type PreferenceChange = (preference: ThemePreference) => void;
+type PreferenceChangeMock = ReturnType<typeof vi.fn<PreferenceChange>>;
 
-const themeRuntime = vi.hoisted(function() {
-  let open = false
+const themeRuntime = vi.hoisted(function () {
+  let open = false;
   let preference: ThemePreference = {
     themeMode: "system",
     palette: "neutral",
-  }
-  let onPreferenceChange: PreferenceChangeMock = vi.fn<PreferenceChange>()
-  const setOpen = vi.fn(function(next: unknown) {
-    return open = typeof next === "function"
-      ? Boolean((next as (current: boolean) => boolean)(open))
-      : Boolean(next)
-  }
-  )
-  const configure = function(
+  };
+  let onPreferenceChange: PreferenceChangeMock = vi.fn<PreferenceChange>();
+  const setOpen = vi.fn(function (next: unknown) {
+    return (open =
+      typeof next === "function"
+        ? Boolean((next as (current: boolean) => boolean)(open))
+        : Boolean(next));
+  });
+  const configure = function (
     nextPreference: ThemePreference,
-    nextOnPreferenceChange: PreferenceChangeMock,
+    nextOnPreferenceChange: PreferenceChangeMock
   ): void {
-    preference = { ...nextPreference }
-    onPreferenceChange = nextOnPreferenceChange
-  }
-  const reset = function(): void {
-    open = false
-    preference = { themeMode: "system", palette: "neutral" }
-    onPreferenceChange = vi.fn<PreferenceChange>()
-    setOpen.mockClear()
-  }
-  const useContext = function() { return ({ onPreferenceChange, preference }) }
-  const useState = function<Value>(
-    _initial: Value | (() => Value),
-  ): readonly [Value, (next: Value | ((current: Value) => Value)) => void] { return [
-    open as Value,
-    setOpen as (next: Value | ((current: Value) => Value)) => void,
-  ] }
+    preference = { ...nextPreference };
+    onPreferenceChange = nextOnPreferenceChange;
+  };
+  const reset = function (): void {
+    open = false;
+    preference = { themeMode: "system", palette: "neutral" };
+    onPreferenceChange = vi.fn<PreferenceChange>();
+    setOpen.mockClear();
+  };
+  const useContext = function () {
+    return { onPreferenceChange, preference };
+  };
+  const useState = function <Value>(
+    _initial: Value | (() => Value)
+  ): readonly [Value, (next: Value | ((current: Value) => Value)) => void] {
+    return [
+      open as Value,
+      setOpen as (next: Value | ((current: Value) => Value)) => void,
+    ];
+  };
 
   return {
     configure,
     get open(): boolean {
-      return open
+      return open;
     },
     reset,
     setOpen,
     useContext,
-    useState
-  }
-}
-)
+    useState,
+  };
+});
 
-vi.mock("react", async function(importOriginal) {
-  const actual = await importOriginal<typeof import("react")>()
+vi.mock("react", async function (importOriginal) {
+  const actual = await importOriginal<typeof import("react")>();
   return {
     ...actual,
     useContext: themeRuntime.useContext,
     useState: themeRuntime.useState,
-  }
-}
-)
+  };
+});
 
-import { ThemePicker } from "./theme.ts"
+import { ThemePicker } from "./theme.ts";
 
-type ElementRecord = ReactElement<Record<string, unknown>>
+type ElementRecord = ReactElement<Record<string, unknown>>;
 
-const elementsIn = function(root: unknown): ElementRecord[] {
-  const elements: ElementRecord[] = []
-  const visit = function(value: unknown): void {
+const elementsIn = function (root: unknown): ElementRecord[] {
+  const elements: ElementRecord[] = [];
+  const visit = function (value: unknown): void {
     if (Array.isArray(value)) {
       for (const child of value) {
-        visit(child)
+        visit(child);
       }
-      return
+      return;
     }
     if (!isValidElement(value)) {
-      return
+      return;
     }
 
-    const element = value as ElementRecord
-    elements.push(element)
-    visit(element.props["children"])
-  }
-  visit(root)
-  return elements
-}
+    const element = value as ElementRecord;
+    elements.push(element);
+    visit(element.props["children"]);
+  };
+  visit(root);
+  return elements;
+};
 
-const requiredElement = function(
+const requiredElement = function (
   root: unknown,
-  predicate: (element: ElementRecord) => boolean,
+  predicate: (element: ElementRecord) => boolean
 ): ElementRecord {
-  const element = elementsIn(root).find(predicate)
+  const element = elementsIn(root).find(predicate);
   if (element === undefined) {
-    throw new Error("Expected theme element was not found")
+    throw new Error("Expected theme element was not found");
   }
-  return element
-}
+  return element;
+};
 
-const textOf = function(root: unknown): string {
-  if (root === null || root === undefined || typeof root === "boolean") return ""
-  if (typeof root === "string" || typeof root === "number") return String(root)
-  if (Array.isArray(root)) return root.map(textOf).join("")
-  if (!isValidElement(root)) return ""
-  return textOf((root as ElementRecord).props["children"])
-}
+const textOf = function (root: unknown): string {
+  if (root === null || root === undefined || typeof root === "boolean")
+    return "";
+  if (typeof root === "string" || typeof root === "number") return String(root);
+  if (Array.isArray(root)) return root.map(textOf).join("");
+  if (!isValidElement(root)) return "";
+  return textOf((root as ElementRecord).props["children"]);
+};
 
-const invokeValueChange = function(element: ElementRecord, value: string): void {
-  const callback = element.props["onValueChange"]
+const invokeValueChange = function (
+  element: ElementRecord,
+  value: string
+): void {
+  const callback = element.props["onValueChange"];
   if (typeof callback !== "function") {
-    throw new Error("Expected onValueChange callback")
+    throw new Error("Expected onValueChange callback");
   }
-  ;(callback as (next: string) => void)(value)
-}
+  (callback as (next: string) => void)(value);
+};
 
-beforeEach(function() {
-  return themeRuntime.reset()
-})
+beforeEach(function () {
+  return themeRuntime.reset();
+});
 
-describe("ThemePicker behavior", function() {
-  it("selects only valid modes and palettes through the provider callback", function() {
-    const onPreferenceChange = vi.fn<PreferenceChange>()
+describe("ThemePicker behavior", function () {
+  it("selects only valid modes and palettes through the provider callback", function () {
+    const onPreferenceChange = vi.fn<PreferenceChange>();
     themeRuntime.configure(
       { themeMode: "dark", palette: "rose" },
-      onPreferenceChange,
-    )
-    const tree = ThemePicker({ idPrefix: "application-theme" })
-    const modeGroup = requiredElement(
-      tree,
-      function(element) { return element.props["aria-label"] === "Color mode" },
-    )
-    const paletteGroup = requiredElement(
-      tree,
-      function(element) { return element.props["aria-label"] === "Color palette" },
-    )
+      onPreferenceChange
+    );
+    const tree = ThemePicker({ idPrefix: "application-theme" });
+    const modeGroup = requiredElement(tree, function (element) {
+      return element.props["aria-label"] === "Color mode";
+    });
+    const paletteGroup = requiredElement(tree, function (element) {
+      return element.props["aria-label"] === "Color palette";
+    });
 
-    invokeValueChange(modeGroup, "light")
-    invokeValueChange(paletteGroup, "blue")
-    invokeValueChange(modeGroup, "invalid")
-    invokeValueChange(paletteGroup, "invalid")
+    invokeValueChange(modeGroup, "light");
+    invokeValueChange(paletteGroup, "blue");
+    invokeValueChange(modeGroup, "invalid");
+    invokeValueChange(paletteGroup, "invalid");
 
     expect(onPreferenceChange.mock.calls).toEqual([
       [{ themeMode: "light", palette: "rose" }],
       [{ themeMode: "dark", palette: "blue" }],
-    ])
+    ]);
     const optionValues = elementsIn(tree)
-      .filter(function(element) { return "disabled" in element.props })
-      .map(function(element) { return element.props["value"] })
-      .filter(function(value): value is string { return typeof value === "string" })
+      .filter(function (element) {
+        return "disabled" in element.props;
+      })
+      .map(function (element) {
+        return element.props["value"];
+      })
+      .filter(function (value): value is string {
+        return typeof value === "string";
+      });
     return expect(optionValues).toEqual([
       "light",
       "dark",
@@ -162,70 +172,72 @@ describe("ThemePicker behavior", function() {
       "red",
       "rose",
       "violet",
-    ])
-  })
+    ]);
+  });
 
-  it("exposes open-state ARIA linkage and forwards the controlled root setter", function() {
+  it("exposes open-state ARIA linkage and forwards the controlled root setter", function () {
     themeRuntime.configure(
       { themeMode: "system", palette: "neutral" },
-      vi.fn<PreferenceChange>(),
-    )
-    let tree = ThemePicker({ idPrefix: "open-theme" })
-    const root = tree as ElementRecord
-    const closedTrigger = requiredElement(
-      tree,
-      function(element) { return element.props["id"] === "open-theme-trigger" },
-    )
-    expect(closedTrigger.props["aria-controls"]).toBeUndefined()
+      vi.fn<PreferenceChange>()
+    );
+    let tree = ThemePicker({ idPrefix: "open-theme" });
+    const root = tree as ElementRecord;
+    const closedTrigger = requiredElement(tree, function (element) {
+      return element.props["id"] === "open-theme-trigger";
+    });
+    expect(closedTrigger.props["aria-controls"]).toBeUndefined();
 
-    const onOpenChange = root.props["onOpenChange"]
+    const onOpenChange = root.props["onOpenChange"];
     if (typeof onOpenChange !== "function") {
-      throw new Error("Expected onOpenChange callback")
+      throw new Error("Expected onOpenChange callback");
     }
-    ;(onOpenChange as (next: boolean) => void)(true)
-    expect(themeRuntime.open).toBe(true)
+    (onOpenChange as (next: boolean) => void)(true);
+    expect(themeRuntime.open).toBe(true);
 
-    tree = ThemePicker({ idPrefix: "open-theme" })
-    const openTrigger = requiredElement(
-      tree,
-      function(element) { return element.props["id"] === "open-theme-trigger" },
-    )
-    expect(openTrigger.props["aria-controls"]).toBe("open-theme-content")
+    tree = ThemePicker({ idPrefix: "open-theme" });
+    const openTrigger = requiredElement(tree, function (element) {
+      return element.props["id"] === "open-theme-trigger";
+    });
+    expect(openTrigger.props["aria-controls"]).toBe("open-theme-content");
 
-    const openRoot = tree as ElementRecord
-    ;(openRoot.props["onOpenChange"] as (next: boolean) => void)(false)
-    return expect(themeRuntime.open).toBe(false)
-  })
+    const openRoot = tree as ElementRecord;
+    (openRoot.props["onOpenChange"] as (next: boolean) => void)(false);
+    return expect(themeRuntime.open).toBe(false);
+  });
 
-  return it("honors an override, blocks disabled selection, and renders status branches", function() {
-    const providerChange = vi.fn<PreferenceChange>()
-    const overrideChange = vi.fn<PreferenceChange>()
+  return it("honors an override, blocks disabled selection, and renders status branches", function () {
+    const providerChange = vi.fn<PreferenceChange>();
+    const overrideChange = vi.fn<PreferenceChange>();
     themeRuntime.configure(
       { themeMode: "system", palette: "neutral" },
-      providerChange,
-    )
+      providerChange
+    );
     const enabled = ThemePicker({
       error: "Could not save theme settings.",
       idPrefix: "override-theme",
       onPreferenceChange: overrideChange,
       statusMessage: "Saving theme settings.",
-    })
+    });
     invokeValueChange(
-      requiredElement(enabled, function(element) { return element.props["aria-label"] === "Color mode" }),
-      "dark",
-    )
+      requiredElement(enabled, function (element) {
+        return element.props["aria-label"] === "Color mode";
+      }),
+      "dark"
+    );
     invokeValueChange(
-      requiredElement(enabled, function(element) { return element.props["aria-label"] === "Color palette" }),
-      "violet",
-    )
+      requiredElement(enabled, function (element) {
+        return element.props["aria-label"] === "Color palette";
+      }),
+      "violet"
+    );
 
-    expect(providerChange).not.toHaveBeenCalled()
+    expect(providerChange).not.toHaveBeenCalled();
     expect(overrideChange.mock.calls).toEqual([
       [{ themeMode: "dark", palette: "neutral" }],
       [{ themeMode: "system", palette: "violet" }],
-    ])
-    expect(textOf(enabled)).toContain("Saving theme settings.")
-    expect(textOf(enabled)).toContain("Could not save theme settings.")
+    ]);
+    expect(textOf(enabled)).toContain("Saving theme settings.");
+    expect(textOf(enabled)).toContain("Could not save theme settings.");
 
     const disabled = ThemePicker({
       disabled: true,
@@ -233,16 +245,20 @@ describe("ThemePicker behavior", function() {
       idPrefix: "disabled-theme",
       onPreferenceChange: overrideChange,
       statusMessage: null,
-    })
+    });
     invokeValueChange(
-      requiredElement(disabled, function(element) { return element.props["aria-label"] === "Color mode" }),
-      "light",
-    )
+      requiredElement(disabled, function (element) {
+        return element.props["aria-label"] === "Color mode";
+      }),
+      "light"
+    );
     invokeValueChange(
-      requiredElement(disabled, function(element) { return element.props["aria-label"] === "Color palette" }),
-      "blue",
-    )
+      requiredElement(disabled, function (element) {
+        return element.props["aria-label"] === "Color palette";
+      }),
+      "blue"
+    );
 
-    return expect(overrideChange).toHaveBeenCalledTimes(2)
-  })
-})
+    return expect(overrideChange).toHaveBeenCalledTimes(2);
+  });
+});

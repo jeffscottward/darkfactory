@@ -1,166 +1,159 @@
-import { describe, expect, it, vi } from "vitest"
-import type { SQL } from "drizzle-orm"
-import { PgDialect } from "drizzle-orm/pg-core"
+import { describe, expect, it, vi } from "vitest";
+import type { SQL } from "drizzle-orm";
+import { PgDialect } from "drizzle-orm/pg-core";
 
-import { profiles, users } from "../schema/index.ts"
-import type { Database } from "./client.ts"
+import { profiles, users } from "../schema/index.ts";
+import type { Database } from "./client.ts";
 import {
   InvalidAdminUsersCursorError,
   createAdminUsersRepository,
   decodeAdminUsersCursor,
   encodeAdminUsersCursor,
-} from "./admin-users-repository.ts"
+} from "./admin-users-repository.ts";
 
-const QUERY_DIALECT = new PgDialect()
-const CREATED_AT = new Date("2026-01-02T03:04:05.000Z")
+const QUERY_DIALECT = new PgDialect();
+const CREATED_AT = new Date("2026-01-02T03:04:05.000Z");
 
-type QueryRows = ReadonlyArray<Record<string, unknown>>
-type QueryOutcome = QueryRows | Error
-type JoinOperation = Readonly<{ kind: "inner" | "left"; table: unknown }>
+type QueryRows = ReadonlyArray<Record<string, unknown>>;
+type QueryOutcome = QueryRows | Error;
+type JoinOperation = Readonly<{ kind: "inner" | "left"; table: unknown }>;
 type SelectOperation = {
-  selection: Record<string, unknown> | undefined
-  table?: "users" | "profiles" | "unknown"
-  where?: unknown
-  orderBy?: unknown[]
-  limit?: number
-  joins: JoinOperation[]
-  setOperators?: unknown[]
-  alias?: string
-}
+  selection: Record<string, unknown> | undefined;
+  table?: "users" | "profiles" | "unknown";
+  where?: unknown;
+  orderBy?: unknown[];
+  limit?: number;
+  joins: JoinOperation[];
+  setOperators?: unknown[];
+  alias?: string;
+};
 type QueryBuilder = {
-  from: (table: unknown) => QueryBuilder
-  where: (condition: unknown) => QueryBuilder
-  orderBy: (...clauses: unknown[]) => QueryBuilder
-  limit: (value: number) => QueryBuilder
-  leftJoin: (table: unknown, condition: unknown) => QueryBuilder
-  innerJoin: (table: unknown, condition: unknown) => QueryBuilder
-  getSelectedFields: () => Record<string, unknown>
-  addSetOperators: (operators: unknown[]) => QueryBuilder
-  as: (alias: string) => QueryBuilder
+  from: (table: unknown) => QueryBuilder;
+  where: (condition: unknown) => QueryBuilder;
+  orderBy: (...clauses: unknown[]) => QueryBuilder;
+  limit: (value: number) => QueryBuilder;
+  leftJoin: (table: unknown, condition: unknown) => QueryBuilder;
+  innerJoin: (table: unknown, condition: unknown) => QueryBuilder;
+  getSelectedFields: () => Record<string, unknown>;
+  addSetOperators: (operators: unknown[]) => QueryBuilder;
+  as: (alias: string) => QueryBuilder;
   then: (
     onFulfilled: (rows: QueryRows) => unknown,
-    onRejected?: (error: unknown) => unknown,
-  ) => Promise<unknown>
-}
+    onRejected?: (error: unknown) => unknown
+  ) => Promise<unknown>;
+};
 type AdminDatabaseOptions = Readonly<{
-  outcomes?: QueryOutcome[]
-  executeError?: Error
-  transactionError?: Error
-}>
+  outcomes?: QueryOutcome[];
+  executeError?: Error;
+  transactionError?: Error;
+}>;
 
 const createAdminDatabase = (options: AdminDatabaseOptions = {}) => {
-  const outcomes = [...(options.outcomes ?? [])]
-  const selects: SelectOperation[] = []
-  const statements: unknown[] = []
-  const lifecycle: string[] = []
+  const outcomes = [...(options.outcomes ?? [])];
+  const selects: SelectOperation[] = [];
+  const statements: unknown[] = [];
+  const lifecycle: string[] = [];
 
   const transactionExecutor = {
     select: vi.fn((selection?: Record<string, unknown>) => {
-      const operation: SelectOperation = { selection, joins: [] }
-      selects.push(operation)
-      let builder = {} as QueryBuilder
+      const operation: SelectOperation = { selection, joins: [] };
+      selects.push(operation);
+      let builder = {} as QueryBuilder;
       builder.from = vi.fn((table: unknown) => {
-        operation.table = table === users
-          ? "users"
-          : table === profiles
-            ? "profiles"
-            : "unknown"
-        return builder
-      }
-      )
+        operation.table =
+          table === users
+            ? "users"
+            : table === profiles
+              ? "profiles"
+              : "unknown";
+        return builder;
+      });
       builder.where = vi.fn((condition: unknown) => {
-        operation.where = condition
-        return builder
-      }
-      )
+        operation.where = condition;
+        return builder;
+      });
       builder.orderBy = vi.fn((...clauses: unknown[]) => {
-        operation.orderBy = clauses
-        return builder
-      }
-      )
+        operation.orderBy = clauses;
+        return builder;
+      });
       builder.limit = vi.fn((value: number) => {
-        operation.limit = value
-        return builder
-      }
-      )
+        operation.limit = value;
+        return builder;
+      });
       builder.leftJoin = vi.fn((table: unknown) => {
-        operation.joins.push({ kind: "left", table })
-        return builder
-      }
-      )
+        operation.joins.push({ kind: "left", table });
+        return builder;
+      });
       builder.innerJoin = vi.fn((table: unknown) => {
-        operation.joins.push({ kind: "inner", table })
-        return builder
-      }
-      )
-      builder.getSelectedFields = vi.fn(() => selection ?? {})
+        operation.joins.push({ kind: "inner", table });
+        return builder;
+      });
+      builder.getSelectedFields = vi.fn(() => selection ?? {});
       builder.addSetOperators = vi.fn((operators: unknown[]) => {
-        operation.setOperators = operators
-        return builder
-      }
-      )
+        operation.setOperators = operators;
+        return builder;
+      });
       builder.as = vi.fn((alias: string) => {
-        operation.alias = alias
-        return builder
-      }
-      )
+        operation.alias = alias;
+        return builder;
+      });
       builder.then = (onFulfilled, onRejected) => {
-        const outcome = outcomes.shift() ?? []
-        const promise = outcome instanceof Error
-          ? Promise.reject(outcome)
-          : Promise.resolve(outcome)
-        return promise.then(onFulfilled, onRejected)
-      }
-      return builder
-    }
-    ),
+        const outcome = outcomes.shift() ?? [];
+        const promise =
+          outcome instanceof Error
+            ? Promise.reject(outcome)
+            : Promise.resolve(outcome);
+        return promise.then(onFulfilled, onRejected);
+      };
+      return builder;
+    }),
     execute: vi.fn(async (statement: unknown) => {
-      statements.push(statement)
-      if (options.executeError !== undefined) throw options.executeError
-      return []
-    }
-    ),
-  } as unknown as Database
+      statements.push(statement);
+      if (options.executeError !== undefined) throw options.executeError;
+      return [];
+    }),
+  } as unknown as Database;
 
   const database = {
     transaction: vi.fn(
       async (operation: (transaction: Database) => Promise<unknown>) => {
-        lifecycle.push("begin")
+        lifecycle.push("begin");
         try {
           if (options.transactionError !== undefined) {
-            throw options.transactionError
+            throw options.transactionError;
           }
-          const result = await operation(transactionExecutor)
-          lifecycle.push("commit")
-          return result
-        }
-        catch (error) {
-          lifecycle.push("rollback")
-          throw error
+          const result = await operation(transactionExecutor);
+          lifecycle.push("commit");
+          return result;
+        } catch (error) {
+          lifecycle.push("rollback");
+          throw error;
         }
       }
     ),
-  } as unknown as Database
+  } as unknown as Database;
 
-  return { database, lifecycle, selects, statements, transactionExecutor }
-}
+  return { database, lifecycle, selects, statements, transactionExecutor };
+};
 
 const outerSelect = (selects: SelectOperation[]): SelectOperation => {
   const operation = selects.find(({ selection }) => {
-    return selection !== undefined && "email" in selection
-  }
-  )
-  if (operation === undefined) throw new Error("Missing outer admin users query")
-  return operation
-}
+    return selection !== undefined && "email" in selection;
+  });
+  if (operation === undefined)
+    throw new Error("Missing outer admin users query");
+  return operation;
+};
 
 const queryParameters = (condition: unknown): unknown[] => {
-  return QUERY_DIALECT.sqlToQuery(condition as SQL).params
-}
+  return QUERY_DIALECT.sqlToQuery(condition as SQL).params;
+};
 
 const statementText = (statement: unknown): string => {
-  return QUERY_DIALECT.sqlToQuery(statement as SQL).sql.replaceAll(/\s+/gu, " ").trim()
-}
+  return QUERY_DIALECT.sqlToQuery(statement as SQL)
+    .sql.replaceAll(/\s+/gu, " ")
+    .trim();
+};
 
 const directoryRows: QueryRows = [
   {
@@ -208,23 +201,22 @@ const directoryRows: QueryRows = [
     businessName: null,
     jobTitle: null,
   },
-]
+];
 
 describe("admin user cursor", () => {
   it("round-trips Unicode identifiers through an opaque URL-safe cursor", () => {
     const cursor = encodeAdminUsersCursor({
       createdAt: CREATED_AT,
       id: "üser/+ 2",
-    })
+    });
 
-    expect(cursor).toMatch(/^[A-Za-z0-9_-]+$/u)
-    expect(cursor).not.toContain("üser")
+    expect(cursor).toMatch(/^[A-Za-z0-9_-]+$/u);
+    expect(cursor).not.toContain("üser");
     return expect(decodeAdminUsersCursor(cursor)).toEqual({
       createdAt: CREATED_AT,
       id: "üser/+ 2",
-    })
-  }
-  )
+    });
+  });
 
   it.each([
     ["empty input", ""],
@@ -235,46 +227,50 @@ describe("admin user cursor", () => {
     ["array JSON", Buffer.from("[]").toString("base64url")],
     [
       "an extra property",
-      Buffer.from(JSON.stringify({
-        v: 1,
-        createdAt: CREATED_AT.toISOString(),
-        id: "user-2",
-        extra: true,
-      })).toString("base64url"),
+      Buffer.from(
+        JSON.stringify({
+          v: 1,
+          createdAt: CREATED_AT.toISOString(),
+          id: "user-2",
+          extra: true,
+        })
+      ).toString("base64url"),
     ],
     [
       "a blank identifier",
-      Buffer.from(JSON.stringify({
-        v: 1,
-        createdAt: CREATED_AT.toISOString(),
-        id: "   ",
-      })).toString("base64url"),
+      Buffer.from(
+        JSON.stringify({
+          v: 1,
+          createdAt: CREATED_AT.toISOString(),
+          id: "   ",
+        })
+      ).toString("base64url"),
     ],
     [
       "a non-canonical timestamp",
-      Buffer.from(JSON.stringify({
-        v: 1,
-        createdAt: "2026-01-02T03:04:05Z",
-        id: "user-2",
-      })).toString("base64url"),
+      Buffer.from(
+        JSON.stringify({
+          v: 1,
+          createdAt: "2026-01-02T03:04:05Z",
+          id: "user-2",
+        })
+      ).toString("base64url"),
     ],
   ] as const)("rejects %s", (_label, cursor) => {
     expect(() => decodeAdminUsersCursor(cursor)).toThrow(
-      InvalidAdminUsersCursorError,
-    )
-    return undefined
-  }
-  )
-  return undefined
-}
-)
+      InvalidAdminUsersCursorError
+    );
+    return undefined;
+  });
+  return undefined;
+});
 
 describe("admin user directory", () => {
   it("maps roles, statuses, optional profiles, and a keyset cursor from one extra row", async () => {
-    const double = createAdminDatabase({ outcomes: [directoryRows] })
-    const repository = createAdminUsersRepository(double.database)
+    const double = createAdminDatabase({ outcomes: [directoryRows] });
+    const repository = createAdminUsersRepository(double.database);
 
-    const result = await repository.search({ limit: 2 })
+    const result = await repository.search({ limit: 2 });
 
     expect(result.items).toEqual([
       {
@@ -304,133 +300,135 @@ describe("admin user directory", () => {
           jobTitle: "Operator",
         },
       },
-    ])
+    ]);
     expect(decodeAdminUsersCursor(result.nextCursor!)).toEqual({
       createdAt: CREATED_AT,
       id: "user-2",
-    })
-    expect(outerSelect(double.selects).limit).toBe(3)
-    expect(outerSelect(double.selects).where).toBeUndefined()
+    });
+    expect(outerSelect(double.selects).limit).toBe(3);
+    expect(outerSelect(double.selects).where).toBeUndefined();
     expect(outerSelect(double.selects).joins.map(({ kind }) => kind)).toEqual([
       "left",
-    ])
+    ]);
     expect(statementText(double.statements[0])).toContain(
-      "set local statement_timeout = '2000ms'",
-    )
-    return expect(double.lifecycle).toEqual(["begin", "commit"])
-  }
-  )
+      "set local statement_timeout = '2000ms'"
+    );
+    return expect(double.lifecycle).toEqual(["begin", "commit"]);
+  });
 
   it("returns an empty terminal page without manufacturing a cursor", async () => {
-    const double = createAdminDatabase({ outcomes: [[]] })
+    const double = createAdminDatabase({ outcomes: [[]] });
 
     const result = await createAdminUsersRepository(double.database).search({
       query: "   ",
       limit: 25,
-    })
+    });
 
-    expect(result).toEqual({ items: [], nextCursor: null })
-    return expect(outerSelect(double.selects).joins.map(({ kind }) => kind)).toEqual([
-      "left",
-    ])
-  }
-  )
+    expect(result).toEqual({ items: [], nextCursor: null });
+    return expect(
+      outerSelect(double.selects).joins.map(({ kind }) => kind)
+    ).toEqual(["left"]);
+  });
 
   it("escapes prefix-search metacharacters across user and profile fields", async () => {
-    const double = createAdminDatabase({ outcomes: [[]] })
+    const double = createAdminDatabase({ outcomes: [[]] });
 
     await createAdminUsersRepository(double.database).search({
       query: "  A%_\\  ",
       limit: 10,
-    })
+    });
 
     const matchingSubqueries = double.selects.filter(({ selection, where }) => {
-      return selection !== undefined &&
-      Object.keys(selection).join(",") === "id" &&
-      where !== undefined
-    }
-    )
-    expect(matchingSubqueries).toHaveLength(2)
-    expect(matchingSubqueries.map(({ where }) => queryParameters(where))).toEqual([
+      return (
+        selection !== undefined &&
+        Object.keys(selection).join(",") === "id" &&
+        where !== undefined
+      );
+    });
+    expect(matchingSubqueries).toHaveLength(2);
+    expect(
+      matchingSubqueries.map(({ where }) => queryParameters(where))
+    ).toEqual([
       ["a\\%\\_\\\\%", "a\\%\\_\\\\%"],
       ["a\\%\\_\\\\%", "a\\%\\_\\\\%", "a\\%\\_\\\\%"],
-    ])
-    return expect(outerSelect(double.selects).joins.map(({ kind }) => kind)).toEqual([
-      "inner",
-      "left",
-    ])
-  }
-  )
+    ]);
+    return expect(
+      outerSelect(double.selects).joins.map(({ kind }) => kind)
+    ).toEqual(["inner", "left"]);
+  });
 
   it("binds a decoded cursor as descending created-at and ID boundaries", async () => {
-    const double = createAdminDatabase({ outcomes: [[]] })
+    const double = createAdminDatabase({ outcomes: [[]] });
     const cursor = encodeAdminUsersCursor({
       createdAt: CREATED_AT,
       id: "user-2",
-    })
+    });
 
     await createAdminUsersRepository(double.database).search({
       cursor,
       limit: 10,
-    })
+    });
 
     return expect(queryParameters(outerSelect(double.selects).where)).toEqual([
       CREATED_AT.toISOString(),
       CREATED_AT.toISOString(),
       "user-2",
-    ])
-  }
-  )
+    ]);
+  });
 
-  it.each([0, 101, 1.5, Number.NaN])(
-    "denies invalid limit %s before opening a transaction",
-    async (limit) => {
-      const double = createAdminDatabase()
+  it.each([
+    0,
+    101,
+    1.5,
+    Number.NaN,
+  ])("denies invalid limit %s before opening a transaction", async (limit) => {
+    const double = createAdminDatabase();
 
-      await expect(createAdminUsersRepository(double.database).search({ limit }))
-        .rejects.toBeInstanceOf(InvalidAdminUsersCursorError)
-      return expect(double.database.transaction).not.toHaveBeenCalled()
-    }
-  )
+    await expect(
+      createAdminUsersRepository(double.database).search({ limit })
+    ).rejects.toBeInstanceOf(InvalidAdminUsersCursorError);
+    return expect(double.database.transaction).not.toHaveBeenCalled();
+  });
 
   it("denies a malformed cursor before opening a transaction", async () => {
-    const double = createAdminDatabase()
+    const double = createAdminDatabase();
 
-    await expect(createAdminUsersRepository(double.database).search({
-      cursor: "A",
-      limit: 10,
-    })).rejects.toBeInstanceOf(InvalidAdminUsersCursorError)
-    return expect(double.database.transaction).not.toHaveBeenCalled()
-  }
-  )
+    await expect(
+      createAdminUsersRepository(double.database).search({
+        cursor: "A",
+        limit: 10,
+      })
+    ).rejects.toBeInstanceOf(InvalidAdminUsersCursorError);
+    return expect(double.database.transaction).not.toHaveBeenCalled();
+  });
 
-  it.each(["statement timeout", "directory query"] as const)(
-    "maps a %s failure to the stable persistence error",
-    async (failurePoint) => {
-      const privateFailure = new Error("private database detail")
-      const double = createAdminDatabase(
-        failurePoint === "statement timeout"
-          ? { executeError: privateFailure }
-          : { outcomes: [privateFailure] },
-      )
+  it.each([
+    "statement timeout",
+    "directory query",
+  ] as const)("maps a %s failure to the stable persistence error", async (failurePoint) => {
+    const privateFailure = new Error("private database detail");
+    const double = createAdminDatabase(
+      failurePoint === "statement timeout"
+        ? { executeError: privateFailure }
+        : { outcomes: [privateFailure] }
+    );
 
-      await expect(createAdminUsersRepository(double.database).search({ limit: 10 }))
-        .rejects.toMatchObject({
-          name: "AdminUsersPersistenceError",
-          message: "Admin user directory is unavailable",
-        })
-      return expect(double.lifecycle).toEqual(["begin", "rollback"])
-    }
-  )
+    await expect(
+      createAdminUsersRepository(double.database).search({ limit: 10 })
+    ).rejects.toMatchObject({
+      name: "AdminUsersPersistenceError",
+      message: "Admin user directory is unavailable",
+    });
+    return expect(double.lifecycle).toEqual(["begin", "rollback"]);
+  });
 
   it("preserves an explicit cursor denial raised by the transaction boundary", async () => {
-    const denial = new InvalidAdminUsersCursorError()
-    const double = createAdminDatabase({ transactionError: denial })
+    const denial = new InvalidAdminUsersCursorError();
+    const double = createAdminDatabase({ transactionError: denial });
 
-    return await expect(createAdminUsersRepository(double.database).search({ limit: 10 }))
-      .rejects.toBe(denial)
-  }
-  )
-  return undefined
-}
-)
+    return await expect(
+      createAdminUsersRepository(double.database).search({ limit: 10 })
+    ).rejects.toBe(denial);
+  });
+  return undefined;
+});

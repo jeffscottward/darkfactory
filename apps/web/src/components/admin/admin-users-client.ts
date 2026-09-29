@@ -1,81 +1,87 @@
-"use client"
+"use client";
 
 import {
   createApiClient,
   type AdminUsersListInput,
   type AdminUsersListOutput,
   type ApiClient,
-} from "@darkfactory/api"
+} from "@darkfactory/api";
 
 export interface AdminUsersGateway {
-  readonly list: (input: AdminUsersListInput) => Promise<AdminUsersListOutput>
+  readonly list: (input: AdminUsersListInput) => Promise<AdminUsersListOutput>;
 }
 
-export const createAdminUsersGateway = (client: ApiClient): AdminUsersGateway => ({
+export const createAdminUsersGateway = (
+  client: ApiClient
+): AdminUsersGateway => ({
   list: (input) => client.admin.users.list(input),
-})
+});
 
 export const createBrowserAdminUsersGateway = (): AdminUsersGateway => {
-  let gateway: AdminUsersGateway | undefined
+  let gateway: AdminUsersGateway | undefined;
   return {
     list: (input) => {
       gateway ??= createAdminUsersGateway(
-        createApiClient({ baseUrl: window.location.origin }),
-      )
-      return gateway.list(input)
-    }
-  }
-}
+        createApiClient({ baseUrl: window.location.origin })
+      );
+      return gateway.list(input);
+    },
+  };
+};
 
 export const normalizeAdminQuery = (query: string): string => {
-  return query.trim().slice(0, 200)
-}
+  return query.trim().slice(0, 200);
+};
 
 export const createAdminRequestGuard = () => {
-  let generation = 0
+  let generation = 0;
   return {
     next: () => ++generation,
     isLatest: (candidate: number) => candidate === generation,
-  }
-}
+  };
+};
 
 const errorCode = (error: unknown): string | null => {
-  if (typeof error !== "object" || error === null) return null
-  const code = Reflect.get(error, "code")
-  if (typeof code === "string") return code
-  const data = Reflect.get(error, "data")
-  if (typeof data !== "object" || data === null) return null
-  const nestedCode = Reflect.get(data, "code")
-  return typeof nestedCode === "string" ? nestedCode : null
-}
+  if (typeof error !== "object" || error === null) return null;
+  const code = Reflect.get(error, "code");
+  if (typeof code === "string") return code;
+  const data = Reflect.get(error, "data");
+  if (typeof data !== "object" || data === null) return null;
+  const nestedCode = Reflect.get(data, "code");
+  return typeof nestedCode === "string" ? nestedCode : null;
+};
 
 export type AdminFailureKind =
   | "unauthorized"
   | "forbidden"
   | "not-found"
-  | "retryable"
+  | "retryable";
 
 export const adminFailureKind = (error: unknown): AdminFailureKind => {
   switch (errorCode(error)) {
-    case "UNAUTHORIZED": return "unauthorized"
-    case "FORBIDDEN": return "forbidden"
-    case "NOT_FOUND": return "not-found"
-    default: return "retryable"
+    case "UNAUTHORIZED":
+      return "unauthorized";
+    case "FORBIDDEN":
+      return "forbidden";
+    case "NOT_FOUND":
+      return "not-found";
+    default:
+      return "retryable";
   }
-}
+};
 
 export const safeAdminFeedback = (error: unknown): string => {
   switch (errorCode(error)) {
     case "UNAUTHORIZED":
-      return "Your session ended. Sign in again to continue."
+      return "Your session ended. Sign in again to continue.";
     case "FORBIDDEN":
-      return "You do not have permission to view the user directory."
+      return "You do not have permission to view the user directory.";
     case "VALIDATION_ERROR":
     case "BAD_REQUEST":
-      return "The search could not be applied. Check it and try again."
+      return "The search could not be applied. Check it and try again.";
     case "STORAGE_ERROR":
-      return "The user directory is temporarily unavailable. Try again."
+      return "The user directory is temporarily unavailable. Try again.";
     default:
-      return "The user directory could not be loaded. Try again."
+      return "The user directory could not be loaded. Try again.";
   }
-}
+};

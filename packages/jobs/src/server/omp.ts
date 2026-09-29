@@ -1,6 +1,6 @@
-import { execFile, spawn, type ChildProcess } from "node:child_process"
-import { createHash, randomUUID } from "node:crypto"
-import { createReadStream, constants } from "node:fs"
+import { execFile, spawn, type ChildProcess } from "node:child_process";
+import { createHash, randomUUID } from "node:crypto";
+import { createReadStream, constants } from "node:fs";
 import {
   access,
   copyFile,
@@ -18,23 +18,32 @@ import {
   stat,
   symlink,
   writeFile,
-} from "node:fs/promises"
-import { homedir, tmpdir } from "node:os"
-import { basename, dirname, isAbsolute, join, posix, relative, resolve, sep } from "node:path"
+} from "node:fs/promises";
+import { homedir, tmpdir } from "node:os";
+import {
+  basename,
+  dirname,
+  isAbsolute,
+  join,
+  posix,
+  relative,
+  resolve,
+  sep,
+} from "node:path";
 
 import {
   MAX_WORKFLOW_SCOPE_PATHS,
   isWorkflowRelativePathV1,
-} from "@darkfactory/state/workflow"
+} from "@darkfactory/state/workflow";
 
-export const DEFAULT_OMP_TIMEOUT_MS = 5 * 60 * 1_000
-export const DEFAULT_OMP_MAX_OUTPUT_BYTES = 32 * 1_024
-export const MAX_OMP_INSTRUCTION_BYTES = 32 * 1_024
-export const MAX_OMP_REDACTIONS = 64
-export const DEFAULT_OMP_VERIFIER_MAX_RESULT_BYTES = 32 * 1_024
-export const OMP_VERIFIER_COMMAND_IDENTITY = "darkfactory-verify-core-v2"
+export const DEFAULT_OMP_TIMEOUT_MS = 5 * 60 * 1_000;
+export const DEFAULT_OMP_MAX_OUTPUT_BYTES = 32 * 1_024;
+export const MAX_OMP_INSTRUCTION_BYTES = 32 * 1_024;
+export const MAX_OMP_REDACTIONS = 64;
+export const DEFAULT_OMP_VERIFIER_MAX_RESULT_BYTES = 32 * 1_024;
+export const OMP_VERIFIER_COMMAND_IDENTITY = "darkfactory-verify-core-v2";
 export const OMP_VERIFIER_CONFIG_DIGEST =
-  "2bf863dec20f96b200995f953a7f7b055e5738f6f3bbc830185cff03e0f8500d"
+  "2bf863dec20f96b200995f953a7f7b055e5738f6f3bbc830185cff03e0f8500d";
 export const OMP_VERIFIER_ARGUMENTS = Object.freeze([
   "/usr/local/bin/bun",
   "/opt/darkfactory-verifier/runner.ts",
@@ -44,56 +53,55 @@ export const OMP_VERIFIER_ARGUMENTS = Object.freeze([
   "/workspace",
   "--output",
   "/output/result.json",
-] as const)
+] as const);
 export const OMP_VERIFIER_ARGV_IDENTITY =
-  "0970fa90d3ab277f28b29a75762d2e81be2a9b60fc280d4122a663ac57ff2eff"
-export const OMP_VERIFIER_MEMORY = "2g"
-export const OMP_VERIFIER_MEMORY_SWAP = "2g"
-export const OMP_VERIFIER_CPUS = "2"
-export const OMP_VERIFIER_PIDS = "256"
-export const OMP_VERIFIER_FILE_SIZE = "67108864"
-export const OMP_VERIFIER_NOFILE = "1024"
+  "0970fa90d3ab277f28b29a75762d2e81be2a9b60fc280d4122a663ac57ff2eff";
+export const OMP_VERIFIER_MEMORY = "2g";
+export const OMP_VERIFIER_MEMORY_SWAP = "2g";
+export const OMP_VERIFIER_CPUS = "2";
+export const OMP_VERIFIER_PIDS = "256";
+export const OMP_VERIFIER_FILE_SIZE = "67108864";
+export const OMP_VERIFIER_NOFILE = "1024";
 export const OMP_VERIFIER_OUTPUT_TMPFS =
-  "rw,noexec,nosuid,nodev,size=512m,nr_inodes=65536,mode=1777"
+  "rw,noexec,nosuid,nodev,size=512m,nr_inodes=65536,mode=1777";
 export const OMP_VERIFIER_CACHE_TMPFS =
-  "rw,noexec,nosuid,nodev,size=256m,nr_inodes=32768,mode=1777"
+  "rw,noexec,nosuid,nodev,size=256m,nr_inodes=32768,mode=1777";
 export const OMP_VERIFIER_TMP_TMPFS =
-  "rw,noexec,nosuid,nodev,size=64m,nr_inodes=8192,mode=1777"
+  "rw,noexec,nosuid,nodev,size=64m,nr_inodes=8192,mode=1777";
 const INJECTED_VERIFIER_MANIFEST_DIGEST = createHash("sha256")
   .update("darkfactory-injected-verifier-v1")
-  .digest("hex")
+  .digest("hex");
 
 export const OMP_IMPLEMENTATION_ARTIFACT_IDENTITY =
-  "workflow-implementation-artifact-v1"
+  "workflow-implementation-artifact-v1";
 export const OMP_WAYFINDER_TRACKER_ARTIFACT_IDENTITY =
-  "wayfinder-local-markdown-v1"
-export const MAX_OMP_WAYFINDER_MAP_BYTES = 128 * 1_024
-export const MAX_OMP_WAYFINDER_ISSUE_BYTES = 64 * 1_024
-export const MAX_OMP_WAYFINDER_ISSUES = 64
-export const MAX_OMP_WAYFINDER_TRACKER_BYTES = 512 * 1_024
-const SAFE_WAYFINDER_RUN_ID = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/u
+  "wayfinder-local-markdown-v1";
+export const MAX_OMP_WAYFINDER_MAP_BYTES = 128 * 1_024;
+export const MAX_OMP_WAYFINDER_ISSUE_BYTES = 64 * 1_024;
+export const MAX_OMP_WAYFINDER_ISSUES = 64;
+export const MAX_OMP_WAYFINDER_TRACKER_BYTES = 512 * 1_024;
+const SAFE_WAYFINDER_RUN_ID = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/u;
 const SAFE_WAYFINDER_ISSUE_PATH =
-  /^issues\/(?:0[1-9]|[1-9][0-9])-[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?\.md$/u
+  /^issues\/(?:0[1-9]|[1-9][0-9])-[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?\.md$/u;
 const UNSUPPORTED_WAYFINDER_CONTENT =
-  /[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/u
+  /[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/u;
 
-
-export type OmpCommand = "print"
-export type OmpEffectKind = "plan" | "implement" | "verify"
-export type OmpSkillProfile = "wayfinder"
+export type OmpCommand = "print";
+export type OmpEffectKind = "plan" | "implement" | "verify";
+export type OmpSkillProfile = "wayfinder";
 
 export type OmpExecutionRequest = Readonly<{
-  command: OmpCommand
-  workspaceId: string
-  effectKind: OmpEffectKind
-  instruction: string
-  cwd: string
-  scopePaths: readonly string[]
-  redactions?: readonly string[]
-  signal?: AbortSignal
-  recovery?: OmpImplementationRecovery
-  skillProfile?: OmpSkillProfile
-}>
+  command: OmpCommand;
+  workspaceId: string;
+  effectKind: OmpEffectKind;
+  instruction: string;
+  cwd: string;
+  scopePaths: readonly string[];
+  redactions?: readonly string[];
+  signal?: AbortSignal;
+  recovery?: OmpImplementationRecovery;
+  skillProfile?: OmpSkillProfile;
+}>;
 
 export type OmpExecutionStatus =
   | "succeeded"
@@ -101,230 +109,233 @@ export type OmpExecutionStatus =
   | "timed-out"
   | "aborted"
   | "output-limit"
-  | "no-changes"
+  | "no-changes";
 
 export type OmpSanitizedOutput = Readonly<{
-  stdout: string
-  stderr: string
-  stdoutBytes: number
-  stderrBytes: number
-  truncated: boolean
-  redacted: boolean
-}>
-export type OmpApprovedVerifierId = typeof OMP_VERIFIER_COMMAND_IDENTITY
+  stdout: string;
+  stderr: string;
+  stdoutBytes: number;
+  stderrBytes: number;
+  truncated: boolean;
+  redacted: boolean;
+}>;
+export type OmpApprovedVerifierId = typeof OMP_VERIFIER_COMMAND_IDENTITY;
 
 export type OmpVerificationAttempt = Readonly<{
-  commandIdentity: OmpApprovedVerifierId
-  imageDigest: string
-  configDigest: typeof OMP_VERIFIER_CONFIG_DIGEST
-  argvIdentity: typeof OMP_VERIFIER_ARGV_IDENTITY
-  implementationChangeDigest: string
-  implementationArtifactDigest: string
-  manifestDigest: string
-  status: Exclude<OmpExecutionStatus, "no-changes">
-  exitCode: number | null
-  durationMs: number
-  resultBytes: number
-  resultSummary: string
-  digest: string | null
-}>
+  commandIdentity: OmpApprovedVerifierId;
+  imageDigest: string;
+  configDigest: typeof OMP_VERIFIER_CONFIG_DIGEST;
+  argvIdentity: typeof OMP_VERIFIER_ARGV_IDENTITY;
+  implementationChangeDigest: string;
+  implementationArtifactDigest: string;
+  manifestDigest: string;
+  status: Exclude<OmpExecutionStatus, "no-changes">;
+  exitCode: number | null;
+  durationMs: number;
+  resultBytes: number;
+  resultSummary: string;
+  digest: string | null;
+}>;
 
 export const ompVerificationDigestFor = (
   input: Readonly<{
-    commandIdentity: OmpApprovedVerifierId
-    imageDigest: string
-    configDigest: typeof OMP_VERIFIER_CONFIG_DIGEST
-    argvIdentity: typeof OMP_VERIFIER_ARGV_IDENTITY
-    implementationChangeDigest: string
-    implementationArtifactDigest: string
-    manifestDigest: string
-    exitCode: 0
-    resultSummary: string
-  }>,
+    commandIdentity: OmpApprovedVerifierId;
+    imageDigest: string;
+    configDigest: typeof OMP_VERIFIER_CONFIG_DIGEST;
+    argvIdentity: typeof OMP_VERIFIER_ARGV_IDENTITY;
+    implementationChangeDigest: string;
+    implementationArtifactDigest: string;
+    manifestDigest: string;
+    exitCode: 0;
+    resultSummary: string;
+  }>
 ): string => {
-  return createHash("sha256").update(JSON.stringify({
-    commandIdentity: input.commandIdentity,
-    imageDigest: input.imageDigest,
-    configDigest: input.configDigest,
-    argvIdentity: input.argvIdentity,
-    implementationChangeDigest: input.implementationChangeDigest,
-    implementationArtifactDigest: input.implementationArtifactDigest,
-    manifestDigest: input.manifestDigest,
-    exitCode: input.exitCode,
-    resultSummary: input.resultSummary,
-  })).digest("hex")
-}
+  return createHash("sha256")
+    .update(
+      JSON.stringify({
+        commandIdentity: input.commandIdentity,
+        imageDigest: input.imageDigest,
+        configDigest: input.configDigest,
+        argvIdentity: input.argvIdentity,
+        implementationChangeDigest: input.implementationChangeDigest,
+        implementationArtifactDigest: input.implementationArtifactDigest,
+        manifestDigest: input.manifestDigest,
+        exitCode: input.exitCode,
+        resultSummary: input.resultSummary,
+      })
+    )
+    .digest("hex");
+};
 
 export type OmpImplementationArtifact = Readonly<{
-  identity: typeof OMP_IMPLEMENTATION_ARTIFACT_IDENTITY
-  bytes: number
-  digest: string
-  content: string
-  sourceHead: string
-  workspaceKey: string
-  ownerNonce: string
-  changeHash: string
-}>
+  identity: typeof OMP_IMPLEMENTATION_ARTIFACT_IDENTITY;
+  bytes: number;
+  digest: string;
+  content: string;
+  sourceHead: string;
+  workspaceKey: string;
+  ownerNonce: string;
+  changeHash: string;
+}>;
 
 export type OmpWayfinderTrackerEntry = Readonly<{
-  path: string
-  bytes: number
-  digest: string
-  content: string
-}>
+  path: string;
+  bytes: number;
+  digest: string;
+  content: string;
+}>;
 
 export type OmpWayfinderTrackerArtifact = Readonly<{
-  identity: typeof OMP_WAYFINDER_TRACKER_ARTIFACT_IDENTITY
-  repositoryId: string
-  runId: string
-  bytes: number
-  digest: string
-  entries: readonly OmpWayfinderTrackerEntry[]
-}>
+  identity: typeof OMP_WAYFINDER_TRACKER_ARTIFACT_IDENTITY;
+  repositoryId: string;
+  runId: string;
+  bytes: number;
+  digest: string;
+  entries: readonly OmpWayfinderTrackerEntry[];
+}>;
 
 export type OmpImplementationRecovery = Readonly<{
-  artifact: OmpImplementationArtifact
-  changeHash: string
-}>
+  artifact: OmpImplementationArtifact;
+  changeHash: string;
+}>;
 
 export type OmpRetainedWorkspaceCleanupRequest = Readonly<{
-  cwd: string
-  recovery: OmpImplementationRecovery
-  signal?: AbortSignal
-  deadlineAtMs?: number
-}>
+  cwd: string;
+  recovery: OmpImplementationRecovery;
+  signal?: AbortSignal;
+  deadlineAtMs?: number;
+}>;
 
 export type OmpImplementationArtifactEntry =
   | Readonly<{ path: string; kind: "directory" }>
   | Readonly<{ path: string; kind: "deleted" }>
   | Readonly<{ path: string; kind: "symlink"; target: string }>
   | Readonly<{
-      path: string
-      kind: "file"
-      mode: number
-      contentBase64: string
-    }>
+      path: string;
+      kind: "file";
+      mode: number;
+      contentBase64: string;
+    }>;
 
 export type DecodedOmpImplementationArtifact = Readonly<{
-  sourceHead: string
-  workspaceKey: string
-  ownerNonce: string
-  changeHash: string
-  entries: readonly OmpImplementationArtifactEntry[]
-}>
+  sourceHead: string;
+  workspaceKey: string;
+  ownerNonce: string;
+  changeHash: string;
+  entries: readonly OmpImplementationArtifactEntry[];
+}>;
 
-export type OmpPersistenceDisposition =
-  | "persisted"
-  | "retry"
-  | "unpersisted"
+export type OmpPersistenceDisposition = "persisted" | "retry" | "unpersisted";
 
 export type OmpExecutionLifecycle = Readonly<{
-  finalize: (disposition: OmpPersistenceDisposition) => Promise<void>
-}>
+  finalize: (disposition: OmpPersistenceDisposition) => Promise<void>;
+}>;
 
 export type OmpVerifierRunnerResult = Readonly<{
-  status: Exclude<OmpExecutionStatus, "no-changes">
-  exitCode: number | null
-  signal: NodeJS.Signals | null
-  durationMs: number
-  output: OmpSanitizedOutput
-}>
+  status: Exclude<OmpExecutionStatus, "no-changes">;
+  exitCode: number | null;
+  signal: NodeJS.Signals | null;
+  durationMs: number;
+  output: OmpSanitizedOutput;
+}>;
 
 export type OmpVerifierRunner = (
   request: Readonly<{
-    cwd: string
-    signal?: AbortSignal
-  }>,
-) => Promise<OmpVerifierRunnerResult>
+    cwd: string;
+    signal?: AbortSignal;
+  }>
+) => Promise<OmpVerifierRunnerResult>;
 
 export type OmpScopedChange = Readonly<{
-  changeHash: string
-  changedPaths: readonly string[]
-}>
+  changeHash: string;
+  changedPaths: readonly string[];
+}>;
 
 export type OmpExecutionResult = Readonly<{
-  command: OmpCommand
-  status: OmpExecutionStatus
-  exitCode: number | null
-  signal: NodeJS.Signals | null
-  durationMs: number
-  output: OmpSanitizedOutput
-  change: OmpScopedChange | null
-  verification?: OmpVerificationAttempt | null
-  implementationArtifact?: OmpImplementationArtifact | null
-  wayfinderTrackerArtifact?: OmpWayfinderTrackerArtifact
-  lifecycle?: OmpExecutionLifecycle
-
-}>
+  command: OmpCommand;
+  status: OmpExecutionStatus;
+  exitCode: number | null;
+  signal: NodeJS.Signals | null;
+  durationMs: number;
+  output: OmpSanitizedOutput;
+  change: OmpScopedChange | null;
+  verification?: OmpVerificationAttempt | null;
+  implementationArtifact?: OmpImplementationArtifact | null;
+  wayfinderTrackerArtifact?: OmpWayfinderTrackerArtifact;
+  lifecycle?: OmpExecutionLifecycle;
+}>;
 
 export type OmpCliAdapter = Readonly<{
-  execute: (request: OmpExecutionRequest) => Promise<OmpExecutionResult>
+  execute: (request: OmpExecutionRequest) => Promise<OmpExecutionResult>;
   cleanupRetainedWorkspace: (
-    request: OmpRetainedWorkspaceCleanupRequest,
-  ) => Promise<void>
-}>
+    request: OmpRetainedWorkspaceCleanupRequest
+  ) => Promise<void>;
+}>;
 
 export type OmpFilesystemSandboxBackend = Readonly<{
-  requireAvailable: () => Promise<void>
-}>
+  requireAvailable: () => Promise<void>;
+}>;
 
 export type OmpCliAdapterOptions = Readonly<{
-  repositoriesRoot: string
-  executable?: string
-  allowedExecutables?: readonly string[]
-  allowedCommands?: readonly OmpCommand[]
-  timeoutMs?: number
-  maxOutputBytes?: number
-  shutdownTimeoutMs?: number
-  verificationRunner?: OmpVerifierRunner | null
-  verifierId?: OmpApprovedVerifierId
-  verifierImageDigest?: string
+  repositoriesRoot: string;
+  executable?: string;
+  allowedExecutables?: readonly string[];
+  allowedCommands?: readonly OmpCommand[];
+  timeoutMs?: number;
+  maxOutputBytes?: number;
+  shutdownTimeoutMs?: number;
+  verificationRunner?: OmpVerifierRunner | null;
+  verifierId?: OmpApprovedVerifierId;
+  verifierImageDigest?: string;
 
-  verifierMaxResultBytes?: number
+  verifierMaxResultBytes?: number;
 
-  now?: () => number
-  filesystemSandboxBackend?: OmpFilesystemSandboxBackend
-  wayfinderSkillsRoot?: string
-}>
+  now?: () => number;
+  filesystemSandboxBackend?: OmpFilesystemSandboxBackend;
+  wayfinderSkillsRoot?: string;
+}>;
 
 export class OmpConfigurationError extends Error {
   constructor(message: string) {
-    super(message)
-    this.name = "OmpConfigurationError"
+    super(message);
+    this.name = "OmpConfigurationError";
   }
 }
 
 export class OmpRequestError extends Error {
   constructor(message: string) {
-    super(message)
-    this.name = "OmpRequestError"
+    super(message);
+    this.name = "OmpRequestError";
   }
 }
 
 export class OmpProcessTerminationError extends OmpRequestError {
   constructor() {
-    super("OMP owned process tree did not exit")
-    this.name = "OmpProcessTerminationError"
+    super("OMP owned process tree did not exit");
+    this.name = "OmpProcessTerminationError";
   }
 }
 export class OmpWorkspaceCleanupError extends OmpRequestError {
   constructor() {
-    super("OMP owned workspace cleanup failed")
-    this.name = "OmpWorkspaceCleanupError"
+    super("OMP owned workspace cleanup failed");
+    this.name = "OmpWorkspaceCleanupError";
   }
 }
 export class OmpWorkspaceBusyError extends OmpRequestError {
   constructor() {
-    super("OMP workspace is still live-owned")
-    this.name = "OmpWorkspaceBusyError"
+    super("OMP workspace is still live-owned");
+    this.name = "OmpWorkspaceBusyError";
   }
 }
 
 const wayfinderArtifactError = (): never => {
-  throw new OmpRequestError("OMP Wayfinder tracker artifact is invalid")
-}
+  throw new OmpRequestError("OMP Wayfinder tracker artifact is invalid");
+};
 
-const requireWayfinderBinding = (repositoryId: unknown, runId: unknown): void => {
+const requireWayfinderBinding = (
+  repositoryId: unknown,
+  runId: unknown
+): void => {
   if (
     typeof repositoryId !== "string" ||
     !isWorkflowRelativePathV1(repositoryId) ||
@@ -332,148 +343,153 @@ const requireWayfinderBinding = (repositoryId: unknown, runId: unknown): void =>
     typeof runId !== "string" ||
     !SAFE_WAYFINDER_RUN_ID.test(runId)
   ) {
-    wayfinderArtifactError()
+    wayfinderArtifactError();
   }
-}
+};
 
 const wayfinderEntryDigestFor = (content: string): string => {
-  return createHash("sha256").update(content, "utf8").digest("hex")
-}
+  return createHash("sha256").update(content, "utf8").digest("hex");
+};
 
 const wayfinderArtifactDigestFor = (
   repositoryId: string,
   runId: string,
-  entries: readonly OmpWayfinderTrackerEntry[],
-): string => createHash("sha256").update(JSON.stringify({
-  identity: OMP_WAYFINDER_TRACKER_ARTIFACT_IDENTITY,
-  repositoryId,
-  runId,
-  entries: entries.map((entry) => ({
-    path: entry.path,
-    bytes: entry.bytes,
-    digest: entry.digest,
-  })),
-})).digest("hex")
+  entries: readonly OmpWayfinderTrackerEntry[]
+): string =>
+  createHash("sha256")
+    .update(
+      JSON.stringify({
+        identity: OMP_WAYFINDER_TRACKER_ARTIFACT_IDENTITY,
+        repositoryId,
+        runId,
+        entries: entries.map((entry) => ({
+          path: entry.path,
+          bytes: entry.bytes,
+          digest: entry.digest,
+        })),
+      })
+    )
+    .digest("hex");
 
 const validateWayfinderContent = (
   path: string,
-  content: unknown,
+  content: unknown
 ): Readonly<{ bytes: number; content: string; digest: string }> => {
   if (typeof content !== "string") {
-    wayfinderArtifactError()
+    wayfinderArtifactError();
   }
-  const validatedContent = content as string
+  const validatedContent = content as string;
   if (UNSUPPORTED_WAYFINDER_CONTENT.test(validatedContent)) {
-    wayfinderArtifactError()
+    wayfinderArtifactError();
   }
-  const bytes = Buffer.byteLength(validatedContent)
-  const maximum = path === "map.md"
-    ? MAX_OMP_WAYFINDER_MAP_BYTES
-    : MAX_OMP_WAYFINDER_ISSUE_BYTES
+  const bytes = Buffer.byteLength(validatedContent);
+  const maximum =
+    path === "map.md"
+      ? MAX_OMP_WAYFINDER_MAP_BYTES
+      : MAX_OMP_WAYFINDER_ISSUE_BYTES;
   if (bytes <= 0 || bytes > maximum) {
-    wayfinderArtifactError()
+    wayfinderArtifactError();
   }
   return Object.freeze({
     bytes,
     content: validatedContent,
-    digest: wayfinderEntryDigestFor(validatedContent)
-  })
-}
+    digest: wayfinderEntryDigestFor(validatedContent),
+  });
+};
 
 export const validateOmpWayfinderTrackerArtifact = (
   artifact: unknown,
-  expected: Readonly<{ repositoryId: string; runId: string }>,
+  expected: Readonly<{ repositoryId: string; runId: string }>
 ): OmpWayfinderTrackerArtifact => {
-  requireWayfinderBinding(expected.repositoryId, expected.runId)
+  requireWayfinderBinding(expected.repositoryId, expected.runId);
   if (
     typeof artifact !== "object" ||
     artifact === null ||
     Array.isArray(artifact)
   ) {
-    wayfinderArtifactError()
+    wayfinderArtifactError();
   }
-  const record = artifact as Readonly<Record<string, unknown>>
+  const record = artifact as Readonly<Record<string, unknown>>;
   if (
     record["identity"] !== OMP_WAYFINDER_TRACKER_ARTIFACT_IDENTITY ||
     record["repositoryId"] !== expected.repositoryId ||
     record["runId"] !== expected.runId ||
     !Array.isArray(record["entries"])
   ) {
-    wayfinderArtifactError()
+    wayfinderArtifactError();
   }
-  const rawEntries = record["entries"] as readonly unknown[]
+  const rawEntries = record["entries"] as readonly unknown[];
   if (
     rawEntries.length <= 0 ||
     rawEntries.length > MAX_OMP_WAYFINDER_ISSUES + 1
   ) {
-    wayfinderArtifactError()
+    wayfinderArtifactError();
   }
-  const entries: OmpWayfinderTrackerEntry[] = []
-  const paths = new Set<string>()
+  const entries: OmpWayfinderTrackerEntry[] = [];
+  const paths = new Set<string>();
   for (const rawEntry of rawEntries) {
     if (
       typeof rawEntry !== "object" ||
       rawEntry === null ||
       Array.isArray(rawEntry)
     ) {
-      wayfinderArtifactError()
+      wayfinderArtifactError();
     }
-    const entry = rawEntry as Readonly<Record<string, unknown>>
-    const path = entry["path"]
+    const entry = rawEntry as Readonly<Record<string, unknown>>;
+    const path = entry["path"];
     if (typeof path !== "string") {
-      wayfinderArtifactError()
+      wayfinderArtifactError();
     }
-    const validatedPath = path as string
+    const validatedPath = path as string;
     if (
       (validatedPath !== "map.md" &&
         !SAFE_WAYFINDER_ISSUE_PATH.test(validatedPath)) ||
       paths.has(validatedPath)
     ) {
-      wayfinderArtifactError()
+      wayfinderArtifactError();
     }
-    paths.add(validatedPath)
-    const validated = validateWayfinderContent(
-      validatedPath,
-      entry["content"],
-    )
+    paths.add(validatedPath);
+    const validated = validateWayfinderContent(validatedPath, entry["content"]);
     if (
       entry["bytes"] !== validated.bytes ||
       entry["digest"] !== validated.digest
     ) {
-      wayfinderArtifactError()
+      wayfinderArtifactError();
     }
-    entries.push(Object.freeze({
-      path: validatedPath,
-      bytes: validated.bytes,
-      digest: validated.digest,
-      content: validated.content
-    }))
+    entries.push(
+      Object.freeze({
+        path: validatedPath,
+        bytes: validated.bytes,
+        digest: validated.digest,
+        content: validated.content,
+      })
+    );
   }
   const canonicalPaths = [
     "map.md",
     ...entries
       .filter((entry) => entry.path !== "map.md")
       .map((entry) => entry.path)
-      .sort()
-  ]
+      .sort(),
+  ];
   if (
     !paths.has("map.md") ||
     entries.some((entry, index) => entry.path !== canonicalPaths[index])
   ) {
-    wayfinderArtifactError()
+    wayfinderArtifactError();
   }
-  const bytes = entries.reduce((total, entry) => total + entry.bytes, 0)
+  const bytes = entries.reduce((total, entry) => total + entry.bytes, 0);
   const digest = wayfinderArtifactDigestFor(
     expected.repositoryId,
     expected.runId,
-    entries,
-  )
+    entries
+  );
   if (
     bytes > MAX_OMP_WAYFINDER_TRACKER_BYTES ||
     record["bytes"] !== bytes ||
     record["digest"] !== digest
   ) {
-    wayfinderArtifactError()
+    wayfinderArtifactError();
   }
   return Object.freeze({
     identity: OMP_WAYFINDER_TRACKER_ARTIFACT_IDENTITY,
@@ -481,221 +497,222 @@ export const validateOmpWayfinderTrackerArtifact = (
     runId: expected.runId,
     bytes,
     digest,
-    entries: Object.freeze(entries)
-  })
-}
+    entries: Object.freeze(entries),
+  });
+};
 
 const requireSecureWayfinderDirectory = async (path: string): Promise<void> => {
-  const metadata = await lstat(path)
+  const metadata = await lstat(path);
   if (
     !metadata.isDirectory() ||
     metadata.isSymbolicLink() ||
     (metadata.mode & 0o022) !== 0 ||
-    (
-      typeof process.getuid === "function" &&
-      metadata.uid !== process.getuid()
-    )
+    (typeof process.getuid === "function" && metadata.uid !== process.getuid())
   ) {
-    wayfinderArtifactError()
+    wayfinderArtifactError();
   }
-}
+};
 
 const readSecureWayfinderFile = async (
   path: string,
-  relativePath: string,
+  relativePath: string
 ): Promise<OmpWayfinderTrackerEntry> => {
-  const before = await lstat(path)
+  const before = await lstat(path);
   if (
     !before.isFile() ||
     before.isSymbolicLink() ||
     before.nlink !== 1 ||
     (before.mode & 0o133) !== 0 ||
-    (
-      typeof process.getuid === "function" &&
-      before.uid !== process.getuid()
-    )
+    (typeof process.getuid === "function" && before.uid !== process.getuid())
   ) {
-    wayfinderArtifactError()
+    wayfinderArtifactError();
   }
-  const maximum = relativePath === "map.md"
-    ? MAX_OMP_WAYFINDER_MAP_BYTES
-    : MAX_OMP_WAYFINDER_ISSUE_BYTES
+  const maximum =
+    relativePath === "map.md"
+      ? MAX_OMP_WAYFINDER_MAP_BYTES
+      : MAX_OMP_WAYFINDER_ISSUE_BYTES;
   if (before.size <= 0 || before.size > maximum) {
-    wayfinderArtifactError()
+    wayfinderArtifactError();
   }
-  const handle = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW)
+  const handle = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW);
   try {
-    const opened = await handle.stat()
+    const opened = await handle.stat();
     if (
       opened.dev !== before.dev ||
       opened.ino !== before.ino ||
       opened.nlink !== 1 ||
       !opened.isFile()
     ) {
-      wayfinderArtifactError()
+      wayfinderArtifactError();
     }
-    const buffer = await handle.readFile()
-    const after = await handle.stat()
+    const buffer = await handle.readFile();
+    const after = await handle.stat();
     if (
       after.dev !== opened.dev ||
       after.ino !== opened.ino ||
       after.size !== opened.size ||
       buffer.byteLength !== opened.size
     ) {
-      wayfinderArtifactError()
+      wayfinderArtifactError();
     }
-    let content: string
+    let content: string;
     try {
-      content = new TextDecoder("utf-8", { fatal: true }).decode(buffer)
+      content = new TextDecoder("utf-8", { fatal: true }).decode(buffer);
+    } catch {
+      wayfinderArtifactError();
     }
-    catch {
-      wayfinderArtifactError()
-    }
-    const validated = validateWayfinderContent(relativePath, content!)
+    const validated = validateWayfinderContent(relativePath, content!);
     return Object.freeze({
       path: relativePath,
       bytes: validated.bytes,
       digest: validated.digest,
-      content: validated.content
-    })
+      content: validated.content,
+    });
+  } finally {
+    await handle.close();
   }
-  finally {
-    await handle.close()
-  }
-}
+};
 
 export const captureOmpWayfinderTrackerArtifact = async (
   input: Readonly<{
-    trackerDirectory: string
-    repositoryId: string
-    runId: string
-  }>,
+    trackerDirectory: string;
+    repositoryId: string;
+    runId: string;
+  }>
 ): Promise<OmpWayfinderTrackerArtifact> => {
   try {
-    requireWayfinderBinding(input.repositoryId, input.runId)
-    await requireSecureWayfinderDirectory(input.trackerDirectory)
-    const rootEntries = (await readdir(input.trackerDirectory)).sort()
+    requireWayfinderBinding(input.repositoryId, input.runId);
+    await requireSecureWayfinderDirectory(input.trackerDirectory);
+    const rootEntries = (await readdir(input.trackerDirectory)).sort();
     if (
       rootEntries.some((entry) => entry !== "map.md" && entry !== "issues") ||
       !rootEntries.includes("map.md")
     ) {
-      wayfinderArtifactError()
+      wayfinderArtifactError();
     }
     const entries: OmpWayfinderTrackerEntry[] = [
       await readSecureWayfinderFile(
         join(input.trackerDirectory, "map.md"),
-        "map.md",
-      )
-    ]
+        "map.md"
+      ),
+    ];
     if (rootEntries.includes("issues")) {
-      const issuesDirectory = join(input.trackerDirectory, "issues")
-      await requireSecureWayfinderDirectory(issuesDirectory)
-      const issueNames = (await readdir(issuesDirectory)).sort()
+      const issuesDirectory = join(input.trackerDirectory, "issues");
+      await requireSecureWayfinderDirectory(issuesDirectory);
+      const issueNames = (await readdir(issuesDirectory)).sort();
       if (
         issueNames.length > MAX_OMP_WAYFINDER_ISSUES ||
-        issueNames.some((name) => !SAFE_WAYFINDER_ISSUE_PATH.test(`issues/${name}`))
+        issueNames.some(
+          (name) => !SAFE_WAYFINDER_ISSUE_PATH.test(`issues/${name}`)
+        )
       ) {
-        wayfinderArtifactError()
+        wayfinderArtifactError();
       }
       for (const name of issueNames) {
-        entries.push(await readSecureWayfinderFile(
-          join(issuesDirectory, name),
-          `issues/${name}`,
-        ))
+        entries.push(
+          await readSecureWayfinderFile(
+            join(issuesDirectory, name),
+            `issues/${name}`
+          )
+        );
       }
     }
-    const bytes = entries.reduce((total, entry) => total + entry.bytes, 0)
-    return validateOmpWayfinderTrackerArtifact({
-      identity: OMP_WAYFINDER_TRACKER_ARTIFACT_IDENTITY,
-      repositoryId: input.repositoryId,
-      runId: input.runId,
-      bytes,
-      digest: wayfinderArtifactDigestFor(input.repositoryId, input.runId, entries),
-      entries
-    }, {
-      repositoryId: input.repositoryId,
-      runId: input.runId
-    })
+    const bytes = entries.reduce((total, entry) => total + entry.bytes, 0);
+    return validateOmpWayfinderTrackerArtifact(
+      {
+        identity: OMP_WAYFINDER_TRACKER_ARTIFACT_IDENTITY,
+        repositoryId: input.repositoryId,
+        runId: input.runId,
+        bytes,
+        digest: wayfinderArtifactDigestFor(
+          input.repositoryId,
+          input.runId,
+          entries
+        ),
+        entries,
+      },
+      {
+        repositoryId: input.repositoryId,
+        runId: input.runId,
+      }
+    );
+  } catch (error) {
+    if (error instanceof OmpRequestError) throw error;
+    return wayfinderArtifactError();
   }
-  catch (error) {
-    if (error instanceof OmpRequestError) throw error
-    return wayfinderArtifactError()
-  }
-}
+};
 
 const releaseWithoutMaskingProcessTermination = async (
   release: () => Promise<void>,
-  primaryError: unknown,
+  primaryError: unknown
 ): Promise<void> => {
   try {
-    await release()
+    await release();
+  } catch (releaseError) {
+    if (primaryError instanceof OmpProcessTerminationError) throw primaryError;
+    throw releaseError;
   }
-  catch (releaseError) {
-    if (primaryError instanceof OmpProcessTerminationError) throw primaryError
-    throw releaseError
-  }
-  if (primaryError instanceof OmpProcessTerminationError) throw primaryError
-}
+  if (primaryError instanceof OmpProcessTerminationError) throw primaryError;
+};
 
-const HASH_PATTERN = /^[a-f0-9]{64}$/u
-const SOURCE_HEAD_PATTERN = /^[a-f0-9]{40,64}$/u
+const HASH_PATTERN = /^[a-f0-9]{64}$/u;
+const SOURCE_HEAD_PATTERN = /^[a-f0-9]{40,64}$/u;
 const OWNER_NONCE_PATTERN =
-  /^[a-f0-9]{8}-[a-f0-9]{4}-[1-5][a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/u
+  /^[a-f0-9]{8}-[a-f0-9]{4}-[1-5][a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/u;
 const hasDependencyPathSegment = (path: string): boolean => {
-  return path.split("/").some((segment) => segment.toLowerCase() === "node_modules")
-}
+  return path
+    .split("/")
+    .some((segment) => segment.toLowerCase() === "node_modules");
+};
 
 const artifactError = (): never => {
-  throw new OmpRequestError("OMP implementation artifact is invalid")
-}
+  throw new OmpRequestError("OMP implementation artifact is invalid");
+};
 
 const validateOmpImplementationArtifactEntries = (
-  rawEntries: unknown,
+  rawEntries: unknown
 ): readonly OmpImplementationArtifactEntry[] => {
   if (
     !Array.isArray(rawEntries) ||
     rawEntries.length === 0 ||
     rawEntries.length > MAX_OMP_CHANGED_PATHS
   ) {
-    artifactError()
+    artifactError();
   }
-  const entries: OmpImplementationArtifactEntry[] = []
-  const paths = new Set<string>()
+  const entries: OmpImplementationArtifactEntry[] = [];
+  const paths = new Set<string>();
   for (const rawEntry of rawEntries as readonly unknown[]) {
     if (
       typeof rawEntry !== "object" ||
       rawEntry === null ||
       Array.isArray(rawEntry)
     ) {
-      artifactError()
+      artifactError();
     }
-    const entry = rawEntry as Readonly<Record<string, unknown>>
-    const pathValue = entry["path"]
-    const kindValue = entry["kind"]
+    const entry = rawEntry as Readonly<Record<string, unknown>>;
+    const pathValue = entry["path"];
+    const kindValue = entry["kind"];
     if (
       typeof pathValue !== "string" ||
       pathValue === "." ||
       !isWorkflowRelativePathV1(pathValue) ||
       paths.has(pathValue) ||
       hasDependencyPathSegment(pathValue) ||
-      (
-        kindValue !== "directory" &&
+      (kindValue !== "directory" &&
         kindValue !== "deleted" &&
         kindValue !== "symlink" &&
-        kindValue !== "file"
-      )
+        kindValue !== "file")
     ) {
-      artifactError()
+      artifactError();
     }
-    const path = pathValue as string
-    const kind = kindValue as OmpImplementationArtifactEntry["kind"]
-    paths.add(path)
+    const path = pathValue as string;
+    const kind = kindValue as OmpImplementationArtifactEntry["kind"];
+    paths.add(path);
     if (kind === "directory" || kind === "deleted") {
-      if (Object.keys(entry).join(",") !== "path,kind") artifactError()
-      entries.push(Object.freeze({ path, kind }))
-    }
-    else if (kind === "symlink") {
-      const targetValue = entry["target"]
+      if (Object.keys(entry).join(",") !== "path,kind") artifactError();
+      entries.push(Object.freeze({ path, kind }));
+    } else if (kind === "symlink") {
+      const targetValue = entry["target"];
       if (
         Object.keys(entry).join(",") !== "path,kind,target" ||
         typeof targetValue !== "string" ||
@@ -704,24 +721,23 @@ const validateOmpImplementationArtifactEntries = (
         targetValue.includes("\0") ||
         posix.isAbsolute(targetValue)
       ) {
-        artifactError()
+        artifactError();
       }
-      const target = targetValue as string
+      const target = targetValue as string;
       const resolvedTarget = posix.normalize(
-        posix.join(posix.dirname(path), target),
-      )
+        posix.join(posix.dirname(path), target)
+      );
       if (
         resolvedTarget === ".." ||
         resolvedTarget.startsWith("../") ||
         posix.isAbsolute(resolvedTarget)
       ) {
-        artifactError()
+        artifactError();
       }
-      entries.push(Object.freeze({ path, kind, target }))
-    }
-    else {
-      const modeValue = entry["mode"]
-      const contentBase64Value = entry["contentBase64"]
+      entries.push(Object.freeze({ path, kind, target }));
+    } else {
+      const modeValue = entry["mode"];
+      const contentBase64Value = entry["contentBase64"];
       if (
         Object.keys(entry).join(",") !== "path,kind,mode,contentBase64" ||
         typeof modeValue !== "number" ||
@@ -729,36 +745,41 @@ const validateOmpImplementationArtifactEntries = (
         modeValue < 0 ||
         modeValue > 0o777 ||
         typeof contentBase64Value !== "string" ||
-        Buffer.from(contentBase64Value, "base64").toString("base64") !== contentBase64Value
+        Buffer.from(contentBase64Value, "base64").toString("base64") !==
+          contentBase64Value
       ) {
-        artifactError()
+        artifactError();
       }
-      const mode = modeValue as number
-      const contentBase64 = contentBase64Value as string
-      entries.push(Object.freeze({
-        path,
-        kind: "file",
-        mode,
-        contentBase64,
-      }))
+      const mode = modeValue as number;
+      const contentBase64 = contentBase64Value as string;
+      entries.push(
+        Object.freeze({
+          path,
+          kind: "file",
+          mode,
+          contentBase64,
+        })
+      );
     }
   }
   for (const entry of entries) {
-    const segments = entry.path.split("/")
+    const segments = entry.path.split("/");
     for (let index = 1; index < segments.length; index += 1) {
-      const parent = segments.slice(0, index).join("/")
-      const parentEntry = entries.find((candidate) => candidate.path === parent)
+      const parent = segments.slice(0, index).join("/");
+      const parentEntry = entries.find(
+        (candidate) => candidate.path === parent
+      );
       if (parentEntry?.kind === "file" || parentEntry?.kind === "symlink") {
-        artifactError()
+        artifactError();
       }
     }
   }
-  return Object.freeze(entries)
-}
+  return Object.freeze(entries);
+};
 
 export const decodeOmpImplementationArtifact = (
   artifact: OmpImplementationArtifact,
-  expectedChangeHash: string,
+  expectedChangeHash: string
 ): DecodedOmpImplementationArtifact => {
   if (
     artifact.identity !== OMP_IMPLEMENTATION_ARTIFACT_IDENTITY ||
@@ -767,21 +788,21 @@ export const decodeOmpImplementationArtifact = (
     artifact.bytes > MAX_OMP_IMPLEMENTATION_ARTIFACT_BYTES ||
     Buffer.byteLength(artifact.content) !== artifact.bytes ||
     !HASH_PATTERN.test(artifact.digest) ||
-    createHash("sha256").update(artifact.content).digest("hex") !== artifact.digest ||
+    createHash("sha256").update(artifact.content).digest("hex") !==
+      artifact.digest ||
     !SOURCE_HEAD_PATTERN.test(artifact.sourceHead) ||
     !HASH_PATTERN.test(artifact.workspaceKey) ||
     !OWNER_NONCE_PATTERN.test(artifact.ownerNonce) ||
     !HASH_PATTERN.test(artifact.changeHash) ||
     artifact.changeHash !== expectedChangeHash
   ) {
-    artifactError()
+    artifactError();
   }
-  let parsed: unknown
+  let parsed: unknown;
   try {
-    parsed = JSON.parse(artifact.content)
-  }
-  catch {
-    artifactError()
+    parsed = JSON.parse(artifact.content);
+  } catch {
+    artifactError();
   }
   if (
     typeof parsed !== "object" ||
@@ -789,10 +810,10 @@ export const decodeOmpImplementationArtifact = (
     Array.isArray(parsed) ||
     JSON.stringify(parsed) !== artifact.content
   ) {
-    artifactError()
+    artifactError();
   }
-  const value = parsed as Readonly<Record<string, unknown>>
-  const rawEntries = value["entries"]
+  const value = parsed as Readonly<Record<string, unknown>>;
+  const rawEntries = value["entries"];
   if (
     Object.keys(value).join(",") !==
       "version,sourceHead,workspaceKey,ownerNonce,changeHash,entries" ||
@@ -802,13 +823,13 @@ export const decodeOmpImplementationArtifact = (
     value["ownerNonce"] !== artifact.ownerNonce ||
     value["changeHash"] !== artifact.changeHash
   ) {
-    artifactError()
+    artifactError();
   }
-  const entries = validateOmpImplementationArtifactEntries(rawEntries)
-  const entryPaths = entries.map((entry) => entry.path)
-  const sortedPaths = [...entryPaths].sort()
+  const entries = validateOmpImplementationArtifactEntries(rawEntries);
+  const entryPaths = entries.map((entry) => entry.path);
+  const sortedPaths = [...entryPaths].sort();
   if (JSON.stringify(sortedPaths) !== JSON.stringify(entryPaths)) {
-    artifactError()
+    artifactError();
   }
   return Object.freeze({
     sourceHead: artifact.sourceHead,
@@ -816,138 +837,142 @@ export const decodeOmpImplementationArtifact = (
     ownerNonce: artifact.ownerNonce,
     changeHash: artifact.changeHash,
     entries: Object.freeze(entries),
-  })
-}
+  });
+};
 
 const requireSafeArtifactParent = async (
   root: string,
-  relativePath: string,
+  relativePath: string
 ): Promise<void> => {
-  const parts = relativePath.split("/").slice(0, -1)
-  let current = root
+  const parts = relativePath.split("/").slice(0, -1);
+  let current = root;
   for (const part of parts) {
-    current = join(current, part)
+    current = join(current, part);
     try {
-      const metadata = await lstat(current)
+      const metadata = await lstat(current);
       if (!metadata.isDirectory() || metadata.isSymbolicLink()) {
-        artifactError()
+        artifactError();
       }
-    }
-    catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error
-      await mkdir(current, { mode: 0o700 })
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+      await mkdir(current, { mode: 0o700 });
     }
   }
-}
+};
 
 const requireSafeSymlinkTarget = async (
   root: string,
   path: string,
-  target: string,
+  target: string
 ): Promise<void> => {
-  const normalized = posix.normalize(posix.join(posix.dirname(path), target))
-  let current = root
+  const normalized = posix.normalize(posix.join(posix.dirname(path), target));
+  let current = root;
   for (const part of normalized.split("/")) {
-    if (part === ".") continue
-    current = join(current, part)
+    if (part === ".") continue;
+    current = join(current, part);
     try {
-      const metadata = await lstat(current)
-      if (metadata.isSymbolicLink()) artifactError()
+      const metadata = await lstat(current);
+      if (metadata.isSymbolicLink()) artifactError();
       if (!metadata.isDirectory() && current !== join(root, normalized)) {
-        artifactError()
+        artifactError();
       }
-    }
-    catch (error) {
-      if ((error as NodeJS.ErrnoException).code === "ENOENT") return
-      throw error
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") return;
+      throw error;
     }
   }
-}
+};
 
 export const applyOmpImplementationArtifact = async (
   root: string,
-  artifact: DecodedOmpImplementationArtifact,
+  artifact: DecodedOmpImplementationArtifact
 ): Promise<void> => {
-  const entries = validateOmpImplementationArtifactEntries(artifact.entries)
-  const canonicalRoot = await realpath(root)
+  const entries = validateOmpImplementationArtifactEntries(artifact.entries);
+  const canonicalRoot = await realpath(root);
   if (canonicalRoot !== root || !(await lstat(root)).isDirectory()) {
-    artifactError()
+    artifactError();
   }
   const deletions = entries
     .filter((entry) => entry.kind === "deleted")
-    .sort((left, right) => right.path.split("/").length - left.path.split("/").length)
+    .sort(
+      (left, right) =>
+        right.path.split("/").length - left.path.split("/").length
+    );
   const directories = entries
     .filter((entry) => entry.kind === "directory")
-    .sort((left, right) => left.path.split("/").length - right.path.split("/").length)
+    .sort(
+      (left, right) =>
+        left.path.split("/").length - right.path.split("/").length
+    );
   const leaves = entries.filter((entry) => {
-    return entry.kind === "file" || entry.kind === "symlink"
-  }
-  )
+    return entry.kind === "file" || entry.kind === "symlink";
+  });
   for (const entry of [...deletions, ...directories, ...leaves]) {
-    await requireSafeArtifactParent(root, entry.path)
-    const destination = join(root, entry.path)
+    await requireSafeArtifactParent(root, entry.path);
+    const destination = join(root, entry.path);
     if (entry.kind === "deleted") {
-      await rm(destination, { recursive: true, force: true })
-    }
-    else if (entry.kind === "directory") {
+      await rm(destination, { recursive: true, force: true });
+    } else if (entry.kind === "directory") {
       try {
-        const metadata = await lstat(destination)
+        const metadata = await lstat(destination);
         if (!metadata.isDirectory() || metadata.isSymbolicLink()) {
-          await rm(destination, { recursive: true, force: true })
-          await mkdir(destination, { mode: 0o700 })
+          await rm(destination, { recursive: true, force: true });
+          await mkdir(destination, { mode: 0o700 });
         }
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+        await mkdir(destination, { mode: 0o700 });
       }
-      catch (error) {
-        if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error
-        await mkdir(destination, { mode: 0o700 })
-      }
-    }
-    else {
-      await rm(destination, { recursive: true, force: true })
+    } else {
+      await rm(destination, { recursive: true, force: true });
       if (entry.kind === "symlink") {
-        await requireSafeSymlinkTarget(root, entry.path, entry.target)
-        await symlink(entry.target, destination)
-      }
-      else {
+        await requireSafeSymlinkTarget(root, entry.path, entry.target);
+        await symlink(entry.target, destination);
+      } else {
         await writeFile(
           destination,
           Buffer.from(entry.contentBase64, "base64"),
-          { mode: entry.mode, flag: "wx" },
-        )
-        await chmod(destination, entry.mode)
+          { mode: entry.mode, flag: "wx" }
+        );
+        await chmod(destination, entry.mode);
       }
     }
   }
-}
+};
 
-
-const DEFAULT_ALLOWED_EXECUTABLES = Object.freeze(["omp"])
-const DEFAULT_ALLOWED_COMMANDS = Object.freeze(["print"] as const)
-const SANDBOX_EXECUTABLE = "/usr/bin/sandbox-exec"
+const DEFAULT_ALLOWED_EXECUTABLES = Object.freeze(["omp"]);
+const DEFAULT_ALLOWED_COMMANDS = Object.freeze(["print"] as const);
+const SANDBOX_EXECUTABLE = "/usr/bin/sandbox-exec";
 const DEFAULT_GIT_EXECUTABLE =
-  "/Library/Developer/CommandLineTools/usr/bin/git"
-const XCODE_SELECT_LINK = "/var/db/xcode_select_link"
+  "/Library/Developer/CommandLineTools/usr/bin/git";
+const XCODE_SELECT_LINK = "/var/db/xcode_select_link";
 const DEFAULT_APPLE_DEVELOPER_DIRECTORIES = Object.freeze([
   "/Library/Developer/CommandLineTools",
-  "/Applications/Xcode.app/Contents/Developer"
-])
-const OMP_WORKTREES_DIRECTORY = join(tmpdir(), "darkfactory-omp-worktrees")
-const MAX_GIT_OUTPUT_BYTES = 64 * 1_024
-const DEFAULT_OMP_SHUTDOWN_TIMEOUT_MS = 10_000
+  "/Applications/Xcode.app/Contents/Developer",
+]);
+const OMP_WORKTREES_DIRECTORY = join(tmpdir(), "darkfactory-omp-worktrees");
+const MAX_GIT_OUTPUT_BYTES = 64 * 1_024;
+const DEFAULT_OMP_SHUTDOWN_TIMEOUT_MS = 10_000;
 const GIT_SAFE_CONFIG_ARGUMENTS = Object.freeze([
-  "-c", "core.hooksPath=/dev/null",
-  "-c", "core.fsmonitor=false",
-  "-c", "core.attributesFile=/dev/null",
-  "-c", "diff.external=",
-  "-c", "diff.trustExitCode=false",
-  "-c", "submodule.recurse=false",
-] as const)
-export const MAX_OMP_IMPLEMENTATION_ARTIFACT_BYTES = 16 * 1_024
+  "-c",
+  "core.hooksPath=/dev/null",
+  "-c",
+  "core.fsmonitor=false",
+  "-c",
+  "core.attributesFile=/dev/null",
+  "-c",
+  "diff.external=",
+  "-c",
+  "diff.trustExitCode=false",
+  "-c",
+  "submodule.recurse=false",
+] as const);
+export const MAX_OMP_IMPLEMENTATION_ARTIFACT_BYTES = 16 * 1_024;
 const OMP_TOOLS_BY_EFFECT = Object.freeze({
   plan: Object.freeze(["read", "grep", "glob"]),
   implement: Object.freeze(["read", "grep", "glob", "edit", "write"]),
   verify: Object.freeze(["read", "grep", "glob"]),
-} satisfies Readonly<Record<OmpEffectKind, readonly string[]>>)
+} satisfies Readonly<Record<OmpEffectKind, readonly string[]>>);
 export const OMP_WAYFINDER_SKILLS = Object.freeze([
   "wayfinder",
   "setup-matt-pocock-skills",
@@ -957,7 +982,7 @@ export const OMP_WAYFINDER_SKILLS = Object.freeze([
   "research",
   "to-spec",
   "to-tickets",
-] as const)
+] as const);
 const OMP_WAYFINDER_TOOLS = Object.freeze([
   "read",
   "grep",
@@ -966,29 +991,29 @@ const OMP_WAYFINDER_TOOLS = Object.freeze([
   "write",
   "task",
   "web_search",
-] as const)
-const MAX_OMP_SKILL_BUNDLE_ENTRIES = 512
-const MAX_OMP_SKILL_BUNDLE_BYTES = 2 * 1_024 * 1_024
+] as const);
+const MAX_OMP_SKILL_BUNDLE_ENTRIES = 512;
+const MAX_OMP_SKILL_BUNDLE_BYTES = 2 * 1_024 * 1_024;
 const SANDBOX_SYSTEM_READ_DIRECTORIES = Object.freeze([
   "/System",
   "/Library/Apple",
   "/usr/lib",
   "/usr/share",
   "/private/etc/ssl",
-] as const)
+] as const);
 const SANDBOX_SYSTEM_READ_FILES = Object.freeze([
   "/dev/null",
   "/dev/random",
   "/dev/urandom",
   "/private/etc/hosts",
   "/private/etc/resolv.conf",
-] as const)
-const MAX_OMP_MANIFEST_ENTRIES = 20_000
-const MAX_OMP_MANIFEST_BYTES = 256 * 1_024 * 1_024
-const MAX_OMP_CHANGED_PATHS = 512
-const MAX_OMP_CHANGED_PATH_BYTES = 8 * 1_024
-const VERIFIER_MANIFEST_MAX_ENTRIES = 4_096
-const VERIFIER_MANIFEST_MAX_BYTES = 32 * 1_024 * 1_024
+] as const);
+const MAX_OMP_MANIFEST_ENTRIES = 20_000;
+const MAX_OMP_MANIFEST_BYTES = 256 * 1_024 * 1_024;
+const MAX_OMP_CHANGED_PATHS = 512;
+const MAX_OMP_CHANGED_PATH_BYTES = 8 * 1_024;
+const VERIFIER_MANIFEST_MAX_ENTRIES = 4_096;
+const VERIFIER_MANIFEST_MAX_BYTES = 32 * 1_024 * 1_024;
 const VERIFIER_MANIFEST_SKIPPED_DIRECTORIES = new Set([
   ".git",
   ".next",
@@ -1000,7 +1025,7 @@ const VERIFIER_MANIFEST_SKIPPED_DIRECTORIES = new Set([
   "node_modules",
   "playwright-report",
   "test-results",
-])
+]);
 const VERIFIER_ROOT_CONTROL_FILES = new Set([
   ".markdownlint-cli2.jsonc",
   "biome.json",
@@ -1012,11 +1037,11 @@ const VERIFIER_ROOT_CONTROL_FILES = new Set([
   "tsconfig.json",
   "turbo.json",
   "vitest.config.ts",
-])
+]);
 
 export const isVerifierControlPath = (path: string): boolean => {
-  const segments = path.split("/")
-  const name = segments.at(-1)!.toLowerCase()
+  const segments = path.split("/");
+  const name = segments.at(-1)!.toLowerCase();
   return (
     segments.includes("scripts") ||
     VERIFIER_ROOT_CONTROL_FILES.has(path) ||
@@ -1026,111 +1051,113 @@ export const isVerifierControlPath = (path: string): boolean => {
     name.startsWith("playwright") ||
     name.startsWith("vite") ||
     name.startsWith("vitest")
-  )
-}
+  );
+};
 
 export type TrustedVerifierManifest = Readonly<{
-  absolutePath: string
-  digest: string
-  entries: readonly Readonly<{ path: string; digest: string }>[]
-}>
+  absolutePath: string;
+  digest: string;
+  entries: readonly Readonly<{ path: string; digest: string }>[];
+}>;
 
 const verifierControlDigest = async (
   path: string,
   size: number,
-  budget: { entries: number; bytes: number },
+  budget: { entries: number; bytes: number }
 ): Promise<string> => {
-  budget.entries += 1
-  budget.bytes += size
+  budget.entries += 1;
+  budget.bytes += size;
   if (
     budget.entries > VERIFIER_MANIFEST_MAX_ENTRIES ||
     budget.bytes > VERIFIER_MANIFEST_MAX_BYTES
   ) {
-    throw new OmpConfigurationError("OMP verifier control manifest is oversized")
+    throw new OmpConfigurationError(
+      "OMP verifier control manifest is oversized"
+    );
   }
-  const hash = createHash("sha256")
+  const hash = createHash("sha256");
   for await (const chunk of createReadStream(path)) {
-    hash.update(chunk)
+    hash.update(chunk);
   }
-  return hash.digest("hex")
-}
+  return hash.digest("hex");
+};
 
 const collectTrustedVerifierControls = async (
   sourceCwd: string,
   directory: string,
   entries: Array<Readonly<{ path: string; digest: string }>>,
-  budget: { entries: number; bytes: number },
+  budget: { entries: number; bytes: number }
 ): Promise<void> => {
   for (const name of (await readdir(directory)).sort()) {
-    if (VERIFIER_MANIFEST_SKIPPED_DIRECTORIES.has(name)) continue
-    const absolutePath = join(directory, name)
-    const repositoryPath = relative(sourceCwd, absolutePath)
-    const metadata = await lstat(absolutePath)
+    if (VERIFIER_MANIFEST_SKIPPED_DIRECTORIES.has(name)) continue;
+    const absolutePath = join(directory, name);
+    const repositoryPath = relative(sourceCwd, absolutePath);
+    const metadata = await lstat(absolutePath);
     if (metadata.isDirectory()) {
-      await collectTrustedVerifierControls(sourceCwd, absolutePath, entries, budget)
-    }
-    else if (isVerifierControlPath(repositoryPath)) {
+      await collectTrustedVerifierControls(
+        sourceCwd,
+        absolutePath,
+        entries,
+        budget
+      );
+    } else if (isVerifierControlPath(repositoryPath)) {
       const digest = metadata.isSymbolicLink()
-        ? `link:${createHash("sha256").update(await readlink(absolutePath)).digest("hex")}`
+        ? `link:${createHash("sha256")
+            .update(await readlink(absolutePath))
+            .digest("hex")}`
         : metadata.isFile()
           ? `file:${await verifierControlDigest(
               absolutePath,
               metadata.size,
-              budget,
+              budget
             )}`
           : (() => {
               throw new OmpConfigurationError(
-                "OMP verifier control manifest contains unsupported data",
-              )
-          }
-            )()
-      entries.push(Object.freeze({ path: repositoryPath, digest }))
+                "OMP verifier control manifest contains unsupported data"
+              );
+            })();
+      entries.push(Object.freeze({ path: repositoryPath, digest }));
     }
   }
-}
+};
 
 export const trustedVerifierManifestFor = async (
-  sourceCwd: string,
+  sourceCwd: string
 ): Promise<TrustedVerifierManifest> => {
-  const absolutePath = await realpath(join(sourceCwd, "package.json"))
+  const absolutePath = await realpath(join(sourceCwd, "package.json"));
   if (!isContainedPath(sourceCwd, absolutePath)) {
-    throw new OmpConfigurationError("OMP verifier manifest is outside source")
+    throw new OmpConfigurationError("OMP verifier manifest is outside source");
   }
-  const entries: Array<Readonly<{ path: string; digest: string }>> = []
-  await collectTrustedVerifierControls(
-    sourceCwd,
-    sourceCwd,
-    entries,
-    { entries: 0, bytes: 0 },
-  )
-  const frozenEntries = Object.freeze(entries)
+  const entries: Array<Readonly<{ path: string; digest: string }>> = [];
+  await collectTrustedVerifierControls(sourceCwd, sourceCwd, entries, {
+    entries: 0,
+    bytes: 0,
+  });
+  const frozenEntries = Object.freeze(entries);
   return Object.freeze({
     absolutePath,
     digest: createHash("sha256")
       .update(JSON.stringify(frozenEntries))
       .digest("hex"),
     entries: frozenEntries,
-  })
-}
+  });
+};
 
 export const matchesTrustedVerifierManifest = async (
   cwd: string,
-  manifest: TrustedVerifierManifest,
+  manifest: TrustedVerifierManifest
 ): Promise<boolean> => {
-  const current: Array<Readonly<{ path: string; digest: string }>> = []
+  const current: Array<Readonly<{ path: string; digest: string }>> = [];
   try {
-    await collectTrustedVerifierControls(
-      cwd,
-      cwd,
-      current,
-      { entries: 0, bytes: 0 },
-    )
+    await collectTrustedVerifierControls(cwd, cwd, current, {
+      entries: 0,
+      bytes: 0,
+    });
+  } catch {
+    return false;
   }
-  catch {
-    return false
-  }
-  return JSON.stringify(current) === JSON.stringify(manifest.entries)
-}
+  return JSON.stringify(current) === JSON.stringify(manifest.entries);
+};
 
 const SENSITIVE_SCOPE_SEGMENTS = new Set([
   ".aws",
@@ -1143,7 +1170,7 @@ const SENSITIVE_SCOPE_SEGMENTS = new Set([
   ".gitlab",
   ".omp",
   ".ssh",
-])
+]);
 const SENSITIVE_REPOSITORY_PATHS = Object.freeze([
   ".aws",
   ".claude",
@@ -1158,14 +1185,14 @@ const SENSITIVE_REPOSITORY_PATHS = Object.freeze([
   ".omp",
   ".pypirc",
   ".ssh",
-] as const)
+] as const);
 const OMP_NONSECRET_ENVIRONMENT_NAMES = Object.freeze([
   "PATH",
   "OMP_MODEL",
   "OMP_PROVIDER",
   "AZURE_OPENAI_ENDPOINT",
   "AWS_REGION",
-] as const)
+] as const);
 const OMP_SECRET_ENVIRONMENT_NAMES = Object.freeze([
   "ANTHROPIC_API_KEY",
   "OPENAI_API_KEY",
@@ -1177,23 +1204,25 @@ const OMP_SECRET_ENVIRONMENT_NAMES = Object.freeze([
   "AWS_ACCESS_KEY_ID",
   "AWS_SECRET_ACCESS_KEY",
   "AWS_SESSION_TOKEN",
-] as const)
+] as const);
 
-const captureInheritedOmpEnvironment = (): Readonly<Partial<NodeJS.ProcessEnv>> => {
-  const environment: Partial<NodeJS.ProcessEnv> = {}
+const captureInheritedOmpEnvironment = (): Readonly<
+  Partial<NodeJS.ProcessEnv>
+> => {
+  const environment: Partial<NodeJS.ProcessEnv> = {};
   for (const name of [
     ...OMP_NONSECRET_ENVIRONMENT_NAMES,
     ...OMP_SECRET_ENVIRONMENT_NAMES,
   ]) {
-    const value = process.env[name]
-    if (value !== undefined) environment[name] = value
+    const value = process.env[name];
+    if (value !== undefined) environment[name] = value;
   }
-  return Object.freeze(environment)
-}
+  return Object.freeze(environment);
+};
 
 const environmentForOmp = (
   sessionDirectory: string,
-  inheritedEnvironment: Readonly<Partial<NodeJS.ProcessEnv>>,
+  inheritedEnvironment: Readonly<Partial<NodeJS.ProcessEnv>>
 ): NodeJS.ProcessEnv => ({
   NODE_ENV: "production",
   NO_COLOR: "1",
@@ -1204,50 +1233,55 @@ const environmentForOmp = (
   XDG_CACHE_HOME: sessionDirectory,
   XDG_DATA_HOME: sessionDirectory,
   TMPDIR: sessionDirectory,
-  ...inheritedEnvironment
-})
+  ...inheritedEnvironment,
+});
 
 const effectiveOmpRedactions = (
   explicitRedactions: readonly string[],
-  environment: Readonly<Partial<NodeJS.ProcessEnv>> = captureInheritedOmpEnvironment(),
-): readonly string[] => Object.freeze([...new Set([
-  ...explicitRedactions,
-  ...OMP_SECRET_ENVIRONMENT_NAMES
-    .map((name) => environment[name])
-    .filter((value): value is string => value !== undefined && value.length > 0),
-])])
-
+  environment: Readonly<
+    Partial<NodeJS.ProcessEnv>
+  > = captureInheritedOmpEnvironment()
+): readonly string[] =>
+  Object.freeze([
+    ...new Set([
+      ...explicitRedactions,
+      ...OMP_SECRET_ENVIRONMENT_NAMES.map((name) => environment[name]).filter(
+        (value): value is string => value !== undefined && value.length > 0
+      ),
+    ]),
+  ]);
 
 const requireBoundedInteger = (
   value: number,
   name: string,
-  maximum: number,
+  maximum: number
 ): number => {
   if (!Number.isSafeInteger(value) || value <= 0 || value > maximum) {
-    throw new OmpConfigurationError(`${name} must be a positive bounded integer`)
+    throw new OmpConfigurationError(
+      `${name} must be a positive bounded integer`
+    );
   }
-  return value
-}
+  return value;
+};
 
 const validateRedactions = (redactions: readonly string[]): void => {
   if (redactions.length > MAX_OMP_REDACTIONS) {
-    throw new OmpRequestError("Too many redaction values")
+    throw new OmpRequestError("Too many redaction values");
   }
   for (const redaction of redactions) {
     if (redaction.length === 0 || Buffer.byteLength(redaction) > 4_096) {
-      throw new OmpRequestError("Redaction values must be 1-4096 UTF-8 bytes")
-    }
-    else continue
+      throw new OmpRequestError("Redaction values must be 1-4096 UTF-8 bytes");
+    } else continue;
   }
-}
+};
 
 export const redactOmpOutput = (
   value: string,
-  explicitRedactions: readonly string[] = [],
+  explicitRedactions: readonly string[] = []
 ): Readonly<{ value: string; redacted: boolean }> => {
-  let sanitized = value
+  let sanitized = value;
   for (const redaction of explicitRedactions) {
-    sanitized = sanitized.split(redaction).join("[REDACTED]")
+    sanitized = sanitized.split(redaction).join("[REDACTED]");
   }
 
   sanitized = sanitized
@@ -1255,261 +1289,274 @@ export const redactOmpOutput = (
     .replace(/\bsk-[A-Za-z0-9_-]{8,}\b/gu, "[REDACTED]")
     .replace(
       /\b(api[_-]?key|access[_-]?token|token|secret|password)(\s*[:=]\s*)[^\s,;]+/giu,
-      "$1$2[REDACTED]",
+      "$1$2[REDACTED]"
     )
-    .replace(/op:\/\/[^\s"'`]+/giu, "[REDACTED]")
+    .replace(/op:\/\/[^\s"'`]+/giu, "[REDACTED]");
 
-  return Object.freeze({ value: sanitized, redacted: sanitized !== value })
-}
+  return Object.freeze({ value: sanitized, redacted: sanitized !== value });
+};
 
 export const redactEffectiveOmpOutput = (
   value: string,
-  explicitRedactions: readonly string[] = [],
+  explicitRedactions: readonly string[] = []
 ): Readonly<{ value: string; redacted: boolean }> => {
-  return redactOmpOutput(value, effectiveOmpRedactions(explicitRedactions))
-}
+  return redactOmpOutput(value, effectiveOmpRedactions(explicitRedactions));
+};
 
 export const sanitizeOmpWayfinderTrackerArtifact = (
   artifact: unknown,
   expected: Readonly<{ repositoryId: string; runId: string }>,
-  explicitRedactions: readonly string[] = [],
+  explicitRedactions: readonly string[] = []
 ): OmpWayfinderTrackerArtifact => {
-  const validated = validateOmpWayfinderTrackerArtifact(artifact, expected)
-  const redactions = effectiveOmpRedactions(explicitRedactions)
+  const validated = validateOmpWayfinderTrackerArtifact(artifact, expected);
+  const redactions = effectiveOmpRedactions(explicitRedactions);
   if (
     validated.entries.some((entry) => {
-      return redactions.some((redaction) => entry.path.includes(redaction))
-  }
-    )
+      return redactions.some((redaction) => entry.path.includes(redaction));
+    })
   ) {
-    wayfinderArtifactError()
+    wayfinderArtifactError();
   }
   const entries = validated.entries.map((entry) => {
-    const redacted = redactOmpOutput(entry.content, redactions)
-    const content = validateWayfinderContent(entry.path, redacted.value)
+    const redacted = redactOmpOutput(entry.content, redactions);
+    const content = validateWayfinderContent(entry.path, redacted.value);
     return Object.freeze({
       path: entry.path,
       bytes: content.bytes,
       digest: content.digest,
-      content: content.content
-    })
-  }
-  )
-  const bytes = entries.reduce((total, entry) => total + entry.bytes, 0)
-  return validateOmpWayfinderTrackerArtifact({
-    identity: OMP_WAYFINDER_TRACKER_ARTIFACT_IDENTITY,
-    repositoryId: validated.repositoryId,
-    runId: validated.runId,
-    bytes,
-    digest: wayfinderArtifactDigestFor(
-      validated.repositoryId,
-      validated.runId,
+      content: content.content,
+    });
+  });
+  const bytes = entries.reduce((total, entry) => total + entry.bytes, 0);
+  return validateOmpWayfinderTrackerArtifact(
+    {
+      identity: OMP_WAYFINDER_TRACKER_ARTIFACT_IDENTITY,
+      repositoryId: validated.repositoryId,
+      runId: validated.runId,
+      bytes,
+      digest: wayfinderArtifactDigestFor(
+        validated.repositoryId,
+        validated.runId,
+        entries
+      ),
       entries,
-    ),
-    entries
-  }, expected)
-}
+    },
+    expected
+  );
+};
 
 export const truncateOmpUtf8 = (
   value: string,
-  maximumBytes: number,
+  maximumBytes: number
 ): Readonly<{ value: string; bytes: number; truncated: boolean }> => {
-  const buffer = Buffer.from(value)
+  const buffer = Buffer.from(value);
   if (buffer.byteLength <= maximumBytes) {
-    return Object.freeze({ value, bytes: buffer.byteLength, truncated: false })
-  }
-  else {
-    const truncated = buffer.subarray(0, maximumBytes).toString("utf8")
-      .replace(/\uFFFD$/u, "")
+    return Object.freeze({ value, bytes: buffer.byteLength, truncated: false });
+  } else {
+    const truncated = buffer
+      .subarray(0, maximumBytes)
+      .toString("utf8")
+      .replace(/\uFFFD$/u, "");
     return Object.freeze({
       value: truncated,
       bytes: Buffer.byteLength(truncated),
       truncated: true,
-    })
+    });
   }
-}
-
+};
 
 const sanitizeOutput = (
   stdout: string | Buffer | null | undefined,
   stderr: string | Buffer | null | undefined,
   explicitRedactions: readonly string[],
   maximumBytes: number,
-  forceTruncated = false,
+  forceTruncated = false
 ): OmpSanitizedOutput => {
-  const redactedStdout = redactOmpOutput(String(stdout ?? ""), explicitRedactions)
-  const redactedStderr = redactOmpOutput(String(stderr ?? ""), explicitRedactions)
-  const boundedStdout = truncateOmpUtf8(redactedStdout.value, maximumBytes)
-  const remainingBytes = Math.max(0, maximumBytes - boundedStdout.bytes)
-  const boundedStderr = truncateOmpUtf8(redactedStderr.value, remainingBytes)
+  const redactedStdout = redactOmpOutput(
+    String(stdout ?? ""),
+    explicitRedactions
+  );
+  const redactedStderr = redactOmpOutput(
+    String(stderr ?? ""),
+    explicitRedactions
+  );
+  const boundedStdout = truncateOmpUtf8(redactedStdout.value, maximumBytes);
+  const remainingBytes = Math.max(0, maximumBytes - boundedStdout.bytes);
+  const boundedStderr = truncateOmpUtf8(redactedStderr.value, remainingBytes);
   return Object.freeze({
     stdout: boundedStdout.value,
     stderr: boundedStderr.value,
     stdoutBytes: boundedStdout.bytes,
     stderrBytes: boundedStderr.bytes,
-    truncated: forceTruncated || boundedStdout.truncated || boundedStderr.truncated,
+    truncated:
+      forceTruncated || boundedStdout.truncated || boundedStderr.truncated,
     redacted: redactedStdout.redacted || redactedStderr.redacted,
-  })
-}
+  });
+};
 
-
-const abortedResult = (command: OmpCommand): OmpExecutionResult => Object.freeze({
-  command,
-  status: "aborted",
-  exitCode: null,
-  signal: null,
-  durationMs: 0,
-  output: Object.freeze({
-    stdout: "",
-    stderr: "",
-    stdoutBytes: 0,
-    stderrBytes: 0,
-    truncated: false,
-    redacted: false,
-  }),
-  change: null,
-  verification: null,
-  implementationArtifact: null,
-
-})
+const abortedResult = (command: OmpCommand): OmpExecutionResult =>
+  Object.freeze({
+    command,
+    status: "aborted",
+    exitCode: null,
+    signal: null,
+    durationMs: 0,
+    output: Object.freeze({
+      stdout: "",
+      stderr: "",
+      stdoutBytes: 0,
+      stderrBytes: 0,
+      truncated: false,
+      redacted: false,
+    }),
+    change: null,
+    verification: null,
+    implementationArtifact: null,
+  });
 
 const isContainedPath = (root: string, candidate: string): boolean => {
-  const child = relative(root, candidate)
-  return child.length > 0 &&
+  const child = relative(root, candidate);
+  return (
+    child.length > 0 &&
     child !== ".." &&
     !child.startsWith(`..${sep}`) &&
     !isAbsolute(child)
-}
+  );
+};
 
 const resolveExecutionCwd = async (
   repositoriesRoot: string,
-  cwd: string,
+  cwd: string
 ): Promise<string> => {
   if (!isWorkflowRelativePathV1(cwd) || cwd === ".") {
-    throw new OmpRequestError("OMP cwd is invalid")
+    throw new OmpRequestError("OMP cwd is invalid");
   }
   try {
-    const canonicalRoot = await realpath(repositoriesRoot)
-    const rootStat = await stat(canonicalRoot)
+    const canonicalRoot = await realpath(repositoriesRoot);
+    const rootStat = await stat(canonicalRoot);
     if (!rootStat.isDirectory()) {
-      throw new OmpRequestError("OMP repositories root is invalid")
+      throw new OmpRequestError("OMP repositories root is invalid");
     }
-    const candidate = await realpath(resolve(canonicalRoot, cwd))
-    const candidateStat = await stat(candidate)
-    if (!candidateStat.isDirectory() || !isContainedPath(canonicalRoot, candidate)) {
-      throw new OmpRequestError("OMP cwd is invalid")
+    const candidate = await realpath(resolve(canonicalRoot, cwd));
+    const candidateStat = await stat(candidate);
+    if (
+      !candidateStat.isDirectory() ||
+      !isContainedPath(canonicalRoot, candidate)
+    ) {
+      throw new OmpRequestError("OMP cwd is invalid");
     }
-    return candidate
+    return candidate;
+  } catch (error) {
+    if (error instanceof OmpRequestError) throw error;
+    throw new OmpRequestError("OMP cwd is invalid");
   }
-  catch (error) {
-    if (error instanceof OmpRequestError) throw error
-    throw new OmpRequestError("OMP cwd is invalid")
-  }
-}
+};
 const isSameOrContainedPath = (root: string, candidate: string): boolean => {
-  return candidate === root || isContainedPath(root, candidate)
-}
+  return candidate === root || isContainedPath(root, candidate);
+};
 
 const isSensitiveScopePath = (cwd: string, candidate: string): boolean => {
-  const firstSegment = relative(cwd, candidate).split(sep, 1)[0]!.toLowerCase()
+  const firstSegment = relative(cwd, candidate).split(sep, 1)[0]!.toLowerCase();
   return (
     SENSITIVE_SCOPE_SEGMENTS.has(firstSegment) ||
     firstSegment === ".env" ||
     firstSegment.startsWith(".env.") ||
     SENSITIVE_REPOSITORY_PATHS.some((path) => {
-      return path.toLowerCase() === firstSegment
-    }
-    )
-  )
-}
+      return path.toLowerCase() === firstSegment;
+    })
+  );
+};
 
 const resolveScopePath = async (
   cwd: string,
-  scopePath: string,
+  scopePath: string
 ): Promise<string> => {
   if (!isWorkflowRelativePathV1(scopePath)) {
-    throw new OmpRequestError("OMP scope path is invalid")
+    throw new OmpRequestError("OMP scope path is invalid");
   }
-  const firstSegment = scopePath.split("/", 1)[0]!.toLowerCase()
+  const firstSegment = scopePath.split("/", 1)[0]!.toLowerCase();
   if (
     scopePath === "." ||
     SENSITIVE_SCOPE_SEGMENTS.has(firstSegment) ||
     firstSegment === ".env" ||
     firstSegment.startsWith(".env.")
   ) {
-    throw new OmpRequestError("OMP scope path is sensitive")
+    throw new OmpRequestError("OMP scope path is sensitive");
   }
-  const candidate = resolve(cwd, scopePath)
+  const candidate = resolve(cwd, scopePath);
 
-  let existing = candidate
+  let existing = candidate;
   while (true) {
     try {
-      const canonicalParent = await realpath(existing)
-      const canonical = resolve(canonicalParent, relative(existing, candidate))
+      const canonicalParent = await realpath(existing);
+      const canonical = resolve(canonicalParent, relative(existing, candidate));
       if (canonical === cwd || isSensitiveScopePath(cwd, canonical)) {
-        throw new OmpRequestError("OMP scope path is sensitive")
+        throw new OmpRequestError("OMP scope path is sensitive");
       }
       if (!isContainedPath(cwd, canonical)) {
-        throw new OmpRequestError("OMP scope path escapes the repository")
+        throw new OmpRequestError("OMP scope path escapes the repository");
       }
-      return canonical
-    }
-    catch (error) {
-      if (error instanceof OmpRequestError) throw error
-      const code = (error as NodeJS.ErrnoException).code
+      return canonical;
+    } catch (error) {
+      if (error instanceof OmpRequestError) throw error;
+      const code = (error as NodeJS.ErrnoException).code;
       if (code !== "ENOENT" && code !== "ENOTDIR") {
-        throw new OmpRequestError("OMP scope path is invalid")
+        throw new OmpRequestError("OMP scope path is invalid");
       }
-      const parent = dirname(existing)
-      existing = parent
+      const parent = dirname(existing);
+      existing = parent;
     }
   }
-}
+};
 
 const resolveScopePaths = async (
   cwd: string,
-  scopePaths: readonly string[],
+  scopePaths: readonly string[]
 ): Promise<readonly string[]> => {
   if (scopePaths.length === 0 || scopePaths.length > MAX_WORKFLOW_SCOPE_PATHS) {
-    throw new OmpRequestError("OMP scope path count is invalid")
+    throw new OmpRequestError("OMP scope path count is invalid");
   }
-  const canonical = [...new Set(await Promise.all(
-    scopePaths.map((scopePath) => resolveScopePath(cwd, scopePath)),
-  ))].sort()
-  const collapsed: string[] = []
+  const canonical = [
+    ...new Set(
+      await Promise.all(
+        scopePaths.map((scopePath) => resolveScopePath(cwd, scopePath))
+      )
+    ),
+  ].sort();
+  const collapsed: string[] = [];
   for (const scopePath of canonical) {
     if (!collapsed.some((parent) => isSameOrContainedPath(parent, scopePath))) {
-      collapsed.push(scopePath)
+      collapsed.push(scopePath);
     }
   }
-  return Object.freeze(collapsed)
-}
+  return Object.freeze(collapsed);
+};
 
 type OmpSkillBundleBudget = {
-  entries: number
-  bytes: number
-}
+  entries: number;
+  bytes: number;
+};
 
 const copyOmpSkillEntry = async (
   source: string,
   destination: string,
   budget: OmpSkillBundleBudget,
-  depth: number,
+  depth: number
 ): Promise<void> => {
   if (depth > 16) {
-    throw new OmpRequestError("OMP Wayfinder skill bundle is unavailable")
+    throw new OmpRequestError("OMP Wayfinder skill bundle is unavailable");
   }
-  const metadata = await lstat(source)
+  const metadata = await lstat(source);
   if (metadata.isSymbolicLink() || (metadata.mode & 0o022) !== 0) {
-    throw new OmpRequestError("OMP Wayfinder skill bundle is unavailable")
+    throw new OmpRequestError("OMP Wayfinder skill bundle is unavailable");
   }
-  budget.entries += 1
+  budget.entries += 1;
   if (budget.entries > MAX_OMP_SKILL_BUNDLE_ENTRIES) {
-    throw new OmpRequestError("OMP Wayfinder skill bundle is unavailable")
+    throw new OmpRequestError("OMP Wayfinder skill bundle is unavailable");
   }
   if (metadata.isDirectory()) {
-    await mkdir(destination, { mode: 0o700 })
-    const names = (await readdir(source)).sort()
+    await mkdir(destination, { mode: 0o700 });
+    const names = (await readdir(source)).sort();
     for (const name of names) {
       if (
         name.length === 0 ||
@@ -1517,54 +1564,53 @@ const copyOmpSkillEntry = async (
         name === ".." ||
         /[\u0000-\u001F\u007F/\\]/u.test(name)
       ) {
-        throw new OmpRequestError("OMP Wayfinder skill bundle is unavailable")
+        throw new OmpRequestError("OMP Wayfinder skill bundle is unavailable");
       }
       await copyOmpSkillEntry(
         join(source, name),
         join(destination, name),
         budget,
-        depth + 1,
-      )
+        depth + 1
+      );
     }
-    return
+    return;
   }
   if (!metadata.isFile()) {
-    throw new OmpRequestError("OMP Wayfinder skill bundle is unavailable")
+    throw new OmpRequestError("OMP Wayfinder skill bundle is unavailable");
   }
-  budget.bytes += metadata.size
+  budget.bytes += metadata.size;
   if (budget.bytes > MAX_OMP_SKILL_BUNDLE_BYTES) {
-    throw new OmpRequestError("OMP Wayfinder skill bundle is unavailable")
+    throw new OmpRequestError("OMP Wayfinder skill bundle is unavailable");
   }
-  await copyFile(source, destination, constants.COPYFILE_EXCL)
-  await chmod(destination, 0o600)
-}
+  await copyFile(source, destination, constants.COPYFILE_EXCL);
+  await chmod(destination, 0o600);
+};
 
 const stageWayfinderSkills = async (
   skillsRoot: string,
-  sessionDirectory: string,
+  sessionDirectory: string
 ): Promise<void> => {
   try {
-    const destinationRoot = join(sessionDirectory, ".agents", "skills")
-    await mkdir(destinationRoot, { recursive: true, mode: 0o700 })
-    const budget: OmpSkillBundleBudget = { entries: 0, bytes: 0 }
+    const destinationRoot = join(sessionDirectory, ".agents", "skills");
+    await mkdir(destinationRoot, { recursive: true, mode: 0o700 });
+    const budget: OmpSkillBundleBudget = { entries: 0, bytes: 0 };
     for (const skillName of OMP_WAYFINDER_SKILLS) {
-      const source = join(skillsRoot, skillName)
-      const skillManifest = await lstat(join(source, "SKILL.md"))
+      const source = join(skillsRoot, skillName);
+      const skillManifest = await lstat(join(source, "SKILL.md"));
       if (!skillManifest.isFile() || skillManifest.isSymbolicLink()) {
-        throw new OmpRequestError("OMP Wayfinder skill bundle is unavailable")
+        throw new OmpRequestError("OMP Wayfinder skill bundle is unavailable");
       }
       await copyOmpSkillEntry(
         source,
         join(destinationRoot, skillName),
         budget,
-        0,
-      )
+        0
+      );
     }
+  } catch {
+    throw new OmpRequestError("OMP Wayfinder skill bundle is unavailable");
   }
-  catch {
-    throw new OmpRequestError("OMP Wayfinder skill bundle is unavailable")
-  }
-}
+};
 
 const resolveOmpExecutable = async (executable: string): Promise<string> => {
   const candidates = isAbsolute(executable)
@@ -1574,72 +1620,71 @@ const resolveOmpExecutable = async (executable: string): Promise<string> => {
       : (process.env["PATH"] ?? "")
           .split(":")
           .filter((directory) => isAbsolute(directory))
-          .map((directory) => join(directory, executable))
+          .map((directory) => join(directory, executable));
   for (const candidate of candidates) {
     try {
-      await access(candidate, constants.X_OK)
-      const canonical = await realpath(candidate)
-      if ((await stat(canonical)).isFile()) return canonical
-    }
-    catch {
-      continue
+      await access(candidate, constants.X_OK);
+      const canonical = await realpath(candidate);
+      if ((await stat(canonical)).isFile()) return canonical;
+    } catch {
+      continue;
     }
   }
-  throw new OmpConfigurationError("OMP executable is unavailable")
-}
+  throw new OmpConfigurationError("OMP executable is unavailable");
+};
 
 const requireSandboxBackend = async (): Promise<void> => {
   if (process.platform !== "darwin") {
-    throw new OmpConfigurationError("OMP filesystem sandbox is unsupported")
+    throw new OmpConfigurationError("OMP filesystem sandbox is unsupported");
   }
   try {
-    await access(SANDBOX_EXECUTABLE, constants.X_OK)
+    await access(SANDBOX_EXECUTABLE, constants.X_OK);
     if (!(await stat(SANDBOX_EXECUTABLE)).isFile()) {
-      throw new Error("not a file")
+      throw new Error("not a file");
     }
+  } catch {
+    throw new OmpConfigurationError("OMP filesystem sandbox is unavailable");
   }
-  catch {
-    throw new OmpConfigurationError("OMP filesystem sandbox is unavailable")
-  }
-}
+};
 
 const DEFAULT_FILESYSTEM_SANDBOX_BACKEND = Object.freeze({
   requireAvailable: requireSandboxBackend,
-} satisfies OmpFilesystemSandboxBackend)
+} satisfies OmpFilesystemSandboxBackend);
 
 const sandboxLiteral = (value: string): string => {
   if (/[\u0000-\u001F\u007F]/u.test(value)) {
-    throw new OmpRequestError("OMP sandbox path contains control characters")
+    throw new OmpRequestError("OMP sandbox path contains control characters");
   }
-  return `"${value.replaceAll("\\", "\\\\").replaceAll("\"", "\\\"")}"`
-}
+  return `"${value.replaceAll("\\", "\\\\").replaceAll('"', '\\"')}"`;
+};
 
 const sandboxPathFilters = (
   paths: readonly string[],
-  includeSubpaths: boolean,
+  includeSubpaths: boolean
 ): string => {
-  return paths.flatMap((path) => {
-    const literal = sandboxLiteral(path)
-    return includeSubpaths
-      ? [`    (literal ${literal})`, `    (subpath ${literal})`]
-      : [`    (literal ${literal})`]
-  }
-  ).join("\n")
-}
+  return paths
+    .flatMap((path) => {
+      const literal = sandboxLiteral(path);
+      return includeSubpaths
+        ? [`    (literal ${literal})`, `    (subpath ${literal})`]
+        : [`    (literal ${literal})`];
+    })
+    .join("\n");
+};
 
 const sandboxAncestorPathFilters = (paths: readonly string[]): string => {
-  const ancestors = new Set<string>()
+  const ancestors = new Set<string>();
   for (const path of paths) {
-    let ancestor = dirname(path)
+    let ancestor = dirname(path);
     while (true) {
-      ancestors.add(ancestor)
-      const parent = dirname(ancestor)
-      if (parent === ancestor) break
-      ancestor = parent
+      ancestors.add(ancestor);
+      const parent = dirname(ancestor);
+      if (parent === ancestor) break;
+      ancestor = parent;
     }
   }
-  return sandboxPathFilters([...ancestors].sort(), false)
-}
+  return sandboxPathFilters([...ancestors].sort(), false);
+};
 
 const sandboxProfileFor = (
   cwd: string,
@@ -1647,18 +1692,16 @@ const sandboxProfileFor = (
   executable: string,
   effectKind: OmpEffectKind,
   scopePaths: readonly string[],
-  wayfinderTrackerDirectory?: string,
+  wayfinderTrackerDirectory?: string
 ): string => {
-  const repositoryWrites = effectKind === "implement"
-    ? sandboxPathFilters(scopePaths, true)
-    : ""
-  const wayfinderTrackerPaths = wayfinderTrackerDirectory === undefined
-    ? []
-    : [wayfinderTrackerDirectory]
+  const repositoryWrites =
+    effectKind === "implement" ? sandboxPathFilters(scopePaths, true) : "";
+  const wayfinderTrackerPaths =
+    wayfinderTrackerDirectory === undefined ? [] : [wayfinderTrackerDirectory];
   const wayfinderTrackerAccess = sandboxPathFilters(
     wayfinderTrackerPaths,
-    true,
-  )
+    true
+  );
   const sandboxPaths = [
     ...SANDBOX_SYSTEM_READ_DIRECTORIES,
     ...SANDBOX_SYSTEM_READ_FILES,
@@ -1666,15 +1709,15 @@ const sandboxProfileFor = (
     cwd,
     ...scopePaths,
     sessionDirectory,
-    ...wayfinderTrackerPaths
-  ]
+    ...wayfinderTrackerPaths,
+  ];
   return [
     "(version 1)",
     "(deny default)",
     "(deny file-read* file-write*",
     sandboxPathFilters(
       SENSITIVE_REPOSITORY_PATHS.map((path) => join(cwd, path)),
-      true,
+      true
     ),
     ")",
     "(allow process-exec",
@@ -1700,264 +1743,270 @@ const sandboxProfileFor = (
     sandboxPathFilters([sessionDirectory], true),
     repositoryWrites,
     wayfinderTrackerAccess,
-    ")"
-  ].filter((line) => line.length > 0).join("\n")
-}
+    ")",
+  ]
+    .filter((line) => line.length > 0)
+    .join("\n");
+};
 
-
-type OmpManifest = ReadonlyMap<string, string>
-type OmpManifestBudget = { entries: number; bytes: number }
+type OmpManifest = ReadonlyMap<string, string>;
+type OmpManifestBudget = { entries: number; bytes: number };
 
 const addManifestEntry = (
   manifest: Map<string, string>,
   path: string,
   digest: string,
-  budget: OmpManifestBudget,
+  budget: OmpManifestBudget
 ): void => {
-  budget.entries += 1
+  budget.entries += 1;
   if (budget.entries > MAX_OMP_MANIFEST_ENTRIES) {
-    throw new OmpRequestError("OMP implementation scope has too many entries")
+    throw new OmpRequestError("OMP implementation scope has too many entries");
   }
-  manifest.set(path, digest)
-}
+  manifest.set(path, digest);
+};
 
 const fileDigest = async (
   path: string,
   size: number,
-  budget: OmpManifestBudget,
+  budget: OmpManifestBudget
 ): Promise<string> => {
-  budget.bytes += size
+  budget.bytes += size;
   if (budget.bytes > MAX_OMP_MANIFEST_BYTES) {
-    throw new OmpRequestError("OMP implementation scope is too large")
+    throw new OmpRequestError("OMP implementation scope is too large");
   }
-  const hash = createHash("sha256")
+  const hash = createHash("sha256");
   for await (const chunk of createReadStream(path)) {
-    hash.update(chunk)
+    hash.update(chunk);
   }
-  return `f:${hash.digest("hex")}`
-}
+  return `f:${hash.digest("hex")}`;
+};
 
 const walkManifest = async (
   cwd: string,
   path: string,
   manifest: Map<string, string>,
-  budget: OmpManifestBudget,
+  budget: OmpManifestBudget
 ): Promise<void> => {
-  const repositoryPath = relative(cwd, path)
-  let metadata
+  const repositoryPath = relative(cwd, path);
+  let metadata;
   try {
-    metadata = await lstat(path)
-  }
-  catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "ENOENT") return
-    throw error
+    metadata = await lstat(path);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return;
+    throw error;
   }
 
   if (metadata.isSymbolicLink()) {
-    const target = await readlink(path)
+    const target = await readlink(path);
     addManifestEntry(
       manifest,
       repositoryPath,
       `l:${createHash("sha256").update(target).digest("hex")}`,
-      budget,
-    )
-    return
+      budget
+    );
+    return;
   }
   if (metadata.isDirectory()) {
-    addManifestEntry(manifest, repositoryPath, "d", budget)
-    const names = (await readdir(path)).sort()
+    addManifestEntry(manifest, repositoryPath, "d", budget);
+    const names = (await readdir(path)).sort();
     for (const name of names) {
-      await walkManifest(cwd, join(path, name), manifest, budget)
+      await walkManifest(cwd, join(path, name), manifest, budget);
     }
-    return
+    return;
   }
   if (metadata.isFile()) {
     addManifestEntry(
       manifest,
       repositoryPath,
       await fileDigest(path, metadata.size, budget),
-      budget,
-    )
-    return
+      budget
+    );
+    return;
   }
-  addManifestEntry(manifest, repositoryPath, `o:${metadata.mode}:${metadata.size}`, budget)
-}
+  addManifestEntry(
+    manifest,
+    repositoryPath,
+    `o:${metadata.mode}:${metadata.size}`,
+    budget
+  );
+};
 
 const manifestFor = async (
   cwd: string,
-  scopePaths: readonly string[],
+  scopePaths: readonly string[]
 ): Promise<OmpManifest> => {
-  const manifest = new Map<string, string>()
-  const budget: OmpManifestBudget = { entries: 0, bytes: 0 }
+  const manifest = new Map<string, string>();
+  const budget: OmpManifestBudget = { entries: 0, bytes: 0 };
   for (const scopePath of scopePaths) {
-    await walkManifest(cwd, scopePath, manifest, budget)
+    await walkManifest(cwd, scopePath, manifest, budget);
   }
-  return manifest
-}
+  return manifest;
+};
 
 const implementationBaselineFor = async (
   worktree: OmpWorktree,
-  scopePaths: readonly string[],
+  scopePaths: readonly string[]
 ): Promise<OmpManifest> => {
   const relativeScopePaths = scopePaths.map((path) => {
-    return relative(worktree.cwd, path)
-  }
-  )
+    return relative(worktree.cwd, path);
+  });
   const scopeKey = createHash("sha256")
     .update(JSON.stringify(relativeScopePaths))
-    .digest("hex")
-  const baselinePath = `${worktree.cwd}.baseline-${scopeKey}.json`
+    .digest("hex");
+  const baselinePath = `${worktree.cwd}.baseline-${scopeKey}.json`;
   if (await pathExists(baselinePath)) {
     try {
       const value = JSON.parse(await readFile(baselinePath, "utf8")) as {
-        sourceHead?: unknown
-        scopePaths?: unknown
-        entries?: unknown
-      }
+        sourceHead?: unknown;
+        scopePaths?: unknown;
+        entries?: unknown;
+      };
       if (
         value.sourceHead !== worktree.sourceHead ||
-        JSON.stringify(value.scopePaths) !== JSON.stringify(relativeScopePaths) ||
+        JSON.stringify(value.scopePaths) !==
+          JSON.stringify(relativeScopePaths) ||
         !Array.isArray(value.entries) ||
         value.entries.length > MAX_OMP_MANIFEST_ENTRIES ||
         !value.entries.every((entry) => {
-          return Array.isArray(entry) &&
-          entry.length === 2 &&
-          typeof entry[0] === "string" &&
-          typeof entry[1] === "string"
-        }
-        )
+          return (
+            Array.isArray(entry) &&
+            entry.length === 2 &&
+            typeof entry[0] === "string" &&
+            typeof entry[1] === "string"
+          );
+        })
       ) {
-        throw new OmpRequestError("OMP implementation baseline is invalid")
+        throw new OmpRequestError("OMP implementation baseline is invalid");
       }
-      return new Map(value.entries as [string, string][])
-    }
-    catch {
-      throw new OmpRequestError("OMP implementation baseline is invalid")
+      return new Map(value.entries as [string, string][]);
+    } catch {
+      throw new OmpRequestError("OMP implementation baseline is invalid");
     }
   }
 
   if (!worktree.clean) {
-    throw new OmpRequestError("OMP dirty workspace has no clean baseline")
+    throw new OmpRequestError("OMP dirty workspace has no clean baseline");
   }
-  const baseline = await manifestFor(worktree.cwd, scopePaths)
+  const baseline = await manifestFor(worktree.cwd, scopePaths);
   const serialized = JSON.stringify({
     sourceHead: worktree.sourceHead,
     scopePaths: relativeScopePaths,
     entries: [...baseline.entries()],
-  })
+  });
   if (Buffer.byteLength(serialized) > MAX_OMP_CHANGED_PATH_BYTES * 32) {
-    throw new OmpRequestError("OMP implementation baseline is too large")
+    throw new OmpRequestError("OMP implementation baseline is too large");
   }
-  const temporaryPath = `${baselinePath}.${randomUUID()}.tmp`
+  const temporaryPath = `${baselinePath}.${randomUUID()}.tmp`;
   try {
-    await writeFile(temporaryPath, serialized, { mode: 0o600, flag: "wx" })
-    await rename(temporaryPath, baselinePath)
+    await writeFile(temporaryPath, serialized, { mode: 0o600, flag: "wx" });
+    await rename(temporaryPath, baselinePath);
+  } finally {
+    await rm(temporaryPath, { force: true });
   }
-  finally {
-    await rm(temporaryPath, { force: true })
-  }
-  return baseline
-}
+  return baseline;
+};
 
 type GitOperationBoundary = Readonly<{
-  readablePaths: readonly string[]
-  writablePaths: readonly string[]
-}>
+  readablePaths: readonly string[];
+  writablePaths: readonly string[];
+}>;
 type GitExecutionOptions = Readonly<{
-  signal?: AbortSignal
-  deadlineAtMs?: number
-  allowFork?: boolean
-}>
+  signal?: AbortSignal;
+  deadlineAtMs?: number;
+  allowFork?: boolean;
+}>;
 
 const isApprovedAppleDeveloperDirectory = (path: string): boolean => {
-  return path === DEFAULT_APPLE_DEVELOPER_DIRECTORIES[0] ||
+  return (
+    path === DEFAULT_APPLE_DEVELOPER_DIRECTORIES[0] ||
     /^\/Applications\/[^/]+\.app\/Contents\/Developer$/u.test(path)
-}
+  );
+};
 
 const isStandardApplicationsDirectory = (
   path: string,
   uid: number,
   gid: number,
-  mode: number,
+  mode: number
 ): boolean => {
-  return path === "/Applications" &&
+  return (
+    path === "/Applications" &&
     uid === 0 &&
     gid === 80 &&
     (mode & 0o777) === 0o775
-}
+  );
+};
 
-const isSecureRootOwnedGitPath = async (gitExecutable: string): Promise<boolean> => {
-  let candidate = gitExecutable
-  let executable = true
+const isSecureRootOwnedGitPath = async (
+  gitExecutable: string
+): Promise<boolean> => {
+  let candidate = gitExecutable;
+  let executable = true;
   while (true) {
-    const metadata = await stat(candidate)
+    const metadata = await stat(candidate);
     if (
       metadata.uid !== 0 ||
-      (
-        (metadata.mode & 0o022) !== 0 &&
+      ((metadata.mode & 0o022) !== 0 &&
         !isStandardApplicationsDirectory(
           candidate,
           metadata.uid,
           metadata.gid,
-          metadata.mode,
-        )
-      ) ||
+          metadata.mode
+        )) ||
       (executable
         ? !metadata.isFile() || (metadata.mode & 0o111) === 0
         : !metadata.isDirectory())
     ) {
-      return false
+      return false;
     }
-    executable = false
-    const parent = dirname(candidate)
-    if (parent === candidate) return true
-    candidate = parent
+    executable = false;
+    const parent = dirname(candidate);
+    if (parent === candidate) return true;
+    candidate = parent;
   }
-}
+};
 
 const resolveGitExecutable = async (): Promise<string> => {
-  if (process.platform !== "darwin") return DEFAULT_GIT_EXECUTABLE
-  const candidates = [...DEFAULT_APPLE_DEVELOPER_DIRECTORIES]
+  if (process.platform !== "darwin") return DEFAULT_GIT_EXECUTABLE;
+  const candidates = [...DEFAULT_APPLE_DEVELOPER_DIRECTORIES];
   try {
-    candidates.unshift(await realpath(XCODE_SELECT_LINK))
-  }
-  catch {
-    void 0
+    candidates.unshift(await realpath(XCODE_SELECT_LINK));
+  } catch {
+    void 0;
   }
   for (const candidate of [...new Set(candidates)]) {
     try {
-      const developerDirectory = await realpath(candidate)
-      if (!isApprovedAppleDeveloperDirectory(developerDirectory)) continue
+      const developerDirectory = await realpath(candidate);
+      if (!isApprovedAppleDeveloperDirectory(developerDirectory)) continue;
       const gitExecutable = await realpath(
-        join(developerDirectory, "usr", "bin", "git"),
-      )
-      if (!isContainedPath(developerDirectory, gitExecutable)) continue
-      await access(gitExecutable, constants.X_OK)
+        join(developerDirectory, "usr", "bin", "git")
+      );
+      if (!isContainedPath(developerDirectory, gitExecutable)) continue;
+      await access(gitExecutable, constants.X_OK);
       if (await isSecureRootOwnedGitPath(gitExecutable)) {
-        return gitExecutable
+        return gitExecutable;
       }
-    }
-    catch {
-      continue
+    } catch {
+      continue;
     }
   }
-  throw new OmpConfigurationError("OMP git executable is unavailable")
-}
+  throw new OmpConfigurationError("OMP git executable is unavailable");
+};
 
 const gitSandboxProfileFor = (
   boundary: GitOperationBoundary,
   gitExecutable: string,
-  allowFork: boolean,
+  allowFork: boolean
 ): string => {
-  const developerDirectory = dirname(dirname(dirname(gitExecutable)))
+  const developerDirectory = dirname(dirname(dirname(gitExecutable)));
   const sandboxPaths = [
     ...SANDBOX_SYSTEM_READ_DIRECTORIES,
     ...SANDBOX_SYSTEM_READ_FILES,
     gitExecutable,
     developerDirectory,
     ...boundary.readablePaths,
-    ...boundary.writablePaths
-  ]
+    ...boundary.writablePaths,
+  ];
   return [
     "(version 1)",
     "(deny default)",
@@ -1980,32 +2029,35 @@ const gitSandboxProfileFor = (
     "(allow file-write*",
     `    (literal ${sandboxLiteral("/dev/null")})`,
     sandboxPathFilters(boundary.writablePaths, true),
-    ")"
-  ].filter((line) => line.length > 0).join("\n")
-}
+    ")",
+  ]
+    .filter((line) => line.length > 0)
+    .join("\n");
+};
 
 const runGit = async (
   arguments_: readonly string[],
   cwd: string,
   boundary: GitOperationBoundary,
   repositoryConfigOverrides: readonly string[] = [],
-  execution: GitExecutionOptions = {},
+  execution: GitExecutionOptions = {}
 ): Promise<string> => {
-  const gitExecutable = await resolveGitExecutable()
+  const gitExecutable = await resolveGitExecutable();
   return new Promise((resolveGit, rejectGit) => {
-    const remaining = execution.deadlineAtMs === undefined
-      ? 30_000
-      : execution.deadlineAtMs - Date.now()
+    const remaining =
+      execution.deadlineAtMs === undefined
+        ? 30_000
+        : execution.deadlineAtMs - Date.now();
     if (execution.signal?.aborted || remaining <= 0) {
-      rejectGit(new OmpRequestError("OMP git workspace operation aborted"))
-      return
+      rejectGit(new OmpRequestError("OMP git workspace operation aborted"));
+      return;
     }
-    const operationTimeoutMs = Math.min(30_000, remaining)
+    const operationTimeoutMs = Math.min(30_000, remaining);
     const profile = gitSandboxProfileFor(
       boundary,
       gitExecutable,
-      execution.allowFork ?? false,
-    )
+      execution.allowFork ?? false
+    );
     const gitOptions = {
       cwd,
       detached: true,
@@ -2026,162 +2078,181 @@ const runGit = async (
       ...(execution.signal === undefined ? {} : { signal: execution.signal }),
       timeout: operationTimeoutMs,
       windowsHide: true,
-    } as const
-    const child = execFile(SANDBOX_EXECUTABLE, [
-      "-p",
-      profile,
-      gitExecutable,
-      ...GIT_SAFE_CONFIG_ARGUMENTS,
-      ...repositoryConfigOverrides,
-      ...arguments_
-    ], gitOptions, (error, stdout) => {
-      if (error !== null) {
-        if (child === undefined) {
-          rejectGit(new OmpRequestError("OMP git workspace operation failed"))
-          return
+    } as const;
+    const child = execFile(
+      SANDBOX_EXECUTABLE,
+      [
+        "-p",
+        profile,
+        gitExecutable,
+        ...GIT_SAFE_CONFIG_ARGUMENTS,
+        ...repositoryConfigOverrides,
+        ...arguments_,
+      ],
+      gitOptions,
+      (error, stdout) => {
+        if (error !== null) {
+          if (child === undefined) {
+            rejectGit(
+              new OmpRequestError("OMP git workspace operation failed")
+            );
+            return;
+          }
+          void terminateOwnedProcessTree(
+            child,
+            Math.max(1, Math.min(1_000, operationTimeoutMs))
+          ).then(
+            () =>
+              rejectGit(
+                new OmpRequestError("OMP git workspace operation failed")
+              ),
+            rejectGit
+          );
+          return;
         }
-        void terminateOwnedProcessTree(
-          child,
-          Math.max(1, Math.min(1_000, operationTimeoutMs)),
-        ).then(
-          () => rejectGit(new OmpRequestError("OMP git workspace operation failed")),
-          rejectGit,
-        )
-        return
+        return resolveGit(String(stdout).trim());
       }
-      return resolveGit(String(stdout).trim())
-    }
-    );return  child
-  }
-)
-}
+    );
+    return child;
+  });
+};
 
 const repositoryProgramConfigOverrides = async (
   cwd: string,
   boundary: GitOperationBoundary,
-  execution: GitExecutionOptions = {},
+  execution: GitExecutionOptions = {}
 ): Promise<readonly string[]> => {
-  const names = (await runGit(
-    ["config", "--local", "--name-only", "--list"],
-    cwd,
-    boundary,
-    [],
-    execution,
-  )).split("\n").filter((name) => name.length > 0)
-  const overrides: string[] = []
+  const names = (
+    await runGit(
+      ["config", "--local", "--name-only", "--list"],
+      cwd,
+      boundary,
+      [],
+      execution
+    )
+  )
+    .split("\n")
+    .filter((name) => name.length > 0);
+  const overrides: string[] = [];
   for (const name of names) {
     if (
       name.startsWith("filter.") &&
       /\.(clean|smudge|process|required)$/u.test(name)
     ) {
-      if (!/^filter\.[A-Za-z0-9][A-Za-z0-9._-]{0,127}\.(clean|smudge|process|required)$/u.test(name)) {
-        throw new OmpRequestError("OMP repository filter configuration is invalid")
+      if (
+        !/^filter\.[A-Za-z0-9][A-Za-z0-9._-]{0,127}\.(clean|smudge|process|required)$/u.test(
+          name
+        )
+      ) {
+        throw new OmpRequestError(
+          "OMP repository filter configuration is invalid"
+        );
       }
       overrides.push(
         "-c",
-        `${name}=${name.endsWith(".required") ? "false" : ""}`,
-      )
-    }
-    else if (
+        `${name}=${name.endsWith(".required") ? "false" : ""}`
+      );
+    } else if (
       name.startsWith("diff.") &&
       /\.(command|textconv|trustExitCode)$/u.test(name)
     ) {
-      if (!/^diff\.[A-Za-z0-9][A-Za-z0-9._-]{0,127}\.(command|textconv|trustExitCode)$/u.test(name)) {
-        throw new OmpRequestError("OMP repository diff configuration is invalid")
+      if (
+        !/^diff\.[A-Za-z0-9][A-Za-z0-9._-]{0,127}\.(command|textconv|trustExitCode)$/u.test(
+          name
+        )
+      ) {
+        throw new OmpRequestError(
+          "OMP repository diff configuration is invalid"
+        );
       }
       overrides.push(
         "-c",
-        `${name}=${name.endsWith(".trustExitCode") ? "false" : ""}`,
-      )
+        `${name}=${name.endsWith(".trustExitCode") ? "false" : ""}`
+      );
     }
   }
-  return Object.freeze(overrides)
-}
+  return Object.freeze(overrides);
+};
 
 const pathExists = async (path: string): Promise<boolean> => {
   try {
-    await stat(path)
-    return true
+    await stat(path);
+    return true;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return false;
+    throw error;
   }
-  catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "ENOENT") return false
-    throw error
-  }
-}
+};
 
 type OmpWorktree = Readonly<{
-  cwd: string
-  sourceHead: string
-  workspaceKey: string
-  ownerNonce: string
-  sourceGitDirectory: string
-  repositoryConfigOverrides: readonly string[]
-  release: () => Promise<void>
-  dispose: () => Promise<void>
-  persistOwnership: (artifact: OmpImplementationArtifact) => Promise<void>
-  clean: boolean
-}>
+  cwd: string;
+  sourceHead: string;
+  workspaceKey: string;
+  ownerNonce: string;
+  sourceGitDirectory: string;
+  repositoryConfigOverrides: readonly string[];
+  release: () => Promise<void>;
+  dispose: () => Promise<void>;
+  persistOwnership: (artifact: OmpImplementationArtifact) => Promise<void>;
+  clean: boolean;
+}>;
 
 type WorkspaceLock = Readonly<{
-  nonce: string
-  owns: () => Promise<boolean>
-  release: () => Promise<void>
-}>
-
+  nonce: string;
+  owns: () => Promise<boolean>;
+  release: () => Promise<void>;
+}>;
 
 type WorkspaceLockOwner = Readonly<{
-  nonce: string
-  pid: number
-  createdAt: number
-}>
-
+  nonce: string;
+  pid: number;
+  createdAt: number;
+}>;
 
 const processIsAlive = (pid: number): boolean => {
   try {
-    process.kill(pid, 0)
-    return true
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    return (error as NodeJS.ErrnoException).code === "EPERM";
   }
-  catch (error) {
-    return (error as NodeJS.ErrnoException).code === "EPERM"
-  }
-}
+};
 
 const acquireWorkspaceLock = async (
   lockDirectory: string,
-  recoveryOwnerNonce?: string,
+  recoveryOwnerNonce?: string
 ): Promise<WorkspaceLock> => {
-  const ownerPath = join(lockDirectory, "owner.json")
+  const ownerPath = join(lockDirectory, "owner.json");
   const createLock = async (): Promise<WorkspaceLockOwner> => {
-    await mkdir(lockDirectory, { mode: 0o700 })
+    await mkdir(lockDirectory, { mode: 0o700 });
     const owner = Object.freeze({
       nonce: recoveryOwnerNonce ?? randomUUID(),
       pid: process.pid,
       createdAt: Date.now(),
-    })
+    });
     try {
-      await writeFile(ownerPath, JSON.stringify(owner), { mode: 0o600 })
-      return owner
+      await writeFile(ownerPath, JSON.stringify(owner), { mode: 0o600 });
+      return owner;
+    } catch (error) {
+      await rm(lockDirectory, { recursive: true, force: true });
+      throw error;
     }
-    catch (error) {
-      await rm(lockDirectory, { recursive: true, force: true })
-      throw error
-    }
-  }
+  };
 
-  let owner: WorkspaceLockOwner
+  let owner: WorkspaceLockOwner;
   try {
-    owner = await createLock()
-  }
-  catch (error) {
-    if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error
-    let existing: WorkspaceLockOwner
+    owner = await createLock();
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+    let existing: WorkspaceLockOwner;
     try {
-      existing = JSON.parse(await readFile(ownerPath, "utf8")) as WorkspaceLockOwner
-    }
-    catch {
+      existing = JSON.parse(
+        await readFile(ownerPath, "utf8")
+      ) as WorkspaceLockOwner;
+    } catch {
       throw new OmpRequestError(
-        "OMP workspace requires operator cleanup (owner metadata unavailable)",
-      )
+        "OMP workspace requires operator cleanup (owner metadata unavailable)"
+      );
     }
     if (
       recoveryOwnerNonce === undefined ||
@@ -2192,68 +2263,73 @@ const acquireWorkspaceLock = async (
       existing.createdAt < 0
     ) {
       throw new OmpRequestError(
-        "OMP workspace requires operator cleanup (owner identity changed)",
-      )
+        "OMP workspace requires operator cleanup (owner identity changed)"
+      );
     }
     if (processIsAlive(existing.pid)) {
-      throw new OmpWorkspaceBusyError()
+      throw new OmpWorkspaceBusyError();
     }
-    await rm(lockDirectory, { recursive: true, force: true })
-    owner = await createLock()
+    await rm(lockDirectory, { recursive: true, force: true });
+    owner = await createLock();
   }
 
-  let released = false
+  let released = false;
   const owns = async (): Promise<boolean> => {
     try {
-      const current = JSON.parse(await readFile(ownerPath, "utf8")) as WorkspaceLockOwner
-      return current.nonce === owner.nonce
+      const current = JSON.parse(
+        await readFile(ownerPath, "utf8")
+      ) as WorkspaceLockOwner;
+      return current.nonce === owner.nonce;
+    } catch {
+      return false;
     }
-    catch {
-      return false
-    }
-  }
+  };
   const release = async (): Promise<void> => {
-    if (released) return
-    if (!(await owns())) return
-    released = true
-    await rm(lockDirectory, { recursive: true, force: true })
-  }
-  return Object.freeze({ nonce: owner.nonce, owns, release })
-}
+    if (released) return;
+    if (!(await owns())) return;
+    released = true;
+    await rm(lockDirectory, { recursive: true, force: true });
+  };
+  return Object.freeze({ nonce: owner.nonce, owns, release });
+};
 
 type WorkspaceOwnershipMarker = Readonly<{
-  identity: "darkfactory-omp-workspace-v1"
-  sourceCwdDigest: string
-  sourceHead: string
-  workspaceKey: string
-  ownerNonce: string
-  artifactDigest: string
-  changeHash: string
-}>
+  identity: "darkfactory-omp-workspace-v1";
+  sourceCwdDigest: string;
+  sourceHead: string;
+  workspaceKey: string;
+  ownerNonce: string;
+  artifactDigest: string;
+  changeHash: string;
+}>;
 
 const ownershipMarkerPathFor = (workspaceCwd: string): string => {
-  return `${workspaceCwd}.owner.json`
-}
+  return `${workspaceCwd}.owner.json`;
+};
 
 const ownershipMarkerFor = (
   sourceCwd: string,
-  artifact: OmpImplementationArtifact,
-): WorkspaceOwnershipMarker => Object.freeze({
-  identity: "darkfactory-omp-workspace-v1",
-  sourceCwdDigest: createHash("sha256").update(sourceCwd).digest("hex"),
-  sourceHead: artifact.sourceHead,
-  workspaceKey: artifact.workspaceKey,
-  ownerNonce: artifact.ownerNonce,
-  artifactDigest: artifact.digest,
-  changeHash: artifact.changeHash,
-})
+  artifact: OmpImplementationArtifact
+): WorkspaceOwnershipMarker =>
+  Object.freeze({
+    identity: "darkfactory-omp-workspace-v1",
+    sourceCwdDigest: createHash("sha256").update(sourceCwd).digest("hex"),
+    sourceHead: artifact.sourceHead,
+    workspaceKey: artifact.workspaceKey,
+    ownerNonce: artifact.ownerNonce,
+    artifactDigest: artifact.digest,
+    changeHash: artifact.changeHash,
+  });
 
 const readOwnershipMarker = async (
-  workspaceCwd: string,
+  workspaceCwd: string
 ): Promise<WorkspaceOwnershipMarker | null> => {
   try {
-    const content = await readFile(ownershipMarkerPathFor(workspaceCwd), "utf8")
-    const marker = JSON.parse(content) as WorkspaceOwnershipMarker
+    const content = await readFile(
+      ownershipMarkerPathFor(workspaceCwd),
+      "utf8"
+    );
+    const marker = JSON.parse(content) as WorkspaceOwnershipMarker;
     if (
       JSON.stringify(marker) !== content ||
       marker.identity !== "darkfactory-omp-workspace-v1" ||
@@ -2264,90 +2340,90 @@ const readOwnershipMarker = async (
       !HASH_PATTERN.test(marker.artifactDigest) ||
       !HASH_PATTERN.test(marker.changeHash)
     ) {
-      artifactError()
+      artifactError();
     }
-    return marker
+    return marker;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return null;
+    return artifactError();
   }
-  catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "ENOENT") return null
-    return artifactError()
-  }
-}
+};
 
 const requireOwnershipMarker = async (
   sourceCwd: string,
   workspaceCwd: string,
-  artifact: OmpImplementationArtifact,
+  artifact: OmpImplementationArtifact
 ): Promise<void> => {
-  const marker = await readOwnershipMarker(workspaceCwd)
+  const marker = await readOwnershipMarker(workspaceCwd);
   if (
     marker === null ||
-    JSON.stringify(marker) !== JSON.stringify(ownershipMarkerFor(sourceCwd, artifact))
+    JSON.stringify(marker) !==
+      JSON.stringify(ownershipMarkerFor(sourceCwd, artifact))
   ) {
-    throw new OmpRequestError("OMP workspace ownership identity changed")
+    throw new OmpRequestError("OMP workspace ownership identity changed");
   }
-}
+};
 
 const persistOwnershipMarker = async (
   sourceCwd: string,
   workspaceCwd: string,
-  artifact: OmpImplementationArtifact,
+  artifact: OmpImplementationArtifact
 ): Promise<void> => {
-  const path = ownershipMarkerPathFor(workspaceCwd)
-  const temporaryPath = `${path}.${randomUUID()}.tmp`
+  const path = ownershipMarkerPathFor(workspaceCwd);
+  const temporaryPath = `${path}.${randomUUID()}.tmp`;
   try {
     await writeFile(
       temporaryPath,
       JSON.stringify(ownershipMarkerFor(sourceCwd, artifact)),
-      { mode: 0o600, flag: "wx" },
-    )
-    await rename(temporaryPath, path)
+      { mode: 0o600, flag: "wx" }
+    );
+    await rename(temporaryPath, path);
+  } finally {
+    await rm(temporaryPath, { force: true });
   }
-  finally {
-    await rm(temporaryPath, { force: true })
-  }
-}
+};
 
 const requireCleanupActive = (
   signal?: AbortSignal,
-  deadlineAtMs?: number,
+  deadlineAtMs?: number
 ): void => {
-  if (signal?.aborted || (deadlineAtMs !== undefined && deadlineAtMs <= Date.now())) {
-    throw new OmpRequestError("OMP workspace cleanup aborted")
+  if (
+    signal?.aborted ||
+    (deadlineAtMs !== undefined && deadlineAtMs <= Date.now())
+  ) {
+    throw new OmpRequestError("OMP workspace cleanup aborted");
   }
-}
+};
 
 const disposeOwnedWorktree = async (
   input: Readonly<{
-    lock: WorkspaceLock
-    sourceCwd: string
-    sourceGitDirectory: string
-    sourceHead: string
-    worktreesRoot: string
-    workspaceCwd: string
-    workspaceKey: string
-    ownerNonce: string
-    repositoryConfigOverrides: readonly string[]
-    signal?: AbortSignal
-    deadlineAtMs?: number
-  }>,
+    lock: WorkspaceLock;
+    sourceCwd: string;
+    sourceGitDirectory: string;
+    sourceHead: string;
+    worktreesRoot: string;
+    workspaceCwd: string;
+    workspaceKey: string;
+    ownerNonce: string;
+    repositoryConfigOverrides: readonly string[];
+    signal?: AbortSignal;
+    deadlineAtMs?: number;
+  }>
 ): Promise<void> => {
-  requireCleanupActive(input.signal, input.deadlineAtMs)
+  requireCleanupActive(input.signal, input.deadlineAtMs);
   if (!(await input.lock.owns())) {
-    throw new OmpRequestError("OMP workspace cleanup ownership changed")
+    throw new OmpRequestError("OMP workspace cleanup ownership changed");
   }
-  const marker = await readOwnershipMarker(input.workspaceCwd)
+  const marker = await readOwnershipMarker(input.workspaceCwd);
   if (
     marker !== null &&
-    (
-      marker.workspaceKey !== input.workspaceKey ||
+    (marker.workspaceKey !== input.workspaceKey ||
       marker.ownerNonce !== input.ownerNonce ||
       marker.sourceHead !== input.sourceHead ||
       marker.sourceCwdDigest !==
-        createHash("sha256").update(input.sourceCwd).digest("hex")
-    )
+        createHash("sha256").update(input.sourceCwd).digest("hex"))
   ) {
-    throw new OmpRequestError("OMP workspace cleanup ownership changed")
+    throw new OmpRequestError("OMP workspace cleanup ownership changed");
   }
   const cleanupBoundary = Object.freeze({
     readablePaths: Object.freeze([
@@ -2359,23 +2435,23 @@ const disposeOwnedWorktree = async (
       input.sourceGitDirectory,
       input.worktreesRoot,
     ]),
-  })
-  requireCleanupActive(input.signal, input.deadlineAtMs)
+  });
+  requireCleanupActive(input.signal, input.deadlineAtMs);
   const gitExecution = Object.freeze({
     ...(input.signal === undefined ? {} : { signal: input.signal }),
     ...(input.deadlineAtMs === undefined
       ? {}
       : { deadlineAtMs: input.deadlineAtMs }),
-  })
-  let disposalError: unknown
+  });
+  let disposalError: unknown;
   try {
     if (await pathExists(input.workspaceCwd)) {
-      const canonicalWorkspace = await realpath(input.workspaceCwd)
+      const canonicalWorkspace = await realpath(input.workspaceCwd);
       if (
         canonicalWorkspace !== input.workspaceCwd ||
         !isContainedPath(input.worktreesRoot, canonicalWorkspace)
       ) {
-        throw new OmpRequestError("OMP workspace cleanup path is invalid")
+        throw new OmpRequestError("OMP workspace cleanup path is invalid");
       }
       const workspaceTopLevel = await realpath(
         await runGit(
@@ -2383,166 +2459,173 @@ const disposeOwnedWorktree = async (
           canonicalWorkspace,
           cleanupBoundary,
           input.repositoryConfigOverrides,
-          gitExecution,
-        ),
-      )
+          gitExecution
+        )
+      );
       const workspaceHead = await runGit(
         ["rev-parse", "HEAD"],
         canonicalWorkspace,
         cleanupBoundary,
         input.repositoryConfigOverrides,
-        gitExecution,
-      )
+        gitExecution
+      );
       if (
         workspaceTopLevel !== canonicalWorkspace ||
         workspaceHead !== input.sourceHead
       ) {
-        throw new OmpRequestError("OMP workspace cleanup identity changed")
+        throw new OmpRequestError("OMP workspace cleanup identity changed");
       }
       await runGit(
         ["worktree", "remove", "--force", canonicalWorkspace],
         input.sourceCwd,
         cleanupBoundary,
         input.repositoryConfigOverrides,
-        gitExecution,
-      )
+        gitExecution
+      );
     }
 
-    const entries = await readdir(input.worktreesRoot)
+    const entries = await readdir(input.worktreesRoot);
     if (entries.length > MAX_OMP_MANIFEST_ENTRIES) {
-      throw new OmpRequestError("OMP worktree cleanup root is oversized")
+      throw new OmpRequestError("OMP worktree cleanup root is oversized");
     }
     const baselinePattern = new RegExp(
       `^${basename(input.workspaceCwd)}\\.baseline-[a-f0-9]{64}\\.json$`,
-      "u",
-    )
+      "u"
+    );
     for (const entry of entries) {
       if (baselinePattern.test(entry)) {
         if (!(await input.lock.owns())) {
-          throw new OmpRequestError("OMP workspace cleanup ownership changed")
+          throw new OmpRequestError("OMP workspace cleanup ownership changed");
         }
-        await rm(join(input.worktreesRoot, entry), { force: true })
+        await rm(join(input.worktreesRoot, entry), { force: true });
       }
     }
     if (marker !== null) {
       if (!(await input.lock.owns())) {
-        throw new OmpRequestError("OMP workspace cleanup ownership changed")
+        throw new OmpRequestError("OMP workspace cleanup ownership changed");
       }
-      await rm(ownershipMarkerPathFor(input.workspaceCwd), { force: true })
+      await rm(ownershipMarkerPathFor(input.workspaceCwd), { force: true });
     }
     await runGit(
       ["worktree", "prune"],
       input.sourceCwd,
       cleanupBoundary,
       input.repositoryConfigOverrides,
-      gitExecution,
-    )
+      gitExecution
+    );
+  } catch (error) {
+    disposalError = error;
+    throw error;
+  } finally {
+    await releaseWithoutMaskingProcessTermination(
+      input.lock.release,
+      disposalError
+    );
   }
-  catch (error) {
-    disposalError = error
-    throw error
-  }
-  finally {
-    await releaseWithoutMaskingProcessTermination(input.lock.release, disposalError)
-  }
-}
-
+};
 
 const prepareWorktree = async (
   sourceCwd: string,
   workspaceId: string,
   effectKind: OmpEffectKind,
-  recovery?: DecodedOmpImplementationArtifact,
+  recovery?: DecodedOmpImplementationArtifact
 ): Promise<OmpWorktree> => {
   if (
     Buffer.byteLength(workspaceId) === 0 ||
     Buffer.byteLength(workspaceId) > 256 ||
     /[\u0000-\u001F\u007F]/u.test(workspaceId)
   ) {
-    throw new OmpRequestError("OMP workspace id is invalid")
+    throw new OmpRequestError("OMP workspace id is invalid");
   }
-  await mkdir(OMP_WORKTREES_DIRECTORY, { mode: 0o700, recursive: true })
-  const worktreesRoot = await realpath(OMP_WORKTREES_DIRECTORY)
-  const rootStat = await stat(worktreesRoot)
+  await mkdir(OMP_WORKTREES_DIRECTORY, { mode: 0o700, recursive: true });
+  const worktreesRoot = await realpath(OMP_WORKTREES_DIRECTORY);
+  const rootStat = await stat(worktreesRoot);
   if (!rootStat.isDirectory() || (rootStat.mode & 0o077) !== 0) {
-    throw new OmpConfigurationError("OMP worktree root is insecure")
+    throw new OmpConfigurationError("OMP worktree root is insecure");
   }
 
   const sourceReadBoundary = Object.freeze({
     readablePaths: Object.freeze([sourceCwd]),
     writablePaths: Object.freeze([]),
-  })
+  });
   const repositoryConfigOverrides = await repositoryProgramConfigOverrides(
     sourceCwd,
-    sourceReadBoundary,
-  )
+    sourceReadBoundary
+  );
   const sourceTopLevel = await realpath(
     await runGit(
       ["rev-parse", "--show-toplevel"],
       sourceCwd,
       sourceReadBoundary,
-      repositoryConfigOverrides,
-    ),
-  )
+      repositoryConfigOverrides
+    )
+  );
   if (sourceTopLevel !== sourceCwd) {
-    throw new OmpRequestError("OMP cwd must be a git worktree root")
+    throw new OmpRequestError("OMP cwd must be a git worktree root");
   }
   const sourceGitDirectory = await realpath(
     await runGit(
       ["rev-parse", "--absolute-git-dir"],
       sourceCwd,
       sourceReadBoundary,
-      repositoryConfigOverrides,
-    ),
-  )
+      repositoryConfigOverrides
+    )
+  );
   if (!isContainedPath(sourceCwd, sourceGitDirectory)) {
-    throw new OmpRequestError("OMP source git directory is invalid")
+    throw new OmpRequestError("OMP source git directory is invalid");
   }
   const currentSourceHead = await runGit(
     ["rev-parse", "HEAD"],
     sourceCwd,
     sourceReadBoundary,
-    repositoryConfigOverrides,
-  )
+    repositoryConfigOverrides
+  );
   if (!SOURCE_HEAD_PATTERN.test(currentSourceHead)) {
-    throw new OmpRequestError("OMP source revision is invalid")
+    throw new OmpRequestError("OMP source revision is invalid");
   }
-  const sourceHead = recovery?.sourceHead ?? currentSourceHead
-  if ((await runGit(
-    ["status", "--porcelain", "--untracked-files=all"],
-    sourceCwd,
-    sourceReadBoundary,
-    repositoryConfigOverrides,
-  )).length > 0) {
-    throw new OmpRequestError("OMP source worktree must be clean")
+  const sourceHead = recovery?.sourceHead ?? currentSourceHead;
+  if (
+    (
+      await runGit(
+        ["status", "--porcelain", "--untracked-files=all"],
+        sourceCwd,
+        sourceReadBoundary,
+        repositoryConfigOverrides
+      )
+    ).length > 0
+  ) {
+    throw new OmpRequestError("OMP source worktree must be clean");
   }
 
   const workspaceKey = createHash("sha256")
     .update(`${sourceCwd}\0${workspaceId}`)
-    .digest("hex")
+    .digest("hex");
   if (recovery !== undefined && recovery.workspaceKey !== workspaceKey) {
-    throw new OmpRequestError("OMP workspace recovery identity changed")
+    throw new OmpRequestError("OMP workspace recovery identity changed");
   }
-  const workspaceCwd = join(worktreesRoot, workspaceKey)
-  const lockDirectory = `${workspaceCwd}.lock`
-  const lock = await acquireWorkspaceLock(lockDirectory, recovery?.ownerNonce)
-  const ownerNonce = recovery?.ownerNonce ?? lock.nonce
-  const release = lock.release
-  const dispose = () => disposeOwnedWorktree({
-    lock,
-    sourceCwd,
-    sourceGitDirectory,
-    sourceHead,
-    worktreesRoot,
-    workspaceCwd,
-    workspaceKey,
-    ownerNonce,
-    repositoryConfigOverrides
-  })
+  const workspaceCwd = join(worktreesRoot, workspaceKey);
+  const lockDirectory = `${workspaceCwd}.lock`;
+  const lock = await acquireWorkspaceLock(lockDirectory, recovery?.ownerNonce);
+  const ownerNonce = recovery?.ownerNonce ?? lock.nonce;
+  const release = lock.release;
+  const dispose = () =>
+    disposeOwnedWorktree({
+      lock,
+      sourceCwd,
+      sourceGitDirectory,
+      sourceHead,
+      worktreesRoot,
+      workspaceCwd,
+      workspaceKey,
+      ownerNonce,
+      repositoryConfigOverrides,
+    });
 
-  const persistOwnership = (artifact: OmpImplementationArtifact): Promise<void> => {
-    return persistOwnershipMarker(sourceCwd, workspaceCwd, artifact)
-  }
+  const persistOwnership = (
+    artifact: OmpImplementationArtifact
+  ): Promise<void> => {
+    return persistOwnershipMarker(sourceCwd, workspaceCwd, artifact);
+  };
 
   try {
     if (!(await pathExists(workspaceCwd))) {
@@ -2554,45 +2637,50 @@ const prepareWorktree = async (
           writablePaths: Object.freeze([sourceGitDirectory, worktreesRoot]),
         }),
         repositoryConfigOverrides,
-        Object.freeze({ allowFork: true }),
-      )
+        Object.freeze({ allowFork: true })
+      );
     }
-    const canonicalWorkspace = await realpath(workspaceCwd)
+    const canonicalWorkspace = await realpath(workspaceCwd);
     if (!isContainedPath(worktreesRoot, canonicalWorkspace)) {
-      throw new OmpRequestError("OMP workspace path is invalid")
+      throw new OmpRequestError("OMP workspace path is invalid");
     }
     const workspaceReadBoundary = Object.freeze({
       readablePaths: Object.freeze([canonicalWorkspace, sourceGitDirectory]),
       writablePaths: Object.freeze([]),
-    })
+    });
     const workspaceTopLevel = await realpath(
       await runGit(
         ["rev-parse", "--show-toplevel"],
         canonicalWorkspace,
         workspaceReadBoundary,
-        repositoryConfigOverrides,
-      ),
-    )
+        repositoryConfigOverrides
+      )
+    );
     const workspaceHead = await runGit(
       ["rev-parse", "HEAD"],
       canonicalWorkspace,
       workspaceReadBoundary,
-      repositoryConfigOverrides,
-    )
-    if (workspaceTopLevel !== canonicalWorkspace || workspaceHead !== sourceHead) {
-      throw new OmpRequestError("OMP workspace source identity changed")
+      repositoryConfigOverrides
+    );
+    if (
+      workspaceTopLevel !== canonicalWorkspace ||
+      workspaceHead !== sourceHead
+    ) {
+      throw new OmpRequestError("OMP workspace source identity changed");
     }
     const workspaceStatus = await runGit(
       ["status", "--porcelain", "--untracked-files=all"],
       canonicalWorkspace,
       workspaceReadBoundary,
-      repositoryConfigOverrides,
-    )
+      repositoryConfigOverrides
+    );
     if (
       (effectKind === "plan" && workspaceStatus.length > 0) ||
-      (effectKind === "verify" && workspaceStatus.length === 0 && recovery === undefined)
+      (effectKind === "verify" &&
+        workspaceStatus.length === 0 &&
+        recovery === undefined)
     ) {
-      throw new OmpRequestError("OMP workspace state is ambiguous")
+      throw new OmpRequestError("OMP workspace state is ambiguous");
     }
     return Object.freeze({
       cwd: canonicalWorkspace,
@@ -2604,105 +2692,103 @@ const prepareWorktree = async (
       clean: workspaceStatus.length === 0,
       release,
       dispose,
-      persistOwnership
-
-    })
-  }
-  catch (error) {
+      persistOwnership,
+    });
+  } catch (error) {
     try {
-      await dispose()
+      await dispose();
+    } catch (cleanupError) {
+      await releaseWithoutMaskingProcessTermination(release, cleanupError);
     }
-    catch (cleanupError) {
-      await releaseWithoutMaskingProcessTermination(release, cleanupError)
-    }
-    throw error
+    throw error;
   }
-}
+};
 type PreparedVerifierWorkspace = Readonly<{
-  cwd: string
-  release: () => Promise<void>
-}>
+  cwd: string;
+  release: () => Promise<void>;
+}>;
 
 const provisionVerifierWorkspacePackages = async (
-  cwd: string,
+  cwd: string
 ): Promise<void> => {
-  const packagesRoot = join(cwd, "packages")
-  const packageDirectories = await readdir(packagesRoot)
+  const packagesRoot = join(cwd, "packages");
+  const packageDirectories = await readdir(packagesRoot);
   if (packageDirectories.length > 256) {
-    throw new OmpRequestError("OMP verifier workspace has too many packages")
+    throw new OmpRequestError("OMP verifier workspace has too many packages");
   }
-  const scopeDirectory = join(cwd, "node_modules", "@darkfactory")
-  await mkdir(scopeDirectory, { recursive: true, mode: 0o700 })
+  const scopeDirectory = join(cwd, "node_modules", "@darkfactory");
+  await mkdir(scopeDirectory, { recursive: true, mode: 0o700 });
   for (const directory of packageDirectories.sort()) {
     if (!/^[A-Za-z0-9._-]{1,128}$/u.test(directory)) {
-      throw new OmpRequestError("OMP verifier package directory is invalid")
+      throw new OmpRequestError("OMP verifier package directory is invalid");
     }
-    const packageDirectory = join(packagesRoot, directory)
-    const metadata = await lstat(packageDirectory)
+    const packageDirectory = join(packagesRoot, directory);
+    const metadata = await lstat(packageDirectory);
     if (!metadata.isDirectory() || metadata.isSymbolicLink()) {
-      throw new OmpRequestError("OMP verifier package directory is invalid")
+      throw new OmpRequestError("OMP verifier package directory is invalid");
     }
     const manifest = JSON.parse(
-      await readFile(join(packageDirectory, "package.json"), "utf8"),
-    ) as Readonly<{ name?: unknown }>
+      await readFile(join(packageDirectory, "package.json"), "utf8")
+    ) as Readonly<{ name?: unknown }>;
     if (
       typeof manifest.name !== "string" ||
       !/^@darkfactory\/[A-Za-z0-9._-]{1,128}$/u.test(manifest.name)
     ) {
-      throw new OmpRequestError("OMP verifier package identity is invalid")
+      throw new OmpRequestError("OMP verifier package identity is invalid");
     }
-    const packageName = manifest.name.slice("@darkfactory/".length)
-    const linkPath = join(scopeDirectory, packageName)
+    const packageName = manifest.name.slice("@darkfactory/".length);
+    const linkPath = join(scopeDirectory, packageName);
     if (await pathExists(linkPath)) {
-      throw new OmpRequestError("OMP verifier package link already exists")
+      throw new OmpRequestError("OMP verifier package link already exists");
     }
-    await symlink(relative(scopeDirectory, packageDirectory), linkPath)
+    await symlink(relative(scopeDirectory, packageDirectory), linkPath);
   }
-}
+};
 
 const prepareVerifierWorkspace = async (
   input: Readonly<{
-    sourceCwd: string
-    sourceGitDirectory: string
-    retainedWorktree: OmpWorktree
-    artifact: OmpImplementationArtifact
-    scopePathInputs: readonly string[]
-    trustedManifest: TrustedVerifierManifest | null
-    repositoryConfigOverrides: readonly string[]
-  }>,
+    sourceCwd: string;
+    sourceGitDirectory: string;
+    retainedWorktree: OmpWorktree;
+    artifact: OmpImplementationArtifact;
+    scopePathInputs: readonly string[];
+    trustedManifest: TrustedVerifierManifest | null;
+    repositoryConfigOverrides: readonly string[];
+  }>
 ): Promise<PreparedVerifierWorkspace> => {
   const verifierKey = createHash("sha256")
     .update(`${input.artifact.workspaceKey}\0${input.artifact.digest}`)
-    .digest("hex")
-  const worktreesRoot = await realpath(OMP_WORKTREES_DIRECTORY)
+    .digest("hex");
+  const worktreesRoot = await realpath(OMP_WORKTREES_DIRECTORY);
   const verifierCwd = join(
     worktreesRoot,
-    `${input.artifact.workspaceKey}.verify-${verifierKey}`,
-  )
+    `${input.artifact.workspaceKey}.verify-${verifierKey}`
+  );
   const lock = await acquireWorkspaceLock(
     `${verifierCwd}.lock`,
-    input.artifact.ownerNonce,
-  )
-  const cleanup = () => disposeOwnedWorktree({
-    lock,
-    sourceCwd: input.sourceCwd,
-    sourceGitDirectory: input.sourceGitDirectory,
-    sourceHead: input.artifact.sourceHead,
-    worktreesRoot,
-    workspaceCwd: verifierCwd,
-    workspaceKey: input.artifact.workspaceKey,
-    ownerNonce: input.artifact.ownerNonce,
-    repositoryConfigOverrides: input.repositoryConfigOverrides,
-  })
+    input.artifact.ownerNonce
+  );
+  const cleanup = () =>
+    disposeOwnedWorktree({
+      lock,
+      sourceCwd: input.sourceCwd,
+      sourceGitDirectory: input.sourceGitDirectory,
+      sourceHead: input.artifact.sourceHead,
+      worktreesRoot,
+      workspaceCwd: verifierCwd,
+      workspaceKey: input.artifact.workspaceKey,
+      ownerNonce: input.artifact.ownerNonce,
+      repositoryConfigOverrides: input.repositoryConfigOverrides,
+    });
   try {
     if (await pathExists(verifierCwd)) {
       await requireOwnershipMarker(
         input.sourceCwd,
         verifierCwd,
-        input.artifact,
-      )
-      await cleanup()
-      return prepareVerifierWorkspace(input)
+        input.artifact
+      );
+      await cleanup();
+      return prepareVerifierWorkspace(input);
     }
     await runGit(
       ["worktree", "add", "--detach", verifierCwd, input.artifact.sourceHead],
@@ -2713,166 +2799,172 @@ const prepareVerifierWorkspace = async (
           input.sourceGitDirectory,
           worktreesRoot,
         ]),
-        writablePaths: Object.freeze([
-          input.sourceGitDirectory,
-          worktreesRoot,
-        ]),
+        writablePaths: Object.freeze([input.sourceGitDirectory, worktreesRoot]),
       }),
       input.repositoryConfigOverrides,
-      Object.freeze({ allowFork: true }),
-    )
-    await persistOwnershipMarker(
-      input.sourceCwd,
-      verifierCwd,
-      input.artifact,
-    )
+      Object.freeze({ allowFork: true })
+    );
+    await persistOwnershipMarker(input.sourceCwd, verifierCwd, input.artifact);
     const scopePaths = await resolveScopePaths(
       verifierCwd,
-      input.scopePathInputs,
-    )
-    const before = await manifestFor(verifierCwd, scopePaths)
+      input.scopePathInputs
+    );
+    const before = await manifestFor(verifierCwd, scopePaths);
     const decoded = decodeOmpImplementationArtifact(
       input.artifact,
-      input.artifact.changeHash,
-    )
-    await applyOmpImplementationArtifact(verifierCwd, decoded)
+      input.artifact.changeHash
+    );
+    await applyOmpImplementationArtifact(verifierCwd, decoded);
     const change = scopedChangeFor(
       before,
-      await manifestFor(verifierCwd, scopePaths),
-    )
+      await manifestFor(verifierCwd, scopePaths)
+    );
     const reconstructionInput = Object.freeze({
       cwd: verifierCwd,
       sourceHead: input.artifact.sourceHead,
       workspaceKey: input.artifact.workspaceKey,
       ownerNonce: input.artifact.ownerNonce,
-    })
+    });
     const reconstructed = await implementationArtifactFor(
       reconstructionInput,
       change.changedPaths,
-      change.changeHash,
-    )
+      change.changeHash
+    );
     if (
       change.changeHash !== input.artifact.changeHash ||
       reconstructed.digest !== input.artifact.digest ||
       reconstructed.content !== input.artifact.content
     ) {
-      throw new OmpRequestError("OMP verifier reconstruction digest changed")
+      throw new OmpRequestError("OMP verifier reconstruction digest changed");
     }
     if (
       input.trustedManifest !== null &&
-      !(await matchesTrustedVerifierManifest(verifierCwd, input.trustedManifest))
+      !(await matchesTrustedVerifierManifest(
+        verifierCwd,
+        input.trustedManifest
+      ))
     ) {
-      throw new OmpRequestError("OMP verifier control manifest changed")
+      throw new OmpRequestError("OMP verifier control manifest changed");
     }
-    await provisionVerifierWorkspacePackages(verifierCwd)
+    await provisionVerifierWorkspacePackages(verifierCwd);
     return Object.freeze({
       cwd: verifierCwd,
       release: async (): Promise<void> => {
         try {
-          await cleanup()
+          await cleanup();
+        } catch (cleanupError) {
+          await releaseWithoutMaskingProcessTermination(
+            lock.release,
+            cleanupError
+          );
+          throw new OmpWorkspaceCleanupError();
         }
-        catch (cleanupError) {
-          await releaseWithoutMaskingProcessTermination(lock.release, cleanupError)
-          throw new OmpWorkspaceCleanupError()
-        }
-      }
-    })
-  }
-  catch (error) {
+      },
+    });
+  } catch (error) {
     try {
-      await cleanup()
+      await cleanup();
+    } catch (cleanupError) {
+      await releaseWithoutMaskingProcessTermination(lock.release, cleanupError);
+      throw new OmpWorkspaceCleanupError();
     }
-    catch (cleanupError) {
-      await releaseWithoutMaskingProcessTermination(lock.release, cleanupError)
-      throw new OmpWorkspaceCleanupError()
-    }
-    throw error
+    throw error;
   }
-}
+};
 
 const scopedChangeFor = (
   before: OmpManifest,
-  after: OmpManifest,
+  after: OmpManifest
 ): OmpScopedChange => {
   const changedPaths = [...new Set([...before.keys(), ...after.keys()])]
     .filter((path) => before.get(path) !== after.get(path))
-    .sort()
+    .sort();
   if (
     changedPaths.length > MAX_OMP_CHANGED_PATHS ||
     !changedPaths.every(isWorkflowRelativePathV1) ||
     changedPaths.some(hasDependencyPathSegment) ||
     Buffer.byteLength(JSON.stringify(changedPaths)) > MAX_OMP_CHANGED_PATH_BYTES
   ) {
-    throw new OmpRequestError("OMP implementation changed path evidence is too large")
+    throw new OmpRequestError(
+      "OMP implementation changed path evidence is too large"
+    );
   }
   const changeHash = createHash("sha256")
-    .update(JSON.stringify(changedPaths.map((path) => [
-      path,
-      before.get(path) ?? null,
-      after.get(path) ?? null,
-    ])))
-    .digest("hex")
+    .update(
+      JSON.stringify(
+        changedPaths.map((path) => [
+          path,
+          before.get(path) ?? null,
+          after.get(path) ?? null,
+        ])
+      )
+    )
+    .digest("hex");
   return Object.freeze({
     changeHash,
     changedPaths: Object.freeze(changedPaths),
-  })
-}
+  });
+};
 const implementationArtifactFor = async (
-  worktree: Readonly<Pick<
-    OmpWorktree,
-    "cwd" | "sourceHead" | "workspaceKey" | "ownerNonce"
-  >>,
+  worktree: Readonly<
+    Pick<OmpWorktree, "cwd" | "sourceHead" | "workspaceKey" | "ownerNonce">
+  >,
   changedPaths: readonly string[],
-  changeHash: string,
+  changeHash: string
 ): Promise<OmpImplementationArtifact> => {
-  const cwd = worktree.cwd
-  const entries: Array<Readonly<Record<string, string | number>>> = []
+  const cwd = worktree.cwd;
+  const entries: Array<Readonly<Record<string, string | number>>> = [];
   for (const path of changedPaths) {
-    const absolutePath = join(cwd, path)
+    const absolutePath = join(cwd, path);
     try {
-      const metadata = await lstat(absolutePath)
+      const metadata = await lstat(absolutePath);
       if (metadata.isDirectory()) {
-        entries.push(Object.freeze({ path, kind: "directory" }))
-      }
-      else if (metadata.isSymbolicLink()) {
-        entries.push(Object.freeze({
-          path,
-          kind: "symlink",
-          target: await readlink(absolutePath)
-        }))
-      }
-      else if (metadata.isFile()) {
+        entries.push(Object.freeze({ path, kind: "directory" }));
+      } else if (metadata.isSymbolicLink()) {
+        entries.push(
+          Object.freeze({
+            path,
+            kind: "symlink",
+            target: await readlink(absolutePath),
+          })
+        );
+      } else if (metadata.isFile()) {
         if (metadata.size > MAX_OMP_IMPLEMENTATION_ARTIFACT_BYTES) {
-          throw new OmpRequestError("OMP implementation artifact is too large")
+          throw new OmpRequestError("OMP implementation artifact is too large");
         }
-        entries.push(Object.freeze({
-          path,
-          kind: "file",
-          mode: metadata.mode & 0o777,
-          contentBase64: (await readFile(absolutePath)).toString("base64")
-        }))
+        entries.push(
+          Object.freeze({
+            path,
+            kind: "file",
+            mode: metadata.mode & 0o777,
+            contentBase64: (await readFile(absolutePath)).toString("base64"),
+          })
+        );
+      } else {
+        throw new OmpRequestError(
+          "OMP implementation artifact entry is unsupported"
+        );
       }
-      else {
-        throw new OmpRequestError("OMP implementation artifact entry is unsupported")
-      }
-    }
-    catch (error) {
+    } catch (error) {
       if ((error as NodeJS.ErrnoException).code === "ENOENT") {
-        entries.push(Object.freeze({ path, kind: "deleted" }))
-      }
-      else {
-        throw error
+        entries.push(Object.freeze({ path, kind: "deleted" }));
+      } else {
+        throw error;
       }
     }
-    if (Buffer.byteLength(JSON.stringify({
-      version: 1,
-      sourceHead: worktree.sourceHead,
-      workspaceKey: worktree.workspaceKey,
-      ownerNonce: worktree.ownerNonce,
-      changeHash,
-      entries,
-    })) > MAX_OMP_IMPLEMENTATION_ARTIFACT_BYTES) {
-      throw new OmpRequestError("OMP implementation artifact is too large")
+    if (
+      Buffer.byteLength(
+        JSON.stringify({
+          version: 1,
+          sourceHead: worktree.sourceHead,
+          workspaceKey: worktree.workspaceKey,
+          ownerNonce: worktree.ownerNonce,
+          changeHash,
+          entries,
+        })
+      ) > MAX_OMP_IMPLEMENTATION_ARTIFACT_BYTES
+    ) {
+      throw new OmpRequestError("OMP implementation artifact is too large");
     }
   }
 
@@ -2883,8 +2975,8 @@ const implementationArtifactFor = async (
     ownerNonce: worktree.ownerNonce,
     changeHash,
     entries,
-  })
-  const bytes = Buffer.byteLength(content)
+  });
+  const bytes = Buffer.byteLength(content);
   const artifact = Object.freeze({
     identity: OMP_IMPLEMENTATION_ARTIFACT_IDENTITY,
     bytes,
@@ -2894,10 +2986,10 @@ const implementationArtifactFor = async (
     workspaceKey: worktree.workspaceKey,
     ownerNonce: worktree.ownerNonce,
     changeHash,
-  })
-  decodeOmpImplementationArtifact(artifact, changeHash)
-  return artifact
-}
+  });
+  decodeOmpImplementationArtifact(artifact, changeHash);
+  return artifact;
+};
 
 const verificationAttemptFor = (
   result: OmpVerifierRunnerResult,
@@ -2905,29 +2997,28 @@ const verificationAttemptFor = (
   implementationChangeDigest: string,
   implementationArtifactDigest: string,
   manifestDigest: string,
-  imageDigest: string,
+  imageDigest: string
 ): OmpVerificationAttempt => {
   const rawSummary = [result.output.stdout, result.output.stderr]
     .map((value) => value.trim())
     .filter((value) => value.length > 0)
-    .join("\n")
-  const boundedSummary = truncateOmpUtf8(rawSummary, maximumBytes)
-  const resultSummary = boundedSummary.value
-  const resultBytes = boundedSummary.bytes
-  const outputLimited = result.output.truncated || boundedSummary.truncated
-  const succeeded = (
+    .join("\n");
+  const boundedSummary = truncateOmpUtf8(rawSummary, maximumBytes);
+  const resultSummary = boundedSummary.value;
+  const resultBytes = boundedSummary.bytes;
+  const outputLimited = result.output.truncated || boundedSummary.truncated;
+  const succeeded =
     result.status === "succeeded" &&
     result.exitCode === 0 &&
     !outputLimited &&
-    resultBytes > 0
-  )
+    resultBytes > 0;
   const status = succeeded
     ? "succeeded"
     : outputLimited
       ? "output-limit"
       : result.status === "succeeded"
         ? "failed"
-        : result.status
+        : result.status;
   const digest = succeeded
     ? ompVerificationDigestFor({
         commandIdentity: OMP_VERIFIER_COMMAND_IDENTITY,
@@ -2940,7 +3031,7 @@ const verificationAttemptFor = (
         exitCode: 0,
         resultSummary,
       })
-    : null
+    : null;
   return Object.freeze({
     commandIdentity: OMP_VERIFIER_COMMAND_IDENTITY,
     imageDigest,
@@ -2955,86 +3046,82 @@ const verificationAttemptFor = (
     resultBytes,
     resultSummary,
     digest,
-  })
-}
-
+  });
+};
 
 const delay = (milliseconds: number): Promise<void> => {
-  return new Promise((resolveDelay) => setTimeout(resolveDelay, milliseconds))
-}
+  return new Promise((resolveDelay) => setTimeout(resolveDelay, milliseconds));
+};
 
 const ownedProcessGroupExists = (pid: number): boolean => {
   try {
-    process.kill(-pid, 0)
-    return true
+    process.kill(-pid, 0);
+    return true;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ESRCH") return false;
+    return true;
   }
-  catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "ESRCH") return false
-    return true
-  }
-}
+};
 
 const signalOwnedProcessGroup = (
   child: ChildProcess,
-  signal: NodeJS.Signals,
+  signal: NodeJS.Signals
 ): void => {
-  const pid = child.pid
+  const pid = child.pid;
   if (pid === undefined || !Number.isSafeInteger(pid) || pid <= 0) {
-    child.kill(signal)
-    return
+    child.kill(signal);
+    return;
   }
   try {
-    process.kill(-pid, signal)
-  }
-  catch (error) {
+    process.kill(-pid, signal);
+  } catch (error) {
     if ((error as NodeJS.ErrnoException).code !== "ESRCH") {
-      throw error
-    }
-    else return
+      throw error;
+    } else return;
   }
-}
+};
 
 const terminateOwnedProcessTree = async (
   child: ChildProcess,
-  shutdownTimeoutMs: number,
+  shutdownTimeoutMs: number
 ): Promise<void> => {
-  const pid = child.pid
-  signalOwnedProcessGroup(child, "SIGTERM")
-  if (pid === undefined || !Number.isSafeInteger(pid) || pid <= 0) return
+  const pid = child.pid;
+  signalOwnedProcessGroup(child, "SIGTERM");
+  if (pid === undefined || !Number.isSafeInteger(pid) || pid <= 0) return;
 
-  const startedAt = Date.now()
-  const killAt = startedAt + Math.max(1, Math.floor(shutdownTimeoutMs / 2))
-  const deadline = startedAt + shutdownTimeoutMs
+  const startedAt = Date.now();
+  const killAt = startedAt + Math.max(1, Math.floor(shutdownTimeoutMs / 2));
+  const deadline = startedAt + shutdownTimeoutMs;
   while (Date.now() < killAt) {
-    if (!ownedProcessGroupExists(pid)) return
-    await delay(Math.min(10, Math.max(1, killAt - Date.now())))
+    if (!ownedProcessGroupExists(pid)) return;
+    await delay(Math.min(10, Math.max(1, killAt - Date.now())));
   }
 
-  signalOwnedProcessGroup(child, "SIGKILL")
+  signalOwnedProcessGroup(child, "SIGKILL");
   while (Date.now() < deadline) {
-    if (!ownedProcessGroupExists(pid)) return
-    await delay(Math.min(10, Math.max(1, deadline - Date.now())))
+    if (!ownedProcessGroupExists(pid)) return;
+    await delay(Math.min(10, Math.max(1, deadline - Date.now())));
   }
   if (ownedProcessGroupExists(pid)) {
-    throw new OmpProcessTerminationError()
+    throw new OmpProcessTerminationError();
   }
-}
+};
 type OwnedProcessOptions = Readonly<{
-  executable: string
-  arguments: readonly string[]
-  cwd: string
-  environment: NodeJS.ProcessEnv
-  signal?: AbortSignal
-  timeoutMs: number
-  shutdownTimeoutMs: number
-  maximumOutputBytes: number
-  redactions: readonly string[]
-  now: () => number
-  startError: string
-}>
+  executable: string;
+  arguments: readonly string[];
+  cwd: string;
+  environment: NodeJS.ProcessEnv;
+  signal?: AbortSignal;
+  timeoutMs: number;
+  shutdownTimeoutMs: number;
+  maximumOutputBytes: number;
+  redactions: readonly string[];
+  now: () => number;
+  startError: string;
+}>;
 
 const runOwnedProcess = async (
-  options: OwnedProcessOptions,
+  options: OwnedProcessOptions
 ): Promise<OmpVerifierRunnerResult> => {
   if (options.signal?.aborted) {
     return Object.freeze({
@@ -3042,128 +3129,137 @@ const runOwnedProcess = async (
       exitCode: null,
       signal: null,
       durationMs: 0,
-      output: sanitizeOutput("", "", options.redactions, options.maximumOutputBytes)
-    })
+      output: sanitizeOutput(
+        "",
+        "",
+        options.redactions,
+        options.maximumOutputBytes
+      ),
+    });
   }
-  const startedAt = options.now()
-  return new Promise<OmpVerifierRunnerResult>((resolveExecution, rejectExecution) => {
-    let settling = false
-    let termination: Promise<void> | undefined
-    const stdoutChunks: Buffer[] = []
-    const stderrChunks: Buffer[] = []
-    let capturedBytes = 0
-    let child: ChildProcess
-    let timeout: ReturnType<typeof setTimeout> | undefined
-    let abortExecution!: () => void
-    const terminate = async (): Promise<void> => {
-      termination ??= terminateOwnedProcessTree(child, options.shutdownTimeoutMs)
-      await termination
-    }
-    const settle = (
-      status: Exclude<OmpExecutionStatus, "no-changes">,
-      exitCode: number | null,
-      signal: NodeJS.Signals | null,
-    ): void => {
-      if (settling) return
-      settling = true
-      clearTimeout(timeout)
-      options.signal?.removeEventListener("abort", abortExecution)
-      void terminate()
-        .then(() => {
-          return resolveExecution(Object.freeze({
-            status,
-            exitCode,
-            signal,
-            durationMs: Math.max(0, options.now() - startedAt),
-            output: sanitizeOutput(
-              Buffer.concat(stdoutChunks),
-              Buffer.concat(stderrChunks),
-              options.redactions,
-              options.maximumOutputBytes,
-              status === "output-limit"
-            )
-          }))
+  const startedAt = options.now();
+  return new Promise<OmpVerifierRunnerResult>(
+    (resolveExecution, rejectExecution) => {
+      let settling = false;
+      let termination: Promise<void> | undefined;
+      const stdoutChunks: Buffer[] = [];
+      const stderrChunks: Buffer[] = [];
+      let capturedBytes = 0;
+      let child: ChildProcess;
+      let timeout: ReturnType<typeof setTimeout> | undefined;
+      let abortExecution!: () => void;
+      const terminate = async (): Promise<void> => {
+        termination ??= terminateOwnedProcessTree(
+          child,
+          options.shutdownTimeoutMs
+        );
+        await termination;
+      };
+      const settle = (
+        status: Exclude<OmpExecutionStatus, "no-changes">,
+        exitCode: number | null,
+        signal: NodeJS.Signals | null
+      ): void => {
+        if (settling) return;
+        settling = true;
+        clearTimeout(timeout);
+        options.signal?.removeEventListener("abort", abortExecution);
+        void terminate()
+          .then(() => {
+            return resolveExecution(
+              Object.freeze({
+                status,
+                exitCode,
+                signal,
+                durationMs: Math.max(0, options.now() - startedAt),
+                output: sanitizeOutput(
+                  Buffer.concat(stdoutChunks),
+                  Buffer.concat(stderrChunks),
+                  options.redactions,
+                  options.maximumOutputBytes,
+                  status === "output-limit"
+                ),
+              })
+            );
+          })
+          .catch(rejectExecution);
+      };
+      const capture = (target: Buffer[], chunk: Buffer): void => {
+        const remaining = Math.max(
+          0,
+          options.maximumOutputBytes - capturedBytes
+        );
+        if (remaining > 0) {
+          const captured = chunk.subarray(0, remaining);
+          target.push(captured);
+          capturedBytes += captured.byteLength;
         }
-        )
-        .catch(rejectExecution)
-    }
-    const capture = (target: Buffer[], chunk: Buffer): void => {
-      const remaining = Math.max(0, options.maximumOutputBytes - capturedBytes)
-      if (remaining > 0) {
-        const captured = chunk.subarray(0, remaining)
-        target.push(captured)
-        capturedBytes += captured.byteLength
-      }
-      if (chunk.byteLength > remaining) {
-        settle("output-limit", null, null)
-      }
-    }
+        if (chunk.byteLength > remaining) {
+          settle("output-limit", null, null);
+        }
+      };
 
-    try {
-      child = spawn(options.executable, [...options.arguments], {
-        cwd: options.cwd,
-        detached: true,
-        env: options.environment,
-        shell: false,
-        stdio: ["ignore", "pipe", "pipe"],
-        windowsHide: true
-      })
+      try {
+        child = spawn(options.executable, [...options.arguments], {
+          cwd: options.cwd,
+          detached: true,
+          env: options.environment,
+          shell: false,
+          stdio: ["ignore", "pipe", "pipe"],
+          windowsHide: true,
+        });
+      } catch {
+        rejectExecution(new OmpRequestError(options.startError));
+        return;
+      }
+      child.stdout?.on("data", (chunk: Buffer) => {
+        return capture(stdoutChunks, chunk);
+      });
+      child.stderr?.on("data", (chunk: Buffer) => {
+        return capture(stderrChunks, chunk);
+      });
+      child.once("error", () => settle("failed", null, null));
+      child.once("close", (code, signal) => {
+        if (settling) return;
+        return settle(
+          code === 0 ? "succeeded" : "failed",
+          typeof code === "number" ? code : null,
+          signal
+        );
+      });
+      abortExecution = (): void => {
+        settle("aborted", null, null);
+      };
+      options.signal?.addEventListener("abort", abortExecution, { once: true });
+      return (timeout = setTimeout(
+        () => settle("timed-out", null, "SIGTERM"),
+        options.timeoutMs
+      ));
     }
-    catch {
-      rejectExecution(new OmpRequestError(options.startError))
-      return
-    }
-    child.stdout?.on("data", (chunk: Buffer) => {
-      return capture(stdoutChunks, chunk)
-    }
-    )
-    child.stderr?.on("data", (chunk: Buffer) => {
-      return capture(stderrChunks, chunk)
-    }
-    )
-    child.once("error", () => settle("failed", null, null))
-    child.once("close", (code, signal) => {
-      if (settling) return
-      return settle(
-        code === 0 ? "succeeded" : "failed",
-        typeof code === "number" ? code : null,
-        signal
-      )
-    }
-    )
-    abortExecution = (): void => { settle("aborted", null, null)}
-    options.signal?.addEventListener("abort", abortExecution, { once: true })
-    return timeout = setTimeout(
-      () => settle("timed-out", null, "SIGTERM"),
-      options.timeoutMs,
-    )
-  }
-  )
-}
+  );
+};
 
-const DOCKER_IMAGE_DIGEST_PATTERN = /^sha256:[a-f0-9]{64}$/u
+const DOCKER_IMAGE_DIGEST_PATTERN = /^sha256:[a-f0-9]{64}$/u;
 const DOCKER_EXECUTABLE_CANDIDATES = Object.freeze([
   "/usr/bin/docker",
   "/usr/local/bin/docker",
   "/opt/homebrew/bin/docker",
-] as const)
+] as const);
 
 const resolveDockerExecutable = async (): Promise<string> => {
   for (const candidate of DOCKER_EXECUTABLE_CANDIDATES) {
     try {
-      await access(candidate, constants.X_OK)
-      const canonical = await realpath(candidate)
+      await access(candidate, constants.X_OK);
+      const canonical = await realpath(candidate);
       if ((await stat(canonical)).isFile()) {
-        return canonical
-      }
-      else continue
-    }
-    catch {
-      continue
+        return canonical;
+      } else continue;
+    } catch {
+      continue;
     }
   }
-  throw new OmpConfigurationError("OMP Docker verifier backend is unavailable")
-}
+  throw new OmpConfigurationError("OMP Docker verifier backend is unavailable");
+};
 
 const environmentForDocker = (sessionDirectory: string): NodeJS.ProcessEnv => ({
   DOCKER_CONFIG: sessionDirectory,
@@ -3173,13 +3269,13 @@ const environmentForDocker = (sessionDirectory: string): NodeJS.ProcessEnv => ({
   LANG: "C",
   PATH: "/usr/bin:/bin",
   TMPDIR: sessionDirectory,
-})
+});
 
 export const dockerVerifierArgumentsFor = (
   workspace: string,
   cidPath: string,
   imageDigest: string,
-  containerName: string,
+  containerName: string
 ): readonly string[] => {
   if (
     !isAbsolute(workspace) ||
@@ -3189,13 +3285,17 @@ export const dockerVerifierArgumentsFor = (
     !DOCKER_IMAGE_DIGEST_PATTERN.test(imageDigest) ||
     !/^darkfactory-verifier-[a-f0-9-]{36}$/u.test(containerName)
   ) {
-    throw new OmpConfigurationError("OMP Docker verifier configuration is invalid")
+    throw new OmpConfigurationError(
+      "OMP Docker verifier configuration is invalid"
+    );
   }
   return Object.freeze([
     "run",
     "--pull=never",
-    "--cidfile", cidPath,
-    "--name", containerName,
+    "--cidfile",
+    cidPath,
+    "--name",
+    containerName,
     `--label=org.darkfactory.verifier.owner=${containerName}`,
     "--network=none",
     "--ipc=none",
@@ -3227,52 +3327,54 @@ export const dockerVerifierArgumentsFor = (
     "--env=XDG_DATA_HOME=/cache/data",
     imageDigest,
     ...OMP_VERIFIER_ARGUMENTS,
-  ])
-}
+  ]);
+};
 
 export const dockerCleanupBudgetFor = (
   deadlineAtMs: number,
-  nowMs: number = Date.now(),
+  nowMs: number = Date.now()
 ): Readonly<{ timeoutMs: number; shutdownTimeoutMs: number }> => {
-  const remaining = deadlineAtMs - nowMs
+  const remaining = deadlineAtMs - nowMs;
   if (
     !Number.isSafeInteger(deadlineAtMs) ||
     !Number.isSafeInteger(nowMs) ||
     remaining < 2
   ) {
-    throw new OmpProcessTerminationError()
+    throw new OmpProcessTerminationError();
   }
-  const timeoutMs = Math.max(1, Math.floor(remaining / 2))
+  const timeoutMs = Math.max(1, Math.floor(remaining / 2));
   return Object.freeze({
     timeoutMs,
     shutdownTimeoutMs: Math.max(1, remaining - timeoutMs),
-  })
-}
+  });
+};
 
-export const runDockerVerifier = async (input: Readonly<{
-  dockerExecutable: string
-  workspace: string
-  sessionDirectory: string
-  imageDigest: string
-  signal?: AbortSignal
-  timeoutMs: number
-  shutdownTimeoutMs: number
-  maximumOutputBytes: number
-  redactions: readonly string[]
-  now: () => number
-}>): Promise<OmpVerifierRunnerResult> => {
+export const runDockerVerifier = async (
+  input: Readonly<{
+    dockerExecutable: string;
+    workspace: string;
+    sessionDirectory: string;
+    imageDigest: string;
+    signal?: AbortSignal;
+    timeoutMs: number;
+    shutdownTimeoutMs: number;
+    maximumOutputBytes: number;
+    redactions: readonly string[];
+    now: () => number;
+  }>
+): Promise<OmpVerifierRunnerResult> => {
   const verifierShutdownTimeoutMs = Math.max(
     1,
-    Math.floor(input.shutdownTimeoutMs / 2),
-  )
-  const environment = environmentForDocker(input.sessionDirectory)
+    Math.floor(input.shutdownTimeoutMs / 2)
+  );
+  const environment = environmentForDocker(input.sessionDirectory);
   const inspect = await runOwnedProcess({
     executable: input.dockerExecutable,
     arguments: [
       "image",
       "inspect",
       `--format={{.Id}}|{{index .Config.Labels "org.darkfactory.verifier.config-digest"}}|{{index .Config.Labels "org.darkfactory.verifier.argv-digest"}}`,
-      input.imageDigest
+      input.imageDigest,
     ],
     cwd: input.sessionDirectory,
     environment,
@@ -3282,21 +3384,23 @@ export const runDockerVerifier = async (input: Readonly<{
     maximumOutputBytes: 4_096,
     redactions: input.redactions,
     now: input.now,
-    startError: "OMP Docker verifier inspection failed to start"
-  })
+    startError: "OMP Docker verifier inspection failed to start",
+  });
   if (inspect.status !== "succeeded" || inspect.exitCode !== 0) {
-    return inspect
+    return inspect;
   }
   if (
     inspect.output.stdout.trim() !==
-      `${input.imageDigest}|${OMP_VERIFIER_CONFIG_DIGEST}|${OMP_VERIFIER_ARGV_IDENTITY}`
+    `${input.imageDigest}|${OMP_VERIFIER_CONFIG_DIGEST}|${OMP_VERIFIER_ARGV_IDENTITY}`
   ) {
-    throw new OmpConfigurationError("OMP Docker verifier image digest mismatch")
+    throw new OmpConfigurationError(
+      "OMP Docker verifier image digest mismatch"
+    );
   }
 
-  const containerName = `darkfactory-verifier-${randomUUID()}`
-  const cidPath = join(input.sessionDirectory, `${containerName}.cid`)
-  let result: OmpVerifierRunnerResult | undefined
+  const containerName = `darkfactory-verifier-${randomUUID()}`;
+  const cidPath = join(input.sessionDirectory, `${containerName}.cid`);
+  let result: OmpVerifierRunnerResult | undefined;
   try {
     result = await runOwnedProcess({
       executable: input.dockerExecutable,
@@ -3304,7 +3408,7 @@ export const runDockerVerifier = async (input: Readonly<{
         input.workspace,
         cidPath,
         input.imageDigest,
-        containerName,
+        containerName
       ),
       cwd: input.sessionDirectory,
       environment,
@@ -3314,25 +3418,23 @@ export const runDockerVerifier = async (input: Readonly<{
       maximumOutputBytes: input.maximumOutputBytes,
       redactions: input.redactions,
       now: input.now,
-      startError: "OMP Docker verifier failed to start"
-    })
-  }
-  finally {
+      startError: "OMP Docker verifier failed to start",
+    });
+  } finally {
     const cleanupTimeoutMs =
       result !== undefined &&
-        (result.status === "succeeded" || result.status === "failed")
+      (result.status === "succeeded" || result.status === "failed")
         ? input.shutdownTimeoutMs
-        : Math.max(1, input.shutdownTimeoutMs - verifierShutdownTimeoutMs)
-    const cleanupDeadlineAtMs = Date.now() + cleanupTimeoutMs
+        : Math.max(1, input.shutdownTimeoutMs - verifierShutdownTimeoutMs);
+    const cleanupDeadlineAtMs = Date.now() + cleanupTimeoutMs;
     try {
-      let cid: string | undefined
+      let cid: string | undefined;
       try {
-        cid = (await readFile(cidPath, "utf8")).trim()
+        cid = (await readFile(cidPath, "utf8")).trim();
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
       }
-      catch (error) {
-        if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error
-      }
-      const cleanupBudget = dockerCleanupBudgetFor(cleanupDeadlineAtMs)
+      const cleanupBudget = dockerCleanupBudgetFor(cleanupDeadlineAtMs);
       const cleanup = await runOwnedProcess({
         executable: input.dockerExecutable,
         arguments: ["container", "rm", "--force", "--volumes", containerName],
@@ -3343,10 +3445,10 @@ export const runDockerVerifier = async (input: Readonly<{
         maximumOutputBytes: 4_096,
         redactions: input.redactions,
         now: input.now,
-        startError: "OMP Docker verifier cleanup failed to start"
-      })
+        startError: "OMP Docker verifier cleanup failed to start",
+      });
       if (cleanup.status !== "succeeded" || cleanup.exitCode !== 0) {
-        const probeBudget = dockerCleanupBudgetFor(cleanupDeadlineAtMs)
+        const probeBudget = dockerCleanupBudgetFor(cleanupDeadlineAtMs);
         const probe = await runOwnedProcess({
           executable: input.dockerExecutable,
           arguments: [
@@ -3355,7 +3457,7 @@ export const runDockerVerifier = async (input: Readonly<{
             "--all",
             "--quiet",
             "--no-trunc",
-            `--filter=name=^/${containerName}$`
+            `--filter=name=^/${containerName}$`,
           ],
           cwd: input.sessionDirectory,
           environment,
@@ -3364,251 +3466,256 @@ export const runDockerVerifier = async (input: Readonly<{
           maximumOutputBytes: 4_096,
           redactions: input.redactions,
           now: input.now,
-          startError: "OMP Docker verifier cleanup probe failed to start"
-        })
+          startError: "OMP Docker verifier cleanup probe failed to start",
+        });
         if (
           probe.status !== "succeeded" ||
           probe.exitCode !== 0 ||
           probe.output.stdout.trim().length > 0
         ) {
-          throw new OmpProcessTerminationError()
+          throw new OmpProcessTerminationError();
         }
       }
       if (cid !== undefined && !/^[a-f0-9]{64}$/u.test(cid)) {
-        throw new OmpProcessTerminationError()
+        throw new OmpProcessTerminationError();
       }
-    }
-    finally {
-      await rm(cidPath, { force: true })
+    } finally {
+      await rm(cidPath, { force: true });
     }
   }
-  return result!
-}
-
+  return result!;
+};
 
 export const createOmpCliAdapter = (
-  options: OmpCliAdapterOptions,
+  options: OmpCliAdapterOptions
 ): OmpCliAdapter => {
   if (
     !isAbsolute(options.repositoriesRoot) ||
     options.repositoriesRoot.includes("\0")
   ) {
-    throw new OmpConfigurationError("OMP repositories root must be absolute")
+    throw new OmpConfigurationError("OMP repositories root must be absolute");
   }
-  const wayfinderSkillsRoot = options.wayfinderSkillsRoot ??
-    join(homedir(), ".agents", "skills")
+  const wayfinderSkillsRoot =
+    options.wayfinderSkillsRoot ?? join(homedir(), ".agents", "skills");
   if (!isAbsolute(wayfinderSkillsRoot) || wayfinderSkillsRoot.includes("\0")) {
-    throw new OmpConfigurationError("OMP Wayfinder skills root must be absolute")
+    throw new OmpConfigurationError(
+      "OMP Wayfinder skills root must be absolute"
+    );
   }
-  const executable = options.executable ?? "omp"
-  const allowedExecutables = options.allowedExecutables ?? DEFAULT_ALLOWED_EXECUTABLES
-  const allowedCommands = options.allowedCommands ?? DEFAULT_ALLOWED_COMMANDS
+  const executable = options.executable ?? "omp";
+  const allowedExecutables =
+    options.allowedExecutables ?? DEFAULT_ALLOWED_EXECUTABLES;
+  const allowedCommands = options.allowedCommands ?? DEFAULT_ALLOWED_COMMANDS;
   if (!allowedExecutables.includes(executable)) {
-    throw new OmpConfigurationError("OMP executable is not allowlisted")
+    throw new OmpConfigurationError("OMP executable is not allowlisted");
   }
   if (
     options.verifierId !== undefined &&
     options.verifierId !== OMP_VERIFIER_COMMAND_IDENTITY
   ) {
-    throw new OmpConfigurationError("OMP verifier is not approved")
+    throw new OmpConfigurationError("OMP verifier is not approved");
   }
   if (
     options.verifierImageDigest !== undefined &&
     !DOCKER_IMAGE_DIGEST_PATTERN.test(options.verifierImageDigest)
   ) {
-    throw new OmpConfigurationError("OMP verifier image digest is invalid")
+    throw new OmpConfigurationError("OMP verifier image digest is invalid");
   }
   if (
     options.verifierId === OMP_VERIFIER_COMMAND_IDENTITY &&
     options.verificationRunner === undefined &&
     options.verifierImageDigest === undefined
   ) {
-    throw new OmpConfigurationError("OMP verifier image digest is required")
+    throw new OmpConfigurationError("OMP verifier image digest is required");
   }
-
 
   const timeoutMs = requireBoundedInteger(
     options.timeoutMs ?? DEFAULT_OMP_TIMEOUT_MS,
     "timeoutMs",
-    60 * 60 * 1_000,
-  )
+    60 * 60 * 1_000
+  );
   const maxOutputBytes = requireBoundedInteger(
     options.maxOutputBytes ?? DEFAULT_OMP_MAX_OUTPUT_BYTES,
     "maxOutputBytes",
-    1_024 * 1_024,
-  )
+    1_024 * 1_024
+  );
   const shutdownTimeoutMs = requireBoundedInteger(
     options.shutdownTimeoutMs ?? DEFAULT_OMP_SHUTDOWN_TIMEOUT_MS,
     "shutdownTimeoutMs",
-    60_000,
-  )
+    60_000
+  );
   const verifierMaxResultBytes = requireBoundedInteger(
     options.verifierMaxResultBytes ?? DEFAULT_OMP_VERIFIER_MAX_RESULT_BYTES,
     "verifierMaxResultBytes",
-    1_024 * 1_024,
-  )
-  const now = options.now ?? Date.now
-  const filesystemSandboxBackend = (
-    options.filesystemSandboxBackend ?? DEFAULT_FILESYSTEM_SANDBOX_BACKEND
-  )
+    1_024 * 1_024
+  );
+  const now = options.now ?? Date.now;
+  const filesystemSandboxBackend =
+    options.filesystemSandboxBackend ?? DEFAULT_FILESYSTEM_SANDBOX_BACKEND;
 
   const execute = async (
     request: OmpExecutionRequest
   ): Promise<OmpExecutionResult> => {
     if (!allowedCommands.includes(request.command)) {
-      throw new OmpRequestError("OMP command is not allowlisted")
+      throw new OmpRequestError("OMP command is not allowlisted");
     }
     if (!["plan", "implement", "verify"].includes(request.effectKind)) {
-      throw new OmpRequestError("OMP effect kind is invalid")
+      throw new OmpRequestError("OMP effect kind is invalid");
     }
     if (
       request.skillProfile !== undefined &&
       request.skillProfile !== "wayfinder"
     ) {
-      throw new OmpRequestError("OMP skill profile is invalid")
+      throw new OmpRequestError("OMP skill profile is invalid");
     }
     if (request.skillProfile === "wayfinder" && request.effectKind !== "plan") {
-      throw new OmpRequestError("OMP Wayfinder profile requires a plan effect")
+      throw new OmpRequestError("OMP Wayfinder profile requires a plan effect");
     }
     if (
       request.skillProfile === "wayfinder" &&
       !SAFE_WAYFINDER_RUN_ID.test(request.workspaceId)
     ) {
-      throw new OmpRequestError("OMP Wayfinder run identity is invalid")
+      throw new OmpRequestError("OMP Wayfinder run identity is invalid");
     }
-    const instructionBytes = Buffer.byteLength(request.instruction)
-    if (instructionBytes === 0 || instructionBytes > MAX_OMP_INSTRUCTION_BYTES) {
-      throw new OmpRequestError("OMP instruction must be 1-32768 UTF-8 bytes")
+    const instructionBytes = Buffer.byteLength(request.instruction);
+    if (
+      instructionBytes === 0 ||
+      instructionBytes > MAX_OMP_INSTRUCTION_BYTES
+    ) {
+      throw new OmpRequestError("OMP instruction must be 1-32768 UTF-8 bytes");
     }
 
-    const explicitRedactions = request.redactions ?? []
-    validateRedactions(explicitRedactions)
-    const inheritedEnvironment = captureInheritedOmpEnvironment()
+    const explicitRedactions = request.redactions ?? [];
+    validateRedactions(explicitRedactions);
+    const inheritedEnvironment = captureInheritedOmpEnvironment();
     const redactions = effectiveOmpRedactions(
       explicitRedactions,
-      inheritedEnvironment,
-    )
-    if (request.signal?.aborted) return abortedResult(request.command)
+      inheritedEnvironment
+    );
+    if (request.signal?.aborted) return abortedResult(request.command);
 
-    const sourceCwd = await resolveExecutionCwd(options.repositoriesRoot, request.cwd)
-    const recovery = request.effectKind === "verify"
-      ? (
-          request.recovery === undefined
-            ? artifactError()
-            : decodeOmpImplementationArtifact(
-                request.recovery.artifact,
-                request.recovery.changeHash,
-              )
-        )
-      : undefined
+    const sourceCwd = await resolveExecutionCwd(
+      options.repositoriesRoot,
+      request.cwd
+    );
+    const recovery =
+      request.effectKind === "verify"
+        ? request.recovery === undefined
+          ? artifactError()
+          : decodeOmpImplementationArtifact(
+              request.recovery.artifact,
+              request.recovery.changeHash
+            )
+        : undefined;
     if (
       recovery !== undefined &&
       recovery.entries.some((entry) => isVerifierControlPath(entry.path))
     ) {
-      throw new OmpRequestError("OMP artifact changes verifier control inputs")
+      throw new OmpRequestError("OMP artifact changes verifier control inputs");
     }
-    const trustedVerifierManifest = (
+    const trustedVerifierManifest =
       request.effectKind === "verify" &&
       options.verificationRunner === undefined &&
       options.verifierId === OMP_VERIFIER_COMMAND_IDENTITY
-    )
-      ? await trustedVerifierManifestFor(sourceCwd)
-      : null
-    await filesystemSandboxBackend.requireAvailable()
-    const ompExecutable = await resolveOmpExecutable(executable)
+        ? await trustedVerifierManifestFor(sourceCwd)
+        : null;
+    await filesystemSandboxBackend.requireAvailable();
+    const ompExecutable = await resolveOmpExecutable(executable);
     let worktree = await prepareWorktree(
       sourceCwd,
       request.workspaceId,
       request.effectKind,
-      recovery,
-    )
-    let cwd: string
-    let scopePaths: readonly string[]
-    let beforeManifest: OmpManifest | null
-    let sessionDirectory: string
+      recovery
+    );
+    let cwd: string;
+    let scopePaths: readonly string[];
+    let beforeManifest: OmpManifest | null;
+    let sessionDirectory: string;
     try {
-      cwd = worktree.cwd
-      scopePaths = await resolveScopePaths(cwd, request.scopePaths)
+      cwd = worktree.cwd;
+      scopePaths = await resolveScopePaths(cwd, request.scopePaths);
       if (recovery !== undefined) {
         if (!worktree.clean) {
           await requireOwnershipMarker(
             sourceCwd,
             cwd,
-            request.recovery!.artifact,
-          )
-          await worktree.dispose()
+            request.recovery!.artifact
+          );
+          await worktree.dispose();
           worktree = await prepareWorktree(
             sourceCwd,
             request.workspaceId,
             request.effectKind,
-            recovery,
-          )
-          cwd = worktree.cwd
-          scopePaths = await resolveScopePaths(cwd, request.scopePaths)
+            recovery
+          );
+          cwd = worktree.cwd;
+          scopePaths = await resolveScopePaths(cwd, request.scopePaths);
         }
-        await implementationBaselineFor(worktree, scopePaths)
-        await worktree.persistOwnership(request.recovery!.artifact)
-        await applyOmpImplementationArtifact(cwd, recovery)
+        await implementationBaselineFor(worktree, scopePaths);
+        await worktree.persistOwnership(request.recovery!.artifact);
+        await applyOmpImplementationArtifact(cwd, recovery);
         const recoveredChange = scopedChangeFor(
           await implementationBaselineFor(worktree, scopePaths),
-          await manifestFor(cwd, scopePaths),
-        )
+          await manifestFor(cwd, scopePaths)
+        );
         const recoveredArtifact = await implementationArtifactFor(
           worktree,
           recoveredChange.changedPaths,
-          recoveredChange.changeHash,
-        )
+          recoveredChange.changeHash
+        );
         if (
           recoveredChange.changeHash !== recovery.changeHash ||
           recoveredArtifact.digest !== request.recovery!.artifact.digest ||
           recoveredArtifact.content !== request.recovery!.artifact.content
         ) {
-          throw new OmpRequestError("OMP recovered implementation digest changed")
+          throw new OmpRequestError(
+            "OMP recovered implementation digest changed"
+          );
         }
       }
-      beforeManifest = request.effectKind === "implement"
-        ? await implementationBaselineFor(worktree, scopePaths)
-        : null
+      beforeManifest =
+        request.effectKind === "implement"
+          ? await implementationBaselineFor(worktree, scopePaths)
+          : null;
       sessionDirectory = await realpath(
-        await mkdtemp(join(tmpdir(), "darkfactory-omp-")),
-      )
-    }
-    catch (error) {
+        await mkdtemp(join(tmpdir(), "darkfactory-omp-"))
+      );
+    } catch (error) {
       try {
-        await worktree.dispose()
+        await worktree.dispose();
+      } catch {
+        await worktree.release();
       }
-      catch {
-        await worktree.release()
-      }
-      throw error
+      throw error;
     }
 
     try {
-      let wayfinderTrackerDirectory: string | undefined
+      let wayfinderTrackerDirectory: string | undefined;
       if (request.skillProfile === "wayfinder") {
-        await stageWayfinderSkills(wayfinderSkillsRoot, sessionDirectory)
-        const scratchDirectory = join(cwd, ".scratch")
-        const trackerDirectory = join(scratchDirectory, request.workspaceId)
+        await stageWayfinderSkills(wayfinderSkillsRoot, sessionDirectory);
+        const scratchDirectory = join(cwd, ".scratch");
+        const trackerDirectory = join(scratchDirectory, request.workspaceId);
         try {
-          await mkdir(scratchDirectory, { recursive: true, mode: 0o700 })
-          await requireSecureWayfinderDirectory(scratchDirectory)
-          await mkdir(trackerDirectory, { mode: 0o700 })
-          await requireSecureWayfinderDirectory(trackerDirectory)
-          wayfinderTrackerDirectory = await realpath(trackerDirectory)
+          await mkdir(scratchDirectory, { recursive: true, mode: 0o700 });
+          await requireSecureWayfinderDirectory(scratchDirectory);
+          await mkdir(trackerDirectory, { mode: 0o700 });
+          await requireSecureWayfinderDirectory(trackerDirectory);
+          wayfinderTrackerDirectory = await realpath(trackerDirectory);
           if (!isContainedPath(cwd, wayfinderTrackerDirectory)) {
-            throw new Error("tracker directory escaped")
+            throw new Error("tracker directory escaped");
           }
-        }
-        catch {
-          throw new OmpRequestError("OMP Wayfinder tracker path is invalid")
+        } catch {
+          throw new OmpRequestError("OMP Wayfinder tracker path is invalid");
         }
       }
-      const tools = request.skillProfile === "wayfinder"
-        ? OMP_WAYFINDER_TOOLS
-        : OMP_TOOLS_BY_EFFECT[request.effectKind]
-      const skillArgument = request.skillProfile === "wayfinder"
-        ? `--skills=${OMP_WAYFINDER_SKILLS.join(",")}`
-        : "--no-skills"
+      const tools =
+        request.skillProfile === "wayfinder"
+          ? OMP_WAYFINDER_TOOLS
+          : OMP_TOOLS_BY_EFFECT[request.effectKind];
+      const skillArgument =
+        request.skillProfile === "wayfinder"
+          ? `--skills=${OMP_WAYFINDER_SKILLS.join(",")}`
+          : "--no-skills";
       const ompArguments = [
         "-p",
         "--mode=text",
@@ -3620,15 +3727,15 @@ export const createOmpCliAdapter = (
         `--cwd=${cwd}`,
         `--session-dir=${sessionDirectory}`,
         request.instruction,
-      ] as const
+      ] as const;
       const profile = sandboxProfileFor(
         cwd,
         sessionDirectory,
         ompExecutable,
         request.effectKind,
         scopePaths,
-        wayfinderTrackerDirectory,
-      )
+        wayfinderTrackerDirectory
+      );
       const execution = await runOwnedProcess({
         executable: SANDBOX_EXECUTABLE,
         arguments: ["-p", profile, ompExecutable, ...ompArguments],
@@ -3640,69 +3747,68 @@ export const createOmpCliAdapter = (
         maximumOutputBytes: maxOutputBytes,
         redactions,
         now,
-        startError: "OMP process failed to start"
-      })
+        startError: "OMP process failed to start",
+      });
       const lifecycleFor = (
         retainWhenPersisted: boolean,
-        status: OmpExecutionStatus,
+        status: OmpExecutionStatus
       ): OmpExecutionLifecycle => {
-        let finalization: Promise<void> | undefined
+        let finalization: Promise<void> | undefined;
         return Object.freeze({
           finalize: (disposition: OmpPersistenceDisposition): Promise<void> => {
-            return finalization ??= (async (): Promise<void> => {
+            return (finalization ??= (async (): Promise<void> => {
               try {
-                const retain = request.effectKind === "verify"
-                  ? disposition !== "persisted" || status !== "succeeded"
-                  : (
-                      request.effectKind === "implement" &&
+                const retain =
+                  request.effectKind === "verify"
+                    ? disposition !== "persisted" || status !== "succeeded"
+                    : request.effectKind === "implement" &&
                       disposition === "persisted" &&
-                      retainWhenPersisted
-                    )
-                if (retain) { await worktree.release()}
-                else await worktree.dispose()
+                      retainWhenPersisted;
+                if (retain) {
+                  await worktree.release();
+                } else await worktree.dispose();
+              } catch (error) {
+                if (error instanceof OmpProcessTerminationError) throw error;
+                throw new OmpWorkspaceCleanupError();
               }
-              catch (error) {
-                if (error instanceof OmpProcessTerminationError) throw error
-                throw new OmpWorkspaceCleanupError()
-              }
-            }
-            )()
-          }
-        })
-      }
+            })());
+          },
+        });
+      };
       const resultFor = (
         status: OmpExecutionStatus,
         input: Readonly<{
-          exitCode?: number | null
-          signal?: NodeJS.Signals | null
-          durationMs?: number
-          change?: OmpScopedChange | null
-          verification?: OmpVerificationAttempt | null
-          implementationArtifact?: OmpImplementationArtifact | null
-          wayfinderTrackerArtifact?: OmpWayfinderTrackerArtifact
-          retainAfterPersistence?: boolean
-        }> = {},
-      ): OmpExecutionResult => Object.freeze({
-        command: request.command,
-        status,
-        exitCode: input.exitCode ?? execution.exitCode,
-        signal: input.signal ?? execution.signal,
-        durationMs: input.durationMs ?? execution.durationMs,
-        output: execution.output,
-        change: input.change ?? null,
-        verification: input.verification ?? null,
-        implementationArtifact: input.implementationArtifact ?? null,
-        ...(input.wayfinderTrackerArtifact === undefined
-          ? {}
-          : { wayfinderTrackerArtifact: input.wayfinderTrackerArtifact }),
-        lifecycle: lifecycleFor(
-          input.retainAfterPersistence ?? false,
+          exitCode?: number | null;
+          signal?: NodeJS.Signals | null;
+          durationMs?: number;
+          change?: OmpScopedChange | null;
+          verification?: OmpVerificationAttempt | null;
+          implementationArtifact?: OmpImplementationArtifact | null;
+          wayfinderTrackerArtifact?: OmpWayfinderTrackerArtifact;
+          retainAfterPersistence?: boolean;
+        }> = {}
+      ): OmpExecutionResult =>
+        Object.freeze({
+          command: request.command,
           status,
-        )
-      })
+          exitCode: input.exitCode ?? execution.exitCode,
+          signal: input.signal ?? execution.signal,
+          durationMs: input.durationMs ?? execution.durationMs,
+          output: execution.output,
+          change: input.change ?? null,
+          verification: input.verification ?? null,
+          implementationArtifact: input.implementationArtifact ?? null,
+          ...(input.wayfinderTrackerArtifact === undefined
+            ? {}
+            : { wayfinderTrackerArtifact: input.wayfinderTrackerArtifact }),
+          lifecycle: lifecycleFor(
+            input.retainAfterPersistence ?? false,
+            status
+          ),
+        });
 
       if (execution.status !== "succeeded") {
-        return resultFor(execution.status)
+        return resultFor(execution.status);
       }
 
       if (request.skillProfile === "wayfinder") {
@@ -3712,69 +3818,67 @@ export const createOmpCliAdapter = (
               await captureOmpWayfinderTrackerArtifact({
                 trackerDirectory: wayfinderTrackerDirectory!,
                 repositoryId: request.cwd,
-                runId: request.workspaceId
+                runId: request.workspaceId,
               }),
               {
                 repositoryId: request.cwd,
-                runId: request.workspaceId
+                runId: request.workspaceId,
               },
-              redactions,
-            )
-          })
-        }
-        catch {
-          return resultFor("failed")
+              redactions
+            ),
+          });
+        } catch {
+          return resultFor("failed");
         }
       }
 
       if (request.effectKind === "verify") {
         if (
           options.verificationRunner === null ||
-          (
-            options.verificationRunner === undefined &&
-            options.verifierId === undefined
-          )
+          (options.verificationRunner === undefined &&
+            options.verifierId === undefined)
         ) {
-          return resultFor("failed", { exitCode: null, signal: null })
+          return resultFor("failed", { exitCode: null, signal: null });
         }
-        let verificationChange: OmpScopedChange
-        let verificationArtifact: OmpImplementationArtifact
+        let verificationChange: OmpScopedChange;
+        let verificationArtifact: OmpImplementationArtifact;
         try {
           verificationChange = scopedChangeFor(
             await implementationBaselineFor(worktree, scopePaths),
-            await manifestFor(cwd, scopePaths),
-          )
+            await manifestFor(cwd, scopePaths)
+          );
           if (verificationChange.changedPaths.some(isVerifierControlPath)) {
-            return resultFor("failed", { change: verificationChange })
+            return resultFor("failed", { change: verificationChange });
           }
 
           if (verificationChange.changedPaths.length === 0) {
-            return resultFor("failed")
+            return resultFor("failed");
           }
           verificationArtifact = await implementationArtifactFor(
             worktree,
             verificationChange.changedPaths,
-            verificationChange.changeHash,
-          )
+            verificationChange.changeHash
+          );
           if (
             trustedVerifierManifest !== null &&
-            !(await matchesTrustedVerifierManifest(cwd, trustedVerifierManifest))
+            !(await matchesTrustedVerifierManifest(
+              cwd,
+              trustedVerifierManifest
+            ))
           ) {
             return resultFor("failed", {
               change: verificationChange,
-              implementationArtifact: verificationArtifact
-            })
+              implementationArtifact: verificationArtifact,
+            });
           }
+        } catch {
+          return resultFor("failed");
         }
 
-        catch {
-          return resultFor("failed")
-        }
-
-        let verifierResult: OmpVerifierRunnerResult
-        let verifierWorkspace: PreparedVerifierWorkspace | null = null
-        let verifierWorkspaceStable = true
-        let verifierExecutionError: unknown
+        let verifierResult: OmpVerifierRunnerResult;
+        let verifierWorkspace: PreparedVerifierWorkspace | null = null;
+        let verifierWorkspaceStable = true;
+        let verifierExecutionError: unknown;
         try {
           verifierWorkspace = await prepareVerifierWorkspace({
             sourceCwd,
@@ -3784,43 +3888,47 @@ export const createOmpCliAdapter = (
             scopePathInputs: request.scopePaths,
             trustedManifest: trustedVerifierManifest,
             repositoryConfigOverrides: worktree.repositoryConfigOverrides,
-          })
+          });
           if (options.verificationRunner !== undefined) {
             verifierResult = await options.verificationRunner({
               cwd: verifierWorkspace.cwd,
-              ...(request.signal === undefined ? {} : { signal: request.signal })
-            })
-          }
-          else {
-            const dockerExecutable = await resolveDockerExecutable()
+              ...(request.signal === undefined
+                ? {}
+                : { signal: request.signal }),
+            });
+          } else {
+            const dockerExecutable = await resolveDockerExecutable();
             verifierResult = await runDockerVerifier({
               dockerExecutable,
               workspace: verifierWorkspace.cwd,
               sessionDirectory,
               imageDigest: options.verifierImageDigest!,
-              ...(request.signal === undefined ? {} : { signal: request.signal }),
+              ...(request.signal === undefined
+                ? {}
+                : { signal: request.signal }),
               timeoutMs,
               shutdownTimeoutMs,
               maximumOutputBytes: verifierMaxResultBytes,
               redactions,
-              now
-            })
+              now,
+            });
           }
           const sanitizedVerifierOutput = sanitizeOutput(
             verifierResult.output.stdout,
             verifierResult.output.stderr,
             redactions,
             verifierMaxResultBytes,
-            verifierResult.output.truncated,
-          )
+            verifierResult.output.truncated
+          );
           verifierResult = Object.freeze({
             ...verifierResult,
             output: Object.freeze({
               ...sanitizedVerifierOutput,
               redacted:
-                sanitizedVerifierOutput.redacted || verifierResult.output.redacted,
+                sanitizedVerifierOutput.redacted ||
+                verifierResult.output.redacted,
             }),
-          })
+          });
           try {
             const verifierPostArtifact = await implementationArtifactFor(
               Object.freeze({
@@ -3829,62 +3937,57 @@ export const createOmpCliAdapter = (
                 clean: false,
               }),
               verificationChange.changedPaths,
-              verificationChange.changeHash,
-            )
+              verificationChange.changeHash
+            );
             if (
               verifierPostArtifact.digest !== verificationArtifact.digest ||
               verifierPostArtifact.content !== verificationArtifact.content ||
-              (
-                trustedVerifierManifest !== null &&
+              (trustedVerifierManifest !== null &&
                 !(await matchesTrustedVerifierManifest(
                   verifierWorkspace.cwd,
-                  trustedVerifierManifest,
-                ))
-              )
+                  trustedVerifierManifest
+                )))
             ) {
-              verifierWorkspaceStable = false
+              verifierWorkspaceStable = false;
             }
+          } catch {
+            verifierWorkspaceStable = false;
           }
-          catch {
-            verifierWorkspaceStable = false
-          }
-        }
-        catch (error) {
-          verifierExecutionError = error
+        } catch (error) {
+          verifierExecutionError = error;
           if (
             error instanceof OmpProcessTerminationError ||
             error instanceof OmpWorkspaceCleanupError
           ) {
-            throw error
+            throw error;
           }
           return resultFor("failed", {
             change: verificationChange,
             implementationArtifact: verificationArtifact,
             exitCode: null,
-            signal: null
-          })
-        }
-        finally {
+            signal: null,
+          });
+        } finally {
           if (verifierWorkspace !== null) {
             await releaseWithoutMaskingProcessTermination(
               verifierWorkspace.release,
-              verifierExecutionError,
-            )
+              verifierExecutionError
+            );
           }
         }
         let stableVerifierResult = verifierWorkspaceStable
           ? verifierResult
-          : Object.freeze({ ...verifierResult, status: "failed" as const })
+          : Object.freeze({ ...verifierResult, status: "failed" as const });
         try {
           const postChange = scopedChangeFor(
             await implementationBaselineFor(worktree, scopePaths),
-            await manifestFor(cwd, scopePaths),
-          )
+            await manifestFor(cwd, scopePaths)
+          );
           const postArtifact = await implementationArtifactFor(
             worktree,
             postChange.changedPaths,
-            postChange.changeHash,
-          )
+            postChange.changeHash
+          );
           if (
             postChange.changeHash !== verificationChange.changeHash ||
             postArtifact.digest !== verificationArtifact.digest
@@ -3892,20 +3995,20 @@ export const createOmpCliAdapter = (
             stableVerifierResult = Object.freeze({
               ...verifierResult,
               status: "failed",
-            })
+            });
           }
-        }
-        catch {
+        } catch {
           stableVerifierResult = Object.freeze({
             ...verifierResult,
             status: "failed",
-          })
+          });
         }
-        const manifestDigest = trustedVerifierManifest?.digest ??
-          INJECTED_VERIFIER_MANIFEST_DIGEST
-        const verifierImageIdentity = options.verificationRunner === undefined
-          ? options.verifierImageDigest!
-          : `injected:${INJECTED_VERIFIER_MANIFEST_DIGEST}`
+        const manifestDigest =
+          trustedVerifierManifest?.digest ?? INJECTED_VERIFIER_MANIFEST_DIGEST;
+        const verifierImageIdentity =
+          options.verificationRunner === undefined
+            ? options.verifierImageDigest!
+            : `injected:${INJECTED_VERIFIER_MANIFEST_DIGEST}`;
 
         const verification = verificationAttemptFor(
           stableVerifierResult,
@@ -3913,128 +4016,127 @@ export const createOmpCliAdapter = (
           verificationChange.changeHash,
           verificationArtifact.digest,
           manifestDigest,
-          verifierImageIdentity,
-        )
+          verifierImageIdentity
+        );
         return resultFor(verification.status, {
           exitCode: verification.exitCode,
           signal: verifierResult.signal,
           durationMs: execution.durationMs + verification.durationMs,
           change: verificationChange,
           verification,
-          implementationArtifact: verificationArtifact
-        })
+          implementationArtifact: verificationArtifact,
+        });
       }
 
       if (request.effectKind !== "implement") {
-        return resultFor("succeeded")
+        return resultFor("succeeded");
       }
 
-      let change: OmpScopedChange
+      let change: OmpScopedChange;
       try {
         change = scopedChangeFor(
           beforeManifest!,
-          await manifestFor(cwd, scopePaths),
-        )
-      }
-      catch {
-        return resultFor("failed")
+          await manifestFor(cwd, scopePaths)
+        );
+      } catch {
+        return resultFor("failed");
       }
       if (change.changedPaths.length === 0) {
-        return resultFor("no-changes", { change })
+        return resultFor("no-changes", { change });
       }
-      let implementationArtifact: OmpImplementationArtifact
+      let implementationArtifact: OmpImplementationArtifact;
       try {
         implementationArtifact = await implementationArtifactFor(
           worktree,
           change.changedPaths,
-          change.changeHash,
-        )
-        await worktree.persistOwnership(implementationArtifact)
-      }
-      catch {
-        return resultFor("failed", { change })
+          change.changeHash
+        );
+        await worktree.persistOwnership(implementationArtifact);
+      } catch {
+        return resultFor("failed", { change });
       }
       return resultFor("succeeded", {
         change,
         implementationArtifact,
-        retainAfterPersistence: true
-      })
-    }
-    catch (error) {
-      if (error instanceof OmpProcessTerminationError) throw error
+        retainAfterPersistence: true,
+      });
+    } catch (error) {
+      if (error instanceof OmpProcessTerminationError) throw error;
       try {
-        await worktree.dispose()
+        await worktree.dispose();
+      } catch (cleanupError) {
+        await worktree.release();
+        if (cleanupError instanceof OmpProcessTerminationError)
+          throw cleanupError;
       }
-      catch (cleanupError) {
-        await worktree.release()
-        if (cleanupError instanceof OmpProcessTerminationError) throw cleanupError
-      }
-      throw error
+      throw error;
+    } finally {
+      await rm(sessionDirectory, { recursive: true, force: true });
     }
-    finally {
-      await rm(sessionDirectory, { recursive: true, force: true })
-    }
-  }
+  };
   const cleanupRetainedWorkspace = async (
-    request: OmpRetainedWorkspaceCleanupRequest,
+    request: OmpRetainedWorkspaceCleanupRequest
   ): Promise<void> => {
     const recovery = decodeOmpImplementationArtifact(
       request.recovery.artifact,
-      request.recovery.changeHash,
-    )
+      request.recovery.changeHash
+    );
     if (
       request.deadlineAtMs !== undefined &&
       (!Number.isSafeInteger(request.deadlineAtMs) || request.deadlineAtMs <= 0)
     ) {
-      throw new OmpRequestError("OMP workspace cleanup deadline is invalid")
+      throw new OmpRequestError("OMP workspace cleanup deadline is invalid");
     }
     const deadlineAtMs = Math.min(
       request.deadlineAtMs ?? Number.MAX_SAFE_INTEGER,
-      Date.now() + shutdownTimeoutMs,
-    )
-    requireCleanupActive(request.signal, deadlineAtMs)
-    const sourceCwd = await resolveExecutionCwd(options.repositoriesRoot, request.cwd)
-    if (!(await pathExists(OMP_WORKTREES_DIRECTORY))) return
-    const worktreesRoot = await realpath(OMP_WORKTREES_DIRECTORY)
-    const rootStat = await stat(worktreesRoot)
+      Date.now() + shutdownTimeoutMs
+    );
+    requireCleanupActive(request.signal, deadlineAtMs);
+    const sourceCwd = await resolveExecutionCwd(
+      options.repositoriesRoot,
+      request.cwd
+    );
+    if (!(await pathExists(OMP_WORKTREES_DIRECTORY))) return;
+    const worktreesRoot = await realpath(OMP_WORKTREES_DIRECTORY);
+    const rootStat = await stat(worktreesRoot);
     if (!rootStat.isDirectory() || (rootStat.mode & 0o077) !== 0) {
-      throw new OmpConfigurationError("OMP worktree root is insecure")
+      throw new OmpConfigurationError("OMP worktree root is insecure");
     }
-    const workspaceCwd = join(worktreesRoot, recovery.workspaceKey)
-    const markerPath = ownershipMarkerPathFor(workspaceCwd)
-    const lockDirectory = `${workspaceCwd}.lock`
-    const workspacePresent = await pathExists(workspaceCwd)
-    const markerPresent = await pathExists(markerPath)
-    const lockPresent = await pathExists(lockDirectory)
-    if (!workspacePresent && !markerPresent && !lockPresent) return
+    const workspaceCwd = join(worktreesRoot, recovery.workspaceKey);
+    const markerPath = ownershipMarkerPathFor(workspaceCwd);
+    const lockDirectory = `${workspaceCwd}.lock`;
+    const workspacePresent = await pathExists(workspaceCwd);
+    const markerPresent = await pathExists(markerPath);
+    const lockPresent = await pathExists(lockDirectory);
+    if (!workspacePresent && !markerPresent && !lockPresent) return;
     if (workspacePresent !== markerPresent) {
-      throw new OmpRequestError("OMP workspace cleanup ownership changed")
+      throw new OmpRequestError("OMP workspace cleanup ownership changed");
     }
 
     const sourceReadBoundary = Object.freeze({
       readablePaths: Object.freeze([sourceCwd]),
       writablePaths: Object.freeze([]),
-    })
+    });
     const gitExecution = Object.freeze({
       ...(request.signal === undefined ? {} : { signal: request.signal }),
       deadlineAtMs,
-    })
+    });
     const repositoryConfigOverrides = await repositoryProgramConfigOverrides(
       sourceCwd,
       sourceReadBoundary,
-      gitExecution,
-    )
+      gitExecution
+    );
     const sourceTopLevel = await realpath(
       await runGit(
         ["rev-parse", "--show-toplevel"],
         sourceCwd,
         sourceReadBoundary,
         repositoryConfigOverrides,
-        gitExecution,
-      ),
-    )
+        gitExecution
+      )
+    );
     if (sourceTopLevel !== sourceCwd) {
-      throw new OmpRequestError("OMP cwd must be a git worktree root")
+      throw new OmpRequestError("OMP cwd must be a git worktree root");
     }
     const sourceGitDirectory = await realpath(
       await runGit(
@@ -4042,28 +4144,28 @@ export const createOmpCliAdapter = (
         sourceCwd,
         sourceReadBoundary,
         repositoryConfigOverrides,
-        gitExecution,
-      ),
-    )
+        gitExecution
+      )
+    );
     if (!isContainedPath(sourceCwd, sourceGitDirectory)) {
-      throw new OmpRequestError("OMP source git directory is invalid")
+      throw new OmpRequestError("OMP source git directory is invalid");
     }
 
-    requireCleanupActive(request.signal, deadlineAtMs)
-    const lock = await acquireWorkspaceLock(lockDirectory, recovery.ownerNonce)
+    requireCleanupActive(request.signal, deadlineAtMs);
+    const lock = await acquireWorkspaceLock(lockDirectory, recovery.ownerNonce);
     try {
       if (
         !(await pathExists(workspaceCwd)) &&
         !(await pathExists(markerPath))
       ) {
-        await lock.release()
-        return
+        await lock.release();
+        return;
       }
       await requireOwnershipMarker(
         sourceCwd,
         workspaceCwd,
-        request.recovery.artifact,
-      )
+        request.recovery.artifact
+      );
       await disposeOwnedWorktree({
         lock,
         sourceCwd,
@@ -4075,18 +4177,16 @@ export const createOmpCliAdapter = (
         ownerNonce: recovery.ownerNonce,
         repositoryConfigOverrides,
         ...(request.signal === undefined ? {} : { signal: request.signal }),
-        deadlineAtMs
-      })
-    }
-    catch (error) {
+        deadlineAtMs,
+      });
+    } catch (error) {
       try {
-        await lock.release()
+        await lock.release();
+      } catch {
+        throw new OmpWorkspaceCleanupError();
       }
-      catch {
-        throw new OmpWorkspaceCleanupError()
-      }
-      throw error
+      throw error;
     }
-  }
-  return Object.freeze({ execute, cleanupRetainedWorkspace })
-}
+  };
+  return Object.freeze({ execute, cleanupRetainedWorkspace });
+};

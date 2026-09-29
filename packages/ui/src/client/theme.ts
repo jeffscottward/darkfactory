@@ -1,4 +1,4 @@
-"use client"
+"use client";
 
 import {
   createContext,
@@ -8,16 +8,16 @@ import {
   useContext,
   useMemo,
   useState,
-} from "react"
-import { Palette as PaletteIcon } from "lucide-react"
+} from "react";
+import { Palette as PaletteIcon } from "lucide-react";
 
-import { IconButton } from "../icon-button.tsx"
+import { IconButton } from "../icon-button.tsx";
 import {
   PALETTE_NAMES,
   THEME_MODES,
   type PaletteName,
   type ThemeMode,
-} from "../palettes.ts"
+} from "../palettes.ts";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -26,56 +26,63 @@ import {
   DropdownMenuRadioItem,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
-} from "./dropdown-menu.ts"
+} from "./dropdown-menu.ts";
 
 export interface ThemePreference {
-  readonly themeMode: ThemeMode
-  readonly palette: PaletteName
+  readonly themeMode: ThemeMode;
+  readonly palette: PaletteName;
 }
 
 export interface ThemeContextValue {
-  readonly preference: Readonly<ThemePreference>
-  readonly onPreferenceChange: (preference: Readonly<ThemePreference>) => void
+  readonly preference: Readonly<ThemePreference>;
+  readonly onPreferenceChange: (preference: Readonly<ThemePreference>) => void;
 }
 
 export interface ThemeProviderProps extends ThemeContextValue {
-  readonly children: ReactNode
+  readonly children: ReactNode;
 }
 
-const ThemeContext = createContext<ThemeContextValue | null>(null)
+const ThemeContext = createContext<ThemeContextValue | null>(null);
 
 export const ThemeProvider = ({
   children,
   onPreferenceChange,
   preference,
 }: ThemeProviderProps) => {
-  const value = useMemo<ThemeContextValue>(() => ({
-    onPreferenceChange,
-    preference,
-  }), [onPreferenceChange, preference.palette, preference.themeMode])
+  const value = useMemo<ThemeContextValue>(
+    () => ({
+      onPreferenceChange,
+      preference,
+    }),
+    [onPreferenceChange, preference.palette, preference.themeMode]
+  );
 
-  return createElement(ThemeContext.Provider, { value }, children)
-}
+  return createElement(ThemeContext.Provider, { value }, children);
+};
 
 export const useTheme = (): ThemeContextValue => {
-  const theme = useContext(ThemeContext)
-  if (theme === null) throw new Error("ThemeProvider is required.")
-  return theme
-}
+  const theme = useContext(ThemeContext);
+  if (theme === null) throw new Error("ThemeProvider is required.");
+  return theme;
+};
 
-export const THEME_MODE_OPTIONS: ReadonlyArray<Readonly<{
-  label: string
-  value: ThemeMode
-}>> = Object.freeze([
+export const THEME_MODE_OPTIONS: ReadonlyArray<
+  Readonly<{
+    label: string;
+    value: ThemeMode;
+  }>
+> = Object.freeze([
   { label: "Light", value: "light" },
   { label: "Dark", value: "dark" },
   { label: "System", value: "system" },
-])
+]);
 
-export const PALETTE_OPTIONS: ReadonlyArray<Readonly<{
-  label: string
-  value: PaletteName
-}>> = Object.freeze([
+export const PALETTE_OPTIONS: ReadonlyArray<
+  Readonly<{
+    label: string;
+    value: PaletteName;
+  }>
+> = Object.freeze([
   { label: "Neutral", value: "neutral" },
   { label: "Slate", value: "slate" },
   { label: "Blue", value: "blue" },
@@ -86,23 +93,23 @@ export const PALETTE_OPTIONS: ReadonlyArray<Readonly<{
   { label: "Red", value: "red" },
   { label: "Rose", value: "rose" },
   { label: "Violet", value: "violet" },
-])
+]);
 
-const isThemeMode = (value: string): value is ThemeMode => (
-  THEME_MODES.some((mode) => mode === value)
-)
+const isThemeMode = (value: string): value is ThemeMode =>
+  THEME_MODES.some((mode) => mode === value);
 
-const isPaletteName = (value: string): value is PaletteName => (
-  PALETTE_NAMES.some((palette) => palette === value)
-)
+const isPaletteName = (value: string): value is PaletteName =>
+  PALETTE_NAMES.some((palette) => palette === value);
 
 export interface ThemePickerProps {
-  readonly disabled?: boolean
-  readonly error?: ReactNode
-  readonly idPrefix: string
-  readonly onPreferenceChange?: ((preference: Readonly<ThemePreference>) => void) | undefined
-  readonly statusMessage?: ReactNode
-  readonly triggerLabel?: string
+  readonly disabled?: boolean;
+  readonly error?: ReactNode;
+  readonly idPrefix: string;
+  readonly onPreferenceChange?:
+    | ((preference: Readonly<ThemePreference>) => void)
+    | undefined;
+  readonly statusMessage?: ReactNode;
+  readonly triggerLabel?: string;
 }
 
 export const ThemePicker = ({
@@ -113,19 +120,19 @@ export const ThemePicker = ({
   statusMessage,
   triggerLabel = "Theme settings",
 }: ThemePickerProps): ReactElement => {
-  const theme = useTheme()
-  const [open, setOpen] = useState(false)
-  const selectPreference = onPreferenceChange ?? theme.onPreferenceChange
-  const { palette, themeMode } = theme.preference
+  const theme = useTheme();
+  const [open, setOpen] = useState(false);
+  const selectPreference = onPreferenceChange ?? theme.onPreferenceChange;
+  const { palette, themeMode } = theme.preference;
 
   const selectThemeMode = (value: string): void => {
-    if (disabled || !isThemeMode(value)) return
-    selectPreference({ themeMode: value, palette })
-  }
+    if (disabled || !isThemeMode(value)) return;
+    selectPreference({ themeMode: value, palette });
+  };
   const selectPalette = (value: string): void => {
-    if (disabled || !isPaletteName(value)) return
-    selectPreference({ themeMode, palette: value })
-  }
+    if (disabled || !isPaletteName(value)) return;
+    selectPreference({ themeMode, palette: value });
+  };
   return createElement(
     DropdownMenu,
     { onOpenChange: setOpen, open },
@@ -136,7 +143,7 @@ export const ThemePicker = ({
         "aria-live": "polite",
         className: "sr-only",
       },
-      statusMessage,
+      statusMessage
     ),
     createElement(
       "span",
@@ -145,7 +152,7 @@ export const ThemePicker = ({
         className: "sr-only",
         role: "alert",
       },
-      error,
+      error
     ),
     createElement(
       DropdownMenuTrigger,
@@ -157,14 +164,15 @@ export const ThemePicker = ({
       createElement(
         IconButton,
         { "aria-label": triggerLabel, variant: "ghost" },
-        createElement(PaletteIcon, { "aria-hidden": "true" }),
-      ),
+        createElement(PaletteIcon, { "aria-hidden": "true" })
+      )
     ),
     createElement(
       DropdownMenuContent,
       {
         align: "end",
-        className: "max-h-[calc(100dvh-var(--space-8))] w-64 overflow-y-auto overscroll-contain",
+        className:
+          "max-h-[calc(100dvh-var(--space-8))] w-64 overflow-y-auto overscroll-contain",
         "aria-labelledby": `${idPrefix}-trigger`,
         id: `${idPrefix}-content`,
       },
@@ -172,23 +180,23 @@ export const ThemePicker = ({
       statusMessage === undefined || statusMessage === null
         ? null
         : createElement(
-          "p",
-          {
-            "aria-hidden": "true",
-            className: "px-2 pb-2 text-xs leading-5 text-muted-foreground",
-          },
-          statusMessage,
-        ),
+            "p",
+            {
+              "aria-hidden": "true",
+              className: "px-2 pb-2 text-xs leading-5 text-muted-foreground",
+            },
+            statusMessage
+          ),
       error === undefined || error === null
         ? null
         : createElement(
-          "p",
-          {
-            "aria-hidden": "true",
-            className: "px-2 pb-2 text-xs leading-5 text-destructive",
-          },
-          error,
-        ),
+            "p",
+            {
+              "aria-hidden": "true",
+              className: "px-2 pb-2 text-xs leading-5 text-destructive",
+            },
+            error
+          ),
       createElement(
         DropdownMenuRadioGroup,
         {
@@ -196,15 +204,17 @@ export const ThemePicker = ({
           onValueChange: selectThemeMode,
           value: themeMode,
         },
-        THEME_MODE_OPTIONS.map((option) => createElement(
-          DropdownMenuRadioItem,
-          {
-            disabled,
-            key: option.value,
-            value: option.value,
-          },
-          option.label,
-        )),
+        THEME_MODE_OPTIONS.map((option) =>
+          createElement(
+            DropdownMenuRadioItem,
+            {
+              disabled,
+              key: option.value,
+              value: option.value,
+            },
+            option.label
+          )
+        )
       ),
       createElement(DropdownMenuSeparator),
       createElement(DropdownMenuLabel, {}, "Palette"),
@@ -215,21 +225,23 @@ export const ThemePicker = ({
           onValueChange: selectPalette,
           value: palette,
         },
-        PALETTE_OPTIONS.map((option) => createElement(
-          DropdownMenuRadioItem,
-          {
-            disabled,
-            key: option.value,
-            value: option.value,
-          },
-          createElement("span", {
-            "aria-hidden": "true",
-            className: "theme-palette-swatch size-3 rounded-pill",
-            "data-palette": option.value,
-          }),
-          createElement("span", {}, option.label),
-        )),
-      ),
-    ),
-  )
-}
+        PALETTE_OPTIONS.map((option) =>
+          createElement(
+            DropdownMenuRadioItem,
+            {
+              disabled,
+              key: option.value,
+              value: option.value,
+            },
+            createElement("span", {
+              "aria-hidden": "true",
+              className: "theme-palette-swatch size-3 rounded-pill",
+              "data-palette": option.value,
+            }),
+            createElement("span", {}, option.label)
+          )
+        )
+      )
+    )
+  );
+};

@@ -1,37 +1,37 @@
 import {
   RequestDatabaseEndpointError,
   validateRequestDatabaseEndpoint,
-} from "@darkfactory/config/database"
+} from "@darkfactory/config/database";
 
 export type DeploymentEnvironment = Readonly<
   Record<string, string | undefined>
->
+>;
 export type DeploymentDatabaseCheck = Readonly<{
-  ok: boolean
-  message: string
-}>
+  ok: boolean;
+  message: string;
+}>;
 export type DeploymentCheckStream = Readonly<{
-  write: (message: string) => unknown
-}>
+  write: (message: string) => unknown;
+}>;
 
 const failed = (message: string): DeploymentDatabaseCheck => ({
   ok: false,
   message,
-})
+});
 
 export const checkProductionWebDatabaseEndpoint = (
-  source: DeploymentEnvironment,
+  source: DeploymentEnvironment
 ): DeploymentDatabaseCheck => {
-  const provider = source["DATABASE_PROVIDER"]?.trim()
+  const provider = source["DATABASE_PROVIDER"]?.trim();
   if (provider !== "planetscale" && provider !== "postgres") {
     return failed(
-      "DATABASE_PROVIDER must be planetscale or postgres for production web deployment",
-    )
+      "DATABASE_PROVIDER must be planetscale or postgres for production web deployment"
+    );
   }
 
-  const connectionString = source["DATABASE_URL"]?.trim()
+  const connectionString = source["DATABASE_URL"]?.trim();
   if (!connectionString) {
-    return failed("DATABASE_URL is required for production web deployment")
+    return failed("DATABASE_URL is required for production web deployment");
   }
 
   try {
@@ -39,33 +39,32 @@ export const checkProductionWebDatabaseEndpoint = (
       appEnvironment: "production",
       provider,
       connectionString,
-    })
-  }
-  catch (error) {
+    });
+  } catch (error) {
     if (error instanceof RequestDatabaseEndpointError) {
-      return failed(error.diagnostic)
+      return failed(error.diagnostic);
     }
-    return failed("Unable to validate the production web database endpoint")
+    return failed("Unable to validate the production web database endpoint");
   }
 
   return {
     ok: true,
     message:
       "Production web DATABASE_URL uses the provider-managed PlanetScale PgBouncer endpoint on port 6432 with sslmode=verify-full",
-  }
-}
+  };
+};
 
 export const runProductionWebDatabaseCheck = (
   source: DeploymentEnvironment,
   output: DeploymentCheckStream,
-  errorOutput: DeploymentCheckStream,
+  errorOutput: DeploymentCheckStream
 ): number => {
-  const report = checkProductionWebDatabaseEndpoint(source)
-  const line = `deployment database check: ${report.message}\n`
+  const report = checkProductionWebDatabaseEndpoint(source);
+  const line = `deployment database check: ${report.message}\n`;
   if (report.ok) {
-    output.write(line)
-    return 0
+    output.write(line);
+    return 0;
   }
-  errorOutput.write(line)
-  return 1
-}
+  errorOutput.write(line);
+  return 1;
+};

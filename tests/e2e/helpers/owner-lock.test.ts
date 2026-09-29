@@ -1,20 +1,12 @@
 import { spawnSync } from "node:child_process";
-import {
-  mkdtemp,
-  readFile,
-  rm,
-  writeFile,
-} from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { cleanupE2ELifecycle } from "./lifecycle.ts";
-import {
-  acquireRouteOwnerLock,
-  releaseRouteOwnerLock,
-} from "./owner-lock.ts";
+import { acquireRouteOwnerLock, releaseRouteOwnerLock } from "./owner-lock.ts";
 
 const temporaryRoots: string[] = [];
 
@@ -22,19 +14,15 @@ const createLockPath = async (): Promise<string> => {
   const root = await mkdtemp(join(tmpdir(), "darkfactory-e2e-lock-test-"));
   temporaryRoots.push(root);
   return join(root, "route.lock");
-}
-;
+};
 
 afterEach(async () => {
   await Promise.all(
     temporaryRoots.splice(0).map((root) => {
-      return rm(root, { force: true, recursive: true })
-    }
-    )
+      return rm(root, { force: true, recursive: true });
+    })
   );
-}
-);
-
+});
 
 describe("E2E lifecycle runtime resolution", () => {
   it("loads the TypeScript lifecycle modules under Node type stripping", () => {
@@ -50,10 +38,8 @@ describe("E2E lifecycle runtime resolution", () => {
     );
 
     expect(result.status, result.stderr).toBe(0);
-  }
-  );
-}
-);
+  });
+});
 describe("canonical Portless route owner lock", () => {
   it("permits exactly one concurrent contender without signaling either tree", async () => {
     const lockPath = await createLockPath();
@@ -64,19 +50,18 @@ describe("canonical Portless route owner lock", () => {
     ]);
     try {
       const owners = contenders.flatMap((result) => {
-        return result.status === "fulfilled" ? [result.value] : []
-      }
-      );
+        return result.status === "fulfilled" ? [result.value] : [];
+      });
       expect(owners).toHaveLength(1);
-      expect(contenders.filter((result) => result.status === "rejected")).toHaveLength(1);
+      expect(
+        contenders.filter((result) => result.status === "rejected")
+      ).toHaveLength(1);
       expect(kill.mock.calls.every(([, signal]) => signal === 0)).toBe(true);
       await releaseRouteOwnerLock(owners[0]!);
-    }
-    finally {
+    } finally {
       kill.mockRestore();
     }
-  }
-  );
+  });
 
   it("fails closed on a stale owner without deleting or broadly signaling", async () => {
     const lockPath = await createLockPath();
@@ -91,12 +76,10 @@ describe("canonical Portless route owner lock", () => {
       );
       expect(kill.mock.calls).toEqual([[stalePid, 0]]);
       expect(await readFile(lockPath, "utf8")).toBe(staleRecord);
-    }
-    finally {
+    } finally {
       kill.mockRestore();
     }
-  }
-  );
+  });
 
   it("never removes a partially published exclusive lock", async () => {
     const lockPath = await createLockPath();
@@ -106,8 +89,7 @@ describe("canonical Portless route owner lock", () => {
       "Stale canonical Portless route lock requires explicit cleanup."
     );
     expect(await readFile(lockPath, "utf8")).toBe("");
-  }
-  );
+  });
 
   it("releases ownership last and retains it when resource cleanup fails", async () => {
     const order: string[] = [];
@@ -118,7 +100,7 @@ describe("canonical Portless route owner lock", () => {
       dropDatabase: async () => undefined,
       releaseOwnerLock: async () => {
         order.push("lock");
-      }
+      },
     });
     expect(order).toEqual(["preview", "lock"]);
 
@@ -131,11 +113,9 @@ describe("canonical Portless route owner lock", () => {
         dropDatabase: async () => undefined,
         releaseOwnerLock: async () => {
           released = true;
-        }
+        },
       })
     ).rejects.toThrowError("E2E resource cleanup failed");
     expect(released).toBe(false);
-  }
-  );
-}
-);
+  });
+});

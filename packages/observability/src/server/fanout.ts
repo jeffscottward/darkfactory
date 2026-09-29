@@ -9,19 +9,19 @@ import type {
   SpanHandle,
   StructuredEventSink,
   WaitUntil,
-} from "../port.ts"
-import { redactSemanticEvent } from "../redaction.ts"
+} from "../port.ts";
+import { redactSemanticEvent } from "../redaction.ts";
 
 export type SemanticEventFanoutOptions = Readonly<{
-  sink: StructuredEventSink
-  analytics?: AnalyticsCaptureFacade
-  resolveConsent?: ConsentResolver
-}>
+  sink: StructuredEventSink;
+  analytics?: AnalyticsCaptureFacade;
+  resolveConsent?: ConsentResolver;
+}>;
 
 const toAnalyticsCapture = (
   event: SemanticEvent,
   actorId: string,
-  consent: "granted",
+  consent: "granted"
 ): AnalyticsCapture => ({
   consent,
   distinctId: actorId,
@@ -39,62 +39,58 @@ const toAnalyticsCapture = (
       : { traceId: event.correlation.traceId }),
   },
   timestamp: event.occurredAt,
-})
+});
 
 const emitAnalytics = async (
   event: SemanticEvent,
   actorId: string,
   analytics: AnalyticsCaptureFacade,
-  resolveConsent: ConsentResolver,
+  resolveConsent: ConsentResolver
 ): Promise<"captured" | "skipped" | "failed"> => {
-  let consent
+  let consent;
   try {
-    consent = await resolveConsent(event.correlation)
+    consent = await resolveConsent(event.correlation);
+  } catch {
+    return "skipped";
   }
-  catch {
-    return "skipped"
-  }
-  if (consent !== "granted") return "skipped"
+  if (consent !== "granted") return "skipped";
 
   try {
     const result = await analytics.capture(
-      toAnalyticsCapture(event, actorId, consent),
-    )
+      toAnalyticsCapture(event, actorId, consent)
+    );
     return result.status === "captured"
       ? "captured"
       : result.status === "failed"
         ? "failed"
-        : "skipped"
+        : "skipped";
+  } catch {
+    return "failed";
   }
-  catch {
-    return "failed"
-  }
-}
+};
 
 const registerWaitUntil = (
   waitUntil: WaitUntil | undefined,
-  task: Promise<unknown>,
+  task: Promise<unknown>
 ): void => {
-  if (waitUntil === undefined) return
+  if (waitUntil === undefined) return;
   // Emission still awaits the task, so a broken lifetime hook cannot retry it.
   try {
-    waitUntil(task)
+    waitUntil(task);
+  } catch (_error) {
+    undefined;
   }
-  catch (_error) {
-    undefined
-  }
-}
+};
 
 const recordOnSpan = (
   span: SpanHandle,
-  event: SemanticEvent,
+  event: SemanticEvent
 ): "recorded" | "failed" => {
-  let failed = false
+  let failed = false;
   try {
-    span.addEvent(event)
-  }
-  catch (_error) {
-    failed = true
+    span.addEvent(event);
+  } catch (_error) {
+    failed = true;
   }
 
   try {
@@ -105,38 +101,36 @@ const recordOnSpan = (
         eventName: event.name,
         ...(event.outcome === undefined ? {} : { outcome: event.outcome }),
       },
-    })
+    });
+  } catch (_error) {
+    failed = true;
   }
-  catch (_error) {
-    failed = true
-  }
-  return failed ? "failed" : "recorded"
-}
+  return failed ? "failed" : "recorded";
+};
 
 export const createSemanticEventFanout = (
-  options: SemanticEventFanoutOptions,
+  options: SemanticEventFanoutOptions
 ): SemanticEventPort => {
   const emit = async (
     event: SemanticEvent,
-    context: SemanticEmissionContext = {},
+    context: SemanticEmissionContext = {}
   ): Promise<SemanticEmissionResult> => {
-    const snapshot = redactSemanticEvent(event)
+    const snapshot = redactSemanticEvent(event);
 
-    let structuredEvent: SemanticEmissionResult["structuredEvent"] = "emitted"
+    let structuredEvent: SemanticEmissionResult["structuredEvent"] = "emitted";
     try {
-      await options.sink.emit(snapshot)
-    }
-    catch (_error) {
-      structuredEvent = "failed"
+      await options.sink.emit(snapshot);
+    } catch (_error) {
+      structuredEvent = "failed";
     }
 
     const span =
       context.span === undefined
         ? ("skipped" as const)
-        : recordOnSpan(context.span, snapshot)
+        : recordOnSpan(context.span, snapshot);
 
-    let analytics: SemanticEmissionResult["analytics"] = "skipped"
-    const actorId = snapshot.correlation.actorId
+    let analytics: SemanticEmissionResult["analytics"] = "skipped";
+    const actorId = snapshot.correlation.actorId;
     if (
       options.analytics !== undefined &&
       options.resolveConsent !== undefined &&
@@ -147,14 +141,14 @@ export const createSemanticEventFanout = (
         snapshot,
         actorId,
         options.analytics,
-        options.resolveConsent,
-      )
-      registerWaitUntil(context.waitUntil, task)
-      analytics = await task
+        options.resolveConsent
+      );
+      registerWaitUntil(context.waitUntil, task);
+      analytics = await task;
     }
 
-    return Object.freeze({ structuredEvent, span, analytics })
-  }
+    return Object.freeze({ structuredEvent, span, analytics });
+  };
 
-  return Object.freeze({ emit })
-}
+  return Object.freeze({ emit });
+};

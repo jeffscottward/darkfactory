@@ -1,11 +1,11 @@
-import { AuthPanel } from "../../../components/auth/auth-panel.tsx"
-import { SessionRedirect } from "../../../components/auth/session-redirect.tsx"
-import { SignUpForm } from "../../../components/auth/sign-up-form.tsx"
+import { AuthPanel } from "../../../components/auth/auth-panel.tsx";
+import { SessionRedirect } from "../../../components/auth/session-redirect.tsx";
+import { SignUpForm } from "../../../components/auth/sign-up-form.tsx";
 
 export const metadata = {
   title: "Create account",
   description: "Create and verify a DarkFactory account.",
-}
+};
 
 export default function SignUpPage() {
   return (
@@ -17,6 +17,6 @@ export default function SignUpPage() {
       <SessionRedirect callbackURL="/dashboard">
         <SignUpForm />
       </SessionRedirect>
-  </AuthPanel>
-  )
+    </AuthPanel>
+  );
 }

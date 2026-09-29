@@ -1,32 +1,30 @@
-import { describe, expect, it, vi } from "vitest"
+import { describe, expect, it, vi } from "vitest";
 
-describe("client entrypoint SSR safety", function() {
-  return it("imports and creates a store without reading browser persistence globals", async function() {
+describe("client entrypoint SSR safety", function () {
+  return it("imports and creates a store without reading browser persistence globals", async function () {
     const existingDescriptor = Object.getOwnPropertyDescriptor(
       globalThis,
-      "localStorage",
-    )
+      "localStorage"
+    );
     Object.defineProperty(globalThis, "localStorage", {
       configurable: true,
       get: () => {
-        throw new Error("localStorage must not be read during import")
-      }
-    })
-    vi.resetModules()
+        throw new Error("localStorage must not be read during import");
+      },
+    });
+    vi.resetModules();
 
     try {
-      const clientModule = await import("@darkfactory/state/client")
-      const store = clientModule.createUiStore()
+      const clientModule = await import("@darkfactory/state/client");
+      const store = clientModule.createUiStore();
 
-      return expect(store.getState().palette).toBe("neutral")
-    }
-    finally {
+      return expect(store.getState().palette).toBe("neutral");
+    } finally {
       if (existingDescriptor) {
-        Object.defineProperty(globalThis, "localStorage", existingDescriptor)
-      }
-      else {
-        Reflect.deleteProperty(globalThis, "localStorage")
+        Object.defineProperty(globalThis, "localStorage", existingDescriptor);
+      } else {
+        Reflect.deleteProperty(globalThis, "localStorage");
       }
     }
-  })
-})
+  });
+});

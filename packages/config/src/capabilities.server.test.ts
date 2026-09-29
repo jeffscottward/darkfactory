@@ -1,19 +1,22 @@
-import { readdir, readFile } from "node:fs/promises"
-import { describe, expect, it } from "vitest"
-import type { CapabilityManifest } from "./capabilities.ts"
-import { parseServerEnv } from "./server.ts"
-import { loadCapabilityManifest } from "./server/capabilities-loader.ts"
+import { readdir, readFile } from "node:fs/promises";
+import { describe, expect, it } from "vitest";
+import type { CapabilityManifest } from "./capabilities.ts";
+import { parseServerEnv } from "./server.ts";
+import { loadCapabilityManifest } from "./server/capabilities-loader.ts";
 import {
   V01_CAPABILITY_BINDINGS,
   V01_INSTALLED_CAPABILITIES,
   evaluateCapabilityReadiness,
-} from "./server/capability-readiness.ts"
+} from "./server/capability-readiness.ts";
 
 const readManifest = async (): Promise<CapabilityManifest> => {
   return loadCapabilityManifest(
-    await readFile(new URL("../../../capabilities.yaml", import.meta.url), "utf8"),
-  )
-}
+    await readFile(
+      new URL("../../../capabilities.yaml", import.meta.url),
+      "utf8"
+    )
+  );
+};
 
 const enableStorage = (manifest: CapabilityManifest): CapabilityManifest => ({
   ...manifest,
@@ -21,54 +24,62 @@ const enableStorage = (manifest: CapabilityManifest): CapabilityManifest => ({
     ...manifest.capabilities,
     storage: { ...manifest.capabilities.storage, enabled: true },
   },
-})
+});
 
 type PackageManifest = Readonly<
   Record<
-    "dependencies" | "devDependencies" | "optionalDependencies" | "peerDependencies",
+    | "dependencies"
+    | "devDependencies"
+    | "optionalDependencies"
+    | "peerDependencies",
     Readonly<Record<string, string>> | undefined
   >
->
+>;
 
 const readChildPackageManifests = async (
-  directory: URL,
+  directory: URL
 ): Promise<PackageManifest[]> => {
-  const entries = await readdir(directory, { withFileTypes: true })
+  const entries = await readdir(directory, { withFileTypes: true });
   return await Promise.all(
-    entries.filter((entry) => entry.isDirectory()).map(async (entry) => {
-      return JSON.parse(
-        await readFile(new URL(`${entry.name}/package.json`, directory), "utf8"),
-      ) as PackageManifest
-    }
-    ),
-  )
-}
+    entries
+      .filter((entry) => entry.isDirectory())
+      .map(async (entry) => {
+        return JSON.parse(
+          await readFile(
+            new URL(`${entry.name}/package.json`, directory),
+            "utf8"
+          )
+        ) as PackageManifest;
+      })
+  );
+};
 
 const installedWorkspaceDependencies = async (): Promise<string[]> => {
   const rootManifest = JSON.parse(
-    await readFile(new URL("../../../package.json", import.meta.url), "utf8"),
-  ) as PackageManifest
+    await readFile(new URL("../../../package.json", import.meta.url), "utf8")
+  ) as PackageManifest;
   const manifests = [
     rootManifest,
     ...(await readChildPackageManifests(
-      new URL("../../../apps/", import.meta.url),
+      new URL("../../../apps/", import.meta.url)
     )),
     ...(await readChildPackageManifests(
-      new URL("../../../packages/", import.meta.url),
+      new URL("../../../packages/", import.meta.url)
     )),
-  ]
+  ];
   const dependencySections = [
     "dependencies",
     "devDependencies",
     "optionalDependencies",
     "peerDependencies",
-  ] as const
+  ] as const;
 
   return manifests.flatMap((manifest) => {
-    return dependencySections.flatMap((section) => Object.keys(manifest[section] ?? {}))
-  }
-  )
-}
+    return dependencySections.flatMap((section) =>
+      Object.keys(manifest[section] ?? {})
+    );
+  });
+};
 
 const configuredStorageEnvironment = {
   STORAGE_ENABLED: true,
@@ -76,7 +87,7 @@ const configuredStorageEnvironment = {
   R2_ACCESS_KEY_ID: "access-secret-value",
   R2_SECRET_ACCESS_KEY: "private-secret-value",
   R2_BUCKET: "private-bucket-name",
-} as const
+} as const;
 
 describe("capability inventory", () => {
   it("marks inline jobs as core and every external v0.1 capability uninstalled", async () => {
@@ -94,7 +105,7 @@ describe("capability inventory", () => {
       timescaledb: false,
       pgTrgm: false,
       pgCron: false,
-    })
+    });
     expect(V01_CAPABILITY_BINDINGS).toEqual({
       inlineJobs: true,
       mintlify: false,
@@ -109,82 +120,84 @@ describe("capability inventory", () => {
       timescaledb: false,
       pgTrgm: false,
       pgCron: false,
-    })
+    });
     const forbiddenDisabledDependencies =
-      /mintlify|celery|flower|uptime.?kuma|glitchtip|memori|pgvector|postgis|timescale|pg.?cron|@aws-sdk\/client-s3/i
-    const disabledDependencies = (await installedWorkspaceDependencies()).filter(
-      (dependency) => {
-        return forbiddenDisabledDependencies.test(dependency)
-      }
-    )
-    expect(disabledDependencies).toEqual([])
-    return undefined
-  }
-  )
-  return undefined
-}
-)
+      /mintlify|celery|flower|uptime.?kuma|glitchtip|memori|pgvector|postgis|timescale|pg.?cron|@aws-sdk\/client-s3/i;
+    const disabledDependencies = (
+      await installedWorkspaceDependencies()
+    ).filter((dependency) => {
+      return forbiddenDisabledDependencies.test(dependency);
+    });
+    expect(disabledDependencies).toEqual([]);
+    return undefined;
+  });
+  return undefined;
+});
 
 describe("capability readiness", () => {
   it("reports all optional capabilities disabled for the exact v0.1 manifest", async () => {
-    const readiness = evaluateCapabilityReadiness(await readManifest(), {})
+    const readiness = evaluateCapabilityReadiness(await readManifest(), {});
 
-    expect(Object.values(readiness).every(({ status }) => status === "disabled")).toBe(true)
+    expect(
+      Object.values(readiness).every(({ status }) => status === "disabled")
+    ).toBe(true);
     expect(
       Object.values(readiness).every(
-        ({ enabled, available }) => !enabled && !available,
-      ),
-    ).toBe(true)
-    expect(readiness.jobs.provider).toBe("celery")
-    expect(readiness.jobsDashboard.provider).toBe("flower")
-    return expect(JSON.stringify(readiness)).not.toContain("inlineJobs")
-  }
-  )
+        ({ enabled, available }) => !enabled && !available
+      )
+    ).toBe(true);
+    expect(readiness.jobs.provider).toBe("celery");
+    expect(readiness.jobsDashboard.provider).toBe("flower");
+    return expect(JSON.stringify(readiness)).not.toContain("inlineJobs");
+  });
 
   it("distinguishes disabled, unconfigured, unavailable, and ready", async () => {
-    const manifest = await readManifest()
-    const enabledManifest = enableStorage(manifest)
+    const manifest = await readManifest();
+    const enabledManifest = enableStorage(manifest);
     const available = {
       installed: { ...V01_INSTALLED_CAPABILITIES, r2: true },
       bindings: { ...V01_CAPABILITY_BINDINGS, r2: true },
-    }
+    };
 
-    expect(evaluateCapabilityReadiness(manifest, {}).storage.status).toBe("disabled")
+    expect(evaluateCapabilityReadiness(manifest, {}).storage.status).toBe(
+      "disabled"
+    );
 
     const unconfigured = evaluateCapabilityReadiness(
       enabledManifest,
       { STORAGE_ENABLED: true, R2_ACCOUNT_ID: "account-only" },
-      available,
-    ).storage
+      available
+    ).storage;
     expect(unconfigured).toMatchObject({
       enabled: true,
       configured: false,
       available: true,
       status: "unconfigured",
       reason: "missing_required_configuration",
-    })
+    });
     expect(unconfigured.missingRequirements).toEqual([
       "R2_ACCESS_KEY_ID",
       "R2_SECRET_ACCESS_KEY",
       "R2_BUCKET",
-    ])
+    ]);
 
     expect(
-      evaluateCapabilityReadiness(enabledManifest, configuredStorageEnvironment).storage,
+      evaluateCapabilityReadiness(enabledManifest, configuredStorageEnvironment)
+        .storage
     ).toMatchObject({
       enabled: true,
       configured: true,
       available: false,
       status: "unavailable",
       reason: "dependency_not_installed",
-    })
+    });
 
     return expect(
       evaluateCapabilityReadiness(
         enabledManifest,
         configuredStorageEnvironment,
-        available,
-      ).storage,
+        available
+      ).storage
     ).toEqual({
       provider: "r2",
       enabled: true,
@@ -192,9 +205,8 @@ describe("capability readiness", () => {
       available: true,
       status: "ready",
       missingRequirements: [],
-    })
-  }
-  )
+    });
+  });
 
   it("accepts normalized server environment values without reparsing booleans", async () => {
     const parsedEnvironment = parseServerEnv({
@@ -206,24 +218,23 @@ describe("capability readiness", () => {
       R2_ACCESS_KEY_ID: "access-reference",
       R2_SECRET_ACCESS_KEY: "secret-reference",
       R2_BUCKET: "bucket-reference",
-    })
+    });
     const result = evaluateCapabilityReadiness(
       enableStorage(await readManifest()),
       parsedEnvironment,
       {
         installed: { ...V01_INSTALLED_CAPABILITIES, r2: true },
         bindings: { ...V01_CAPABILITY_BINDINGS, r2: true },
-      },
-    )
+      }
+    );
 
     return expect(result.storage).toMatchObject({
       enabled: true,
       configured: true,
       available: true,
       status: "ready",
-    })
-  }
-  )
+    });
+  });
 
   it("reports an unavailable binding separately from an uninstalled dependency", async () => {
     const result = evaluateCapabilityReadiness(
@@ -232,34 +243,32 @@ describe("capability readiness", () => {
       {
         installed: { ...V01_INSTALLED_CAPABILITIES, r2: true },
         bindings: V01_CAPABILITY_BINDINGS,
-      },
-    ).storage
+      }
+    ).storage;
 
     return expect(result).toMatchObject({
       status: "unavailable",
       reason: "binding_unavailable",
-    })
-  }
-  )
+    });
+  });
 
   it("serializes only requirement names and sanitized reason codes", async () => {
     const serialized = JSON.stringify(
       evaluateCapabilityReadiness(
         enableStorage(await readManifest()),
-        configuredStorageEnvironment,
-      ),
-    )
+        configuredStorageEnvironment
+      )
+    );
 
     for (const [key, secret] of Object.entries(configuredStorageEnvironment)) {
-      if (key === "STORAGE_ENABLED") continue
-      expect(serialized).not.toContain(secret)
+      if (key === "STORAGE_ENABLED") continue;
+      expect(serialized).not.toContain(secret);
     }
-    return expect(serialized).not.toMatch(/secret-value|private-bucket-name/)
-  }
-  )
+    return expect(serialized).not.toMatch(/secret-value|private-bucket-name/);
+  });
 
   it("evaluates every manifest and environment enablement branch as ready", async () => {
-    const manifest = await readManifest()
+    const manifest = await readManifest();
     const enabledManifest: CapabilityManifest = {
       ...manifest,
       capabilities: {
@@ -286,7 +295,7 @@ describe("capability readiness", () => {
           pg_cron: { enabled: true },
         },
       },
-    }
+    };
     const allAvailable = {
       installed: {
         ...V01_INSTALLED_CAPABILITIES,
@@ -318,7 +327,7 @@ describe("capability readiness", () => {
         pgTrgm: true,
         pgCron: true,
       },
-    }
+    };
     const result = evaluateCapabilityReadiness(
       enabledManifest,
       {
@@ -335,17 +344,15 @@ describe("capability readiness", () => {
         R2_BUCKET: "bucket-reference",
         MEMORI_ENABLED: true,
       },
-      allAvailable,
-    )
+      allAvailable
+    );
 
     expect(Object.values(result).map(({ status }) => status)).toEqual(
-      Array.from({ length: 12 }, () => "ready"),
-    )
-    return expect(Object.values(result).every(({ reason }) => reason === undefined)).toBe(
-      true,
-    )
-  }
-  )
-  return undefined
-}
-)
+      Array.from({ length: 12 }, () => "ready")
+    );
+    return expect(
+      Object.values(result).every(({ reason }) => reason === undefined)
+    ).toBe(true);
+  });
+  return undefined;
+});

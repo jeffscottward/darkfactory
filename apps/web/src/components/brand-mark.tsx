@@ -1,7 +1,10 @@
-import type { ComponentPropsWithRef } from "react"
-import { cn } from "@darkfactory/ui"
+import type { ComponentPropsWithRef } from "react";
+import { cn } from "@darkfactory/ui";
 
-export const BrandMark = ({ className, ...props }: ComponentPropsWithRef<"svg">) => (
+export const BrandMark = ({
+  className,
+  ...props
+}: ComponentPropsWithRef<"svg">) => (
   <svg
     aria-hidden="true"
     className={cn("size-6 shrink-0", className)}
@@ -14,19 +17,18 @@ export const BrandMark = ({ className, ...props }: ComponentPropsWithRef<"svg">)
       d="M5 5h10v10H5V5Zm12 0h10v22H17V5ZM5 17h10v10H5V17Z"
       fill="currentColor"
     />
-</svg>
-)
+  </svg>
+);
 
 export const BrandLink = ({ className }: { readonly className?: string }) => (
   <a
     className={cn(
       "inline-flex min-h-11 items-center gap-3 rounded-md font-heading text-base font-semibold tracking-tight text-foreground transition-colors duration-base ease-out hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background",
-      className,
+      className
     )}
     href="/"
   >
     <BrandMark />
-    <span>DarkFactory
-    </span>
-</a>
-)
+    <span>DarkFactory</span>
+  </a>
+);

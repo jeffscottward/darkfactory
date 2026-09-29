@@ -1,1 +1,1 @@
-export * from "./contract.ts"
+export * from "./contract.ts";

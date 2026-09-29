@@ -1,17 +1,13 @@
-import { oc } from "@orpc/contract"
-import { z } from "zod"
-import {
-  accountContract,
-  preferencesContract,
-} from "./contracts/account.ts"
-import { adminUsersContract } from "./contracts/admin-users.ts"
-import { createDashboardContract } from "./contracts/dashboard.ts"
-import { contactContract } from "./contracts/contact.ts"
-import { generatedFeatureContracts } from "./generated/contract-registry.ts"
+import { oc } from "@orpc/contract";
+import { z } from "zod";
+import { accountContract, preferencesContract } from "./contracts/account.ts";
+import { adminUsersContract } from "./contracts/admin-users.ts";
+import { createDashboardContract } from "./contracts/dashboard.ts";
+import { contactContract } from "./contracts/contact.ts";
+import { generatedFeatureContracts } from "./generated/contract-registry.ts";
 
-
-export const FEATURE_ITEM_STATUSES = ["draft", "active", "archived"] as const
-export const THEME_MODES = ["light", "dark", "system"] as const
+export const FEATURE_ITEM_STATUSES = ["draft", "active", "archived"] as const;
+export const THEME_MODES = ["light", "dark", "system"] as const;
 export const THEME_PALETTES = [
   "neutral",
   "slate",
@@ -23,20 +19,22 @@ export const THEME_PALETTES = [
   "red",
   "rose",
   "violet",
-] as const
+] as const;
 
-export const ThemeModeSchema = z.enum(THEME_MODES)
-export const ThemePaletteSchema = z.enum(THEME_PALETTES)
+export const ThemeModeSchema = z.enum(THEME_MODES);
+export const ThemePaletteSchema = z.enum(THEME_PALETTES);
 export const ThemePreferenceSchema = z.object({
   themeMode: ThemeModeSchema,
   palette: ThemePaletteSchema,
   updatedAt: z.date().nullable(),
-})
-export const UpdateThemePreferenceSchema = z.object({
-  themeMode: ThemeModeSchema,
-  palette: ThemePaletteSchema,
-  expectedUpdatedAt: z.date().nullable(),
-}).strict()
+});
+export const UpdateThemePreferenceSchema = z
+  .object({
+    themeMode: ThemeModeSchema,
+    palette: ThemePaletteSchema,
+    expectedUpdatedAt: z.date().nullable(),
+  })
+  .strict();
 
 export type JsonValue =
   | string
@@ -44,16 +42,16 @@ export type JsonValue =
   | boolean
   | null
   | readonly JsonValue[]
-  | Readonly<{ [key: string]: JsonValue }>
-export type FeatureItemMetadata = Readonly<Record<string, JsonValue>>
+  | Readonly<{ [key: string]: JsonValue }>;
+export type FeatureItemMetadata = Readonly<Record<string, JsonValue>>;
 
-export const FeatureItemStatusSchema = z.enum(FEATURE_ITEM_STATUSES)
+export const FeatureItemStatusSchema = z.enum(FEATURE_ITEM_STATUSES);
 const JsonValueSchema = z
   .json()
-  .transform((value): JsonValue => value as JsonValue)
+  .transform((value): JsonValue => value as JsonValue);
 export const FeatureItemMetadataSchema = z
   .record(z.string(), JsonValueSchema)
-  .transform((value): FeatureItemMetadata => value)
+  .transform((value): FeatureItemMetadata => value);
 
 export const FeatureItemSchema = z.object({
   id: z.string().min(1),
@@ -64,21 +62,21 @@ export const FeatureItemSchema = z.object({
   ownerId: z.string().min(1),
   createdAt: z.date(),
   updatedAt: z.date(),
-})
+});
 
 const OwnerScopeSchema = z.object({
   ownerId: z.string().min(1).optional(),
-})
+});
 
 const ItemScopeSchema = OwnerScopeSchema.extend({
   id: z.string().min(1),
-})
+});
 
 const MutationFieldsSchema = z.object({
   name: z.string().trim().min(1).max(200),
   description: z.string().max(10_000),
   metadata: FeatureItemMetadataSchema.optional(),
-})
+});
 
 export const EXPECTED_API_ERRORS = {
   BAD_REQUEST: { status: 400, message: "Invalid request" },
@@ -88,15 +86,15 @@ export const EXPECTED_API_ERRORS = {
   CONFLICT: { status: 409, message: "Feature item conflict" },
   VALIDATION_ERROR: { status: 422, message: "Feature item validation failed" },
   STORAGE_ERROR: { status: 503, message: "Feature item storage unavailable" },
-} as const
+} as const;
 
-const featureItem = oc.errors(EXPECTED_API_ERRORS)
+const featureItem = oc.errors(EXPECTED_API_ERRORS);
 
 export const FeatureItemListInputSchema = OwnerScopeSchema.extend({
   query: z.string().trim().min(1).max(200).optional(),
   status: FeatureItemStatusSchema.optional(),
   limit: z.number().int().min(1).max(100).default(50),
-}).strict()
+}).strict();
 
 const list = featureItem
   .route({
@@ -107,7 +105,7 @@ const list = featureItem
     tags: ["Feature items"],
   })
   .input(FeatureItemListInputSchema)
-  .output(z.array(FeatureItemSchema))
+  .output(z.array(FeatureItemSchema));
 
 const get = featureItem
   .route({
@@ -118,7 +116,7 @@ const get = featureItem
     tags: ["Feature items"],
   })
   .input(ItemScopeSchema)
-  .output(FeatureItemSchema)
+  .output(FeatureItemSchema);
 
 const create = featureItem
   .route({
@@ -129,7 +127,7 @@ const create = featureItem
     tags: ["Feature items"],
   })
   .input(OwnerScopeSchema.extend(MutationFieldsSchema.shape))
-  .output(FeatureItemSchema)
+  .output(FeatureItemSchema);
 
 const update = featureItem
   .route({
@@ -145,15 +143,14 @@ const update = featureItem
       description: z.string().max(10_000).optional(),
       metadata: FeatureItemMetadataSchema.optional(),
     }).refine(
-      (input) => (
+      (input) =>
         input.name !== undefined ||
         input.description !== undefined ||
-        input.metadata !== undefined
-      ),
-      { message: "At least one field must change" },
-    ),
+        input.metadata !== undefined,
+      { message: "At least one field must change" }
+    )
   )
-  .output(FeatureItemSchema)
+  .output(FeatureItemSchema);
 
 const changeStatus = featureItem
   .route({
@@ -164,7 +161,7 @@ const changeStatus = featureItem
     tags: ["Feature items"],
   })
   .input(ItemScopeSchema.extend({ status: FeatureItemStatusSchema }))
-  .output(FeatureItemSchema)
+  .output(FeatureItemSchema);
 
 const archive = featureItem
   .route({
@@ -175,11 +172,12 @@ const archive = featureItem
     tags: ["Feature items"],
   })
   .input(ItemScopeSchema)
-  .output(FeatureItemSchema)
+  .output(FeatureItemSchema);
 
-export const AdminFeatureItemListInputSchema = FeatureItemListInputSchema.extend({
-  ownerId: z.string().min(1),
-})
+export const AdminFeatureItemListInputSchema =
+  FeatureItemListInputSchema.extend({
+    ownerId: z.string().min(1),
+  });
 
 const adminList = featureItem
   .route({
@@ -190,7 +188,7 @@ const adminList = featureItem
     tags: ["Admin"],
   })
   .input(AdminFeatureItemListInputSchema)
-  .output(z.array(FeatureItemSchema))
+  .output(z.array(FeatureItemSchema));
 
 export const THEME_PREFERENCE_ERRORS = {
   BAD_REQUEST: { status: 400, message: "Invalid request" },
@@ -205,9 +203,9 @@ export const THEME_PREFERENCE_ERRORS = {
     status: 503,
     message: "Theme preference storage unavailable",
   },
-} as const
+} as const;
 
-const themePreference = oc.errors(THEME_PREFERENCE_ERRORS)
+const themePreference = oc.errors(THEME_PREFERENCE_ERRORS);
 
 const getThemePreference = themePreference
   .route({
@@ -218,7 +216,7 @@ const getThemePreference = themePreference
     tags: ["Preferences"],
   })
   .input(z.object({}).strict())
-  .output(ThemePreferenceSchema)
+  .output(ThemePreferenceSchema);
 
 const updateThemePreference = themePreference
   .route({
@@ -229,9 +227,9 @@ const updateThemePreference = themePreference
     tags: ["Preferences"],
   })
   .input(UpdateThemePreferenceSchema)
-  .output(ThemePreferenceSchema)
+  .output(ThemePreferenceSchema);
 
-const dashboardDefinitions = createDashboardContract(FeatureItemSchema)
+const dashboardDefinitions = createDashboardContract(FeatureItemSchema);
 
 export const appContract = {
   featureItems: { list, get, create, update, changeStatus, archive },
@@ -248,20 +246,22 @@ export const appContract = {
     theme: { get: getThemePreference, update: updateThemePreference },
   },
   dashboard: dashboardDefinitions.contract,
-}
+};
 
-export type FeatureItemInput = z.input<typeof FeatureItemSchema>
-export type FeatureItemOutput = z.infer<typeof FeatureItemSchema>
-export type FeatureItemStatus = z.infer<typeof FeatureItemStatusSchema>
-export type FeatureItemListInput = z.input<typeof FeatureItemListInputSchema>
-export type AdminFeatureItemListInput = z.input<typeof AdminFeatureItemListInputSchema>
+export type FeatureItemInput = z.input<typeof FeatureItemSchema>;
+export type FeatureItemOutput = z.infer<typeof FeatureItemSchema>;
+export type FeatureItemStatus = z.infer<typeof FeatureItemStatusSchema>;
+export type FeatureItemListInput = z.input<typeof FeatureItemListInputSchema>;
+export type AdminFeatureItemListInput = z.input<
+  typeof AdminFeatureItemListInputSchema
+>;
 
-export type ThemeMode = z.infer<typeof ThemeModeSchema>
-export type ThemePalette = z.infer<typeof ThemePaletteSchema>
-export type ThemePreferenceOutput = z.infer<typeof ThemePreferenceSchema>
+export type ThemeMode = z.infer<typeof ThemeModeSchema>;
+export type ThemePalette = z.infer<typeof ThemePaletteSchema>;
+export type ThemePreferenceOutput = z.infer<typeof ThemePreferenceSchema>;
 export type UpdateThemePreferenceInput = z.input<
   typeof UpdateThemePreferenceSchema
->
+>;
 
 export {
   ACCOUNT_ERRORS,
@@ -279,7 +279,7 @@ export {
   ProfileSchema,
   ProfileFieldsSchema,
   ProfileUpdateSchema,
-} from "./contracts/account.ts"
+} from "./contracts/account.ts";
 export type {
   AccountProfileOutput,
   AddressCreateInput,
@@ -289,29 +289,29 @@ export type {
   PreferencesUpdateInput,
   ProfileOutput,
   ProfileUpdateInput,
-} from "./contracts/account.ts"
+} from "./contracts/account.ts";
 export {
   ADMIN_USERS_ERRORS,
   AdminUserSummarySchema,
   AdminUsersListInputSchema,
   AdminUsersListOutputSchema,
-} from "./contracts/admin-users.ts"
+} from "./contracts/admin-users.ts";
 export type {
   AdminUserSummaryOutput,
   AdminUsersListInput,
   AdminUsersListOutput,
-} from "./contracts/admin-users.ts"
+} from "./contracts/admin-users.ts";
 export {
   DASHBOARD_ERRORS,
   CapabilityProjectionSchema,
-} from "./contracts/dashboard.ts"
-export type { CapabilityProjection } from "./contracts/dashboard.ts"
+} from "./contracts/dashboard.ts";
+export type { CapabilityProjection } from "./contracts/dashboard.ts";
 export {
   CONTACT_ERRORS,
   ContactSubmitInputSchema,
   ContactSubmitOutputSchema,
-} from "./contracts/contact.ts"
+} from "./contracts/contact.ts";
 export type {
   ContactSubmitInput,
   ContactSubmitOutput,
-} from "./contracts/contact.ts"
+} from "./contracts/contact.ts";

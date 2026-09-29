@@ -1,8 +1,8 @@
-import type { ComponentPropsWithRef, ReactNode } from "react"
-import { PageHeader, buttonVariants, cn } from "@darkfactory/ui"
+import type { ComponentPropsWithRef, ReactNode } from "react";
+import { PageHeader, buttonVariants, cn } from "@darkfactory/ui";
 
 export interface PublicLinkProps extends ComponentPropsWithRef<"a"> {
-  readonly variant?: "primary" | "secondary" | "link"
+  readonly variant?: "primary" | "secondary" | "link";
 }
 
 export const PublicLink = ({
@@ -16,15 +16,15 @@ export const PublicLink = ({
     {...props}
   >
     {children}
-</a>
-)
+  </a>
+);
 
 export interface PublicPageProps {
-  readonly actions?: ReactNode
-  readonly children: ReactNode
-  readonly description: ReactNode
-  readonly eyebrow: ReactNode
-  readonly title: ReactNode
+  readonly actions?: ReactNode;
+  readonly children: ReactNode;
+  readonly description: ReactNode;
+  readonly eyebrow: ReactNode;
+  readonly title: ReactNode;
 }
 
 export const PublicPage = ({
@@ -43,6 +43,5 @@ export const PublicPage = ({
       variant="public"
     />
     {children}
-</div>
-)
-
+  </div>
+);

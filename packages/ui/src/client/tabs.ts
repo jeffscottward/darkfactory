@@ -1,10 +1,10 @@
-"use client"
+"use client";
 
-import type { ComponentPropsWithRef } from "react"
-import { createElement } from "react"
-import { Tabs as TabsPrimitive } from "radix-ui"
+import type { ComponentPropsWithRef } from "react";
+import { createElement } from "react";
+import { Tabs as TabsPrimitive } from "radix-ui";
 
-import { cn } from "../utilities.ts"
+import { cn } from "../utilities.ts";
 
 export const Tabs = ({
   className,
@@ -13,8 +13,8 @@ export const Tabs = ({
   return createElement(TabsPrimitive.Root, {
     className: cn("min-w-0", className),
     ...props,
-  })
-}
+  });
+};
 
 export const TabsList = ({
   className,
@@ -23,11 +23,11 @@ export const TabsList = ({
   return createElement(TabsPrimitive.List, {
     className: cn(
       "flex min-h-11 w-full items-end gap-5 overflow-x-auto border-b border-border",
-      className,
+      className
     ),
     ...props,
-  })
-}
+  });
+};
 
 export const TabsTrigger = ({
   className,
@@ -36,11 +36,11 @@ export const TabsTrigger = ({
   return createElement(TabsPrimitive.Trigger, {
     className: cn(
       "relative inline-flex min-h-11 min-w-11 shrink-0 items-center justify-center border-b-2 border-transparent px-1 text-sm font-semibold text-muted-foreground transition-colors duration-base ease-out hover:text-foreground active:bg-accent focus-visible:rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background data-[state=active]:border-primary data-[state=active]:text-foreground disabled:pointer-events-none disabled:border-disabled-border disabled:bg-disabled disabled:text-disabled-foreground disabled:opacity-100",
-      className,
+      className
     ),
     ...props,
-  })
-}
+  });
+};
 
 export const TabsContent = ({
   className,
@@ -49,8 +49,8 @@ export const TabsContent = ({
   return createElement(TabsPrimitive.Content, {
     className: cn(
       "mt-6 focus-visible:rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background",
-      className,
+      className
     ),
     ...props,
-  })
-}
+  });
+};

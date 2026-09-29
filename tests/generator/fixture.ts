@@ -7,17 +7,17 @@ import {
   rm,
   symlink,
   writeFile,
-} from "node:fs/promises"
-import { tmpdir } from "node:os"
-import { join, relative } from "node:path"
+} from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join, relative } from "node:path";
 
 export type GeneratorFixture = Readonly<{
-  root: string
-  cleanup: () => Promise<void>
-}>
+  root: string;
+  cleanup: () => Promise<void>;
+}>;
 
 export const createGeneratorFixture = async (): Promise<GeneratorFixture> => {
-  const root = await mkdtemp(join(tmpdir(), "darkfactory-generator-test-"))
+  const root = await mkdtemp(join(tmpdir(), "darkfactory-generator-test-"));
   await Promise.all([
     mkdir(join(root, ".darkfactory"), { recursive: true }),
     mkdir(join(root, "apps/web/src/features"), { recursive: true }),
@@ -26,100 +26,109 @@ export const createGeneratorFixture = async (): Promise<GeneratorFixture> => {
     mkdir(join(root, "packages/db/migrations/meta"), { recursive: true }),
     mkdir(join(root, "tests"), { recursive: true }),
     mkdir(join(root, "docs"), { recursive: true }),
-  ])
+  ]);
   await writeFile(
     join(root, "package.json"),
     `${JSON.stringify({ name: "fixture", private: true }, null, 2)}\n`,
-    "utf8",
-  )
+    "utf8"
+  );
   await Promise.all([
     writeFile(
       join(root, ".darkfactory/features.json"),
-      `${JSON.stringify({
-        version: 1,
-        builtIn: {
-          name: "feature-item",
-          route: "/feature-items",
-          apiNamespace: "featureItems",
-          table: "feature_items",
-          status: "canonical-reference",
+      `${JSON.stringify(
+        {
+          version: 1,
+          builtIn: {
+            name: "feature-item",
+            route: "/feature-items",
+            apiNamespace: "featureItems",
+            table: "feature_items",
+            status: "canonical-reference",
+          },
+          generated: [],
         },
-        generated: [],
-      }, null, 2)}\n`,
-      "utf8",
+        null,
+        2
+      )}\n`,
+      "utf8"
     ),
     writeFile(
       join(root, "packages/api/src/generated/contract-registry.ts"),
       "// Generator-owned. Edit through `pnpm generate:feature` only.\nexport const generatedFeatureContracts = Object.freeze({})\n",
-      "utf8",
+      "utf8"
     ),
     writeFile(
       join(root, "packages/api/src/generated/router-registry.ts"),
       "// Generator-owned. Edit through `pnpm generate:feature` only.\nexport const generatedFeatureRouters = Object.freeze({})\n",
-      "utf8",
+      "utf8"
     ),
     writeFile(
       join(root, "packages/api/src/generated/public-registry.ts"),
       "// Generator-owned. Edit through `pnpm generate:feature` only.\nexport const GENERATED_API_FEATURES = Object.freeze([] as const)\n",
-      "utf8",
+      "utf8"
     ),
     writeFile(
       join(root, "packages/db/src/generated/schema-registry.ts"),
       "// Generator-owned. Edit through `pnpm generate:feature` only.\nexport const generatedFeatureTables = Object.freeze({})\n",
-      "utf8",
+      "utf8"
     ),
     writeFile(
       join(root, "packages/db/src/generated/repository-registry.ts"),
-      "import type { DatabaseExecutor } from \"../server/client.ts\"\n\n// Generator-owned. Edit through `pnpm generate:feature` only.\nexport type GeneratedFeatureRepositories = Readonly<Record<never, never>>\nexport const createGeneratedFeatureRepositories = (_database: DatabaseExecutor): GeneratedFeatureRepositories => Object.freeze({})\n",
-      "utf8",
+      'import type { DatabaseExecutor } from "../server/client.ts"\n\n// Generator-owned. Edit through `pnpm generate:feature` only.\nexport type GeneratedFeatureRepositories = Readonly<Record<never, never>>\nexport const createGeneratedFeatureRepositories = (_database: DatabaseExecutor): GeneratedFeatureRepositories => Object.freeze({})\n',
+      "utf8"
     ),
     writeFile(
       join(root, "apps/web/src/features/generated-navigation.ts"),
       "export const GENERATED_FEATURE_NAVIGATION = Object.freeze([])\nexport const GENERATED_FEATURE_ROUTE_PATHS = Object.freeze([])\nexport const GENERATED_FEATURE_ROUTE_PAGE_FILES = Object.freeze({})\n",
-      "utf8",
+      "utf8"
     ),
     writeFile(
       join(root, "packages/db/migrations/meta/_journal.json"),
       `${JSON.stringify({ version: "7", dialect: "postgresql", entries: [] }, null, 2)}\n`,
-      "utf8",
+      "utf8"
     ),
-  ])
+  ]);
 
   return Object.freeze({
     root,
     cleanup: async () => rm(root, { force: true, recursive: true }),
-  })
-}
+  });
+};
 
-export const listFixtureEntries = async (root: string): Promise<readonly string[]> => {
-  const entries: string[] = []
+export const listFixtureEntries = async (
+  root: string
+): Promise<readonly string[]> => {
+  const entries: string[] = [];
   const visit = async (directory: string): Promise<void> => {
     for (const entry of await readdir(directory, { withFileTypes: true })) {
-      const absolute = join(directory, entry.name)
-      entries.push(relative(root, absolute))
-      if (entry.isDirectory() && !entry.isSymbolicLink()) await visit(absolute)
+      const absolute = join(directory, entry.name);
+      entries.push(relative(root, absolute));
+      if (entry.isDirectory() && !entry.isSymbolicLink()) await visit(absolute);
     }
-  }
-  await visit(root)
-  return entries.sort()
-}
+  };
+  await visit(root);
+  return entries.sort();
+};
 
 export const readGeneratedFiles = async (
   root: string,
-  paths: readonly string[],
+  paths: readonly string[]
 ): Promise<Readonly<Record<string, string>>> => {
   const values = await Promise.all(
-    paths.map(async (path) => [path, await readFile(join(root, path), "utf8")] as const),
-  )
-  return Object.freeze(Object.fromEntries(values))
-}
+    paths.map(
+      async (path) => [path, await readFile(join(root, path), "utf8")] as const
+    )
+  );
+  return Object.freeze(Object.fromEntries(values));
+};
 
 export const replaceFeaturesDirectoryWithSymlink = async (
   root: string,
-  outside: string,
+  outside: string
 ): Promise<void> => {
-  const features = join(root, "apps/web/src/features")
-  await rm(features, { recursive: true })
-  await symlink(outside, features, "dir")
-  if (!(await lstat(features)).isSymbolicLink()) throw new Error("Fixture symlink was not created")
-}
+  const features = join(root, "apps/web/src/features");
+  await rm(features, { recursive: true });
+  await symlink(outside, features, "dir");
+  if (!(await lstat(features)).isSymbolicLink())
+    throw new Error("Fixture symlink was not created");
+};

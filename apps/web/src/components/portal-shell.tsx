@@ -1,8 +1,8 @@
-"use client"
+"use client";
 
-import type { ReactNode } from "react"
-import { ExternalLink, Menu, X } from "lucide-react"
-import { IconButton } from "@darkfactory/ui"
+import type { ReactNode } from "react";
+import { ExternalLink, Menu, X } from "lucide-react";
+import { IconButton } from "@darkfactory/ui";
 
 import {
   ACCOUNT_NAVIGATION,
@@ -10,81 +10,113 @@ import {
   EXPOSED_ROUTE_PATHS,
   PORTAL_NAVIGATION,
   isRouteExposed,
-} from "../lib/navigation.ts"
-import { SignOutAction } from "./account/sign-out-action.tsx"
-import { BrandLink } from "./brand-mark.tsx"
-import { NavigationLinks } from "./navigation-links.tsx"
-import { ThemeMenu } from "./theme-menu.tsx"
+} from "../lib/navigation.ts";
+import { SignOutAction } from "./account/sign-out-action.tsx";
+import { BrandLink } from "./brand-mark.tsx";
+import { NavigationLinks } from "./navigation-links.tsx";
+import { ThemeMenu } from "./theme-menu.tsx";
 
 interface PortalNavigationProps {
-  readonly availableRoutes?: readonly string[]
-  readonly isAdmin?: boolean
-  readonly mobile?: boolean
+  readonly availableRoutes?: readonly string[];
+  readonly isAdmin?: boolean;
+  readonly mobile?: boolean;
 }
 
 const closePortalNavigation = () => {
-  const navigation = document.getElementById("portal-navigation")
-  const hidePopover = navigation?.hidePopover
-  if (typeof hidePopover === "function") return hidePopover.call(navigation);return
-}
+  const navigation = document.getElementById("portal-navigation");
+  const hidePopover = navigation?.hidePopover;
+  if (typeof hidePopover === "function") return hidePopover.call(navigation);
+  return;
+};
 
 const PortalNavigation = ({
   availableRoutes = EXPOSED_ROUTE_PATHS,
   isAdmin = false,
   mobile = false,
 }: PortalNavigationProps) => {
-  const portalItems = PORTAL_NAVIGATION.filter((item) => (
+  const portalItems = PORTAL_NAVIGATION.filter((item) =>
     isRouteExposed(item.href, availableRoutes)
-  ))
-  const accountItems = ACCOUNT_NAVIGATION.filter((item) => (
+  );
+  const accountItems = ACCOUNT_NAVIGATION.filter((item) =>
     isRouteExposed(item.href, availableRoutes)
-  ))
-  const adminItems = ADMIN_NAVIGATION.filter((item) => (
+  );
+  const adminItems = ADMIN_NAVIGATION.filter((item) =>
     isRouteExposed(item.href, availableRoutes)
-  ))
-  const onNavigate = mobile ? closePortalNavigation : undefined
+  );
+  const onNavigate = mobile ? closePortalNavigation : undefined;
 
   if (
-    portalItems.length === 0
-    && accountItems.length === 0
-    && (!isAdmin || adminItems.length === 0)
+    portalItems.length === 0 &&
+    accountItems.length === 0 &&
+    (!isAdmin || adminItems.length === 0)
   ) {
     return (
       <p className="px-3 text-sm leading-6 text-muted-foreground" role="status">
-        Portal destinations appear as their page implementations become available.
-    </p>
-    )
+        Portal destinations appear as their page implementations become
+        available.
+      </p>
+    );
   }
 
   return (
     <div className="flex flex-col gap-6">
       {portalItems.length > 0 ? (
-        <nav aria-label={mobile ? "Mobile portal navigation" : "Portal navigation"}>
+        <nav
+          aria-label={mobile ? "Mobile portal navigation" : "Portal navigation"}
+        >
           <p className="mb-2 px-3 text-xs font-semibold tracking-wide text-muted-foreground">
             Workspace
           </p>
-          <NavigationLinks items={portalItems} onNavigate={onNavigate} orientation="vertical" prefetch={false} showIcons />
-      </nav>
+          <NavigationLinks
+            items={portalItems}
+            onNavigate={onNavigate}
+            orientation="vertical"
+            prefetch={false}
+            showIcons
+          />
+        </nav>
       ) : null}
       {accountItems.length > 0 ? (
-        <nav aria-label={mobile ? "Mobile account navigation" : "Account navigation"}>
+        <nav
+          aria-label={
+            mobile ? "Mobile account navigation" : "Account navigation"
+          }
+        >
           <p className="mb-2 px-3 text-xs font-semibold tracking-wide text-muted-foreground">
             Account settings
           </p>
-          <NavigationLinks items={accountItems} onNavigate={onNavigate} orientation="vertical" prefetch={false} showIcons />
-      </nav>
+          <NavigationLinks
+            items={accountItems}
+            onNavigate={onNavigate}
+            orientation="vertical"
+            prefetch={false}
+            showIcons
+          />
+        </nav>
       ) : null}
       {isAdmin && adminItems.length > 0 ? (
-        <nav aria-label={mobile ? "Mobile administration navigation" : "Administration navigation"}>
+        <nav
+          aria-label={
+            mobile
+              ? "Mobile administration navigation"
+              : "Administration navigation"
+          }
+        >
           <p className="mb-2 px-3 text-xs font-semibold tracking-wide text-muted-foreground">
             Administration
           </p>
-          <NavigationLinks items={adminItems} onNavigate={onNavigate} orientation="vertical" prefetch={false} showIcons />
-      </nav>
+          <NavigationLinks
+            items={adminItems}
+            onNavigate={onNavigate}
+            orientation="vertical"
+            prefetch={false}
+            showIcons
+          />
+        </nav>
       ) : null}
-  </div>
-  )
-}
+    </div>
+  );
+};
 
 export const PortalSidebar = ({
   availableRoutes = EXPOSED_ROUTE_PATHS,
@@ -106,8 +138,8 @@ export const PortalSidebar = ({
         View public site
       </a>
     </div>
-</aside>
-)
+  </aside>
+);
 
 export const PortalTopbar = ({
   availableRoutes = EXPOSED_ROUTE_PATHS,
@@ -135,7 +167,10 @@ export const PortalTopbar = ({
         >
           <div className="mb-6 flex items-start justify-between gap-4">
             <div>
-              <h2 className="text-lg font-semibold" id="portal-navigation-title">
+              <h2
+                className="text-lg font-semibold"
+                id="portal-navigation-title"
+              >
                 Portal navigation
               </h2>
               <p
@@ -155,7 +190,11 @@ export const PortalTopbar = ({
               <X aria-hidden="true" />
             </IconButton>
           </div>
-          <PortalNavigation availableRoutes={availableRoutes} isAdmin={isAdmin} mobile />
+          <PortalNavigation
+            availableRoutes={availableRoutes}
+            isAdmin={isAdmin}
+            mobile
+          />
         </div>
         <span className="hidden text-sm font-medium text-muted-foreground sm:inline">
           Application portal
@@ -166,13 +205,13 @@ export const PortalTopbar = ({
         <SignOutAction />
       </div>
     </div>
-</header>
-)
+  </header>
+);
 
 export interface PortalShellProps {
-  readonly availableRoutes?: readonly string[]
-  readonly children: ReactNode
-  readonly isAdmin?: boolean
+  readonly availableRoutes?: readonly string[];
+  readonly children: ReactNode;
+  readonly isAdmin?: boolean;
 }
 
 export const PortalShell = ({
@@ -192,5 +231,5 @@ export const PortalShell = ({
         {children}
       </main>
     </div>
-</div>
-)
+  </div>
+);

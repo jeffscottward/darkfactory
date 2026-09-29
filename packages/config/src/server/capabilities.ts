@@ -3,7 +3,7 @@ export {
   loadCapabilityManifest,
   type CapabilityManifestIssue,
   type CapabilityManifestIssueCode,
-} from "./capabilities-loader.ts"
+} from "./capabilities-loader.ts";
 export {
   V01_CAPABILITY_BINDINGS,
   V01_INSTALLED_CAPABILITIES,
@@ -17,8 +17,8 @@ export {
   type CapabilityReadinessStatus,
   type CapabilityRuntimeInventory,
   type InstalledCapabilityInventory,
-} from "./capability-readiness.ts"
+} from "./capability-readiness.ts";
 export {
   capabilityManifestSchema,
   type CapabilityManifest,
-} from "../capabilities.ts"
+} from "../capabilities.ts";

@@ -1,8 +1,8 @@
-"use client"
+"use client";
 
-import { useRef, useState } from "react"
-import { useForm } from "@tanstack/react-form"
-import { Button, Input, Label, Textarea } from "@darkfactory/ui"
+import { useRef, useState } from "react";
+import { useForm } from "@tanstack/react-form";
+import { Button, Input, Label, Textarea } from "@darkfactory/ui";
 
 import {
   contactFeedbackForOutput,
@@ -12,7 +12,7 @@ import {
   type ContactFeedback,
   type ContactFieldName,
   type ContactGateway,
-} from "./contact-client.ts"
+} from "./contact-client.ts";
 
 const fieldDefinitions = [
   {
@@ -36,44 +36,44 @@ const fieldDefinitions = [
     autoComplete: "off",
     help: "Summarize the decision, problem, or question. Maximum 200 characters.",
   },
-] as const
+] as const;
 
 export interface ContactFormProps {
-  readonly gateway?: ContactGateway | undefined
+  readonly gateway?: ContactGateway | undefined;
 }
 
 export const ContactStatus = ({
   feedback,
 }: {
-  readonly feedback: ContactFeedback
+  readonly feedback: ContactFeedback;
 }) => {
-  const isError = feedback.tone === "error"
+  const isError = feedback.tone === "error";
   return (
     <p
-      className={
-        `border-l-2 py-3 pl-4 pr-4 text-sm leading-6 ${
-          feedback.tone === "error"
-            ? "border-destructive bg-destructive-subtle text-destructive"
-            : feedback.tone === "warning"
-              ? "border-warning-border bg-warning-subtle text-warning-foreground"
-              : feedback.tone === "success"
-                ? "border-success-border bg-success-subtle text-success-foreground"
-                : "border-info-border bg-info-subtle text-info-foreground"
-        }`
-      }
+      className={`border-l-2 py-3 pl-4 pr-4 text-sm leading-6 ${
+        feedback.tone === "error"
+          ? "border-destructive bg-destructive-subtle text-destructive"
+          : feedback.tone === "warning"
+            ? "border-warning-border bg-warning-subtle text-warning-foreground"
+            : feedback.tone === "success"
+              ? "border-success-border bg-success-subtle text-success-foreground"
+              : "border-info-border bg-info-subtle text-info-foreground"
+      }`}
       id="contact-status"
       role={isError ? "alert" : "status"}
       tabIndex={-1}
     >
       {feedback.message}
-  </p>
-  )
-}
+    </p>
+  );
+};
 
 export const ContactForm = ({ gateway }: ContactFormProps) => {
-  const [feedback, setFeedback] = useState<ContactFeedback | null>(null)
-  const [validationSummary, setValidationSummary] = useState<string | null>(null)
-  const submissionInFlight = useRef(false)
+  const [feedback, setFeedback] = useState<ContactFeedback | null>(null);
+  const [validationSummary, setValidationSummary] = useState<string | null>(
+    null
+  );
+  const submissionInFlight = useRef(false);
   const form = useForm({
     defaultValues: {
       name: "",
@@ -83,9 +83,9 @@ export const ContactForm = ({ gateway }: ContactFormProps) => {
       website: "",
     },
     onSubmit: async ({ value }) => {
-      if (submissionInFlight.current) return
-      submissionInFlight.current = true
-      setFeedback(null)
+      if (submissionInFlight.current) return;
+      submissionInFlight.current = true;
+      setFeedback(null);
       try {
         const output = await (gateway ?? createBrowserContactGateway()).submit({
           name: value.name.trim(),
@@ -93,19 +93,21 @@ export const ContactForm = ({ gateway }: ContactFormProps) => {
           subject: value.subject.trim(),
           message: value.message.trim(),
           website: value.website,
-        })
-        setFeedback(contactFeedbackForOutput(output))
-        if (output.status === "sent") return form.reset();return
+        });
+        setFeedback(contactFeedbackForOutput(output));
+        if (output.status === "sent") return form.reset();
+        return;
+      } catch (error) {
+        return setFeedback(safeContactFailure(error));
+      } finally {
+        submissionInFlight.current = false;
+        window.setTimeout(
+          () => document.getElementById("contact-status")?.focus(),
+          0
+        );
       }
-      catch (error) {
-        return setFeedback(safeContactFailure(error))
-      }
-      finally {
-        submissionInFlight.current = false
-        window.setTimeout(() => document.getElementById("contact-status")?.focus(), 0)
-      }
-    }
-  })
+    },
+  });
 
   return (
     <form
@@ -114,30 +116,33 @@ export const ContactForm = ({ gateway }: ContactFormProps) => {
       id="contact-form"
       noValidate
       onSubmit={(event) => {
-        event.preventDefault()
-        event.stopPropagation()
-        setValidationSummary(null)
+        event.preventDefault();
+        event.stopPropagation();
+        setValidationSummary(null);
         return void form.handleSubmit().then(() => {
           if (!form.state.isValid) {
             setValidationSummary(
-              "Review the highlighted fields. Your message was not submitted.",
-            )
+              "Review the highlighted fields. Your message was not submitted."
+            );
             return document
               .querySelector<HTMLElement>('#contact-form [aria-invalid="true"]')
-              ?.focus()
-          };return
-        }
-        )
-  }
-      }
+              ?.focus();
+          }
+          return;
+        });
+      }}
       role="form"
     >
       <div>
-        <h2 className="font-heading text-2xl font-semibold tracking-tight text-foreground" id="contact-form-title">
+        <h2
+          className="font-heading text-2xl font-semibold tracking-tight text-foreground"
+          id="contact-form-title"
+        >
           Send a message
         </h2>
         <p className="mt-2 text-sm leading-6 text-muted-foreground">
-          All fields marked required must be completed. Your entries stay in the form if delivery fails.
+          All fields marked required must be completed. Your entries stay in the
+          form if delivery fails.
         </p>
       </div>
 
@@ -148,7 +153,7 @@ export const ContactForm = ({ gateway }: ContactFormProps) => {
           role="alert"
         >
           {validationSummary}
-      </p>
+        </p>
       )}
       {feedback === null ? null : <ContactStatus feedback={feedback} />}
 
@@ -158,48 +163,69 @@ export const ContactForm = ({ gateway }: ContactFormProps) => {
             key={definition.name}
             name={definition.name}
             validators={{
-              onBlur: ({ value }) => validateContactField(definition.name as ContactFieldName, value),
-              onSubmit: ({ value }) => validateContactField(definition.name as ContactFieldName, value),
+              onBlur: ({ value }) =>
+                validateContactField(
+                  definition.name as ContactFieldName,
+                  value
+                ),
+              onSubmit: ({ value }) =>
+                validateContactField(
+                  definition.name as ContactFieldName,
+                  value
+                ),
             }}
           >
             {(field) => {
-              const error = field.state.meta.errors[0]
-              const helpId = `${field.name}-help`
-              const errorId = `${field.name}-error`
+              const error = field.state.meta.errors[0];
+              const helpId = `${field.name}-help`;
+              const errorId = `${field.name}-error`;
               return (
-                <div className={definition.name === "subject" ? "space-y-2 sm:col-span-2" : "space-y-2"}>
-                  <Label htmlFor={field.name}>{definition.label} (required)
+                <div
+                  className={
+                    definition.name === "subject"
+                      ? "space-y-2 sm:col-span-2"
+                      : "space-y-2"
+                  }
+                >
+                  <Label htmlFor={field.name}>
+                    {definition.label} (required)
                   </Label>
                   <Input
-                    aria-describedby={error === undefined ? helpId : `${helpId} ${errorId}`}
+                    aria-describedby={
+                      error === undefined ? helpId : `${helpId} ${errorId}`
+                    }
                     aria-invalid={error === undefined ? undefined : true}
                     aria-required="true"
                     autoComplete={definition.autoComplete}
-                    inputMode={definition.name === "email" ? "email" : undefined}
+                    inputMode={
+                      definition.name === "email" ? "email" : undefined
+                    }
                     id={field.name}
                     name={field.name}
                     type={definition.name === "email" ? "email" : "text"}
                     onBlur={field.handleBlur}
                     onChange={(event) => {
-                      setValidationSummary(null)
-                      return field.handleChange(event.target.value)
-                  }
-                    }
+                      setValidationSummary(null);
+                      return field.handleChange(event.target.value);
+                    }}
                     required
                     value={field.state.value}
                   />
-                  <p className="text-sm leading-6 text-muted-foreground" id={helpId}>{definition.help}
+                  <p
+                    className="text-sm leading-6 text-muted-foreground"
+                    id={helpId}
+                  >
+                    {definition.help}
                   </p>
                   {error === undefined ? null : (
                     <p className="text-sm text-destructive" id={errorId}>
                       {String(error)}
-                  </p>
+                    </p>
                   )}
-              </div>
-              )
-            }
-            }
-        </form.Field>
+                </div>
+              );
+            }}
+          </form.Field>
         ))}
 
         <form.Field
@@ -210,49 +236,51 @@ export const ContactForm = ({ gateway }: ContactFormProps) => {
           }}
         >
           {(field) => {
-            const error = field.state.meta.errors[0]
-            const helpId = "message-help"
-            const errorId = "message-error"
+            const error = field.state.meta.errors[0];
+            const helpId = "message-help";
+            const errorId = "message-error";
             return (
               <div className="space-y-2 sm:col-span-2">
-                <Label htmlFor="message">Message (required)
-                </Label>
+                <Label htmlFor="message">Message (required)</Label>
                 <Textarea
-                  aria-describedby={error === undefined ? helpId : `${helpId} ${errorId}`}
+                  aria-describedby={
+                    error === undefined ? helpId : `${helpId} ${errorId}`
+                  }
                   aria-invalid={error === undefined ? undefined : true}
                   aria-required="true"
                   id="message"
                   name="message"
                   onBlur={field.handleBlur}
                   onChange={(event) => {
-                    setValidationSummary(null)
-                    return field.handleChange(event.target.value)
-                }
-                  }
+                    setValidationSummary(null);
+                    return field.handleChange(event.target.value);
+                  }}
                   required
                   rows={8}
                   value={field.state.value}
                 />
-                <p className="text-sm leading-6 text-muted-foreground" id={helpId}>
-                  Include enough context to understand the request. Maximum 5,000 characters.
+                <p
+                  className="text-sm leading-6 text-muted-foreground"
+                  id={helpId}
+                >
+                  Include enough context to understand the request. Maximum
+                  5,000 characters.
                 </p>
                 {error === undefined ? null : (
                   <p className="text-sm text-destructive" id={errorId}>
                     {String(error)}
-                </p>
+                  </p>
                 )}
-            </div>
-            )
-          }
-          }
+              </div>
+            );
+          }}
         </form.Field>
       </div>
 
       <form.Field name="website">
         {(field) => (
           <div aria-hidden="true" className="hidden">
-            <label htmlFor="website">Website
-            </label>
+            <label htmlFor="website">Website</label>
             <input
               autoComplete="off"
               id="website"
@@ -263,11 +291,13 @@ export const ContactForm = ({ gateway }: ContactFormProps) => {
               type="text"
               value={field.state.value}
             />
-        </div>
+          </div>
         )}
       </form.Field>
 
-      <form.Subscribe selector={(state) => [state.canSubmit, state.isSubmitting] as const}>
+      <form.Subscribe
+        selector={(state) => [state.canSubmit, state.isSubmitting] as const}
+      >
         {([canSubmit, isSubmitting]) => (
           <Button
             className="min-h-11 w-full transition-none sm:w-auto"
@@ -277,9 +307,9 @@ export const ContactForm = ({ gateway }: ContactFormProps) => {
             type="submit"
           >
             Send message
-        </Button>
+          </Button>
         )}
       </form.Subscribe>
-  </form>
-  )
-}
+    </form>
+  );
+};

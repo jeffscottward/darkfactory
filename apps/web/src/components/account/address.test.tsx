@@ -1,11 +1,11 @@
-import type { ReactElement } from "react"
-import { renderToStaticMarkup } from "react-dom/server"
-import { describe, expect, it, vi } from "vitest"
+import type { ReactElement } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
+import { describe, expect, it, vi } from "vitest";
 
-import { createAccountGateway } from "./account-client.ts"
-import { addressMutationMessage } from "./address-page-client.tsx"
-import { AddressBook } from "./address-book.tsx"
-import { changedAddressUpdateInput } from "./address-form.tsx"
+import { createAccountGateway } from "./account-client.ts";
+import { addressMutationMessage } from "./address-page-client.tsx";
+import { AddressBook } from "./address-book.tsx";
+import { changedAddressUpdateInput } from "./address-form.tsx";
 
 const address = {
   id: "address-1",
@@ -19,149 +19,189 @@ const address = {
   isPrimary: true,
   createdAt: new Date("2026-01-01T00:00:00.000Z"),
   updatedAt: new Date("2026-01-02T00:00:00.000Z"),
-}
+};
 
 type ElementRecord = Readonly<{
-  props: Record<string, unknown>
-}>
+  props: Record<string, unknown>;
+}>;
 
 const textOf = (node: unknown): string => {
-  if (typeof node === "string" || typeof node === "number") return String(node)
-  if (Array.isArray(node)) return node.map(textOf).join("")
-  if (typeof node !== "object" || node === null) return ""
-  const props = Reflect.get(node, "props")
-  if (typeof props !== "object" || props === null) return ""
-  return textOf(Reflect.get(props, "children"))
-}
+  if (typeof node === "string" || typeof node === "number") return String(node);
+  if (Array.isArray(node)) return node.map(textOf).join("");
+  if (typeof node !== "object" || node === null) return "";
+  const props = Reflect.get(node, "props");
+  if (typeof props !== "object" || props === null) return "";
+  return textOf(Reflect.get(props, "children"));
+};
 
 const findElement = (
   tree: unknown,
-  predicate: (element: ElementRecord) => boolean,
+  predicate: (element: ElementRecord) => boolean
 ): ElementRecord | undefined => {
-  const seen = new WeakSet<object>()
+  const seen = new WeakSet<object>();
   const visit = (node: unknown): ElementRecord | undefined => {
     if (Array.isArray(node)) {
       for (const child of node) {
-        const found = visit(child)
-        if (found !== undefined) return found
+        const found = visit(child);
+        if (found !== undefined) return found;
       }
-      return undefined
+      return undefined;
     }
-    if (typeof node !== "object" || node === null || seen.has(node)) return undefined
-    seen.add(node)
-    const props = Reflect.get(node, "props")
-    if (typeof props !== "object" || props === null) return undefined
-    const element = node as ElementRecord
-    if (predicate(element)) return element
+    if (typeof node !== "object" || node === null || seen.has(node))
+      return undefined;
+    seen.add(node);
+    const props = Reflect.get(node, "props");
+    if (typeof props !== "object" || props === null) return undefined;
+    const element = node as ElementRecord;
+    if (predicate(element)) return element;
     for (const value of Object.values(element.props)) {
-      const found = visit(value)
-      if (found !== undefined) return found
+      const found = visit(value);
+      if (found !== undefined) return found;
     }
-    return undefined
-  }
-  return visit(tree)
-}
+    return undefined;
+  };
+  return visit(tree);
+};
 
 const controlByLabel = (tree: unknown, label: string): ElementRecord => {
-  const control = findElement(tree, (element) => (
-    element.props["aria-label"] === label
-    && typeof element.props["onClick"] === "function"
-  ))
-  expect(control, `Expected control labelled ${label}`).toBeDefined()
-  return control!
-}
+  const control = findElement(
+    tree,
+    (element) =>
+      element.props["aria-label"] === label &&
+      typeof element.props["onClick"] === "function"
+  );
+  expect(control, `Expected control labelled ${label}`).toBeDefined();
+  return control!;
+};
 
 const controlByText = (tree: unknown, label: string): ElementRecord => {
-  const control = findElement(tree, (element) => (
-    typeof element.props["onClick"] === "function"
-    && textOf(element).replace(/\s+/gu, " ").trim() === label
-  ))
-  expect(control, `Expected control named ${label}`).toBeDefined()
-  return control!
-}
+  const control = findElement(
+    tree,
+    (element) =>
+      typeof element.props["onClick"] === "function" &&
+      textOf(element).replace(/\s+/gu, " ").trim() === label
+  );
+  expect(control, `Expected control named ${label}`).toBeDefined();
+  return control!;
+};
 
 const activate = (control: ElementRecord): void => {
-  expect(control.props["onClick"]).toBeTypeOf("function")
-  ;(control.props["onClick"] as () => void)()
-}
+  expect(control.props["onClick"]).toBeTypeOf("function");
+  (control.props["onClick"] as () => void)();
+};
 
-describe("typed address gateway", function() {
-  it("uses create, update, primary, and confirmed remove procedures", async function() {
+describe("typed address gateway", function () {
+  it("uses create, update, primary, and confirmed remove procedures", async function () {
     const addresses = {
-      list: vi.fn(async function() { return [address] }),
-      create: vi.fn(async function() { return address }),
-      update: vi.fn(async function() { return ({ ...address, city: "Changed City" }) }),
-      setPrimary: vi.fn(async function() { return address }),
-      remove: vi.fn(async function() { return ({ removed: true as const }) }),
-    }
+      list: vi.fn(async function () {
+        return [address];
+      }),
+      create: vi.fn(async function () {
+        return address;
+      }),
+      update: vi.fn(async function () {
+        return { ...address, city: "Changed City" };
+      }),
+      setPrimary: vi.fn(async function () {
+        return address;
+      }),
+      remove: vi.fn(async function () {
+        return { removed: true as const };
+      }),
+    };
     const gateway = createAccountGateway({
       account: {
         profile: { get: vi.fn(), update: vi.fn() },
         addresses,
       },
       preferences: { get: vi.fn(), update: vi.fn() },
-    } as never)
+    } as never);
 
-    await expect(gateway.listAddresses()).resolves.toHaveLength(1)
-    await expect(gateway.createAddress({
-      type: "work",
-      line1: address.line1,
-      line2: address.line2,
-      city: address.city,
-      region: address.region,
-      postalCode: address.postalCode,
-      country: address.country,
-      isPrimary: true,
-    })).resolves.toMatchObject({ id: "address-1" })
-    await expect(gateway.updateAddress({ id: address.id, expectedUpdatedAt: address.updatedAt, city: "Changed City" })).resolves.toMatchObject({ city: "Changed City" })
-    await expect(gateway.setPrimaryAddress(address.id, address.updatedAt)).resolves.toMatchObject({ isPrimary: true })
-    await expect(gateway.removeAddress(address.id, address.updatedAt)).resolves.toEqual({ removed: true })
-    expect(addresses.setPrimary).toHaveBeenCalledWith({ id: address.id, expectedUpdatedAt: address.updatedAt })
-    return expect(addresses.remove).toHaveBeenCalledWith({ id: address.id, expectedUpdatedAt: address.updatedAt })
-  })
-  
+    await expect(gateway.listAddresses()).resolves.toHaveLength(1);
+    await expect(
+      gateway.createAddress({
+        type: "work",
+        line1: address.line1,
+        line2: address.line2,
+        city: address.city,
+        region: address.region,
+        postalCode: address.postalCode,
+        country: address.country,
+        isPrimary: true,
+      })
+    ).resolves.toMatchObject({ id: "address-1" });
+    await expect(
+      gateway.updateAddress({
+        id: address.id,
+        expectedUpdatedAt: address.updatedAt,
+        city: "Changed City",
+      })
+    ).resolves.toMatchObject({ city: "Changed City" });
+    await expect(
+      gateway.setPrimaryAddress(address.id, address.updatedAt)
+    ).resolves.toMatchObject({ isPrimary: true });
+    await expect(
+      gateway.removeAddress(address.id, address.updatedAt)
+    ).resolves.toEqual({ removed: true });
+    expect(addresses.setPrimary).toHaveBeenCalledWith({
+      id: address.id,
+      expectedUpdatedAt: address.updatedAt,
+    });
+    return expect(addresses.remove).toHaveBeenCalledWith({
+      id: address.id,
+      expectedUpdatedAt: address.updatedAt,
+    });
+  });
 
-  it("distinguishes create and update confirmations", function() {
-    expect(addressMutationMessage({
-      type: address.type,
-      line1: address.line1,
-      line2: address.line2,
-      city: address.city,
-      region: address.region,
-      postalCode: address.postalCode,
-      country: address.country,
-      isPrimary: true,
-    })).toBe("Address created.")
-    return expect(addressMutationMessage({
+  it("distinguishes create and update confirmations", function () {
+    expect(
+      addressMutationMessage({
+        type: address.type,
+        line1: address.line1,
+        line2: address.line2,
+        city: address.city,
+        region: address.region,
+        postalCode: address.postalCode,
+        country: address.country,
+        isPrimary: true,
+      })
+    ).toBe("Address created.");
+    return expect(
+      addressMutationMessage({
+        id: address.id,
+        expectedUpdatedAt: address.updatedAt,
+        city: "Changed City",
+      })
+    ).toBe("Address updated.");
+  });
+  it("submits only dirty address fields with the loaded version", function () {
+    return expect(
+      changedAddressUpdateInput(address, { ...address, city: "Changed City" })
+    ).toEqual({
       id: address.id,
       expectedUpdatedAt: address.updatedAt,
       city: "Changed City",
-    })).toBe("Address updated.")
-  })
-  it("submits only dirty address fields with the loaded version", function() {
-    return expect(changedAddressUpdateInput(address, { ...address, city: "Changed City" })).toEqual({
-      id: address.id,
-      expectedUpdatedAt: address.updatedAt,
-      city: "Changed City",
-    })
-  })
+    });
+  });
 
-  return it("normalizes every editable field while preserving identity, version, and primary status", function() {
+  return it("normalizes every editable field while preserving identity, version, and primary status", function () {
     expect(changedAddressUpdateInput(address, address)).toEqual({
       id: address.id,
       expectedUpdatedAt: address.updatedAt,
-    })
-    expect(changedAddressUpdateInput(address, {
-      ...address,
-      type: "home",
-      line1: "  200 Changed Road  ",
-      line2: "   ",
-      city: "  Changed City  ",
-      region: "  VA  ",
-      postalCode: "  22030  ",
-      country: "  CA  ",
-      isPrimary: false,
-    })).toEqual({
+    });
+    expect(
+      changedAddressUpdateInput(address, {
+        ...address,
+        type: "home",
+        line1: "  200 Changed Road  ",
+        line2: "   ",
+        city: "  Changed City  ",
+        region: "  VA  ",
+        postalCode: "  22030  ",
+        country: "  CA  ",
+        isPrimary: false,
+      })
+    ).toEqual({
       id: address.id,
       expectedUpdatedAt: address.updatedAt,
       type: "home",
@@ -171,157 +211,194 @@ describe("typed address gateway", function() {
       region: "VA",
       postalCode: "22030",
       country: "CA",
-    })
-    return expect(changedAddressUpdateInput(address, { ...address, line2: null })).toEqual({
+    });
+    return expect(
+      changedAddressUpdateInput(address, { ...address, line2: null })
+    ).toEqual({
       id: address.id,
       expectedUpdatedAt: address.updatedAt,
       line2: null,
-    })
-  })
-})
+    });
+  });
+});
 
-describe("address book states and actions", function() {
-  it("renders geometry-preserving loading feedback", function() {
-    const html = renderToStaticMarkup(<AddressBook state={{ type: "loading" }} />)
-    expect(html).toContain("Loading addresses")
-    return expect(html).toContain("aria-busy=\"true\"")
-  })
+describe("address book states and actions", function () {
+  it("renders geometry-preserving loading feedback", function () {
+    const html = renderToStaticMarkup(
+      <AddressBook state={{ type: "loading" }} />
+    );
+    expect(html).toContain("Loading addresses");
+    return expect(html).toContain('aria-busy="true"');
+  });
 
-  it("renders an instructive create path when no address exists", function() {
-    const html = renderToStaticMarkup(<AddressBook state={{ type: "ready", addresses: [] }} />)
-    expect(html).toContain("No addresses saved")
-    return expect(html).toContain("Add an address")
-  })
+  it("renders an instructive create path when no address exists", function () {
+    const html = renderToStaticMarkup(
+      <AddressBook state={{ type: "ready", addresses: [] }} />
+    );
+    expect(html).toContain("No addresses saved");
+    return expect(html).toContain("Add an address");
+  });
 
-  it("renders persisted address fields and accessible edit/primary/remove actions", function() {
-    const html = renderToStaticMarkup(<AddressBook state={{ type: "ready", addresses: [address] }} />)
-    expect(html).toContain("100 Example Avenue")
-    expect(html).toContain("Suite 200")
-    expect(html).toContain("Primary")
-    expect(html).toContain("Edit work address")
-    expect(html).toContain("Remove work address")
-    return expect(html).not.toContain("Make work address primary")
-  })
+  it("renders persisted address fields and accessible edit/primary/remove actions", function () {
+    const html = renderToStaticMarkup(
+      <AddressBook state={{ type: "ready", addresses: [address] }} />
+    );
+    expect(html).toContain("100 Example Avenue");
+    expect(html).toContain("Suite 200");
+    expect(html).toContain("Primary");
+    expect(html).toContain("Edit work address");
+    expect(html).toContain("Remove work address");
+    return expect(html).not.toContain("Make work address primary");
+  });
 
-  it("requires explicit removal confirmation and retains a cancel action", function() {
+  it("requires explicit removal confirmation and retains a cancel action", function () {
     const html = renderToStaticMarkup(
       <AddressBook
         confirmingRemoveId="address-1"
         state={{ type: "ready", addresses: [address] }}
-      />,
-    )
-    expect(html).toContain("Remove this address?")
-    expect(html).toContain("Confirm removal")
-    return expect(html).toContain("Cancel")
-  })
+      />
+    );
+    expect(html).toContain("Remove this address?");
+    expect(html).toContain("Confirm removal");
+    return expect(html).toContain("Cancel");
+  });
 
-  it("shows safe error and success feedback without replacing server state", function() {
+  it("shows safe error and success feedback without replacing server state", function () {
     const failed = renderToStaticMarkup(
       <AddressBook
-        feedback={{ tone: "error", message: "Addresses are temporarily unavailable." }}
+        feedback={{
+          tone: "error",
+          message: "Addresses are temporarily unavailable.",
+        }}
         state={{ type: "ready", addresses: [address] }}
-      />,
-    )
-    expect(failed).toContain("Addresses are temporarily unavailable")
-    expect(failed).toContain("100 Example Avenue")
+      />
+    );
+    expect(failed).toContain("Addresses are temporarily unavailable");
+    expect(failed).toContain("100 Example Avenue");
     const success = renderToStaticMarkup(
       <AddressBook
         feedback={{ tone: "success", message: "Primary address updated." }}
         state={{ type: "ready", addresses: [address] }}
-      />,
-    )
-    return expect(success).toContain("Primary address updated")
-  })
+      />
+    );
+    return expect(success).toContain("Primary address updated");
+  });
 
   it.each([
-    ["unauthorized", "href=\"/sign-in?callbackURL=%2Faccount%2Faddress\"", "Sign in"],
-    ["forbidden", "href=\"/account\"", "Back to account"],
-    ["not-found", "href=\"/account\"", "Back to account"],
+    [
+      "unauthorized",
+      'href="/sign-in?callbackURL=%2Faccount%2Faddress"',
+      "Sign in",
+    ],
+    ["forbidden", 'href="/account"', "Back to account"],
+    ["not-found", 'href="/account"', "Back to account"],
     ["conflict", "Try again", "Try again"],
     ["retryable", "Try again", "Try again"],
-  ] as const)("renders the accessible %s recovery action", function(kind, recovery, label) {
+  ] as const)("renders the accessible %s recovery action", function (kind, recovery, label) {
     const html = renderToStaticMarkup(
-      <AddressBook state={{ type: "error", kind, message: "Addresses are unavailable." }} />,
-    )
-    expect(html).toContain("role=\"alert\"")
-    expect(html).toContain("Addresses are unavailable")
-    expect(html).toContain(recovery)
-    return expect(html).toContain(label)
-  }
-  )
+      <AddressBook
+        state={{ type: "error", kind, message: "Addresses are unavailable." }}
+      />
+    );
+    expect(html).toContain('role="alert"');
+    expect(html).toContain("Addresses are unavailable");
+    expect(html).toContain(recovery);
+    return expect(html).toContain(label);
+  });
 
-  it("forwards empty, retry, edit, primary, remove, confirm, and cancel actions with the owned address", function() {
+  it("forwards empty, retry, edit, primary, remove, confirm, and cancel actions with the owned address", function () {
     const secondary = {
       ...address,
       id: "address-2",
       type: "home" as const,
       line2: null,
       isPrimary: false,
-    }
-    const onCreate = vi.fn()
-    const emptyTree = AddressBook({ onCreate, state: { type: "ready", addresses: [] } }) as ReactElement
-    activate(controlByText(emptyTree, "Add an address"))
-    expect(onCreate).toHaveBeenCalledOnce()
+    };
+    const onCreate = vi.fn();
+    const emptyTree = AddressBook({
+      onCreate,
+      state: { type: "ready", addresses: [] },
+    }) as ReactElement;
+    activate(controlByText(emptyTree, "Add an address"));
+    expect(onCreate).toHaveBeenCalledOnce();
 
-    const onRetry = vi.fn()
+    const onRetry = vi.fn();
     const errorTree = AddressBook({
       onRetry,
-      state: { type: "error", kind: "retryable", message: "Try loading again." },
-    }) as ReactElement
-    activate(controlByText(errorTree, "Try again"))
-    expect(onRetry).toHaveBeenCalledOnce()
+      state: {
+        type: "error",
+        kind: "retryable",
+        message: "Try loading again.",
+      },
+    }) as ReactElement;
+    activate(controlByText(errorTree, "Try again"));
+    expect(onRetry).toHaveBeenCalledOnce();
 
-    const onEdit = vi.fn()
-    const onSetPrimary = vi.fn()
-    const onRequestRemove = vi.fn()
+    const onEdit = vi.fn();
+    const onSetPrimary = vi.fn();
+    const onRequestRemove = vi.fn();
     const readyTree = AddressBook({
       onEdit,
       onRequestRemove,
       onSetPrimary,
       state: { type: "ready", addresses: [address, secondary] },
-    }) as ReactElement
-    activate(controlByLabel(readyTree, "Edit home address"))
-    activate(controlByLabel(readyTree, "Make home address primary"))
-    activate(controlByLabel(readyTree, "Remove home address"))
-    expect(onEdit).toHaveBeenCalledWith(secondary)
-    expect(onSetPrimary).toHaveBeenCalledWith(secondary)
-    expect(onRequestRemove).toHaveBeenCalledWith(secondary)
+    }) as ReactElement;
+    activate(controlByLabel(readyTree, "Edit home address"));
+    activate(controlByLabel(readyTree, "Make home address primary"));
+    activate(controlByLabel(readyTree, "Remove home address"));
+    expect(onEdit).toHaveBeenCalledWith(secondary);
+    expect(onSetPrimary).toHaveBeenCalledWith(secondary);
+    expect(onRequestRemove).toHaveBeenCalledWith(secondary);
 
-    const onConfirmRemove = vi.fn()
-    const onCancelRemove = vi.fn()
+    const onConfirmRemove = vi.fn();
+    const onCancelRemove = vi.fn();
     const confirmationTree = AddressBook({
       confirmingRemoveId: secondary.id,
       onCancelRemove,
       onConfirmRemove,
       state: { type: "ready", addresses: [address, secondary] },
-    }) as ReactElement
-    activate(controlByLabel(confirmationTree, "Confirm removal of home address"))
-    activate(controlByText(confirmationTree, "Cancel"))
-    expect(onConfirmRemove).toHaveBeenCalledWith(secondary)
-    return expect(onCancelRemove).toHaveBeenCalledOnce()
-  })
+    }) as ReactElement;
+    activate(
+      controlByLabel(confirmationTree, "Confirm removal of home address")
+    );
+    activate(controlByText(confirmationTree, "Cancel"));
+    expect(onConfirmRemove).toHaveBeenCalledWith(secondary);
+    return expect(onCancelRemove).toHaveBeenCalledOnce();
+  });
 
-  return it("disables every address mutation while exposing truthful per-address progress", function() {
+  return it("disables every address mutation while exposing truthful per-address progress", function () {
     const secondary = {
       ...address,
       id: "address-2",
       type: "home" as const,
       line2: null,
       isPrimary: false,
-    }
+    };
     const tree = AddressBook({
       busyId: secondary.id,
       state: { type: "ready", addresses: [address, secondary] },
-    }) as ReactElement
-    expect(controlByLabel(tree, "Edit work address").props["disabled"]).toBe(true)
-    expect(controlByLabel(tree, "Remove work address").props["disabled"]).toBe(true)
-    expect(controlByLabel(tree, "Edit home address").props["disabled"]).toBe(true)
-    expect(controlByLabel(tree, "Make home address primary").props["disabled"]).toBe(true)
-    expect(controlByLabel(tree, "Make home address primary").props["loading"]).toBe(true)
-    expect(controlByLabel(tree, "Remove home address").props["disabled"]).toBe(true)
+    }) as ReactElement;
+    expect(controlByLabel(tree, "Edit work address").props["disabled"]).toBe(
+      true
+    );
+    expect(controlByLabel(tree, "Remove work address").props["disabled"]).toBe(
+      true
+    );
+    expect(controlByLabel(tree, "Edit home address").props["disabled"]).toBe(
+      true
+    );
+    expect(
+      controlByLabel(tree, "Make home address primary").props["disabled"]
+    ).toBe(true);
+    expect(
+      controlByLabel(tree, "Make home address primary").props["loading"]
+    ).toBe(true);
+    expect(controlByLabel(tree, "Remove home address").props["disabled"]).toBe(
+      true
+    );
 
-    const html = renderToStaticMarkup(tree)
-    expect(html).toContain("Updating primary address")
-    return expect(html).not.toContain(">null<")
-  })
-})
+    const html = renderToStaticMarkup(tree);
+    expect(html).toContain("Updating primary address");
+    return expect(html).not.toContain(">null<");
+  });
+});

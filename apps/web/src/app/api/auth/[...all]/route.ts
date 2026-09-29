@@ -1,10 +1,10 @@
-import { waitUntil } from "cloudflare:workers"
+import { waitUntil } from "cloudflare:workers";
 
-import { handleAuthRequest } from "./handler.ts"
+import { handleAuthRequest } from "./handler.ts";
 
 const handleAuth = (request: Request): Promise<Response> => {
-  return handleAuthRequest(request, (task) => waitUntil(task))
-}
+  return handleAuthRequest(request, (task) => waitUntil(task));
+};
 
-export const GET = handleAuth
-export const POST = handleAuth
+export const GET = handleAuth;
+export const POST = handleAuth;

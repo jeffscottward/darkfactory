@@ -1,11 +1,11 @@
-import { eq } from "drizzle-orm"
-import { drizzleAdapter } from "@better-auth/drizzle-adapter"
+import { eq } from "drizzle-orm";
+import { drizzleAdapter } from "@better-auth/drizzle-adapter";
 import {
   withTransaction,
   type Database,
   type DatabaseExecutor,
   type Transaction,
-} from "@darkfactory/db/server"
+} from "@darkfactory/db/server";
 import {
   USER_ROLES,
   USER_STATUSES,
@@ -14,92 +14,100 @@ import {
   users,
   type UserRole,
   type UserStatus,
-} from "@darkfactory/db/schema"
-import * as databaseSchema from "@darkfactory/db/schema"
-import type { EmailPort } from "@darkfactory/email"
-import { betterAuth } from "better-auth"
-import { APIError, createAuthMiddleware } from "better-auth/api"
-import { hashPassword, verifyPassword } from "better-auth/crypto"
+} from "@darkfactory/db/schema";
+import * as databaseSchema from "@darkfactory/db/schema";
+import type { EmailPort } from "@darkfactory/email";
+import { betterAuth } from "better-auth";
+import { APIError, createAuthMiddleware } from "better-auth/api";
+import { hashPassword, verifyPassword } from "better-auth/crypto";
 
-import { createAtomicAuthRateLimitStorage } from "./rate-limit-storage.ts"
-export { createAtomicAuthRateLimitStorage } from "./rate-limit-storage.ts"
+import { createAtomicAuthRateLimitStorage } from "./rate-limit-storage.ts";
+export { createAtomicAuthRateLimitStorage } from "./rate-limit-storage.ts";
 import {
   AUTH_BASE_URL,
   AUTHORIZATION_ERROR_CODES,
   AuthAuthorizationError,
   type SafeAuthSession,
-} from "./types.ts"
+} from "./types.ts";
 
-const DEFAULT_RESET_PASSWORD_EXPIRES_IN_SECONDS = 60 * 60
-const DEFAULT_VERIFICATION_EMAIL_EXPIRES_IN_SECONDS = 60 * 60
-const MIN_VERIFICATION_EMAIL_EXPIRES_IN_SECONDS = 60
-const MAX_VERIFICATION_EMAIL_EXPIRES_IN_SECONDS = 24 * 60 * 60
-const DEFAULT_VERIFICATION_RATE_LIMIT_MAX = 5
-const DEFAULT_SIGN_IN_RATE_LIMIT_MAX = 10
+const DEFAULT_RESET_PASSWORD_EXPIRES_IN_SECONDS = 60 * 60;
+const DEFAULT_VERIFICATION_EMAIL_EXPIRES_IN_SECONDS = 60 * 60;
+const MIN_VERIFICATION_EMAIL_EXPIRES_IN_SECONDS = 60;
+const MAX_VERIFICATION_EMAIL_EXPIRES_IN_SECONDS = 24 * 60 * 60;
+const DEFAULT_VERIFICATION_RATE_LIMIT_MAX = 5;
+const DEFAULT_SIGN_IN_RATE_LIMIT_MAX = 10;
 const SAFE_RESET_RESPONSE = {
   status: true,
-  message: "If this email exists in our system, check your email for the reset link",
-} as const
+  message:
+    "If this email exists in our system, check your email for the reset link",
+} as const;
 const SAFE_SIGN_UP_RESPONSE = {
   status: true,
-  message: "If this email can be registered, check your email for a verification link",
-} as const
-const SIGN_UP_RESPONSE_FLOOR_MILLISECONDS = 250
-const DUPLICATE_SIGN_UP_ERROR_CODE = "USER_ALREADY_EXISTS_USE_ANOTHER_EMAIL"
+  message:
+    "If this email can be registered, check your email for a verification link",
+} as const;
+const SIGN_UP_RESPONSE_FLOOR_MILLISECONDS = 250;
+const DUPLICATE_SIGN_UP_ERROR_CODE = "USER_ALREADY_EXISTS_USE_ANOTHER_EMAIL";
 
 export const PASSWORD_RESET_DELIVERY_ERROR_CODE =
-  "PASSWORD_RESET_DELIVERY_FAILED" as const
+  "PASSWORD_RESET_DELIVERY_FAILED" as const;
 export const EMAIL_VERIFICATION_DELIVERY_ERROR_CODE =
-  "EMAIL_VERIFICATION_DELIVERY_FAILED" as const
+  "EMAIL_VERIFICATION_DELIVERY_FAILED" as const;
 
 const emailVerificationDeliveryError = (): APIError => {
   return new APIError("SERVICE_UNAVAILABLE", {
     code: EMAIL_VERIFICATION_DELIVERY_ERROR_CODE,
     message: "Email verification delivery is unavailable",
-  })
-}
+  });
+};
 
 export type AuthFactoryOptions = Readonly<{
-  database: Database
-  secret: string
-  email: EmailPort
-  baseURL?: string
-  scheduleBackgroundTask: (task: Promise<unknown>) => void
-  trustedOrigins?: readonly string[]
-  resetPasswordTokenExpiresInSeconds?: number
-  verificationEmailTokenExpiresInSeconds?: number
-  resetRateLimitMax?: number
-  verificationRateLimitMax?: number
-  signInRateLimitMax?: number
-  rateLimitEnabled?: boolean
-  generateId?: (options: { model: string; size?: number | undefined }) => string
-}>
+  database: Database;
+  secret: string;
+  email: EmailPort;
+  baseURL?: string;
+  scheduleBackgroundTask: (task: Promise<unknown>) => void;
+  trustedOrigins?: readonly string[];
+  resetPasswordTokenExpiresInSeconds?: number;
+  verificationEmailTokenExpiresInSeconds?: number;
+  resetRateLimitMax?: number;
+  verificationRateLimitMax?: number;
+  signInRateLimitMax?: number;
+  rateLimitEnabled?: boolean;
+  generateId?: (options: {
+    model: string;
+    size?: number | undefined;
+  }) => string;
+}>;
 
 export type ProvisionableUser = Readonly<{
-  id: string
-  name: string
-}>
+  id: string;
+  name: string;
+}>;
 
 const supportsTransactions = (database: Database): boolean => {
-  return typeof (database as unknown as { transaction?: unknown }).transaction === "function"
-}
+  return (
+    typeof (database as unknown as { transaction?: unknown }).transaction ===
+    "function"
+  );
+};
 
 const resetExpiry = (options: AuthFactoryOptions): number => {
   const seconds =
     options.resetPasswordTokenExpiresInSeconds ??
-    DEFAULT_RESET_PASSWORD_EXPIRES_IN_SECONDS
+    DEFAULT_RESET_PASSWORD_EXPIRES_IN_SECONDS;
   if (!Number.isSafeInteger(seconds) || seconds <= 0 || seconds % 60 !== 0) {
     throw new RangeError(
-      "resetPasswordTokenExpiresInSeconds must be a positive whole-minute integer",
-    )
+      "resetPasswordTokenExpiresInSeconds must be a positive whole-minute integer"
+    );
   }
-  return seconds
-}
+  return seconds;
+};
 
 const verificationExpiry = (options: AuthFactoryOptions): number => {
   const seconds =
     options.verificationEmailTokenExpiresInSeconds ??
-    DEFAULT_VERIFICATION_EMAIL_EXPIRES_IN_SECONDS
+    DEFAULT_VERIFICATION_EMAIL_EXPIRES_IN_SECONDS;
   if (
     !Number.isInteger(seconds) ||
     seconds < MIN_VERIFICATION_EMAIL_EXPIRES_IN_SECONDS ||
@@ -107,39 +115,41 @@ const verificationExpiry = (options: AuthFactoryOptions): number => {
     seconds % 60 !== 0
   ) {
     throw new RangeError(
-      "verificationEmailTokenExpiresInSeconds must be a whole-minute integer from 60 to 86400",
-    )
+      "verificationEmailTokenExpiresInSeconds must be a whole-minute integer from 60 to 86400"
+    );
   }
-  return seconds
-}
+  return seconds;
+};
 
 const verificationRateLimitMax = (options: AuthFactoryOptions): number => {
-  const max = options.verificationRateLimitMax ?? DEFAULT_VERIFICATION_RATE_LIMIT_MAX
+  const max =
+    options.verificationRateLimitMax ?? DEFAULT_VERIFICATION_RATE_LIMIT_MAX;
   if (!Number.isSafeInteger(max) || max <= 0) {
-    throw new RangeError("verificationRateLimitMax must be a positive integer")
+    throw new RangeError("verificationRateLimitMax must be a positive integer");
   }
-  return max
-}
-
+  return max;
+};
 
 const signInRateLimitMax = (options: AuthFactoryOptions): number => {
-  const max = options.signInRateLimitMax ?? DEFAULT_SIGN_IN_RATE_LIMIT_MAX
+  const max = options.signInRateLimitMax ?? DEFAULT_SIGN_IN_RATE_LIMIT_MAX;
   if (!Number.isSafeInteger(max) || max <= 0) {
-    throw new RangeError("signInRateLimitMax must be a positive integer")
+    throw new RangeError("signInRateLimitMax must be a positive integer");
   }
-  return max
-}
-const trustedOrigins = (baseURL: string, configured?: readonly string[]): string[] => {
-  return [...new Set([baseURL, ...(configured ?? [])])]
-}
+  return max;
+};
+const trustedOrigins = (
+  baseURL: string,
+  configured?: readonly string[]
+): string[] => {
+  return [...new Set([baseURL, ...(configured ?? [])])];
+};
 
 const NORMALIZED_EMAIL_PATHS = new Set([
   "/sign-up/email",
   "/sign-in/email",
   "/request-password-reset",
   "/send-verification-email",
-])
-
+]);
 
 /**
  * Creates or repairs application-owned rows without overwriting member choices.
@@ -149,7 +159,7 @@ const NORMALIZED_EMAIL_PATHS = new Set([
  */
 const ensureUserResourcesWithExecutor = async (
   database: DatabaseExecutor,
-  user: ProvisionableUser,
+  user: ProvisionableUser
 ): Promise<void> => {
   await database
     .insert(profiles)
@@ -163,38 +173,37 @@ const ensureUserResourcesWithExecutor = async (
     .insert(userPreferences)
     .values({ userId: user.id })
     .onConflictDoNothing({ target: userPreferences.userId });
-}
+};
 
 export const ensureUserResources = async (
   database: Database,
-  user: ProvisionableUser,
+  user: ProvisionableUser
 ): Promise<void> => {
   await withTransaction(database, async (transaction) => {
-    return await ensureUserResourcesWithExecutor(transaction, user)
-  }
-  )
-}
+    return await ensureUserResourcesWithExecutor(transaction, user);
+  });
+};
 
 const inactiveStatusError = (status: unknown): APIError | undefined => {
-  if (status === "active") return undefined
+  if (status === "active") return undefined;
   const code =
     status === "suspended"
       ? AUTHORIZATION_ERROR_CODES.ACCOUNT_SUSPENDED
       : status === "deactivated"
         ? AUTHORIZATION_ERROR_CODES.ACCOUNT_DEACTIVATED
-        : AUTHORIZATION_ERROR_CODES.FORBIDDEN
+        : AUTHORIZATION_ERROR_CODES.FORBIDDEN;
   return new APIError("FORBIDDEN", {
     code,
     message: "Account is unavailable",
-  })
-}
+  });
+};
 
-const MISSING_PLAIN_DATA_PROPERTY = Symbol("missing plain-data property")
-const INVALID_PLAIN_DATA = Symbol("invalid plain data")
+const MISSING_PLAIN_DATA_PROPERTY = Symbol("missing plain-data property");
+const INVALID_PLAIN_DATA = Symbol("invalid plain data");
 
-const readPlainDataProperty = function(
+const readPlainDataProperty = function (
   value: unknown,
-  key: PropertyKey,
+  key: PropertyKey
 ): unknown {
   try {
     if (
@@ -202,57 +211,53 @@ const readPlainDataProperty = function(
       value === null ||
       Object.getPrototypeOf(value) !== Object.prototype
     ) {
-      return INVALID_PLAIN_DATA
+      return INVALID_PLAIN_DATA;
     }
-    const descriptor = Object.getOwnPropertyDescriptor(value, key)
+    const descriptor = Object.getOwnPropertyDescriptor(value, key);
     if (descriptor === undefined) {
-      return MISSING_PLAIN_DATA_PROPERTY
+      return MISSING_PLAIN_DATA_PROPERTY;
     }
     if (!("value" in descriptor)) {
-      return INVALID_PLAIN_DATA
+      return INVALID_PLAIN_DATA;
     }
-    return descriptor.value
+    return descriptor.value;
+  } catch {
+    return INVALID_PLAIN_DATA;
   }
-  catch {
-    return INVALID_PLAIN_DATA
-  }
-}
+};
 
-const sessionUserStatus = function(session: unknown): unknown {
-  const user = readPlainDataProperty(session, "user")
-  if (
-    user === MISSING_PLAIN_DATA_PROPERTY ||
-    user === INVALID_PLAIN_DATA
-  ) {
-    return INVALID_PLAIN_DATA
+const sessionUserStatus = function (session: unknown): unknown {
+  const user = readPlainDataProperty(session, "user");
+  if (user === MISSING_PLAIN_DATA_PROPERTY || user === INVALID_PLAIN_DATA) {
+    return INVALID_PLAIN_DATA;
   }
-  const status = readPlainDataProperty(user, "status")
+  const status = readPlainDataProperty(user, "status");
   if (status === MISSING_PLAIN_DATA_PROPERTY) {
-    return INVALID_PLAIN_DATA
+    return INVALID_PLAIN_DATA;
   }
-  return status
-}
+  return status;
+};
 
 const requireActiveUserId = async (
   database: Database,
-  userId: string,
+  userId: string
 ): Promise<void> => {
   const [user] = await database
     .select({ status: users.status })
     .from(users)
     .where(eq(users.id, userId))
-    .limit(1)
-  const error = inactiveStatusError(user?.status)
-  if (error) throw error
-}
+    .limit(1);
+  const error = inactiveStatusError(user?.status);
+  if (error) throw error;
+};
 
 export const createAuth = (options: AuthFactoryOptions) => {
-  const baseURL = options.baseURL ?? AUTH_BASE_URL
-  const resetPasswordTokenExpiresInSeconds = resetExpiry(options)
-  const verificationEmailTokenExpiresInSeconds = verificationExpiry(options)
-  const verificationResendRateLimitMax = verificationRateLimitMax(options)
-  const emailSignInRateLimitMax = signInRateLimitMax(options)
-  const rateLimitStorage = createAtomicAuthRateLimitStorage(options.database)
+  const baseURL = options.baseURL ?? AUTH_BASE_URL;
+  const resetPasswordTokenExpiresInSeconds = resetExpiry(options);
+  const verificationEmailTokenExpiresInSeconds = verificationExpiry(options);
+  const verificationResendRateLimitMax = verificationRateLimitMax(options);
+  const emailSignInRateLimitMax = signInRateLimitMax(options);
+  const rateLimitStorage = createAtomicAuthRateLimitStorage(options.database);
 
   return betterAuth({
     baseURL,
@@ -278,52 +283,50 @@ export const createAuth = (options: AuthFactoryOptions) => {
         : {}),
     },
     hooks: {
-      before: createAuthMiddleware(async function(context) {
+      before: createAuthMiddleware(async function (context) {
         if (context.path !== "/sign-out") {
           const currentSession = readPlainDataProperty(
             context.context,
-            "session",
-          )
+            "session"
+          );
           if (
             currentSession !== MISSING_PLAIN_DATA_PROPERTY &&
             currentSession !== undefined &&
             currentSession !== null
           ) {
             const statusError = inactiveStatusError(
-              sessionUserStatus(currentSession),
-            )
+              sessionUserStatus(currentSession)
+            );
             if (statusError) {
-              throw statusError
+              throw statusError;
             }
           }
         }
 
-        if (!NORMALIZED_EMAIL_PATHS.has(context.path)) return undefined
-        const body = context.body as Record<string, unknown> | undefined
-        if (typeof body?.["email"] !== "string") return undefined
-        const email = body["email"].trim().toLowerCase()
-        if (email === body["email"]) return undefined
+        if (!NORMALIZED_EMAIL_PATHS.has(context.path)) return undefined;
+        const body = context.body as Record<string, unknown> | undefined;
+        if (typeof body?.["email"] !== "string") return undefined;
+        const email = body["email"].trim().toLowerCase();
+        if (email === body["email"]) return undefined;
         return {
           context: {
             ...context,
             body: { ...body, email },
           },
-        }
-      }
-      ),
+        };
+      }),
       after: createAuthMiddleware(async (context) => {
-        if (context.path !== "/sign-in/email") return undefined
+        if (context.path !== "/sign-in/email") return undefined;
         const signedInUser = (
           context.context as {
-            newSession?: { user?: ProvisionableUser } | null
+            newSession?: { user?: ProvisionableUser } | null;
           }
-        ).newSession?.user
+        ).newSession?.user;
         if (signedInUser) {
-          await ensureUserResources(options.database, signedInUser)
+          await ensureUserResources(options.database, signedInUser);
         }
-        return undefined
-      }
-      ),
+        return undefined;
+      }),
     },
     rateLimit: {
       enabled: options.rateLimitEnabled ?? true,
@@ -358,15 +361,15 @@ export const createAuth = (options: AuthFactoryOptions) => {
             recipientName: user.name,
             verificationUrl: url,
             expiresInMinutes: verificationEmailTokenExpiresInSeconds / 60,
-          })
+          });
           if (result.status === "failed") {
-            throw emailVerificationDeliveryError()
-          };return
+            throw emailVerificationDeliveryError();
+          }
+          return;
+        } catch {
+          throw emailVerificationDeliveryError();
         }
-        catch {
-          throw emailVerificationDeliveryError()
-        }
-      }
+      },
     },
     emailAndPassword: {
       enabled: true,
@@ -380,14 +383,15 @@ export const createAuth = (options: AuthFactoryOptions) => {
           recipientName: user.name,
           resetUrl: url,
           expiresInMinutes: resetPasswordTokenExpiresInSeconds / 60,
-        })
+        });
         if (result.status === "failed") {
           throw new APIError("SERVICE_UNAVAILABLE", {
             code: PASSWORD_RESET_DELIVERY_ERROR_CODE,
             message: "Password reset delivery is unavailable",
-          })
-        };return
-      }
+          });
+        }
+        return;
+      },
     },
     user: {
       modelName: "users",
@@ -422,130 +426,131 @@ export const createAuth = (options: AuthFactoryOptions) => {
       user: {
         create: {
           after: async (user) => {
-            await ensureUserResources(options.database, user)
-            return undefined
-          }
+            await ensureUserResources(options.database, user);
+            return undefined;
+          },
         },
       },
       session: {
         create: {
           before: async (session) => {
-            await requireActiveUserId(options.database, session.userId)
-            return undefined
-          }
+            await requireActiveUserId(options.database, session.userId);
+            return undefined;
+          },
         },
       },
     },
-  })
-}
+  });
+};
 
-export type DarkFactoryAuth = ReturnType<typeof createAuth>
+export type DarkFactoryAuth = ReturnType<typeof createAuth>;
 
 export type DevelopmentSeedIdentity = Readonly<{
-  userId: string
-  accountId: string
-  name: string
-  email: string
-  image: string
-  role: UserRole
-  password: string
-}>
+  userId: string;
+  accountId: string;
+  name: string;
+  email: string;
+  image: string;
+  role: UserRole;
+  password: string;
+}>;
 
 export type DevelopmentSeedIdentityPreparationOptions = Readonly<{
-  environment: string | undefined
-  secret: string
-  baseURL?: string
-  trustedOrigins?: readonly string[]
-}>
+  environment: string | undefined;
+  secret: string;
+  baseURL?: string;
+  trustedOrigins?: readonly string[];
+}>;
 
 export type PreparedDevelopmentSeedIdentity = (
   identity: DevelopmentSeedIdentity,
   exists: boolean,
-  database: Transaction,
-) => Promise<void>
+  database: Transaction
+) => Promise<void>;
 
 const createDevelopmentSeedAuth = (
   database: Transaction,
-  options: DevelopmentSeedIdentityPreparationOptions,
-) => betterAuth({
-  baseURL: options.baseURL ?? AUTH_BASE_URL,
-  secret: options.secret,
-  trustedOrigins: trustedOrigins(
-    options.baseURL ?? AUTH_BASE_URL,
-    options.trustedOrigins,
-  ),
-  database: drizzleAdapter(database, {
-    provider: "pg",
-    schema: databaseSchema,
-    transaction: false,
-  }),
-  emailAndPassword: {
-    enabled: true,
-    autoSignIn: false,
-    requireEmailVerification: true,
-  },
-  user: {
-    modelName: "users",
-    additionalFields: {
-      role: {
-        type: [...USER_ROLES] as ["member", "admin"],
-        required: true,
-        input: false,
-        returned: true,
-        defaultValue: "member",
-      },
-      status: {
-        type: [...USER_STATUSES] as ["active", "suspended", "deactivated"],
-        required: true,
-        input: false,
-        returned: true,
-        defaultValue: "active",
+  options: DevelopmentSeedIdentityPreparationOptions
+) =>
+  betterAuth({
+    baseURL: options.baseURL ?? AUTH_BASE_URL,
+    secret: options.secret,
+    trustedOrigins: trustedOrigins(
+      options.baseURL ?? AUTH_BASE_URL,
+      options.trustedOrigins
+    ),
+    database: drizzleAdapter(database, {
+      provider: "pg",
+      schema: databaseSchema,
+      transaction: false,
+    }),
+    emailAndPassword: {
+      enabled: true,
+      autoSignIn: false,
+      requireEmailVerification: true,
+    },
+    user: {
+      modelName: "users",
+      additionalFields: {
+        role: {
+          type: [...USER_ROLES] as ["member", "admin"],
+          required: true,
+          input: false,
+          returned: true,
+          defaultValue: "member",
+        },
+        status: {
+          type: [...USER_STATUSES] as ["active", "suspended", "deactivated"],
+          required: true,
+          input: false,
+          returned: true,
+          defaultValue: "active",
+        },
       },
     },
-  },
-  session: { modelName: "sessions" },
-  account: { modelName: "accounts" },
-  verification: { modelName: "verifications", storeIdentifier: "hashed" },
-})
+    session: { modelName: "sessions" },
+    account: { modelName: "accounts" },
+    verification: { modelName: "verifications", storeIdentifier: "hashed" },
+  });
 
 export const developmentSeedCrypto: Readonly<{
-  hashPassword: typeof hashPassword
-}> = { hashPassword }
+  hashPassword: typeof hashPassword;
+}> = { hashPassword };
 
 export const ensureDevelopmentSeedIdentity = async (
   options: DevelopmentSeedIdentityPreparationOptions,
-  identities: readonly DevelopmentSeedIdentity[],
+  identities: readonly DevelopmentSeedIdentity[]
 ): Promise<PreparedDevelopmentSeedIdentity> => {
-  if (
-    options.environment !== "development" &&
-    options.environment !== "test"
-  ) {
+  if (options.environment !== "development" && options.environment !== "test") {
     throw new Error(
-      "Development seed identity setup requires an explicit development or test environment",
-    )
+      "Development seed identity setup requires an explicit development or test environment"
+    );
   }
 
-  const prepared = new Map<string, Readonly<{
-    identity: DevelopmentSeedIdentity
-    passwordHash: string
-  }>>()
+  const prepared = new Map<
+    string,
+    Readonly<{
+      identity: DevelopmentSeedIdentity;
+      passwordHash: string;
+    }>
+  >();
   for (const identity of identities) {
     if (prepared.has(identity.userId)) {
-      throw new Error("Development seed identities require unique user IDs")
+      throw new Error("Development seed identities require unique user IDs");
     }
     prepared.set(identity.userId, {
       identity,
       passwordHash: await developmentSeedCrypto.hashPassword(identity.password),
-    })
+    });
   }
 
-  let boundDatabase: Transaction | undefined
-  let context: Awaited<
-    ReturnType<typeof createDevelopmentSeedAuth>["$context"]
-  > | undefined
+  let boundDatabase: Transaction | undefined;
+  let context:
+    | Awaited<ReturnType<typeof createDevelopmentSeedAuth>["$context"]>
+    | undefined;
 
   return async (identity, exists, database): Promise<void> => {
-    const entry = prepared.get(identity.userId)
+    const entry = prepared.get(identity.userId);
     if (
       !entry ||
       entry.identity.accountId !== identity.accountId ||
@@ -555,14 +560,14 @@ export const ensureDevelopmentSeedIdentity = async (
       entry.identity.role !== identity.role ||
       entry.identity.password !== identity.password
     ) {
-      throw new Error("Seed identity was not prepared")
+      throw new Error("Seed identity was not prepared");
     }
     if (boundDatabase !== undefined && boundDatabase !== database) {
-      throw new Error("Prepared seed identities require one transaction")
+      throw new Error("Prepared seed identities require one transaction");
     }
     if (context === undefined) {
-      boundDatabase = database
-      context = await createDevelopmentSeedAuth(database, options).$context
+      boundDatabase = database;
+      context = await createDevelopmentSeedAuth(database, options).$context;
     }
 
     if (!exists) {
@@ -574,9 +579,9 @@ export const ensureDevelopmentSeedIdentity = async (
         image: identity.image,
         role: identity.role,
         status: "active",
-      })
+      });
       if (created.id !== identity.userId) {
-        throw new Error("Seed user received an unexpected identifier")
+        throw new Error("Seed user received an unexpected identifier");
       }
       const account = await context.internalAdapter.linkAccount({
         id: identity.accountId,
@@ -584,23 +589,24 @@ export const ensureDevelopmentSeedIdentity = async (
         providerId: "credential",
         accountId: identity.userId,
         password: entry.passwordHash,
-      })
+      });
       if (
         account.id !== identity.accountId ||
         account.userId !== identity.userId ||
         account.providerId !== "credential" ||
         account.accountId !== identity.userId
       ) {
-        throw new Error("Seed credential received an unexpected identifier")
+        throw new Error("Seed credential received an unexpected identifier");
       }
-    }
-    else {
-      const current = await context.internalAdapter.findUserById(identity.userId)
-      if (!current) throw new Error("Seed user is unavailable")
+    } else {
+      const current = await context.internalAdapter.findUserById(
+        identity.userId
+      );
+      if (!current) throw new Error("Seed user is unavailable");
       const currentState = current as typeof current & {
-        role: unknown
-        status: unknown
-      }
+        role: unknown;
+        status: unknown;
+      };
       if (
         current.name !== identity.name ||
         current.email !== identity.email ||
@@ -616,71 +622,67 @@ export const ensureDevelopmentSeedIdentity = async (
           image: identity.image,
           role: identity.role,
           status: "active",
-        })
+        });
       }
 
       const credential = (
         await context.internalAdapter.findAccounts(identity.userId)
       ).find((account) => {
-        return account.id === identity.accountId &&
-        account.providerId === "credential" &&
-        account.accountId === identity.userId
-      }
-      )
+        return (
+          account.id === identity.accountId &&
+          account.providerId === "credential" &&
+          account.accountId === identity.userId
+        );
+      });
       if (!credential?.password) {
-        throw new Error("Seed credential is unavailable")
+        throw new Error("Seed credential is unavailable");
       }
-      let passwordMatches: boolean
+      let passwordMatches: boolean;
       try {
         passwordMatches = await verifyPassword({
           hash: credential.password,
           password: identity.password,
-        })
-      }
-      catch {
-        throw new Error("Seed credential is malformed")
+        });
+      } catch {
+        throw new Error("Seed credential is malformed");
       }
       if (!passwordMatches) {
         await context.internalAdapter.updateAccount(credential.id, {
           password: entry.passwordHash,
-        })
+        });
       }
     }
 
     await ensureUserResourcesWithExecutor(database, {
       id: identity.userId,
       name: identity.name,
-    })
-  }
-}
+    });
+  };
+};
 
 type AuthSession = NonNullable<
   Awaited<ReturnType<DarkFactoryAuth["api"]["getSession"]>>
->
+>;
 
 const userRole = (value: unknown): UserRole => {
-  if (value === "member" || value === "admin") return value
-  throw new TypeError("Auth user has an invalid role")
-}
+  if (value === "member" || value === "admin") return value;
+  throw new TypeError("Auth user has an invalid role");
+};
 
 const userStatus = (value: unknown): UserStatus => {
-  if (
-    value === "active" ||
-    value === "suspended" ||
-    value === "deactivated"
-  ) {
-    return value
+  if (value === "active" || value === "suspended" || value === "deactivated") {
+    return value;
   }
-  throw new TypeError("Auth user has an invalid status")
-}
+  throw new TypeError("Auth user has an invalid status");
+};
 
 const safeSession = (value: AuthSession): SafeAuthSession => {
   const extendedUser = value.user as typeof value.user & {
-    role?: unknown
-    status?: unknown
-  }
-  const role = userRole(extendedUser.role)
-  const status = userStatus(extendedUser.status)
+    role?: unknown;
+    status?: unknown;
+  };
+  const role = userRole(extendedUser.role);
+  const status = userStatus(extendedUser.status);
 
   return {
     user: {
@@ -708,188 +710,191 @@ const safeSession = (value: AuthSession): SafeAuthSession => {
       role,
       status,
     },
-  }
-}
+  };
+};
 
 const activeSession = (value: AuthSession): SafeAuthSession => {
-  const session = safeSession(value)
+  const session = safeSession(value);
   if (session.user.status === "suspended") {
     throw new AuthAuthorizationError(
       AUTHORIZATION_ERROR_CODES.ACCOUNT_SUSPENDED,
-      403,
-    )
+      403
+    );
   }
   if (session.user.status === "deactivated") {
     throw new AuthAuthorizationError(
       AUTHORIZATION_ERROR_CODES.ACCOUNT_DEACTIVATED,
-      403,
-    )
+      403
+    );
   }
-  return session
-}
+  return session;
+};
 
-type SanitizedJson = Readonly<{ value: unknown; changed: boolean }>
+type SanitizedJson = Readonly<{ value: unknown; changed: boolean }>;
 
 const sanitizeJsonTokens = (value: unknown): SanitizedJson => {
   if (Array.isArray(value)) {
-    const entries = value.map(sanitizeJsonTokens)
+    const entries = value.map(sanitizeJsonTokens);
     return {
       value: entries.map((entry) => entry.value),
       changed: entries.some((entry) => entry.changed),
-    }
+    };
   }
   if (typeof value !== "object" || value === null) {
-    return { value, changed: false }
+    return { value, changed: false };
   }
 
-  const sanitized: Record<string, unknown> = {}
-  let changed = false
+  const sanitized: Record<string, unknown> = {};
+  let changed = false;
   for (const [key, child] of Object.entries(value)) {
     if (key === "token") {
-      changed = true
-      continue
+      changed = true;
+      continue;
     }
-    const entry = sanitizeJsonTokens(child)
-    sanitized[key] = entry.value
-    changed ||= entry.changed
+    const entry = sanitizeJsonTokens(child);
+    sanitized[key] = entry.value;
+    changed ||= entry.changed;
   }
-  return { value: sanitized, changed }
-}
+  return { value: sanitized, changed };
+};
 
 const isJsonResponse = (response: Response): boolean => {
-  return (response.headers.get("content-type") ?? "")
-    .split(";", 1)
-    .join("")
-    .trim()
-    .toLowerCase() === "application/json"
-}
+  return (
+    (response.headers.get("content-type") ?? "")
+      .split(";", 1)
+      .join("")
+      .trim()
+      .toLowerCase() === "application/json"
+  );
+};
 
 const parseAuthenticationJson = (body: string): unknown => {
   try {
-    return JSON.parse(body) as unknown
+    return JSON.parse(body) as unknown;
+  } catch {
+    throw new Error("Authentication JSON response is malformed");
   }
-  catch {
-    throw new Error("Authentication JSON response is malformed")
-  }
-}
+};
 
 const sanitizeParsedTokenResponse = (
   response: Response,
-  parsed: unknown,
+  parsed: unknown
 ): Response => {
-  const result = sanitizeJsonTokens(parsed)
-  if (!result.changed) return response
+  const result = sanitizeJsonTokens(parsed);
+  if (!result.changed) return response;
 
-  const headers = new Headers(response.headers)
-  headers.set("content-type", "application/json")
-  headers.delete("content-length")
+  const headers = new Headers(response.headers);
+  headers.set("content-type", "application/json");
+  headers.delete("content-length");
   return new Response(JSON.stringify(result.value), {
     status: response.status,
     statusText: response.statusText,
     headers,
-  })
-}
+  });
+};
 
 const sanitizeTokenResponse = async (response: Response): Promise<Response> => {
-  if (!isJsonResponse(response)) return response
-  const body = await response.clone().text()
-  if (body.trim().length === 0) return response
-  return sanitizeParsedTokenResponse(response, parseAuthenticationJson(body))
-}
+  if (!isJsonResponse(response)) return response;
+  const body = await response.clone().text();
+  if (body.trim().length === 0) return response;
+  return sanitizeParsedTokenResponse(response, parseAuthenticationJson(body));
+};
 
 export const requireSession = async (
   auth: DarkFactoryAuth,
-  headers: Headers,
+  headers: Headers
 ): Promise<SafeAuthSession> => {
-  const session = await auth.api.getSession({ headers })
+  const session = await auth.api.getSession({ headers });
   if (!session) {
     throw new AuthAuthorizationError(
       AUTHORIZATION_ERROR_CODES.AUTH_REQUIRED,
-      401,
-    )
+      401
+    );
   }
-  return activeSession(session)
-}
+  return activeSession(session);
+};
 
 export const requireRole = async (
   auth: DarkFactoryAuth,
   headers: Headers,
-  role: UserRole,
+  role: UserRole
 ): Promise<SafeAuthSession> => {
-  const session = await requireSession(auth, headers)
+  const session = await requireSession(auth, headers);
   if (session.principal.role !== role) {
-    throw new AuthAuthorizationError(
-      AUTHORIZATION_ERROR_CODES.FORBIDDEN,
-      403,
-    )
+    throw new AuthAuthorizationError(AUTHORIZATION_ERROR_CODES.FORBIDDEN, 403);
   }
-  return session
-}
+  return session;
+};
 
 const isResetRequest = (request: Request): boolean => {
-  return request.method === "POST" &&
-  new URL(request.url).pathname.endsWith("/api/auth/request-password-reset")
-}
+  return (
+    request.method === "POST" &&
+    new URL(request.url).pathname.endsWith("/api/auth/request-password-reset")
+  );
+};
 
 const isSignUpRequest = (request: Request): boolean => {
-  return request.method === "POST" &&
-  new URL(request.url).pathname.endsWith("/api/auth/sign-up/email")
-}
+  return (
+    request.method === "POST" &&
+    new URL(request.url).pathname.endsWith("/api/auth/sign-up/email")
+  );
+};
 
 const isGetSessionRequest = (request: Request): boolean => {
-  return request.method === "GET" &&
-  new URL(request.url).pathname === "/api/auth/get-session"
-}
+  return (
+    request.method === "GET" &&
+    new URL(request.url).pathname === "/api/auth/get-session"
+  );
+};
 
 const hasJsonErrorCode = async (
   response: Response,
-  code: string,
+  code: string
 ): Promise<boolean> => {
-  const contentType = response.headers.get("content-type") ?? ""
-  if (!contentType.includes("application/json")) return false
+  const contentType = response.headers.get("content-type") ?? "";
+  if (!contentType.includes("application/json")) return false;
   try {
-    const body = (await response.clone().json()) as { code?: unknown }
-    return body.code === code
+    const body = (await response.clone().json()) as { code?: unknown };
+    return body.code === code;
+  } catch {
+    return false;
   }
-  catch {
-    return false
-  }
-}
+};
 
 const normalizeSignUpResponse = async (
   response: Response,
-  startedAt: number,
+  startedAt: number
 ): Promise<Response> => {
-  const accepted = response.status === 200 ||
-    (
-      response.status === 422 &&
-      await hasJsonErrorCode(response, DUPLICATE_SIGN_UP_ERROR_CODE)
-    )
-  if (!accepted) return response
+  const accepted =
+    response.status === 200 ||
+    (response.status === 422 &&
+      (await hasJsonErrorCode(response, DUPLICATE_SIGN_UP_ERROR_CODE)));
+  if (!accepted) return response;
 
-  const remaining = SIGN_UP_RESPONSE_FLOOR_MILLISECONDS - (Date.now() - startedAt)
+  const remaining =
+    SIGN_UP_RESPONSE_FLOOR_MILLISECONDS - (Date.now() - startedAt);
   if (remaining > 0) {
-    await new Promise<void>((resolve) => setTimeout(resolve, remaining))
+    await new Promise<void>((resolve) => setTimeout(resolve, remaining));
   }
   return Response.json(SAFE_SIGN_UP_RESPONSE, {
     status: 200,
     headers: { "cache-control": "no-store" },
-  })
-}
+  });
+};
 
 const isDeliveryFailure = async (
   response: Response,
-  code: string,
+  code: string
 ): Promise<boolean> => {
-  if (response.status !== 503) return false
-  const contentType = response.headers.get("content-type") ?? ""
-  if (!contentType.includes("application/json")) return false
-  const body = (await response.clone().json()) as { code?: unknown }
-  return body.code === code
-}
+  if (response.status !== 503) return false;
+  const contentType = response.headers.get("content-type") ?? "";
+  if (!contentType.includes("application/json")) return false;
+  const body = (await response.clone().json()) as { code?: unknown };
+  return body.code === code;
+};
 
 const isStatusGateExempt = (request: Request): boolean => {
-  const path = new URL(request.url).pathname
+  const path = new URL(request.url).pathname;
   return (
     path.endsWith("/api/auth/ok") ||
     path.endsWith("/api/auth/sign-up/email") ||
@@ -900,85 +905,83 @@ const isStatusGateExempt = (request: Request): boolean => {
     path.endsWith("/api/auth/verify-email") ||
     path.endsWith("/api/auth/reset-password") ||
     path.includes("/api/auth/reset-password/")
-  )
-}
+  );
+};
 
 const inactiveStatusResponse = (status: unknown): Response | undefined => {
-  if (status === "active") return undefined
+  if (status === "active") return undefined;
   const code =
     status === "suspended"
       ? AUTHORIZATION_ERROR_CODES.ACCOUNT_SUSPENDED
       : status === "deactivated"
         ? AUTHORIZATION_ERROR_CODES.ACCOUNT_DEACTIVATED
-        : AUTHORIZATION_ERROR_CODES.FORBIDDEN
+        : AUTHORIZATION_ERROR_CODES.FORBIDDEN;
   return Response.json(
     { code, message: "Account is unavailable" },
-    { status: 403 },
-  )
-}
+    { status: 403 }
+  );
+};
 
 const inactiveSessionResponse = async (
   auth: DarkFactoryAuth,
-  request: Request,
+  request: Request
 ): Promise<Response | undefined> => {
-  if (isStatusGateExempt(request)) return undefined
-  const session = await auth.api.getSession({ headers: request.headers })
-  if (session === null) return undefined
-  return inactiveStatusResponse(sessionUserStatus(session))
-}
+  if (isStatusGateExempt(request)) return undefined;
+  const session = await auth.api.getSession({ headers: request.headers });
+  if (session === null) return undefined;
+  return inactiveStatusResponse(sessionUserStatus(session));
+};
 
 const sanitizeGetSessionResponse = async (
-  response: Response,
+  response: Response
 ): Promise<Response> => {
-  if (!response.ok) return await sanitizeTokenResponse(response)
-  const body = await response.clone().text()
-  if (body.trim().length === 0) return response
+  if (!response.ok) return await sanitizeTokenResponse(response);
+  const body = await response.clone().text();
+  if (body.trim().length === 0) return response;
   if (!isJsonResponse(response)) {
-    throw new Error("Authentication JSON response is malformed")
+    throw new Error("Authentication JSON response is malformed");
   }
 
-  const session = parseAuthenticationJson(body)
+  const session = parseAuthenticationJson(body);
   if (session !== null) {
-    const inactiveResponse = inactiveStatusResponse(sessionUserStatus(session))
-    if (inactiveResponse) return inactiveResponse
+    const inactiveResponse = inactiveStatusResponse(sessionUserStatus(session));
+    if (inactiveResponse) return inactiveResponse;
   }
-  return sanitizeParsedTokenResponse(response, session)
-}
+  return sanitizeParsedTokenResponse(response, session);
+};
 
 /** Fetch-native route bridge. It normalizes signup and reset responses so
  * public requests do not become account-existence or provider-availability
  * oracles. Verification delivery is scheduled independently. */
 export const createAuthHandler = (
-  auth: DarkFactoryAuth,
+  auth: DarkFactoryAuth
 ): ((request: Request) => Promise<Response>) => {
   return async (request) => {
-    const signUpStartedAt = isSignUpRequest(request) ? Date.now() : undefined
+    const signUpStartedAt = isSignUpRequest(request) ? Date.now() : undefined;
     if (isGetSessionRequest(request)) {
-      return await sanitizeGetSessionResponse(await auth.handler(request))
+      return await sanitizeGetSessionResponse(await auth.handler(request));
     }
-    const inactiveResponse = await inactiveSessionResponse(auth, request)
-    if (inactiveResponse) return inactiveResponse
-    let response = await auth.handler(request)
+    const inactiveResponse = await inactiveSessionResponse(auth, request);
+    if (inactiveResponse) return inactiveResponse;
+    let response = await auth.handler(request);
     if (signUpStartedAt !== undefined) {
-      response = await normalizeSignUpResponse(response, signUpStartedAt)
+      response = await normalizeSignUpResponse(response, signUpStartedAt);
     }
     if (
       isResetRequest(request) &&
-      (
-        response.ok ||
-        await isDeliveryFailure(response, PASSWORD_RESET_DELIVERY_ERROR_CODE)
-      )
+      (response.ok ||
+        (await isDeliveryFailure(response, PASSWORD_RESET_DELIVERY_ERROR_CODE)))
     ) {
       response = Response.json(SAFE_RESET_RESPONSE, {
         status: 200,
         headers: { "cache-control": "no-store" },
-      })
+      });
     }
-    return await sanitizeTokenResponse(response)
-  }
-}
+    return await sanitizeTokenResponse(response);
+  };
+};
 
-export { AUTHORIZATION_ERROR_CODES, AuthAuthorizationError }
+export { AUTHORIZATION_ERROR_CODES, AuthAuthorizationError };
 export type {
   SafeAuthSession,
   SafeAuthUser,
@@ -986,4 +989,4 @@ export type {
   SafeSessionRecord,
   UserRole,
   UserStatus,
-} from "./types.ts"
+} from "./types.ts";

@@ -1,30 +1,35 @@
-import { PageHeader, buttonVariants } from "@darkfactory/ui"
-import { ArrowLeft } from "lucide-react"
+import { PageHeader, buttonVariants } from "@darkfactory/ui";
+import { ArrowLeft } from "lucide-react";
 
-import { FeatureItemEditor } from "../../../../components/portal/feature-item-editor.tsx"
+import { FeatureItemEditor } from "../../../../components/portal/feature-item-editor.tsx";
 
-export const metadata = { title: "Feature item details" }
+export const metadata = { title: "Feature item details" };
 
 interface FeatureItemPageProps {
-  readonly params: Promise<Readonly<{ id: string }>>
+  readonly params: Promise<Readonly<{ id: string }>>;
 }
 
-export default async function FeatureItemPage({ params }: FeatureItemPageProps) {
-  const { id } = await params
+export default async function FeatureItemPage({
+  params,
+}: FeatureItemPageProps) {
+  const { id } = await params;
   return (
     <div className="space-y-10">
       <PageHeader
-        actions={(
-          <a className={buttonVariants({ variant: "ghost" })} href="/feature-items">
+        actions={
+          <a
+            className={buttonVariants({ variant: "ghost" })}
+            href="/feature-items"
+          >
             <ArrowLeft aria-hidden="true" className="size-4" />
             Back to feature items
-      </a>
-        )}
+          </a>
+        }
         description="Inspect this owner-scoped record. Available actions reflect its lifecycle state."
         eyebrow="Feature items"
         title="Feature item details"
       />
       <FeatureItemEditor id={id} />
-  </div>
-  )
+    </div>
+  );
 }

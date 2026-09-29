@@ -1,5 +1,5 @@
-import { LayoutList } from "lucide-react"
-import { describe, expect, it, vi } from "vitest"
+import { LayoutList } from "lucide-react";
+import { describe, expect, it, vi } from "vitest";
 
 vi.mock("../features/generated-navigation.ts", () => ({
   GENERATED_FEATURE_NAVIGATION: Object.freeze([
@@ -9,28 +9,32 @@ vi.mock("../features/generated-navigation.ts", () => ({
   GENERATED_FEATURE_ROUTE_PAGE_FILES: Object.freeze({
     "/reports": "(portal)/reports/page.tsx",
   }),
-}))
+}));
 
 import {
   EXPOSED_ROUTE_PATHS,
   PORTAL_NAVIGATION,
   ROUTE_PAGE_FILES,
-} from "./navigation.ts"
+} from "./navigation.ts";
 
-describe("navigation composition", function() {
-  it("projects generated destinations into portal and route manifests", function() {
+describe("navigation composition", function () {
+  it("projects generated destinations into portal and route manifests", function () {
     expect(PORTAL_NAVIGATION).toContainEqual({
       label: "Generated reports",
       href: "/reports",
       icon: LayoutList,
-    })
-    expect(EXPOSED_ROUTE_PATHS).toContain("/reports")
-    return expect(ROUTE_PAGE_FILES["/reports"]).toBe("(portal)/reports/page.tsx")
-  })
+    });
+    expect(EXPOSED_ROUTE_PATHS).toContain("/reports");
+    return expect(ROUTE_PAGE_FILES["/reports"]).toBe(
+      "(portal)/reports/page.tsx"
+    );
+  });
 
-  return it("keeps the local operator outside product navigation", function() {
-    expect(PORTAL_NAVIGATION.some((item) => item.href === "/operator")).toBe(false)
-    expect(EXPOSED_ROUTE_PATHS).not.toContain("/operator")
-    return expect(ROUTE_PAGE_FILES["/operator"]).toBeUndefined()
-  })
-})
+  return it("keeps the local operator outside product navigation", function () {
+    expect(PORTAL_NAVIGATION.some((item) => item.href === "/operator")).toBe(
+      false
+    );
+    expect(EXPOSED_ROUTE_PATHS).not.toContain("/operator");
+    return expect(ROUTE_PAGE_FILES["/operator"]).toBeUndefined();
+  });
+});

@@ -5,28 +5,25 @@ import {
   rm,
   symlink,
   writeFile,
-} from "node:fs/promises"
-import { tmpdir } from "node:os"
-import { join } from "node:path"
+} from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
-import { describe, expect, it } from "vitest"
+import { describe, expect, it } from "vitest";
 
 import type {
   JourneyProgress,
   JourneyResult,
   JourneySuiteReport,
-} from "./runner.ts"
-import {
-  persistE2ERunnerState,
-  sanitizeE2ERunnerReport,
-} from "./state.ts"
+} from "./runner.ts";
+import { persistE2ERunnerState, sanitizeE2ERunnerReport } from "./state.ts";
 
 const lifecycle = Object.freeze({
   lifecycleStatus: "stopped" as const,
   lifecycleStage: "server-ready" as const,
   lifecycleObservation: "state" as const,
   lifecycleObservationReason: "observed-state" as const,
-})
+});
 
 const scan = Object.freeze({
   ok: true,
@@ -34,27 +31,26 @@ const scan = Object.freeze({
   findings: [],
   purged: false,
   reason: "private scanner reason",
-})
+});
 
-const result = (
-  overrides: Partial<JourneyResult> = {},
-): JourneyResult => Object.freeze({
-  spec: "tests/e2e/auth.spec.ts",
-  runId: "safe_state_run",
-  playwrightExitCode: 0,
-  diagnostics: [],
-  ...lifecycle,
-  processState: "terminated",
-  stage: "complete",
-  processTreeTerminated: true,
-  scan,
-  ...overrides,
-})
+const result = (overrides: Partial<JourneyResult> = {}): JourneyResult =>
+  Object.freeze({
+    spec: "tests/e2e/auth.spec.ts",
+    runId: "safe_state_run",
+    playwrightExitCode: 0,
+    diagnostics: [],
+    ...lifecycle,
+    processState: "terminated",
+    stage: "complete",
+    processTreeTerminated: true,
+    scan,
+    ...overrides,
+  });
 
 const report = (
-  overrides: Partial<JourneySuiteReport> = {},
+  overrides: Partial<JourneySuiteReport> = {}
 ): JourneySuiteReport => {
-  const results = overrides.results ?? [result()]
+  const results = overrides.results ?? [result()];
   return Object.freeze({
     ok: true,
     mode: "e2e",
@@ -62,21 +58,21 @@ const report = (
     results,
     reason: "private suite reason",
     ...overrides,
-  })
-}
+  });
+};
 
 const fixture = async (): Promise<string> => {
-  return await mkdtemp(join(tmpdir(), "darkfactory-state-validation-"))
-}
+  return await mkdtemp(join(tmpdir(), "darkfactory-state-validation-"));
+};
 
 const statePath = (root: string): string => {
-  return join(root, "test-results", "e2e-runner-state.json")
-}
+  return join(root, "test-results", "e2e-runner-state.json");
+};
 
 const baseProgress = Object.freeze({
   spec: "tests/e2e/auth.spec.ts",
   runId: "safe_state_run",
-})
+});
 
 describe("E2E runner progress lifecycle states", () => {
   it.each([
@@ -139,33 +135,29 @@ describe("E2E runner progress lifecycle states", () => {
       { ...baseProgress, stage: "result", ...lifecycle, ok: true },
       { ...baseProgress, stage: "result", ...lifecycle, ok: true },
     ],
-  ] as const)("persists canonical %s progress", async (
-    _case,
-    progress,
-    expected,
-  ) => {
-    const root = await fixture()
+  ] as const)("persists canonical %s progress", async (_case, progress, expected) => {
+    const root = await fixture();
     try {
       persistE2ERunnerState(root, {
         version: 1,
         phase: "progress",
         progress: progress as JourneyProgress,
-      })
+      });
 
-      return expect(JSON.parse(await readFile(statePath(root), "utf8"))).toEqual({
+      return expect(
+        JSON.parse(await readFile(statePath(root), "utf8"))
+      ).toEqual({
         version: 1,
         phase: "progress",
         progress: expected,
-      })
+      });
+    } finally {
+      await rm(root, { force: true, recursive: true });
     }
-    finally {
-      await rm(root, { force: true, recursive: true })
-    }
-  }
-  )
+  });
 
   return it("rejects malformed identities, stage payloads, and lifecycle tuples", async () => {
-    const root = await fixture()
+    const root = await fixture();
     const invalidProgress: readonly unknown[] = [
       { ...baseProgress, spec: "../escape.spec.ts", stage: "created" },
       { ...baseProgress, runId: "", stage: "created" },
@@ -217,117 +209,133 @@ describe("E2E runner progress lifecycle states", () => {
         ...lifecycle,
         lifecycleObservationReason: "unknown",
       },
-    ]
+    ];
     try {
       for (const progress of invalidProgress) {
-        expect(() => persistE2ERunnerState(root, {
-          version: 1,
-          phase: "progress",
-          progress,
-        } as never)).toThrow(/invalid/i)
+        expect(() =>
+          persistE2ERunnerState(root, {
+            version: 1,
+            phase: "progress",
+            progress,
+          } as never)
+        ).toThrow(/invalid/i);
       }
-      expect(() => persistE2ERunnerState(root, {
-        version: 2,
-        phase: "progress",
-        progress: { ...baseProgress, stage: "created" },
-      } as never)).toThrow(/version is invalid/i)
-      return expect(() => persistE2ERunnerState(root, {
-        version: 1,
-        phase: "unknown",
-      } as never)).toThrow(/phase is invalid/i)
+      expect(() =>
+        persistE2ERunnerState(root, {
+          version: 2,
+          phase: "progress",
+          progress: { ...baseProgress, stage: "created" },
+        } as never)
+      ).toThrow(/version is invalid/i);
+      return expect(() =>
+        persistE2ERunnerState(root, {
+          version: 1,
+          phase: "unknown",
+        } as never)
+      ).toThrow(/phase is invalid/i);
+    } finally {
+      await rm(root, { force: true, recursive: true });
     }
-    finally {
-      await rm(root, { force: true, recursive: true })
-    }
-  }
-  )
-}
-)
+  });
+});
 
 describe("E2E suite report sanitization", () => {
   it("normalizes a successful report to its bounded public contract", () => {
-    const sanitized = sanitizeE2ERunnerReport(report({
-      mode: "a11y",
-      results: [result({
-        diagnostics: [
-          "E2E lifecycle cleanup failed during server-ready. Resources retained. private detail",
-          "E2E lifecycle cleanup failed during server-ready. duplicate",
-          "E2E lifecycle cleanup failed during unknown. ignored",
-          "raw provider secret ignored",
+    const sanitized = sanitizeE2ERunnerReport(
+      report({
+        mode: "a11y",
+        results: [
+          result({
+            diagnostics: [
+              "E2E lifecycle cleanup failed during server-ready. Resources retained. private detail",
+              "E2E lifecycle cleanup failed during server-ready. duplicate",
+              "E2E lifecycle cleanup failed during unknown. ignored",
+              "raw provider secret ignored",
+            ],
+            scan: Object.freeze({
+              ...scan,
+              findings: [
+                {
+                  category: "secret-assignment" as const,
+                  path: "private/path.json",
+                },
+              ],
+            }),
+          }),
         ],
-        scan: Object.freeze({
-          ...scan,
-          findings: [{
-            category: "secret-assignment" as const,
-            path: "private/path.json",
-          }],
-        }),
-      })],
-    }))
+      })
+    );
 
     expect(sanitized).toEqual({
       ok: true,
       mode: "a11y",
       completed: 1,
-      results: [{
-        spec: "tests/e2e/auth.spec.ts",
-        runId: "safe_state_run",
-        playwrightExitCode: 0,
-        diagnostics: [
-          "E2E lifecycle cleanup failed during server-ready",
-        ],
-        ...lifecycle,
-        processState: "terminated",
-        stage: "complete",
-        processTreeTerminated: true,
-        scan: {
-          ok: true,
-          scannedEntries: 1,
-          findings: [],
-          purged: false,
-          reason: "scan-complete",
+      results: [
+        {
+          spec: "tests/e2e/auth.spec.ts",
+          runId: "safe_state_run",
+          playwrightExitCode: 0,
+          diagnostics: ["E2E lifecycle cleanup failed during server-ready"],
+          ...lifecycle,
+          processState: "terminated",
+          stage: "complete",
+          processTreeTerminated: true,
+          scan: {
+            ok: true,
+            scannedEntries: 1,
+            findings: [],
+            purged: false,
+            reason: "scan-complete",
+          },
         },
-      }],
+      ],
       reason: "journey-suite-complete",
-    })
-    expect(Object.isFrozen(sanitized)).toBe(true)
-    return expect(Object.isFrozen(sanitized.results)).toBe(true)
-  }
-  )
+    });
+    expect(Object.isFrozen(sanitized)).toBe(true);
+    return expect(Object.isFrozen(sanitized.results)).toBe(true);
+  });
 
   it("normalizes failed scan reasons and the suite failure reason", () => {
-    const sanitized = sanitizeE2ERunnerReport(report({
-      ok: false,
-      results: [result({
-        playwrightExitCode: 1,
-        stage: "scan",
-        scan: Object.freeze({
-          ...scan,
-          ok: false,
-          purged: true,
-        }),
-      })],
-    }))
+    const sanitized = sanitizeE2ERunnerReport(
+      report({
+        ok: false,
+        results: [
+          result({
+            playwrightExitCode: 1,
+            stage: "scan",
+            scan: Object.freeze({
+              ...scan,
+              ok: false,
+              purged: true,
+            }),
+          }),
+        ],
+      })
+    );
 
-    expect(sanitized.reason).toBe("journey-suite-failed")
+    expect(sanitized.reason).toBe("journey-suite-failed");
     return expect(sanitized.results[0]?.scan).toMatchObject({
       ok: false,
       purged: true,
       reason: "scan-failed",
-    })
-  }
-  )
+    });
+  });
 
   it("accepts the result-count and scanned-entry upper boundaries", () => {
-    const maximumResults = Array.from({ length: 256 }, () => result({
-      scan: Object.freeze({ ...scan, scannedEntries: 1_000_000 }),
-    }))
+    const maximumResults = Array.from({ length: 256 }, () =>
+      result({
+        scan: Object.freeze({ ...scan, scannedEntries: 1_000_000 }),
+      })
+    );
 
-    return expect(sanitizeE2ERunnerReport(report({
-      results: maximumResults,
-    })).results).toHaveLength(256)
-  }
-  )
+    return expect(
+      sanitizeE2ERunnerReport(
+        report({
+          results: maximumResults,
+        })
+      ).results
+    ).toHaveLength(256);
+  });
 
   it.each([
     ["a non-boolean status", { ok: "yes" }],
@@ -338,11 +346,10 @@ describe("E2E suite report sanitization", () => {
       { results: Array.from({ length: 257 }, () => result()) },
     ],
   ] as const)("rejects a report with %s", (_case, overrides) => {
-    return expect(() => sanitizeE2ERunnerReport(report(overrides as never))).toThrow(
-      /report is invalid/i,
-    )
-  }
-  )
+    return expect(() =>
+      sanitizeE2ERunnerReport(report(overrides as never))
+    ).toThrow(/report is invalid/i);
+  });
 
   return it.each([
     ["an unsafe spec", { spec: "../escape.spec.ts" }],
@@ -362,81 +369,86 @@ describe("E2E suite report sanitization", () => {
     ["a non-boolean purge result", { scan: { ...scan, purged: "yes" } }],
     ["a fractional scanned count", { scan: { ...scan, scannedEntries: 1.5 } }],
     ["a negative scanned count", { scan: { ...scan, scannedEntries: -1 } }],
-    ["an excessive scanned count", { scan: { ...scan, scannedEntries: 1_000_001 } }],
+    [
+      "an excessive scanned count",
+      { scan: { ...scan, scannedEntries: 1_000_001 } },
+    ],
   ] as const)("rejects a result with %s", (_case, overrides) => {
-    return expect(() => sanitizeE2ERunnerReport(report({
-      results: [result(overrides as never)],
-    }))).toThrow(/result is invalid|identity is invalid/i)
-  }
-  )
-}
-)
+    return expect(() =>
+      sanitizeE2ERunnerReport(
+        report({
+          results: [result(overrides as never)],
+        })
+      )
+    ).toThrow(/result is invalid|identity is invalid/i);
+  });
+});
 
 describe("E2E state filesystem safety", () => {
   it("rejects a symlinked state parent", async () => {
-    const root = await fixture()
+    const root = await fixture();
     try {
-      const outside = join(root, "outside")
-      await mkdir(outside)
-      await symlink(outside, join(root, "test-results"))
+      const outside = join(root, "outside");
+      await mkdir(outside);
+      await symlink(outside, join(root, "test-results"));
 
-      return expect(() => persistE2ERunnerState(root, {
-        version: 1,
-        phase: "result",
-        report: report(),
-      })).toThrow(/state parent is unsafe/i)
+      return expect(() =>
+        persistE2ERunnerState(root, {
+          version: 1,
+          phase: "result",
+          report: report(),
+        })
+      ).toThrow(/state parent is unsafe/i);
+    } finally {
+      await rm(root, { force: true, recursive: true });
     }
-    finally {
-      await rm(root, { force: true, recursive: true })
-    }
-  }
-  )
+  });
 
   it("rejects a non-directory state parent", async () => {
-    const root = await fixture()
+    const root = await fixture();
     try {
-      await writeFile(join(root, "test-results"), "not a directory")
+      await writeFile(join(root, "test-results"), "not a directory");
 
-      return expect(() => persistE2ERunnerState(root, {
-        version: 1,
-        phase: "result",
-        report: report(),
-      })).toThrow(/state parent is unsafe/i)
+      return expect(() =>
+        persistE2ERunnerState(root, {
+          version: 1,
+          phase: "result",
+          report: report(),
+        })
+      ).toThrow(/state parent is unsafe/i);
+    } finally {
+      await rm(root, { force: true, recursive: true });
     }
-    finally {
-      await rm(root, { force: true, recursive: true })
-    }
-  }
-  )
+  });
 
   it("rejects a fixed target that is not a regular file", async () => {
-    const root = await fixture()
+    const root = await fixture();
     try {
-      await mkdir(join(root, "test-results"))
-      await mkdir(statePath(root))
+      await mkdir(join(root, "test-results"));
+      await mkdir(statePath(root));
 
-      return expect(() => persistE2ERunnerState(root, {
+      return expect(() =>
+        persistE2ERunnerState(root, {
+          version: 1,
+          phase: "result",
+          report: report(),
+        })
+      ).toThrow(/state target is unsafe/i);
+    } finally {
+      await rm(root, { force: true, recursive: true });
+    }
+  });
+
+  return it("propagates a missing repository without creating output elsewhere", async () => {
+    const root = await fixture();
+    await rm(root, { recursive: true });
+
+    return expect(() =>
+      persistE2ERunnerState(root, {
         version: 1,
         phase: "result",
         report: report(),
-      })).toThrow(/state target is unsafe/i)
-    }
-    finally {
-      await rm(root, { force: true, recursive: true })
-    }
-  }
-  )
-
-  return it("propagates a missing repository without creating output elsewhere", async () => {
-    const root = await fixture()
-    await rm(root, { recursive: true })
-
-    return expect(() => persistE2ERunnerState(root, {
-      version: 1,
-      phase: "result",
-      report: report(),
-    })).toThrow()
-  }
-  )
-}
-)
+      })
+    ).toThrow();
+  });
+});

@@ -1,122 +1,143 @@
-import { constants } from "node:fs"
-import { lstat, open, readdir, realpath } from "node:fs/promises"
-import { dirname, join, relative, resolve, sep } from "node:path"
+import { constants } from "node:fs";
+import { lstat, open, readdir, realpath } from "node:fs/promises";
+import { dirname, join, relative, resolve, sep } from "node:path";
 
-import type { DocsFileSystem, PackageManifestSource } from "./docs.ts"
-import { guardedWrite, type GuardHooks } from "./filesystem-guard.ts"
+import type { DocsFileSystem, PackageManifestSource } from "./docs.ts";
+import { guardedWrite, type GuardHooks } from "./filesystem-guard.ts";
 
-const MAX_MANIFEST_BYTES = 262_144
-const portable = (path: string): string => path.replaceAll("\\", "/")
-type ReadIdentity = Readonly<{ path: string; dev: number; ino: number }>
+const MAX_MANIFEST_BYTES = 262_144;
+const portable = (path: string): string => path.replaceAll("\\", "/");
+type ReadIdentity = Readonly<{ path: string; dev: number; ino: number }>;
 
 export const createDocsFileSystem = async (
   repositoryPath: string,
-  hooks: GuardHooks = {},
+  hooks: GuardHooks = {}
 ): Promise<DocsFileSystem> => {
-  const root = await realpath(repositoryPath)
+  const root = await realpath(repositoryPath);
   const contained = (path: string): string => {
-    const target = resolve(root, path)
-    const relation = relative(root, target)
+    const target = resolve(root, path);
+    const relation = relative(root, target);
     if (relation === ".." || relation.startsWith(`..${sep}`)) {
-      throw new Error("Documentation path escapes repository")
+      throw new Error("Documentation path escapes repository");
     }
-    return target
-  }
-  const snapshotAncestors = async (path: string): Promise<readonly ReadIdentity[]> => {
-    const parent = dirname(path)
-    const relation = relative(root, parent)
+    return target;
+  };
+  const snapshotAncestors = async (
+    path: string
+  ): Promise<readonly ReadIdentity[]> => {
+    const parent = dirname(path);
+    const relation = relative(root, parent);
     if (relation === ".." || relation.startsWith(`..${sep}`)) {
-      throw new Error("Documentation ancestor escapes repository")
+      throw new Error("Documentation ancestor escapes repository");
     }
-    const paths = [root]
-    let current = root
+    const paths = [root];
+    let current = root;
     if (relation.length > 0) {
       for (const segment of relation.split(sep)) {
-        current = join(current, segment)
-        paths.push(current)
+        current = join(current, segment);
+        paths.push(current);
       }
     }
-    const snapshots = await Promise.all(paths.map(async (ancestor) => {
-      const stats = await lstat(ancestor)
-      if (!stats.isDirectory() || stats.isSymbolicLink()) throw new Error("Documentation ancestor is unsafe")
-      const canonical = await realpath(ancestor)
-      const canonicalRelation = relative(root, canonical)
-      if (canonicalRelation === ".." || canonicalRelation.startsWith(`..${sep}`)) {
-        throw new Error("Documentation ancestor escapes repository")
-      }
-      return Object.freeze({ path: ancestor, dev: stats.dev, ino: stats.ino })
-    }
-    ))
-    return Object.freeze(snapshots)
-  }
-  const assertAncestors = async (snapshots: readonly ReadIdentity[]): Promise<void> => {
+    const snapshots = await Promise.all(
+      paths.map(async (ancestor) => {
+        const stats = await lstat(ancestor);
+        if (!stats.isDirectory() || stats.isSymbolicLink())
+          throw new Error("Documentation ancestor is unsafe");
+        const canonical = await realpath(ancestor);
+        const canonicalRelation = relative(root, canonical);
+        if (
+          canonicalRelation === ".." ||
+          canonicalRelation.startsWith(`..${sep}`)
+        ) {
+          throw new Error("Documentation ancestor escapes repository");
+        }
+        return Object.freeze({
+          path: ancestor,
+          dev: stats.dev,
+          ino: stats.ino,
+        });
+      })
+    );
+    return Object.freeze(snapshots);
+  };
+  const assertAncestors = async (
+    snapshots: readonly ReadIdentity[]
+  ): Promise<void> => {
     for (const snapshot of snapshots) {
-      const stats = await lstat(snapshot.path)
+      const stats = await lstat(snapshot.path);
       if (
         !stats.isDirectory() ||
         stats.isSymbolicLink() ||
         stats.dev !== snapshot.dev ||
         stats.ino !== snapshot.ino
-      ) throw new Error("Documentation ancestor identity changed")
+      )
+        throw new Error("Documentation ancestor identity changed");
     }
-  }
+  };
   const readBounded = async (path: string): Promise<string> => {
-    const target = contained(path)
-    const ancestors = await snapshotAncestors(target)
+    const target = contained(path);
+    const ancestors = await snapshotAncestors(target);
     const handle = await open(
       target,
-      constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0),
-    )
+      constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0)
+    );
     try {
-      const stats = await handle.stat()
-      if (!stats.isFile() || stats.size > MAX_MANIFEST_BYTES) throw new Error(`Package manifest is invalid: ${path}`)
-      const content = await handle.readFile({ encoding: "utf8" })
-      if (Buffer.byteLength(content, "utf8") > MAX_MANIFEST_BYTES) throw new Error(`Package manifest is too large: ${path}`)
-      await assertAncestors(ancestors)
-      return content
+      const stats = await handle.stat();
+      if (!stats.isFile() || stats.size > MAX_MANIFEST_BYTES)
+        throw new Error(`Package manifest is invalid: ${path}`);
+      const content = await handle.readFile({ encoding: "utf8" });
+      if (Buffer.byteLength(content, "utf8") > MAX_MANIFEST_BYTES)
+        throw new Error(`Package manifest is too large: ${path}`);
+      await assertAncestors(ancestors);
+      return content;
+    } finally {
+      await handle.close();
     }
-    finally {
-      await handle.close()
-    }
-  }
-  const discoverPackageManifests = async (): Promise<readonly PackageManifestSource[]> => {
-    const paths = ["package.json"]
+  };
+  const discoverPackageManifests = async (): Promise<
+    readonly PackageManifestSource[]
+  > => {
+    const paths = ["package.json"];
     for (const workspaceRoot of ["apps", "packages"]) {
-      const directory = contained(workspaceRoot)
-      const workspaceAncestors = await snapshotAncestors(join(directory, "_entry"))
-      await assertAncestors(workspaceAncestors)
-      const entries = await readdir(directory, { withFileTypes: true })
-      await assertAncestors(workspaceAncestors)
+      const directory = contained(workspaceRoot);
+      const workspaceAncestors = await snapshotAncestors(
+        join(directory, "_entry")
+      );
+      await assertAncestors(workspaceAncestors);
+      const entries = await readdir(directory, { withFileTypes: true });
+      await assertAncestors(workspaceAncestors);
       for (const entry of entries) {
-        if (!entry.isDirectory() || entry.isSymbolicLink()) continue
-        const path = portable(join(workspaceRoot, entry.name, "package.json"))
+        if (!entry.isDirectory() || entry.isSymbolicLink()) continue;
+        const path = portable(join(workspaceRoot, entry.name, "package.json"));
         try {
-          const stats = await lstat(contained(path))
-          if (stats.isFile() && !stats.isSymbolicLink()) paths.push(path)
-        }
-        catch (error) {
-          if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error
+          const stats = await lstat(contained(path));
+          if (stats.isFile() && !stats.isSymbolicLink()) paths.push(path);
+        } catch (error) {
+          if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
         }
       }
-      await assertAncestors(workspaceAncestors)
+      await assertAncestors(workspaceAncestors);
     }
-    paths.sort()
-    return Promise.all(paths.map(async (path) => ({ path, source: await readBounded(path) })))
-  }
+    paths.sort();
+    return Promise.all(
+      paths.map(async (path) => ({ path, source: await readBounded(path) }))
+    );
+  };
 
   return Object.freeze({
     discoverPackageManifests,
     readGenerated: async (path) => {
       try {
-        return await readBounded(path)
-      }
-      catch (error) {
-        if ((error as NodeJS.ErrnoException).code === "ENOENT") return undefined
-        throw error
+        return await readBounded(path);
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === "ENOENT")
+          return undefined;
+        throw error;
       }
     },
-    writeGenerated: async (path, content) => guardedWrite(root, path, content, "upsert", hooks),
-  })
-}
+    writeGenerated: async (path, content) =>
+      guardedWrite(root, path, content, "upsert", hooks),
+  });
+};
 
-export const nodeDocsFileSystem = await createDocsFileSystem(process.cwd())
+export const nodeDocsFileSystem = await createDocsFileSystem(process.cwd());

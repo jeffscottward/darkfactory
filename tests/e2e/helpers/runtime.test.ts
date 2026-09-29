@@ -1,7 +1,10 @@
 import { describe, expect, it } from "vitest";
 
 import { createE2ERunPaths } from "./run-artifacts.ts";
-import { createE2EServerEnvironment, E2E_WORKER_BINDING_KEYS } from "./runtime.ts";
+import {
+  createE2EServerEnvironment,
+  E2E_WORKER_BINDING_KEYS,
+} from "./runtime.ts";
 
 describe("canonical E2E server environment", () => {
   it("configures contact preview delivery in the Vinext worker", () => {

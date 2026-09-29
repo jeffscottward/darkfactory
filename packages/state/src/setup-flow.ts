@@ -1,10 +1,10 @@
-import { assign, createActor, setup } from "xstate"
+import { assign, createActor, setup } from "xstate";
 
 export interface SetupFlowContext {
-  readonly detailsComplete: boolean
-  readonly preferencesComplete: boolean
-  readonly submissionAttempts: number
-  readonly error: string | null
+  readonly detailsComplete: boolean;
+  readonly preferencesComplete: boolean;
+  readonly submissionAttempts: number;
+  readonly error: string | null;
 }
 
 export type SetupFlowEvent =
@@ -15,12 +15,12 @@ export type SetupFlowEvent =
   | { readonly type: "SUBMIT" }
   | { readonly type: "SUCCEED" }
   | { readonly type: "FAIL"; readonly message: string }
-  | { readonly type: "RETRY" }
+  | { readonly type: "RETRY" };
 
 const setupFlow = setup({
   types: {} as {
-    context: SetupFlowContext
-    events: SetupFlowEvent
+    context: SetupFlowContext;
+    events: SetupFlowEvent;
   },
   guards: {
     detailsAreComplete: ({ context }) => context.detailsComplete,
@@ -28,32 +28,28 @@ const setupFlow = setup({
   },
   actions: {
     setDetailsComplete: assign(({ context, event }) => {
-      if (event.type !== "SET_DETAILS_COMPLETE") return context
-      return { ...context, detailsComplete: event.value }
-    }
-    ),
+      if (event.type !== "SET_DETAILS_COMPLETE") return context;
+      return { ...context, detailsComplete: event.value };
+    }),
     setPreferencesComplete: assign(({ context, event }) => {
       if (event.type !== "SET_PREFERENCES_COMPLETE") {
-        return context
+        return context;
+      } else {
+        return { ...context, preferencesComplete: event.value };
       }
-      else {
-        return { ...context, preferencesComplete: event.value }
-      }
-    }
-    ),
+    }),
     prepareSubmission: assign(({ context }) => ({
       ...context,
       submissionAttempts: context.submissionAttempts + 1,
       error: null,
     })),
     recordFailure: assign(({ context, event }) => {
-      if (event.type !== "FAIL") return context
-      return { ...context, error: event.message }
-    }
-    ),
+      if (event.type !== "FAIL") return context;
+      return { ...context, error: event.message };
+    }),
     clearFailure: assign(({ context }) => ({ ...context, error: null })),
   },
-})
+});
 
 export const setupFlowMachine = setupFlow.createMachine({
   id: "darkfactory-setup-flow",
@@ -116,6 +112,6 @@ export const setupFlowMachine = setupFlow.createMachine({
     },
     success: { type: "final" },
   },
-})
+});
 
-export const createSetupFlowActor = () => createActor(setupFlowMachine)
+export const createSetupFlowActor = () => createActor(setupFlowMachine);

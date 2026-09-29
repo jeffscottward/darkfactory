@@ -1,12 +1,12 @@
-"use client"
+"use client";
 
-import { createElement } from "react"
-import type { ToastClassnames, ToasterProps } from "sonner"
-import { Toaster as SonnerToaster, toast } from "sonner"
+import { createElement } from "react";
+import type { ToastClassnames, ToasterProps } from "sonner";
+import { Toaster as SonnerToaster, toast } from "sonner";
 
-import { cn } from "../utilities.ts"
+import { cn } from "../utilities.ts";
 
-export { toast }
+export { toast };
 
 const defaultToastClassNames: ToastClassnames = {
   toast:
@@ -21,17 +21,18 @@ const defaultToastClassNames: ToastClassnames = {
   error: "border-destructive-border bg-destructive-subtle text-destructive",
   info: "border-info-border bg-info-subtle text-info-foreground",
   warning: "border-warning-border bg-warning-subtle text-warning-foreground",
-  loading: "border-primary-border bg-primary-subtle text-primary-subtle-foreground",
+  loading:
+    "border-primary-border bg-primary-subtle text-primary-subtle-foreground",
   actionButton:
     "min-h-11 min-w-11 rounded-md border border-transparent bg-primary px-3 font-semibold text-primary-foreground hover:bg-primary-hover active:bg-primary-active focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface-raised",
   cancelButton:
     "min-h-11 min-w-11 rounded-md border border-border-strong bg-surface px-3 font-semibold text-foreground hover:bg-accent active:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface-raised",
   closeButton:
     "size-11 rounded-md border border-border-strong bg-surface-raised text-foreground hover:bg-accent active:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface-raised",
-}
+};
 
 const mergeToastClassNames = (
-  classNames: ToastClassnames | undefined,
+  classNames: ToastClassnames | undefined
 ): ToastClassnames => ({
   toast: cn(defaultToastClassNames.toast, classNames?.toast),
   content: cn(defaultToastClassNames.content, classNames?.content),
@@ -44,11 +45,17 @@ const mergeToastClassNames = (
   info: cn(defaultToastClassNames.info, classNames?.info),
   warning: cn(defaultToastClassNames.warning, classNames?.warning),
   loading: cn(defaultToastClassNames.loading, classNames?.loading),
-  actionButton: cn(defaultToastClassNames.actionButton, classNames?.actionButton),
-  cancelButton: cn(defaultToastClassNames.cancelButton, classNames?.cancelButton),
+  actionButton: cn(
+    defaultToastClassNames.actionButton,
+    classNames?.actionButton
+  ),
+  cancelButton: cn(
+    defaultToastClassNames.cancelButton,
+    classNames?.cancelButton
+  ),
   closeButton: cn(defaultToastClassNames.closeButton, classNames?.closeButton),
   loader: cn(defaultToastClassNames.loader, classNames?.loader),
-})
+});
 
 export interface DarkFactoryToasterProps
   extends Omit<ToasterProps, "richColors"> {}
@@ -61,10 +68,8 @@ export const Toaster = ({
   toastOptions,
   ...props
 }: DarkFactoryToasterProps) => {
-  const {
-    classNames: callerClassNames,
-    ...callerToastOptions
-  } = toastOptions ?? {}
+  const { classNames: callerClassNames, ...callerToastOptions } =
+    toastOptions ?? {};
 
   return createElement(SonnerToaster, {
     ...props,
@@ -78,5 +83,5 @@ export const Toaster = ({
       unstyled: true,
       classNames: mergeToastClassNames(callerClassNames),
     },
-  })
-}
+  });
+};

@@ -1,56 +1,71 @@
-import { describe, expect, it } from "vitest"
+import { describe, expect, it } from "vitest";
 
 import {
   CONTACT_ERRORS,
   ContactSubmitInputSchema,
   ContactSubmitOutputSchema,
   appContract,
-} from "./contract.ts"
-import { buildOpenApiDocument } from "./openapi.ts"
+} from "./contract.ts";
+import { buildOpenApiDocument } from "./openapi.ts";
 
 const validInput = {
   name: "Ada Lovelace",
   email: "ada@example.test",
   subject: "Architecture review",
   message: "Please review the deployment boundary.",
-}
+};
 
 const route = (procedure: unknown) => {
-  return (procedure as { ["~orpc"]: { route: { method: string; path: string } } })["~orpc"].route
-}
+  return (
+    procedure as { ["~orpc"]: { route: { method: string; path: string } } }
+  )["~orpc"].route;
+};
 
-describe("DF-076 contact contract", function() {
-  it("publishes one typed POST operation with safe 413, 429, and 503 errors", function() {
+describe("DF-076 contact contract", function () {
+  it("publishes one typed POST operation with safe 413, 429, and 503 errors", function () {
     expect(route(appContract.contact.submit)).toMatchObject({
       method: "POST",
       path: "/contact",
-    })
+    });
     return expect(CONTACT_ERRORS).toEqual({
       BAD_REQUEST: { status: 400, message: "Invalid contact request" },
-      VALIDATION_ERROR: { status: 422, message: "Contact request validation failed" },
-      PAYLOAD_TOO_LARGE: { status: 413, message: "Contact request payload too large" },
+      VALIDATION_ERROR: {
+        status: 422,
+        message: "Contact request validation failed",
+      },
+      PAYLOAD_TOO_LARGE: {
+        status: 413,
+        message: "Contact request payload too large",
+      },
       TOO_MANY_REQUESTS: { status: 429, message: "Too many contact requests" },
-      SERVICE_UNAVAILABLE: { status: 503, message: "Contact delivery unavailable" },
-    })
-  })
+      SERVICE_UNAVAILABLE: {
+        status: 503,
+        message: "Contact delivery unavailable",
+      },
+    });
+  });
 
-  it("trims the bounded input and rejects unknown properties", function() {
-    expect(ContactSubmitInputSchema.parse({
-      ...validInput,
-      name: "  Ada Lovelace  ",
-      email: "  ada@example.test  ",
-      subject: "  Architecture review  ",
-      message: "  Details  ",
-      website: "",
-    })).toEqual({
+  it("trims the bounded input and rejects unknown properties", function () {
+    expect(
+      ContactSubmitInputSchema.parse({
+        ...validInput,
+        name: "  Ada Lovelace  ",
+        email: "  ada@example.test  ",
+        subject: "  Architecture review  ",
+        message: "  Details  ",
+        website: "",
+      })
+    ).toEqual({
       name: "Ada Lovelace",
       email: "ada@example.test",
       subject: "Architecture review",
       message: "Details",
       website: "",
-    })
-    return expect(() => ContactSubmitInputSchema.parse({ ...validInput, ownerId: "attacker" })).toThrow()
-  })
+    });
+    return expect(() =>
+      ContactSubmitInputSchema.parse({ ...validInput, ownerId: "attacker" })
+    ).toThrow();
+  });
 
   it.each([
     { field: "name", value: "" },
@@ -65,28 +80,42 @@ describe("DF-076 contact contract", function() {
     { field: "name", value: "Ada\u0000Lovelace" },
     { field: "subject", value: "Review\u001frequest" },
     { field: "message", value: "Details\u0000hidden" },
-  ])("rejects $field outside its strict bounds", function({ field, value }) {
-    return expect(() => ContactSubmitInputSchema.parse({
-      ...validInput,
-      [field]: value,
-    })).toThrow()
-  }
-  )
+  ])("rejects $field outside its strict bounds", function ({ field, value }) {
+    return expect(() =>
+      ContactSubmitInputSchema.parse({
+        ...validInput,
+        [field]: value,
+      })
+    ).toThrow();
+  });
 
-  it("limits output to the three truthful delivery states", function() {
-    expect(ContactSubmitOutputSchema.parse({ status: "sent" })).toEqual({ status: "sent" })
-    expect(ContactSubmitOutputSchema.parse({ status: "previewed" })).toEqual({ status: "previewed" })
-    expect(ContactSubmitOutputSchema.parse({ status: "not-delivered" })).toEqual({ status: "not-delivered" })
-    expect(() => ContactSubmitOutputSchema.parse({ status: "success" })).toThrow()
-    return expect(() => ContactSubmitOutputSchema.parse({ status: "previewed", artifactPath: "/secret/path" })).toThrow()
-  })
+  it("limits output to the three truthful delivery states", function () {
+    expect(ContactSubmitOutputSchema.parse({ status: "sent" })).toEqual({
+      status: "sent",
+    });
+    expect(ContactSubmitOutputSchema.parse({ status: "previewed" })).toEqual({
+      status: "previewed",
+    });
+    expect(
+      ContactSubmitOutputSchema.parse({ status: "not-delivered" })
+    ).toEqual({ status: "not-delivered" });
+    expect(() =>
+      ContactSubmitOutputSchema.parse({ status: "success" })
+    ).toThrow();
+    return expect(() =>
+      ContactSubmitOutputSchema.parse({
+        status: "previewed",
+        artifactPath: "/secret/path",
+      })
+    ).toThrow();
+  });
 
-  return it("publishes the contact operation and error responses in OpenAPI", async function() {
-    const document = await buildOpenApiDocument()
-    const operation = document.paths?.["/contact"]?.post
-    expect(operation?.operationId).toBe("contact.submit")
+  return it("publishes the contact operation and error responses in OpenAPI", async function () {
+    const document = await buildOpenApiDocument();
+    const operation = document.paths?.["/contact"]?.post;
+    expect(operation?.operationId).toBe("contact.submit");
     return expect(Object.keys(operation?.responses ?? {})).toEqual(
-      expect.arrayContaining(["200", "400", "413", "422", "429", "503"]),
-    )
-  })
-})
+      expect.arrayContaining(["200", "400", "413", "422", "429", "503"])
+    );
+  });
+});

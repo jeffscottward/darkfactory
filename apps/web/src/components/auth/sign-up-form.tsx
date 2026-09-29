@@ -1,9 +1,9 @@
-"use client"
+"use client";
 
-import { useState } from "react"
-import Link from "next/link"
-import { useForm } from "@tanstack/react-form"
-import { Button, Input, Label } from "@darkfactory/ui"
+import { useState } from "react";
+import Link from "next/link";
+import { useForm } from "@tanstack/react-form";
+import { Button, Input, Label } from "@darkfactory/ui";
 
 import {
   browserAuthClient,
@@ -14,19 +14,19 @@ import {
   validatePasswordConfirmation,
   type AuthFlowClient,
   type AuthFlowResult,
-} from "./auth-flow.ts"
-import { FormStatus } from "./form-status.tsx"
-import { PasswordField } from "./password-field.tsx"
+} from "./auth-flow.ts";
+import { FormStatus } from "./form-status.tsx";
+import { PasswordField } from "./password-field.tsx";
 
 const firstError = (errors: readonly unknown[]): string | undefined => {
-  return errors.find((error): error is string => typeof error === "string")
-}
+  return errors.find((error): error is string => typeof error === "string");
+};
 
 export const SignUpForm = ({
   auth = browserAuthClient,
 }: Readonly<{ auth?: AuthFlowClient }>) => {
-  const [result, setResult] = useState<AuthFlowResult | null>(null)
-  const [isPending, setIsPending] = useState(false)
+  const [result, setResult] = useState<AuthFlowResult | null>(null);
+  const [isPending, setIsPending] = useState(false);
   const form = useForm({
     defaultValues: {
       name: "",
@@ -35,37 +35,37 @@ export const SignUpForm = ({
       confirmPassword: "",
     },
     onSubmit: async ({ value }) => {
-      setResult(null)
-      setIsPending(true)
+      setResult(null);
+      setIsPending(true);
       try {
         const nextResult = await submitSignUp(auth, {
           name: value.name,
           email: value.email,
           password: value.password,
-        })
-        return setResult(nextResult)
+        });
+        return setResult(nextResult);
+      } finally {
+        setIsPending(false);
       }
-      finally {
-        setIsPending(false)
-      }
-    }
-  })
+    },
+  });
 
   return (
     <form
       className="grid gap-6"
       noValidate
       onSubmit={(event) => {
-        event.preventDefault()
-        const formElement = event.currentTarget
+        event.preventDefault();
+        const formElement = event.currentTarget;
         return void form.handleSubmit().then(() => {
           if (!form.state.isValid) {
-            return formElement.querySelector<HTMLElement>('[aria-invalid="true"]')?.focus()
-          };return
-        }
-        )
-  }
-      }
+            return formElement
+              .querySelector<HTMLElement>('[aria-invalid="true"]')
+              ?.focus();
+          }
+          return;
+        });
+      }}
     >
       <form.Field
         name="name"
@@ -77,12 +77,11 @@ export const SignUpForm = ({
         {(field) => {
           const error = field.state.meta.isTouched
             ? firstError(field.state.meta.errors)
-            : undefined
-          const errorId = error ? "sign-up-name-error" : undefined
+            : undefined;
+          const errorId = error ? "sign-up-name-error" : undefined;
           return (
             <div className="grid gap-2">
-              <Label htmlFor="sign-up-name">Name
-              </Label>
+              <Label htmlFor="sign-up-name">Name</Label>
               <Input
                 aria-describedby={errorId}
                 aria-invalid={error ? true : undefined}
@@ -94,23 +93,25 @@ export const SignUpForm = ({
                 name={field.name}
                 onBlur={field.handleBlur}
                 onChange={(event) => {
-                  setResult(null)
-                  return field.handleChange(event.target.value)
-              }
-                }
+                  setResult(null);
+                  return field.handleChange(event.target.value);
+                }}
                 type="text"
                 required
                 value={field.state.value}
               />
               {error ? (
-                <p className="text-sm font-medium text-destructive" id={errorId} role="alert">
+                <p
+                  className="text-sm font-medium text-destructive"
+                  id={errorId}
+                  role="alert"
+                >
                   {error}
-              </p>
+                </p>
               ) : null}
-          </div>
-          )
-        }
-        }
+            </div>
+          );
+        }}
       </form.Field>
 
       <form.Field
@@ -123,12 +124,11 @@ export const SignUpForm = ({
         {(field) => {
           const error = field.state.meta.isTouched
             ? firstError(field.state.meta.errors)
-            : undefined
-          const errorId = error ? "sign-up-email-error" : undefined
+            : undefined;
+          const errorId = error ? "sign-up-email-error" : undefined;
           return (
             <div className="grid gap-2">
-              <Label htmlFor="sign-up-email">Email address
-              </Label>
+              <Label htmlFor="sign-up-email">Email address</Label>
               <Input
                 aria-describedby={errorId}
                 aria-invalid={error ? true : undefined}
@@ -141,23 +141,25 @@ export const SignUpForm = ({
                 name={field.name}
                 onBlur={field.handleBlur}
                 onChange={(event) => {
-                  setResult(null)
-                  return field.handleChange(event.target.value)
-              }
-                }
+                  setResult(null);
+                  return field.handleChange(event.target.value);
+                }}
                 type="email"
                 required
                 value={field.state.value}
               />
               {error ? (
-                <p className="text-sm font-medium text-destructive" id={errorId} role="alert">
+                <p
+                  className="text-sm font-medium text-destructive"
+                  id={errorId}
+                  role="alert"
+                >
                   {error}
-              </p>
+                </p>
               ) : null}
-          </div>
-          )
-        }
-        }
+            </div>
+          );
+        }}
       </form.Field>
 
       <form.Field
@@ -182,10 +184,9 @@ export const SignUpForm = ({
             name={field.name}
             onBlur={field.handleBlur}
             onChange={(event) => {
-              setResult(null)
-              return field.handleChange(event.target.value)
-        }
-            }
+              setResult(null);
+              return field.handleChange(event.target.value);
+            }}
             value={field.state.value}
           />
         )}
@@ -195,11 +196,17 @@ export const SignUpForm = ({
         name="confirmPassword"
         validators={{
           onChange: ({ value }) => {
-            return validatePasswordConfirmation(value, form.state.values.password)
+            return validatePasswordConfirmation(
+              value,
+              form.state.values.password
+            );
           },
           onSubmit: ({ value }) => {
-            return validatePasswordConfirmation(value, form.state.values.password)
-          }
+            return validatePasswordConfirmation(
+              value,
+              form.state.values.password
+            );
+          },
         }}
       >
         {(field) => (
@@ -216,10 +223,9 @@ export const SignUpForm = ({
             name={field.name}
             onBlur={field.handleBlur}
             onChange={(event) => {
-              setResult(null)
-              return field.handleChange(event.target.value)
-        }
-            }
+              setResult(null);
+              return field.handleChange(event.target.value);
+            }}
             value={field.state.value}
           />
         )}
@@ -240,7 +246,7 @@ export const SignUpForm = ({
             type="submit"
           >
             {isSubmitting || isPending ? "Creating account…" : "Create account"}
-        </Button>
+          </Button>
         )}
       </form.Subscribe>
 
@@ -253,6 +259,6 @@ export const SignUpForm = ({
           Sign in
         </Link>
       </p>
-  </form>
-  )
-}
+    </form>
+  );
+};

@@ -37,9 +37,7 @@ describe("TypeScript package typecheck", () => {
       }
     );
 
-    expect(packageJson.scripts.typecheck).toBe(
-      "tsc --noEmit -p tsconfig.json"
-    );
+    expect(packageJson.scripts.typecheck).toBe("tsc --noEmit -p tsconfig.json");
     expect(parsedTypecheckConfig?.errors).toEqual([]);
     expect(parsedTypecheckConfig?.options.strict).toBe(true);
     expect(

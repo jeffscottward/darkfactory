@@ -1,30 +1,30 @@
-import { randomBytes } from "node:crypto"
-import { isAbsolute, join } from "node:path"
-import { fileURLToPath } from "node:url"
+import { randomBytes } from "node:crypto";
+import { isAbsolute, join } from "node:path";
+import { fileURLToPath } from "node:url";
 
-import type { PrepareSeedIdentities } from "@darkfactory/db/server"
-import type { PostgresTestDatabase } from "@darkfactory/testkit/postgres"
+import type { PrepareSeedIdentities } from "@darkfactory/db/server";
+import type { PostgresTestDatabase } from "@darkfactory/testkit/postgres";
 
 import {
   spawnOwnedProcess,
   type OwnedProcess,
-} from "../../../scripts/e2e/owned-process-tree.ts"
+} from "../../../scripts/e2e/owned-process-tree.ts";
 import {
   acquireRouteOwnerLock,
   releaseRouteOwnerLock,
   type RouteOwnerLock,
-} from "./owner-lock.ts"
+} from "./owner-lock.ts";
 import {
   acquireOwnedDevVars,
   releaseOwnedDevVarsLock,
   removeOwnedDevVarsFile,
   type OwnedDevVarsLease,
-} from "./dev-vars.ts"
-import { cleanupE2ELifecycle } from "./lifecycle.ts"
+} from "./dev-vars.ts";
+import { cleanupE2ELifecycle } from "./lifecycle.ts";
 import {
   formatE2ELifecycleFailure,
   type E2ELifecycleDiagnosticStage,
-} from "./lifecycle-diagnostics.ts"
+} from "./lifecycle-diagnostics.ts";
 import {
   E2E_PROCESS_TERMINATION_OPTIONS,
   E2E_WEB_SERVER_PORT_ACCEPTING_MARKER,
@@ -32,12 +32,12 @@ import {
   E2E_WEB_SERVER_ROUTE_REQUEST_MARKER,
   E2E_WEB_SERVER_ROUTE_RESPONSE_MARKER,
   E2E_WEB_SERVER_READY_MARKER,
-} from "./lifecycle-budgets.ts"
+} from "./lifecycle-budgets.ts";
 import {
   createSerializedLifecycle,
   isIntentionalLifecycleShutdownInterruption,
   type LifecycleControl,
-} from "./serialized-lifecycle.ts"
+} from "./serialized-lifecycle.ts";
 import {
   assertOwnedE2ERunRootsReady,
   createOwnedE2ELifecycleStateWriter,
@@ -48,15 +48,15 @@ import {
   type E2ERunPaths,
   type E2ELifecycleStage,
   type E2ELifecycleStateWriter,
-} from "./run-artifacts.ts"
-import { createSensitiveOutputRedactor } from "./redacted-output.ts"
-import { removeE2EOptimizerCache } from "./optimizer-cache.ts"
+} from "./run-artifacts.ts";
+import { createSensitiveOutputRedactor } from "./redacted-output.ts";
+import { removeE2EOptimizerCache } from "./optimizer-cache.ts";
 import {
   canonicalBaseURL,
   createE2EServerEnvironment,
   E2E_WORKER_BINDING_KEYS,
   parsePortlessPort,
-} from "./runtime.ts"
+} from "./runtime.ts";
 import {
   allocateE2EServerPort,
   classifyE2EServerExit,
@@ -65,65 +65,60 @@ import {
   waitForE2EServerReady,
   type E2EServerExitState,
   type E2EReadinessProbeContext,
-} from "./server-readiness.ts"
-import type { PreviewCaptureServer } from "./preview-capture.ts"
-const WEB_DIRECTORY = fileURLToPath(new URL("../../../apps/web/", import.meta.url))
-const E2E_NODE_EXECUTABLE_KEY = "_DARKFACTORY_E2E_NODE_EXECUTABLE"
-const E2E_PNPM_SCRIPT_KEY = "_DARKFACTORY_E2E_PNPM_SCRIPT"
-const E2E_WEB_SCRIPT_KEY = "_DARKFACTORY_E2E_WEB_SCRIPT"
+} from "./server-readiness.ts";
+import type { PreviewCaptureServer } from "./preview-capture.ts";
+const WEB_DIRECTORY = fileURLToPath(
+  new URL("../../../apps/web/", import.meta.url)
+);
+const E2E_NODE_EXECUTABLE_KEY = "_DARKFACTORY_E2E_NODE_EXECUTABLE";
+const E2E_PNPM_SCRIPT_KEY = "_DARKFACTORY_E2E_PNPM_SCRIPT";
+const E2E_WEB_SCRIPT_KEY = "_DARKFACTORY_E2E_WEB_SCRIPT";
 type E2EServerInvocation = Readonly<{
-  command: string
-  arguments: readonly string[]
-  workerBindingsDirectory: string
-}>
+  command: string;
+  arguments: readonly string[];
+  workerBindingsDirectory: string;
+}>;
 type E2EServerConfiguration = Readonly<{
-  nodeExecutable: string
-  pnpmScript: string
-  webScript: "dev" | "start"
-  workerBindingsDirectory: string
-}>
+  nodeExecutable: string;
+  pnpmScript: string;
+  webScript: "dev" | "start";
+  workerBindingsDirectory: string;
+}>;
 const resolveE2EServerConfiguration = (
-  source: Readonly<NodeJS.ProcessEnv>,
+  source: Readonly<NodeJS.ProcessEnv>
 ): E2EServerConfiguration => {
-  const nodeExecutable = source[E2E_NODE_EXECUTABLE_KEY]
-  const pnpmScript = source[E2E_PNPM_SCRIPT_KEY]
-  const requestedWebScript = source[E2E_WEB_SCRIPT_KEY]
-  if (
-    requestedWebScript !== undefined &&
-    requestedWebScript !== "start"
-  ) throw new Error("E2E web server script is invalid")
-  const webScript = requestedWebScript ?? "dev"
+  const nodeExecutable = source[E2E_NODE_EXECUTABLE_KEY];
+  const pnpmScript = source[E2E_PNPM_SCRIPT_KEY];
+  const requestedWebScript = source[E2E_WEB_SCRIPT_KEY];
+  if (requestedWebScript !== undefined && requestedWebScript !== "start")
+    throw new Error("E2E web server script is invalid");
+  const webScript = requestedWebScript ?? "dev";
   if (
     nodeExecutable === undefined ||
     pnpmScript === undefined ||
     !isAbsolute(nodeExecutable) ||
     !isAbsolute(pnpmScript)
-  ) throw new Error("E2E server executable targets are unavailable")
+  )
+    throw new Error("E2E server executable targets are unavailable");
   return Object.freeze({
     nodeExecutable,
     pnpmScript,
     webScript,
-    workerBindingsDirectory: webScript === "start"
-      ? join(WEB_DIRECTORY, "dist", "server")
-      : WEB_DIRECTORY,
-  })
-}
+    workerBindingsDirectory:
+      webScript === "start"
+        ? join(WEB_DIRECTORY, "dist", "server")
+        : WEB_DIRECTORY,
+  });
+};
 
 export const createE2EServerInvocation = (
   source: Readonly<NodeJS.ProcessEnv>,
-  appPort: number,
+  appPort: number
 ): E2EServerInvocation => {
-  if (
-    !Number.isSafeInteger(appPort) ||
-    appPort < 1 ||
-    appPort > 65_535
-  ) throw new Error("E2E app port is invalid")
-  const {
-    nodeExecutable,
-    pnpmScript,
-    webScript,
-    workerBindingsDirectory,
-  } = resolveE2EServerConfiguration(source)
+  if (!Number.isSafeInteger(appPort) || appPort < 1 || appPort > 65_535)
+    throw new Error("E2E app port is invalid");
+  const { nodeExecutable, pnpmScript, webScript, workerBindingsDirectory } =
+    resolveE2EServerConfiguration(source);
   return Object.freeze({
     command: nodeExecutable,
     arguments: Object.freeze([
@@ -144,72 +139,78 @@ export const createE2EServerInvocation = (
       "127.0.0.1",
     ]),
     workerBindingsDirectory,
-  })
-}
+  });
+};
 
+const EXPECTED_SEED_IDENTITIES = 3;
+const readinessShutdownController = new AbortController();
 
-const EXPECTED_SEED_IDENTITIES = 3
-const readinessShutdownController = new AbortController()
-
-let server: OwnedProcess | undefined
-let database: PostgresTestDatabase | undefined
-let dropDatabase: ((database: PostgresTestDatabase) => Promise<void>) | undefined
-let routeOwnerLock: RouteOwnerLock | undefined
-let runPaths: E2ERunPaths | undefined
-let workerBindings: OwnedDevVarsLease | undefined
-let previewCaptureServer: PreviewCaptureServer | undefined
-let runRootAdopted = false
-let lifecycleStateWriter: E2ELifecycleStateWriter | undefined
-let lifecycleStage: E2ELifecycleStage | undefined
-let startupStage: E2ELifecycleDiagnosticStage = "validation"
-let startupFailed = false
-let intentionalShutdown = false
-let intentionalStartupInterrupted = false
-let runtimeFailed = false
-let serverReady = false
+let server: OwnedProcess | undefined;
+let database: PostgresTestDatabase | undefined;
+let dropDatabase:
+  | ((database: PostgresTestDatabase) => Promise<void>)
+  | undefined;
+let routeOwnerLock: RouteOwnerLock | undefined;
+let runPaths: E2ERunPaths | undefined;
+let workerBindings: OwnedDevVarsLease | undefined;
+let previewCaptureServer: PreviewCaptureServer | undefined;
+let runRootAdopted = false;
+let lifecycleStateWriter: E2ELifecycleStateWriter | undefined;
+let lifecycleStage: E2ELifecycleStage | undefined;
+let startupStage: E2ELifecycleDiagnosticStage = "validation";
+let startupFailed = false;
+let intentionalShutdown = false;
+let intentionalStartupInterrupted = false;
+let runtimeFailed = false;
+let serverReady = false;
 
 const cleanRunArtifacts = async (): Promise<void> => {
-  if (runPaths === undefined) return
-  if (runRootAdopted) { await removeOwnedE2EPreviewArtifacts(runPaths)}
-  else await removeOwnedE2ERunArtifacts(runPaths)
-}
+  if (runPaths === undefined) return;
+  if (runRootAdopted) {
+    await removeOwnedE2EPreviewArtifacts(runPaths);
+  } else await removeOwnedE2ERunArtifacts(runPaths);
+};
 
 const cleanup = async (): Promise<void> => {
-  const currentDatabase = database
-  const currentDropDatabase = dropDatabase
-  const currentRouteOwnerLock = routeOwnerLock
-  const currentWorkerBindings = workerBindings
-  const currentPreviewCaptureServer = previewCaptureServer
-  let previewCaptureCleanupError: unknown
-  let previewCaptureCloseAttempted = false
+  const currentDatabase = database;
+  const currentDropDatabase = dropDatabase;
+  const currentRouteOwnerLock = routeOwnerLock;
+  const currentWorkerBindings = workerBindings;
+  const currentPreviewCaptureServer = previewCaptureServer;
+  let previewCaptureCleanupError: unknown;
+  let previewCaptureCloseAttempted = false;
   try {
     await cleanupE2ELifecycle({
       cleanPreviewArtifacts: cleanRunArtifacts,
-      closePreviewCaptureServer: currentPreviewCaptureServer === undefined
-        ? undefined
-        : async () => {
-            previewCaptureCloseAttempted = true
-            return await currentPreviewCaptureServer.close()
-        },
-      cleanWorkerBindings: currentWorkerBindings === undefined
-        ? undefined
-        : async () => removeOwnedDevVarsFile(currentWorkerBindings),
+      closePreviewCaptureServer:
+        currentPreviewCaptureServer === undefined
+          ? undefined
+          : async () => {
+              previewCaptureCloseAttempted = true;
+              return await currentPreviewCaptureServer.close();
+            },
+      cleanWorkerBindings:
+        currentWorkerBindings === undefined
+          ? undefined
+          : async () => removeOwnedDevVarsFile(currentWorkerBindings),
       database: currentDatabase,
       dropDatabase: async (ownedDatabase) => {
         if (currentDropDatabase === undefined) {
-          throw new Error("E2E database cleanup was not initialized")
+          throw new Error("E2E database cleanup was not initialized");
         }
-        return await currentDropDatabase(ownedDatabase)
+        return await currentDropDatabase(ownedDatabase);
       },
-      releaseOwnerLock: currentRouteOwnerLock === undefined
-        ? undefined
-        : async () => releaseRouteOwnerLock(currentRouteOwnerLock),
-      releaseWorkerBindingsLock: currentWorkerBindings === undefined
-        ? undefined
-        : async () => releaseOwnedDevVarsLock(currentWorkerBindings),
+      releaseOwnerLock:
+        currentRouteOwnerLock === undefined
+          ? undefined
+          : async () => releaseRouteOwnerLock(currentRouteOwnerLock),
+      releaseWorkerBindingsLock:
+        currentWorkerBindings === undefined
+          ? undefined
+          : async () => releaseOwnedDevVarsLock(currentWorkerBindings),
       server,
       termination: E2E_PROCESS_TERMINATION_OPTIONS,
-    })
+    });
     if (
       lifecycleStateWriter !== undefined &&
       lifecycleStage !== undefined &&
@@ -222,105 +223,102 @@ const cleanup = async (): Promise<void> => {
         version: 1,
         status: "stopped",
         stage: lifecycleStage,
-      })
+      });
     }
-  }
-  catch (error) {
+  } catch (error) {
     if (
-      !previewCaptureCloseAttempted
-      && currentPreviewCaptureServer !== undefined
+      !previewCaptureCloseAttempted &&
+      currentPreviewCaptureServer !== undefined
     ) {
-      previewCaptureCloseAttempted = true
+      previewCaptureCloseAttempted = true;
       try {
-        await currentPreviewCaptureServer.close()
-      }
-      catch (captureError) {
-        previewCaptureCleanupError = captureError
+        await currentPreviewCaptureServer.close();
+      } catch (captureError) {
+        previewCaptureCleanupError = captureError;
       }
     }
     const lifecycleError =
-      previewCaptureCleanupError === undefined
-      || error === previewCaptureCleanupError
+      previewCaptureCleanupError === undefined ||
+      error === previewCaptureCleanupError
         ? error
         : new AggregateError(
             [previewCaptureCleanupError, error],
-            "Preview capture and E2E lifecycle cleanup failed",
-          )
+            "Preview capture and E2E lifecycle cleanup failed"
+          );
     if (lifecycleStateWriter !== undefined && lifecycleStage !== undefined) {
       try {
         await lifecycleStateWriter.write({
           version: 1,
           status: "cleanup-failed",
           stage: lifecycleStage,
-        })
-      }
-      catch (stateError) {
+        });
+      } catch (stateError) {
         throw new AggregateError(
           [lifecycleError, stateError],
-          "E2E lifecycle cleanup and state persistence failed",
-        )
+          "E2E lifecycle cleanup and state persistence failed"
+        );
       }
     }
-    throw lifecycleError
+    throw lifecycleError;
   }
-  database = undefined
-  server = undefined
-  routeOwnerLock = undefined
-  runPaths = undefined
-  runRootAdopted = false
-  workerBindings = undefined
-  previewCaptureServer = undefined
-  lifecycleStateWriter = undefined
-  lifecycleStage = undefined
-  startupFailed = false
-  intentionalShutdown = false
-  intentionalStartupInterrupted = false
-  runtimeFailed = false
-  serverReady = false
-}
+  database = undefined;
+  server = undefined;
+  routeOwnerLock = undefined;
+  runPaths = undefined;
+  runRootAdopted = false;
+  workerBindings = undefined;
+  previewCaptureServer = undefined;
+  lifecycleStateWriter = undefined;
+  lifecycleStage = undefined;
+  startupFailed = false;
+  intentionalShutdown = false;
+  intentionalStartupInterrupted = false;
+  runtimeFailed = false;
+  serverReady = false;
+};
 
-
-
-const enterLifecycleStage = async (
-  stage: E2ELifecycleStage,
-): Promise<void> => {
-  startupStage = stage
-  lifecycleStage = stage
+const enterLifecycleStage = async (stage: E2ELifecycleStage): Promise<void> => {
+  startupStage = stage;
+  lifecycleStage = stage;
   if (lifecycleStateWriter !== undefined) {
-    await lifecycleStateWriter.write({ version: 1, status: "starting", stage })
+    await lifecycleStateWriter.write({ version: 1, status: "starting", stage });
   }
-}
+};
 
 const start = async (control: LifecycleControl): Promise<void> => {
-  const serverConfiguration = resolveE2EServerConfiguration(process.env)
+  const serverConfiguration = resolveE2EServerConfiguration(process.env);
   if (process.env["APP_ENV"] !== "test") {
-    throw new Error("E2E lifecycle requires APP_ENV=test")
+    throw new Error("E2E lifecycle requires APP_ENV=test");
   }
-  const maintenanceDatabaseUrl = process.env["DATABASE_URL"]
-  if (maintenanceDatabaseUrl === undefined || maintenanceDatabaseUrl.length === 0) {
-    throw new Error("E2E lifecycle requires the safe maintenance DATABASE_URL")
+  const maintenanceDatabaseUrl = process.env["DATABASE_URL"];
+  if (
+    maintenanceDatabaseUrl === undefined ||
+    maintenanceDatabaseUrl.length === 0
+  ) {
+    throw new Error("E2E lifecycle requires the safe maintenance DATABASE_URL");
   }
 
-  startupStage = "owner-lock"
-  routeOwnerLock = await acquireRouteOwnerLock()
-  control.checkpoint()
+  startupStage = "owner-lock";
+  routeOwnerLock = await acquireRouteOwnerLock();
+  control.checkpoint();
 
-  startupStage = "artifact-isolation"
-  const candidateRunPaths = e2eRunPathsFromEnvironment()
+  startupStage = "artifact-isolation";
+  const candidateRunPaths = e2eRunPathsFromEnvironment();
   const adopted = await assertOwnedE2ERunRootsReady(
     candidateRunPaths,
-    process.env["E2E_RUN_ADOPTION"],
-  )
-  runPaths = candidateRunPaths
-  runRootAdopted = adopted
+    process.env["E2E_RUN_ADOPTION"]
+  );
+  runPaths = candidateRunPaths;
+  runRootAdopted = adopted;
   if (adopted) {
-    lifecycleStateWriter = await createOwnedE2ELifecycleStateWriter(candidateRunPaths)
-    await enterLifecycleStage("artifact-isolation")
+    lifecycleStateWriter =
+      await createOwnedE2ELifecycleStateWriter(candidateRunPaths);
+    await enterLifecycleStage("artifact-isolation");
   }
-  await prepareOwnedE2EPreviewDirectories(candidateRunPaths)
-  control.checkpoint()
+  await prepareOwnedE2EPreviewDirectories(candidateRunPaths);
+  control.checkpoint();
 
-  await enterLifecycleStage("module-loading")
+  await enterLifecycleStage("module-loading");
   // Dynamic imports are intentional: resolution failures must enter the sanitized cleanup path.
   const [
     authModule,
@@ -334,64 +332,68 @@ const start = async (control: LifecycleControl): Promise<void> => {
     import("@darkfactory/db/server/migration"),
     import("@darkfactory/testkit/postgres"),
     import("./preview-capture.ts"),
-  ])
-  dropDatabase = testkitModule.dropPostgresTestDatabase
-  control.checkpoint()
+  ]);
+  dropDatabase = testkitModule.dropPostgresTestDatabase;
+  control.checkpoint();
 
-  const portlessPort = parsePortlessPort(process.env["PORTLESS_PORT"])
-  const appUrl = canonicalBaseURL(portlessPort)
-  const secret = randomBytes(32).toString("hex")
+  const portlessPort = parsePortlessPort(process.env["PORTLESS_PORT"]);
+  const appUrl = canonicalBaseURL(portlessPort);
+  const secret = randomBytes(32).toString("hex");
 
-  await enterLifecycleStage("database-create")
+  await enterLifecycleStage("database-create");
   database = await testkitModule.createPostgresTestDatabase({
     databaseUrl: maintenanceDatabaseUrl,
     runId: `e2e_${runPaths.runId}`,
-  })
-  control.checkpoint()
+  });
+  control.checkpoint();
 
   const resource = databaseModule.createNodeDatabase({
     connectionString: database.databaseUrl,
-  })
+  });
   try {
-    await enterLifecycleStage("database-migrate")
-    await databaseMigrationModule.migrate(resource.db)
-    control.checkpoint()
+    await enterLifecycleStage("database-migrate");
+    await databaseMigrationModule.migrate(resource.db);
+    control.checkpoint();
 
-    await enterLifecycleStage("database-reset")
-    await databaseModule.resetDevelopment(resource.db, { environment: "test" })
-    control.checkpoint()
+    await enterLifecycleStage("database-reset");
+    await databaseModule.resetDevelopment(resource.db, { environment: "test" });
+    control.checkpoint();
 
     const prepareIdentity: PrepareSeedIdentities = async (identities) => {
-      return await authModule.ensureDevelopmentSeedIdentity({
-        environment: "test",
-        secret,
-        baseURL: appUrl,
-        trustedOrigins: [appUrl],
-      }, identities)
-    }
-    await enterLifecycleStage("database-seed")
+      return await authModule.ensureDevelopmentSeedIdentity(
+        {
+          environment: "test",
+          secret,
+          baseURL: appUrl,
+          trustedOrigins: [appUrl],
+        },
+        identities
+      );
+    };
+    await enterLifecycleStage("database-seed");
     const seeded = await databaseModule.seedDevelopment(resource.db, {
       environment: "test",
       prepareIdentity,
-    })
+    });
     if (
       seeded.identitiesCreated !== EXPECTED_SEED_IDENTITIES ||
       seeded.usersConverged !== EXPECTED_SEED_IDENTITIES
     ) {
-      throw new Error("E2E lifecycle did not create exactly three seed identities")
+      throw new Error(
+        "E2E lifecycle did not create exactly three seed identities"
+      );
     }
-    control.checkpoint()
+    control.checkpoint();
+  } finally {
+    await resource.close();
   }
-  finally {
-    await resource.close()
-  }
-  control.checkpoint()
+  control.checkpoint();
 
-  const previewHmacKey = process.env["E2E_EMAIL_PREVIEW_HMAC_KEY"]
+  const previewHmacKey = process.env["E2E_EMAIL_PREVIEW_HMAC_KEY"];
   if (previewHmacKey === undefined) {
-    throw new Error("E2E preview capture requires an HMAC key")
+    throw new Error("E2E preview capture requires an HMAC key");
   }
-  await enterLifecycleStage("server-spawn")
+  await enterLifecycleStage("server-spawn");
   previewCaptureServer = await previewCaptureModule.startPreviewCaptureServer({
     authDirectory: runPaths.authPreviews,
     appOrigin: appUrl,
@@ -400,7 +402,7 @@ const start = async (control: LifecycleControl): Promise<void> => {
       runId: runPaths.runId,
       hmacKey: previewHmacKey,
     },
-  })
+  });
 
   const environment = createE2EServerEnvironment({
     databaseUrl: database.databaseUrl,
@@ -409,183 +411,186 @@ const start = async (control: LifecycleControl): Promise<void> => {
     previewCaptureEndpoint: previewCaptureServer.endpoint,
     secret,
     source: process.env,
-  })
-  await removeE2EOptimizerCache()
-  control.checkpoint()
+  });
+  await removeE2EOptimizerCache();
+  control.checkpoint();
   workerBindings = await acquireOwnedDevVars({
     bindingNames: E2E_WORKER_BINDING_KEYS,
     environment,
     webDirectory: serverConfiguration.workerBindingsDirectory,
-  })
-  control.checkpoint()
-  const appPort = await allocateE2EServerPort()
-  const serverInvocation = createE2EServerInvocation(process.env, appPort)
-  control.checkpoint()
+  });
+  control.checkpoint();
+  const appPort = await allocateE2EServerPort();
+  const serverInvocation = createE2EServerInvocation(process.env, appPort);
+  control.checkpoint();
   const serverEnvironment = {
     ...environment,
     PORTLESS_APP_PORT: appPort.toString(),
-  }
+  };
   server = spawnOwnedProcess(
     serverInvocation.command,
     serverInvocation.arguments,
-    { env: serverEnvironment },
-  )
+    { env: serverEnvironment }
+  );
   server.stdout
     .pipe(createSensitiveOutputRedactor(serverEnvironment))
-    .pipe(process.stdout, { end: false })
+    .pipe(process.stdout, { end: false });
   server.stderr
     .pipe(createSensitiveOutputRedactor(serverEnvironment))
-    .pipe(process.stdout, { end: false })
-  const {
-    promise: readinessCommitted,
-    resolve: resolveReadinessCommitted,
-  } = createPromiseResolvers<void>()
-  let appPortObservationPublished = false
+    .pipe(process.stdout, { end: false });
+  const { promise: readinessCommitted, resolve: resolveReadinessCommitted } =
+    createPromiseResolvers<void>();
+  let appPortObservationPublished = false;
   const publishAppPortObservation = (): void => {
-    if (appPortObservationPublished) return
-    appPortObservationPublished = true
-    process.stderr.write(`${E2E_WEB_SERVER_PORT_ACCEPTING_MARKER}\n`)
-  }
-  const routeRequestsPublished = new Set<string>()
-  const routeResponsesPublished = new Set<string>()
-  const routeErrorsPublished = new Set<string>()
+    if (appPortObservationPublished) return;
+    appPortObservationPublished = true;
+    process.stderr.write(`${E2E_WEB_SERVER_PORT_ACCEPTING_MARKER}\n`);
+  };
+  const routeRequestsPublished = new Set<string>();
+  const routeResponsesPublished = new Set<string>();
+  const routeErrorsPublished = new Set<string>();
   const publishRouteRequest = (path: string): void => {
-    if (routeRequestsPublished.has(path)) return
-    routeRequestsPublished.add(path)
-    process.stderr.write(`${E2E_WEB_SERVER_ROUTE_REQUEST_MARKER} ${path}\n`)
-  }
+    if (routeRequestsPublished.has(path)) return;
+    routeRequestsPublished.add(path);
+    process.stderr.write(`${E2E_WEB_SERVER_ROUTE_REQUEST_MARKER} ${path}\n`);
+  };
   const publishRouteResponse = (path: string, status: number): void => {
-    if (routeResponsesPublished.has(path)) return
-    routeResponsesPublished.add(path)
+    if (routeResponsesPublished.has(path)) return;
+    routeResponsesPublished.add(path);
     process.stderr.write(
-      `${E2E_WEB_SERVER_ROUTE_RESPONSE_MARKER} ${path} ${status}\n`,
-    )
-  }
+      `${E2E_WEB_SERVER_ROUTE_RESPONSE_MARKER} ${path} ${status}\n`
+    );
+  };
   const publishRouteError = (
     path: string,
     errorName: string,
-    errorCode: string,
+    errorCode: string
   ): void => {
-    if (routeErrorsPublished.has(path)) return
-    routeErrorsPublished.add(path)
+    if (routeErrorsPublished.has(path)) return;
+    routeErrorsPublished.add(path);
     process.stderr.write(
-      `${E2E_WEB_SERVER_ROUTE_ERROR_MARKER} ${path} ${errorName} ${errorCode}\n`,
-    )
-  }
-  let readinessCommitStarted = false
+      `${E2E_WEB_SERVER_ROUTE_ERROR_MARKER} ${path} ${errorName} ${errorCode}\n`
+    );
+  };
+  let readinessCommitStarted = false;
   const {
     promise: probeObservationCommitted,
     resolve: resolveProbeObservationCommitted,
-  } = createPromiseResolvers<void>()
-  let probeObservationStarted = false
+  } = createPromiseResolvers<void>();
+  let probeObservationStarted = false;
   const commitServerProbeObserved = async (
-    context: E2EReadinessProbeContext,
+    context: E2EReadinessProbeContext
   ): Promise<void> => {
-    context.signal.throwIfAborted()
+    context.signal.throwIfAborted();
     if (Date.now() >= context.deadlineMillis) {
-      throw new Error("E2E server readiness timed out before probe state commit")
+      throw new Error(
+        "E2E server readiness timed out before probe state commit"
+      );
     }
     if (probeObservationStarted) {
-      await probeObservationCommitted
-      return
+      await probeObservationCommitted;
+      return;
     }
-    probeObservationStarted = true
+    probeObservationStarted = true;
     try {
       if (lifecycleStateWriter !== undefined) {
-        await lifecycleStateWriter.write({
-          version: 1,
-          status: "starting",
-          stage: "server-probed",
-        }, { signal: context.signal })
+        await lifecycleStateWriter.write(
+          {
+            version: 1,
+            status: "starting",
+            stage: "server-probed",
+          },
+          { signal: context.signal }
+        );
       }
-      lifecycleStage = "server-probed"
-      startupStage = "server-probed"
+      lifecycleStage = "server-probed";
+      startupStage = "server-probed";
+    } finally {
+      resolveProbeObservationCommitted();
     }
-    finally {
-      resolveProbeObservationCommitted()
-    }
-  }
+  };
   const commitServerReady = async (
-    context: E2EReadinessProbeContext,
+    context: E2EReadinessProbeContext
   ): Promise<void> => {
-    context.signal.throwIfAborted()
+    context.signal.throwIfAborted();
     if (Date.now() >= context.deadlineMillis) {
-      throw new Error("E2E server readiness timed out before state commit")
+      throw new Error("E2E server readiness timed out before state commit");
     }
     if (readinessCommitStarted) {
-      await readinessCommitted
-      return
+      await readinessCommitted;
+      return;
     }
-    readinessCommitStarted = true
+    readinessCommitStarted = true;
     try {
       if (lifecycleStateWriter !== undefined) {
-        await lifecycleStateWriter.write({
-          version: 1,
-          status: "ready",
-          stage: "server-ready",
-        }, { signal: context.signal })
+        await lifecycleStateWriter.write(
+          {
+            version: 1,
+            status: "ready",
+            stage: "server-ready",
+          },
+          { signal: context.signal }
+        );
       }
-      context.signal.throwIfAborted()
-      control.checkpoint()
+      context.signal.throwIfAborted();
+      control.checkpoint();
       if (
         server === undefined ||
         server.exitCode !== null ||
         server.signalCode !== null
-      ) throw new Error("E2E server exited before readiness publication")
-      lifecycleStage = "server-ready"
-      startupStage = "server-ready"
-      serverReady = true
-      process.stderr.write(`${E2E_WEB_SERVER_READY_MARKER}\n`)
+      )
+        throw new Error("E2E server exited before readiness publication");
+      lifecycleStage = "server-ready";
+      startupStage = "server-ready";
+      serverReady = true;
+      process.stderr.write(`${E2E_WEB_SERVER_READY_MARKER}\n`);
+    } finally {
+      resolveReadinessCommitted();
     }
-    finally {
-      resolveReadinessCommitted()
-    }
-  }
-  let serverExitHandled = false
-  const handleServerExit = async (
-    state: E2EServerExitState,
-  ): Promise<void> => {
-    if (serverExitHandled) return
-    serverExitHandled = true
-    if (readinessCommitStarted) await readinessCommitted
-    if (probeObservationStarted) await probeObservationCommitted
+  };
+  let serverExitHandled = false;
+  const handleServerExit = async (state: E2EServerExitState): Promise<void> => {
+    if (serverExitHandled) return;
+    serverExitHandled = true;
+    if (readinessCommitStarted) await readinessCommitted;
+    if (probeObservationStarted) await probeObservationCommitted;
     const status = classifyE2EServerExit({
       intentional: intentionalShutdown,
       ready: serverReady,
       state,
-    })
+    });
     if (status === "runtime-failed") {
-      runtimeFailed = true
-      lifecycleStage = "server-ready"
+      runtimeFailed = true;
+      lifecycleStage = "server-ready";
       if (lifecycleStateWriter !== undefined) {
         await lifecycleStateWriter.write({
           version: 1,
           status: "runtime-failed",
           stage: "server-ready",
-        })
+        });
       }
     }
-    await control.requestShutdown(status === "stopped" ? state.exitCode ?? 0 : 1)
-  }
+    await control.requestShutdown(
+      status === "stopped" ? (state.exitCode ?? 0) : 1
+    );
+  };
   server.once("error", () => {
     return void handleServerExit({ exitCode: 1, signal: null }).catch(
-      () => void control.requestShutdown(1),
-    )
-  }
-  )
+      () => void control.requestShutdown(1)
+    );
+  });
   server.once("exit", (exitCode, signal) => {
     return void handleServerExit({ exitCode, signal }).catch(
-      () => void control.requestShutdown(1),
-    )
-  }
-  )
+      () => void control.requestShutdown(1)
+    );
+  });
   try {
     await waitForE2EServerReady({
       child: server,
       consecutiveSuccessfulProbes: 2,
       onReady: commitServerReady,
       probe: async (context) => {
-        control.checkpoint()
+        control.checkpoint();
         const ready = await probeE2EServerTarget({
           appPort,
           appUrl,
@@ -595,88 +600,81 @@ const start = async (control: LifecycleControl): Promise<void> => {
           onRequestStart: publishRouteRequest,
           onResponse: publishRouteResponse,
           signal: context.signal,
-        })
-        if (ready) await commitServerProbeObserved(context)
-        return ready
+        });
+        if (ready) await commitServerProbeObserved(context);
+        return ready;
       },
       signal: readinessShutdownController.signal,
-    })
+    });
+  } catch (error) {
+    if (readinessShutdownController.signal.aborted) control.checkpoint();
+    throw error;
   }
-  catch (error) {
-    if (readinessShutdownController.signal.aborted) control.checkpoint()
-    throw error
-  }
-  control.checkpoint()
-}
+  control.checkpoint();
+};
 
 const main = async (control: LifecycleControl): Promise<void> => {
   try {
-    await start(control)
-  }
-  catch (error) {
-    if (isIntentionalLifecycleShutdownInterruption({
-      error,
-      intentional: intentionalShutdown,
-    })) {
-      intentionalStartupInterrupted = true
-      return
+    await start(control);
+  } catch (error) {
+    if (
+      isIntentionalLifecycleShutdownInterruption({
+        error,
+        intentional: intentionalShutdown,
+      })
+    ) {
+      intentionalStartupInterrupted = true;
+      return;
     }
-    startupFailed = true
+    startupFailed = true;
     if (lifecycleStateWriter !== undefined && lifecycleStage !== undefined) {
       try {
         await lifecycleStateWriter.write({
           version: 1,
           status: "startup-failed",
           stage: lifecycleStage,
-        })
-      }
-      catch (stateError) {
+        });
+      } catch (stateError) {
         throw new AggregateError(
           [error, stateError],
-          "E2E lifecycle startup and state persistence failed",
-        )
+          "E2E lifecycle startup and state persistence failed"
+        );
       }
     }
-    throw error
+    throw error;
   }
-}
+};
 
-const lifecycle = createSerializedLifecycle({ cleanup, startup: main })
+const lifecycle = createSerializedLifecycle({ cleanup, startup: main });
 process.once("SIGINT", () => {
-  intentionalShutdown = true
-  const shutdown = lifecycle.control.requestShutdown(130)
-  readinessShutdownController.abort()
-  return void shutdown
-}
-)
+  intentionalShutdown = true;
+  const shutdown = lifecycle.control.requestShutdown(130);
+  readinessShutdownController.abort();
+  return void shutdown;
+});
 process.once("SIGTERM", () => {
-  intentionalShutdown = true
-  const shutdown = lifecycle.control.requestShutdown(143)
-  readinessShutdownController.abort()
-  return void shutdown
-}
-)
+  intentionalShutdown = true;
+  const shutdown = lifecycle.control.requestShutdown(143);
+  readinessShutdownController.abort();
+  return void shutdown;
+});
 void lifecycle.completion.then((outcome) => {
   if (outcome.cleanupError !== undefined) {
-    const combinedFailure = outcome.startupError === undefined
-      ? outcome.cleanupError
-      : new AggregateError(
-        [outcome.startupError, outcome.cleanupError],
-        `E2E startup and cleanup failed during ${startupStage}`,
-      )
-    void combinedFailure
-    process.stderr.write(
-      formatE2ELifecycleFailure("cleanup", startupStage),
-    )
-    process.exitCode = 1
-    return
+    const combinedFailure =
+      outcome.startupError === undefined
+        ? outcome.cleanupError
+        : new AggregateError(
+            [outcome.startupError, outcome.cleanupError],
+            `E2E startup and cleanup failed during ${startupStage}`
+          );
+    void combinedFailure;
+    process.stderr.write(formatE2ELifecycleFailure("cleanup", startupStage));
+    process.exitCode = 1;
+    return;
   }
   if (outcome.startupError !== undefined) {
-    process.stderr.write(
-      formatE2ELifecycleFailure("startup", startupStage),
-    )
-    process.exit(1)
+    process.stderr.write(formatE2ELifecycleFailure("startup", startupStage));
+    process.exit(1);
   }
-  return process.exit(outcome.exitCode)
-}
-)
+  return process.exit(outcome.exitCode);
+});

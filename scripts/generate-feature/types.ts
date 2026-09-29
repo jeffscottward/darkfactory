@@ -1,63 +1,63 @@
 export type GeneratorArguments = Readonly<{
-  name: string
-  dryRun: boolean
-  json: boolean
-}>
+  name: string;
+  dryRun: boolean;
+  json: boolean;
+}>;
 
 export type FeatureNames = Readonly<{
-  kebab: string
-  pluralKebab: string
-  camel: string
-  pluralCamel: string
-  pascal: string
-  pluralPascal: string
-  snake: string
-  pluralSnake: string
-}>
+  kebab: string;
+  pluralKebab: string;
+  camel: string;
+  pluralCamel: string;
+  pascal: string;
+  pluralPascal: string;
+  snake: string;
+  pluralSnake: string;
+}>;
 
 export type PlannedFile = Readonly<{
-  path: string
-  content: string
-  sha256: string
-  operation: "create" | "replace"
-  previousSha256?: string
-}>
+  path: string;
+  content: string;
+  sha256: string;
+  operation: "create" | "replace";
+  previousSha256?: string;
+}>;
 
-declare const generationPlanCapability: unique symbol
+declare const generationPlanCapability: unique symbol;
 
 export type GenerationPlan = Readonly<{
-  version: 1
-  targetRoot: string
-  containerRoot: string
-  capsuleRoot: string
-  names: FeatureNames
-  files: readonly PlannedFile[]
-  planId: string
-  readonly [generationPlanCapability]: true
-}>
+  version: 1;
+  targetRoot: string;
+  containerRoot: string;
+  capsuleRoot: string;
+  names: FeatureNames;
+  files: readonly PlannedFile[];
+  planId: string;
+  readonly [generationPlanCapability]: true;
+}>;
 
 export type ApplyResult = Readonly<{
-  capsulePath: string
-  promotedFiles: readonly string[]
-  cleanup: "complete" | "manual-cleanup-required"
-}>
+  capsulePath: string;
+  promotedFiles: readonly string[];
+  cleanup: "complete" | "manual-cleanup-required";
+}>;
 
 export type VerificationResult = Readonly<{
-  isValid: true
-  filesChecked: number
-  planId: string
-}>
+  isValid: true;
+  filesChecked: number;
+  planId: string;
+}>;
 
-export type GenerationStatus = "planned" | "applied"
+export type GenerationStatus = "planned" | "applied";
 
 export type GenerationReport = Readonly<{
-  version: 1
-  status: GenerationStatus
-  feature: string
-  capsuleRoot: string
-  cleanup: "complete" | "manual-cleanup-required" | "not-applicable"
-  dryRun: boolean
-  planId: string
-  files: readonly string[]
-  integration: "generator-owned-registries"
-}>
+  version: 1;
+  status: GenerationStatus;
+  feature: string;
+  capsuleRoot: string;
+  cleanup: "complete" | "manual-cleanup-required" | "not-applicable";
+  dryRun: boolean;
+  planId: string;
+  files: readonly string[];
+  integration: "generator-owned-registries";
+}>;

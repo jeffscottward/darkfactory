@@ -1,154 +1,145 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   addresses,
   auditRecords,
   featureItems,
   outboxEvents,
-} from "../schema/index.ts"
-import type { Database } from "../server/client.ts"
+} from "../schema/index.ts";
+import type { Database } from "../server/client.ts";
 import {
   DEVELOPMENT_ADDRESSES,
   DEVELOPMENT_FEATURE_ITEMS,
   convergeDevelopmentContent,
-} from "./content.ts"
+} from "./content.ts";
 
-const FIXED_ROW_TIME = new Date("2026-01-02T03:04:05.000Z")
-const FIXED_GENERATED_ID = "90000000-0000-4000-8000-000000000001"
+const FIXED_ROW_TIME = new Date("2026-01-02T03:04:05.000Z");
+const FIXED_GENERATED_ID = "90000000-0000-4000-8000-000000000001";
 
-beforeEach(function() {
-  vi.useFakeTimers()
-  vi.setSystemTime(FIXED_ROW_TIME)
-  return vi.spyOn(crypto, "randomUUID").mockReturnValue(FIXED_GENERATED_ID)
-})
+beforeEach(function () {
+  vi.useFakeTimers();
+  vi.setSystemTime(FIXED_ROW_TIME);
+  return vi.spyOn(crypto, "randomUUID").mockReturnValue(FIXED_GENERATED_ID);
+});
 
-afterEach(function() {
-  vi.useRealTimers()
-  return vi.restoreAllMocks()
-})
+afterEach(function () {
+  vi.useRealTimers();
+  return vi.restoreAllMocks();
+});
 
-type QueryKind = "select" | "insert" | "update"
-type QueryRows = ReadonlyArray<Record<string, unknown>>
+type QueryKind = "select" | "insert" | "update";
+type QueryRows = ReadonlyArray<Record<string, unknown>>;
 type QueryOperation = {
-  kind: QueryKind | "execute"
-  table?: string
-  value?: Record<string, unknown>
-  where?: unknown
-  returning?: boolean
-  statement?: unknown
-}
+  kind: QueryKind | "execute";
+  table?: string;
+  value?: Record<string, unknown>;
+  where?: unknown;
+  returning?: boolean;
+  statement?: unknown;
+};
 type QueryBuilder = {
-  from: (table: unknown) => QueryBuilder
-  where: (condition: unknown) => QueryBuilder
-  limit: (value: number) => QueryBuilder
-  values: (value: Record<string, unknown>) => QueryBuilder
-  set: (value: Record<string, unknown>) => QueryBuilder
-  returning: () => QueryBuilder
+  from: (table: unknown) => QueryBuilder;
+  where: (condition: unknown) => QueryBuilder;
+  limit: (value: number) => QueryBuilder;
+  values: (value: Record<string, unknown>) => QueryBuilder;
+  set: (value: Record<string, unknown>) => QueryBuilder;
+  returning: () => QueryBuilder;
   then: (
     onFulfilled: (rows: QueryRows) => unknown,
-    onRejected?: (error: unknown) => unknown,
-  ) => Promise<unknown>
-}
-type QueryOutcomes = Partial<Record<QueryKind, QueryRows[]>>
+    onRejected?: (error: unknown) => unknown
+  ) => Promise<unknown>;
+};
+type QueryOutcomes = Partial<Record<QueryKind, QueryRows[]>>;
 
 const tableName = (table: unknown): string => {
-  if (table === addresses) return "addresses"
-  if (table === featureItems) return "feature_items"
-  if (table === auditRecords) return "audit_records"
-  if (table === outboxEvents) return "outbox_events"
-  return "unknown"
-}
+  if (table === addresses) return "addresses";
+  if (table === featureItems) return "feature_items";
+  if (table === auditRecords) return "audit_records";
+  if (table === outboxEvents) return "outbox_events";
+  return "unknown";
+};
 
 const createContentSeedDatabase = (configured: QueryOutcomes) => {
-  const operations: QueryOperation[] = []
+  const operations: QueryOperation[] = [];
   const outcomes: Record<QueryKind, QueryRows[]> = {
     select: [...(configured.select ?? [])],
     insert: [...(configured.insert ?? [])],
     update: [...(configured.update ?? [])],
-  }
+  };
 
   const builderFor = (operation: QueryOperation): QueryBuilder => {
-    let builder = {} as QueryBuilder
+    let builder = {} as QueryBuilder;
     builder.from = vi.fn((table: unknown) => {
-      operation.table = tableName(table)
-      return builder
-    }
-    )
+      operation.table = tableName(table);
+      return builder;
+    });
     builder.where = vi.fn((condition: unknown) => {
-      operation.where = condition
-      return builder
-    }
-    )
-    builder.limit = vi.fn(() => builder)
+      operation.where = condition;
+      return builder;
+    });
+    builder.limit = vi.fn(() => builder);
     builder.values = vi.fn((value: Record<string, unknown>) => {
-      operation.value = value
-      return builder
-    }
-    )
+      operation.value = value;
+      return builder;
+    });
     builder.set = vi.fn((value: Record<string, unknown>) => {
-      operation.value = value
-      return builder
-    }
-    )
+      operation.value = value;
+      return builder;
+    });
     builder.returning = vi.fn(() => {
-      operation.returning = true
-      return builder
-    }
-    )
+      operation.returning = true;
+      return builder;
+    });
     builder.then = (onFulfilled, onRejected) => {
       if (operation.kind === "execute") {
-        return Promise.resolve([]).then(onFulfilled, onRejected)
+        return Promise.resolve([]).then(onFulfilled, onRejected);
       }
-      const rows = outcomes[operation.kind].shift() ?? []
-      return Promise.resolve(rows).then(onFulfilled, onRejected)
-    }
-    return builder
-  }
+      const rows = outcomes[operation.kind].shift() ?? [];
+      return Promise.resolve(rows).then(onFulfilled, onRejected);
+    };
+    return builder;
+  };
 
-  let executor: Database
+  let executor: Database;
   const transaction = vi.fn(
     async (callback: (transaction: Database) => Promise<unknown>) => {
-      return callback(executor)
+      return callback(executor);
     }
-  )
+  );
   executor = {
     select: vi.fn(() => {
-      const operation: QueryOperation = { kind: "select" }
-      operations.push(operation)
-      return builderFor(operation)
-    }
-    ),
+      const operation: QueryOperation = { kind: "select" };
+      operations.push(operation);
+      return builderFor(operation);
+    }),
     insert: vi.fn((table: unknown) => {
       const operation: QueryOperation = {
         kind: "insert",
         table: tableName(table),
-      }
-      operations.push(operation)
-      return builderFor(operation)
-    }
-    ),
+      };
+      operations.push(operation);
+      return builderFor(operation);
+    }),
     update: vi.fn((table: unknown) => {
       const operation: QueryOperation = {
         kind: "update",
         table: tableName(table),
-      }
-      operations.push(operation)
-      return builderFor(operation)
-    }
-    ),
+      };
+      operations.push(operation);
+      return builderFor(operation);
+    }),
     execute: vi.fn(async (statement: unknown) => {
-      operations.push({ kind: "execute", statement })
-      return []
-    }
-    ),
+      operations.push({ kind: "execute", statement });
+      return [];
+    }),
     transaction,
-  } as unknown as Database
+  } as unknown as Database;
 
-  return { database: executor, operations, transaction }
-}
+  return { database: executor, operations, transaction };
+};
 
 const addressRow = (index: number) => {
-  const expected = DEVELOPMENT_ADDRESSES[index]!
+  const expected = DEVELOPMENT_ADDRESSES[index]!;
   return {
     ...expected,
     id: expected.id!,
@@ -157,11 +148,11 @@ const addressRow = (index: number) => {
     isPrimary: expected.isPrimary ?? false,
     createdAt: FIXED_ROW_TIME,
     updatedAt: FIXED_ROW_TIME,
-  }
-}
+  };
+};
 
 const featureRow = (index: number) => {
-  const expected = DEVELOPMENT_FEATURE_ITEMS[index]!
+  const expected = DEVELOPMENT_FEATURE_ITEMS[index]!;
   return {
     ...expected,
     id: expected.id!,
@@ -169,68 +160,73 @@ const featureRow = (index: number) => {
     metadata: expected.metadata ?? {},
     createdAt: FIXED_ROW_TIME,
     updatedAt: FIXED_ROW_TIME,
-  }
-}
+  };
+};
 
 const matchingSelectOutcomes = (): QueryRows[] => [
   ...DEVELOPMENT_ADDRESSES.map((_, index) => [addressRow(index)]),
   ...DEVELOPMENT_FEATURE_ITEMS.map((_, index) => [featureRow(index)]),
-]
+];
 
 const missingContentOutcomes = (): QueryOutcomes => {
-  const select: QueryRows[] = []
-  const insert: QueryRows[] = []
-  const update: QueryRows[] = []
+  const select: QueryRows[] = [];
+  const insert: QueryRows[] = [];
+  const update: QueryRows[] = [];
 
   for (const [index] of DEVELOPMENT_ADDRESSES.entries()) {
-    select.push([], [{ value: 0 }], [])
-    insert.push([addressRow(index)])
-    update.push([])
+    select.push([], [{ value: 0 }], []);
+    insert.push([addressRow(index)]);
+    update.push([]);
   }
   for (const [index] of DEVELOPMENT_FEATURE_ITEMS.entries()) {
-    select.push([])
-    insert.push([featureRow(index)], [], [])
+    select.push([]);
+    insert.push([featureRow(index)], [], []);
   }
-  return { select, insert, update }
-}
+  return { select, insert, update };
+};
 
-describe("development content seeds", function() {
-  it("publishes aligned frozen addresses and feature items for every persona", function() {
-    expect(Object.isFrozen(DEVELOPMENT_ADDRESSES)).toBe(true)
-    expect(Object.isFrozen(DEVELOPMENT_FEATURE_ITEMS)).toBe(true)
-    expect(DEVELOPMENT_ADDRESSES.every(Object.isFrozen)).toBe(true)
-    expect(DEVELOPMENT_FEATURE_ITEMS.every(Object.isFrozen)).toBe(true)
-    expect(DEVELOPMENT_FEATURE_ITEMS.every(({ metadata }) => Object.isFrozen(metadata))).toBe(true)
+describe("development content seeds", function () {
+  it("publishes aligned frozen addresses and feature items for every persona", function () {
+    expect(Object.isFrozen(DEVELOPMENT_ADDRESSES)).toBe(true);
+    expect(Object.isFrozen(DEVELOPMENT_FEATURE_ITEMS)).toBe(true);
+    expect(DEVELOPMENT_ADDRESSES.every(Object.isFrozen)).toBe(true);
+    expect(DEVELOPMENT_FEATURE_ITEMS.every(Object.isFrozen)).toBe(true);
+    expect(
+      DEVELOPMENT_FEATURE_ITEMS.every(({ metadata }) =>
+        Object.isFrozen(metadata)
+      )
+    ).toBe(true);
     expect(DEVELOPMENT_ADDRESSES.map(({ userId }) => userId)).toEqual(
-      DEVELOPMENT_FEATURE_ITEMS.map(({ ownerId }) => ownerId),
-    )
-    expect(DEVELOPMENT_ADDRESSES.map(({ type, country, isPrimary }) => ({
-      type,
-      country,
-      isPrimary,
-    }))).toEqual([
+      DEVELOPMENT_FEATURE_ITEMS.map(({ ownerId }) => ownerId)
+    );
+    expect(
+      DEVELOPMENT_ADDRESSES.map(({ type, country, isPrimary }) => ({
+        type,
+        country,
+        isPrimary,
+      }))
+    ).toEqual([
       { type: "work", country: "US", isPrimary: true },
       { type: "home", country: "US", isPrimary: true },
       { type: "home", country: "US", isPrimary: true },
-    ])
-    return expect(DEVELOPMENT_FEATURE_ITEMS.map(({ status }) => status)).toEqual([
-      "active",
-      "draft",
-      "archived",
-    ])
-  })
+    ]);
+    return expect(
+      DEVELOPMENT_FEATURE_ITEMS.map(({ status }) => status)
+    ).toEqual(["active", "draft", "archived"]);
+  });
 
-  it("creates all missing content and authors feature mutation records", async function() {
-    const double = createContentSeedDatabase(missingContentOutcomes())
+  it("creates all missing content and authors feature mutation records", async function () {
+    const double = createContentSeedDatabase(missingContentOutcomes());
 
-    await convergeDevelopmentContent(double.database)
+    await convergeDevelopmentContent(double.database);
 
     const addressInserts = double.operations.filter(
-      (operation) => operation.kind === "insert" && operation.table === "addresses",
-    )
-    expect(addressInserts).toHaveLength(DEVELOPMENT_ADDRESSES.length)
+      (operation) =>
+        operation.kind === "insert" && operation.table === "addresses"
+    );
+    expect(addressInserts).toHaveLength(DEVELOPMENT_ADDRESSES.length);
     for (const [index, operation] of addressInserts.entries()) {
-      const expected = DEVELOPMENT_ADDRESSES[index]!
+      const expected = DEVELOPMENT_ADDRESSES[index]!;
       expect(operation.value).toMatchObject({
         ...expected,
         line2: expected.line2 ?? null,
@@ -238,63 +234,72 @@ describe("development content seeds", function() {
         isPrimary: expected.isPrimary ?? false,
         createdAt: FIXED_ROW_TIME,
         updatedAt: FIXED_ROW_TIME,
-      })
+      });
     }
 
     const featureInserts = double.operations.filter(
-      (operation) => operation.kind === "insert" && operation.table === "feature_items",
-    )
-    expect(featureInserts).toHaveLength(DEVELOPMENT_FEATURE_ITEMS.length)
+      (operation) =>
+        operation.kind === "insert" && operation.table === "feature_items"
+    );
+    expect(featureInserts).toHaveLength(DEVELOPMENT_FEATURE_ITEMS.length);
     for (const [index, operation] of featureInserts.entries()) {
       expect(operation.value).toMatchObject({
         ...DEVELOPMENT_FEATURE_ITEMS[index]!,
         createdAt: FIXED_ROW_TIME,
         updatedAt: FIXED_ROW_TIME,
-      })
+      });
     }
 
     const audits = double.operations.filter(
-      (operation) => operation.kind === "insert" && operation.table === "audit_records",
-    )
+      (operation) =>
+        operation.kind === "insert" && operation.table === "audit_records"
+    );
     const outbox = double.operations.filter(
-      (operation) => operation.kind === "insert" && operation.table === "outbox_events",
-    )
-    expect(audits).toHaveLength(DEVELOPMENT_FEATURE_ITEMS.length)
-    expect(outbox).toHaveLength(DEVELOPMENT_FEATURE_ITEMS.length)
+      (operation) =>
+        operation.kind === "insert" && operation.table === "outbox_events"
+    );
+    expect(audits).toHaveLength(DEVELOPMENT_FEATURE_ITEMS.length);
+    expect(outbox).toHaveLength(DEVELOPMENT_FEATURE_ITEMS.length);
     for (const [index, operation] of audits.entries()) {
-      const ownerId = DEVELOPMENT_FEATURE_ITEMS[index]!.ownerId
+      const ownerId = DEVELOPMENT_FEATURE_ITEMS[index]!.ownerId;
       expect(operation.value).toMatchObject({
         actorUserId: ownerId,
         action: "feature_item.created",
         requestId: `development-seed:${ownerId}`,
         id: FIXED_GENERATED_ID,
         createdAt: FIXED_ROW_TIME,
-      })
+      });
     }
     for (const [index, operation] of outbox.entries()) {
-      const feature = DEVELOPMENT_FEATURE_ITEMS[index]!
+      const feature = DEVELOPMENT_FEATURE_ITEMS[index]!;
       expect(operation.value).toMatchObject({
         id: FIXED_GENERATED_ID,
         eventType: "feature_item.created",
         aggregateId: feature.id,
         occurredAt: FIXED_ROW_TIME,
-      })
+      });
     }
-    return expect(double.transaction).toHaveBeenCalledTimes(6)
-  })
+    return expect(double.transaction).toHaveBeenCalledTimes(6);
+  });
 
-  it("performs no mutations when all authored content already matches", async function() {
+  it("performs no mutations when all authored content already matches", async function () {
     const double = createContentSeedDatabase({
       select: matchingSelectOutcomes(),
-    })
+    });
 
-    await convergeDevelopmentContent(double.database)
+    await convergeDevelopmentContent(double.database);
 
-    expect(double.operations.filter(({ kind }) => kind === "select")).toHaveLength(6)
-    expect(double.operations.filter(({ kind }) => kind === "insert")).toEqual([])
-    expect(double.operations.filter(({ kind }) => kind === "update")).toEqual([])
-    return expect(double.transaction).not.toHaveBeenCalled()
-  })
+    expect(
+      double.operations.filter(({ kind }) => kind === "select")
+    ).toHaveLength(6);
+    expect(double.operations.filter(({ kind }) => kind === "insert")).toEqual(
+      []
+    );
+    expect(double.operations.filter(({ kind }) => kind === "update")).toEqual(
+      []
+    );
+    return expect(double.transaction).not.toHaveBeenCalled();
+  });
 
   it.each([
     ["type", "home"],
@@ -305,16 +310,16 @@ describe("development content seeds", function() {
     ["postalCode", "99999"],
     ["country", "us"],
     ["isPrimary", false],
-  ] as const)("repairs an address whose %s drifted", async function(field, replacement) {
-    const drifted = { ...addressRow(0), [field]: replacement }
-    const promotesPrimary = field === "isPrimary"
-    const repositorySelects: QueryRows[] = [[drifted]]
-    const updateOutcomes: QueryRows[] = []
+  ] as const)("repairs an address whose %s drifted", async function (field, replacement) {
+    const drifted = { ...addressRow(0), [field]: replacement };
+    const promotesPrimary = field === "isPrimary";
+    const repositorySelects: QueryRows[] = [[drifted]];
+    const updateOutcomes: QueryRows[] = [];
     if (promotesPrimary) {
-      repositorySelects.push([{ updatedAt: FIXED_ROW_TIME }])
-      updateOutcomes.push([])
+      repositorySelects.push([{ updatedAt: FIXED_ROW_TIME }]);
+      updateOutcomes.push([]);
     }
-    updateOutcomes.push([addressRow(0)])
+    updateOutcomes.push([addressRow(0)]);
     const double = createContentSeedDatabase({
       select: [
         [drifted],
@@ -327,20 +332,21 @@ describe("development content seeds", function() {
         ...matchingSelectOutcomes(),
       ],
       update: updateOutcomes,
-    })
+    });
 
-    await convergeDevelopmentContent(double.database)
+    await convergeDevelopmentContent(double.database);
 
     const updates = double.operations.filter(
-      (operation) => operation.kind === "update" && operation.table === "addresses",
-    )
-    let expectedUpdateCount = 1
+      (operation) =>
+        operation.kind === "update" && operation.table === "addresses"
+    );
+    let expectedUpdateCount = 1;
     if (promotesPrimary) {
-      expectedUpdateCount = 2
+      expectedUpdateCount = 2;
     }
-    expect(updates).toHaveLength(expectedUpdateCount)
-    const expected = DEVELOPMENT_ADDRESSES[0]!
-    const repaired = updates.at(-1)
+    expect(updates).toHaveLength(expectedUpdateCount);
+    const expected = DEVELOPMENT_ADDRESSES[0]!;
+    const repaired = updates.at(-1);
     expect(repaired?.value).toMatchObject({
       type: expected.type,
       line1: expected.line1,
@@ -349,35 +355,35 @@ describe("development content seeds", function() {
       region: expected.region,
       postalCode: expected.postalCode,
       country: expected.country.toUpperCase(),
-    })
+    });
     if (promotesPrimary) {
       expect(updates[0]?.value).toEqual({
         isPrimary: false,
         updatedAt: new Date(FIXED_ROW_TIME.getTime() + 1),
-      })
-      expect(repaired?.value).toHaveProperty("isPrimary", true)
-    }
-    else {
-      expect(repaired?.value).not.toHaveProperty("isPrimary")
+      });
+      expect(repaired?.value).toHaveProperty("isPrimary", true);
+    } else {
+      expect(repaired?.value).not.toHaveProperty("isPrimary");
     }
 
     const mutationCount = double.operations.filter(
-      ({ kind }) => kind === "insert" || kind === "update",
-    ).length
-    await convergeDevelopmentContent(double.database)
-    return expect(double.operations.filter(
-      ({ kind }) => kind === "insert" || kind === "update",
-    )).toHaveLength(mutationCount)
-  }
-  )
+      ({ kind }) => kind === "insert" || kind === "update"
+    ).length;
+    await convergeDevelopmentContent(double.database);
+    return expect(
+      double.operations.filter(
+        ({ kind }) => kind === "insert" || kind === "update"
+      )
+    ).toHaveLength(mutationCount);
+  });
 
   it.each([
     ["name", "Changed item"],
     ["description", "Changed description"],
     ["status", "draft"],
     ["metadata", { source: "changed" }],
-  ] as const)("repairs a feature item whose %s drifted", async function(field, replacement) {
-    const drifted = { ...featureRow(0), [field]: replacement }
+  ] as const)("repairs a feature item whose %s drifted", async function (field, replacement) {
+    const drifted = { ...featureRow(0), [field]: replacement };
     const double = createContentSeedDatabase({
       select: [
         [addressRow(0)],
@@ -389,33 +395,36 @@ describe("development content seeds", function() {
       ],
       insert: [[], []],
       update: [[featureRow(0)]],
-    })
+    });
 
-    await convergeDevelopmentContent(double.database)
+    await convergeDevelopmentContent(double.database);
 
     const updates = double.operations.filter(
-      (operation) => operation.kind === "update" && operation.table === "feature_items",
-    )
-    expect(updates).toHaveLength(1)
+      (operation) =>
+        operation.kind === "update" && operation.table === "feature_items"
+    );
+    expect(updates).toHaveLength(1);
     expect(updates[0]?.value).toMatchObject({
       name: DEVELOPMENT_FEATURE_ITEMS[0]!.name,
       description: DEVELOPMENT_FEATURE_ITEMS[0]!.description,
       status: DEVELOPMENT_FEATURE_ITEMS[0]!.status,
       metadata: DEVELOPMENT_FEATURE_ITEMS[0]!.metadata,
-    })
+    });
     const audit = double.operations.find(
-      (operation) => operation.kind === "insert" && operation.table === "audit_records",
-    )
+      (operation) =>
+        operation.kind === "insert" && operation.table === "audit_records"
+    );
     return expect(audit?.value).toMatchObject({
       actorUserId: DEVELOPMENT_FEATURE_ITEMS[0]!.ownerId,
       action: "feature_item.updated",
       requestId: `development-seed:${DEVELOPMENT_FEATURE_ITEMS[0]!.ownerId}`,
-      metadata: { changedFields: ["name", "description", "status", "metadata"] },
-    })
-  }
-  )
+      metadata: {
+        changedFields: ["name", "description", "status", "metadata"],
+      },
+    });
+  });
 
-  it("applies omitted address and feature defaults through an explicit content seam", async function() {
+  it("applies omitted address and feature defaults through an explicit content seam", async function () {
     const expectedAddress = {
       id: "20000000-0000-4000-8000-000000000099",
       userId: "00000000-0000-4000-8000-000000000099",
@@ -425,7 +434,7 @@ describe("development content seeds", function() {
       region: "WA",
       postalCode: "00099",
       country: "us",
-    }
+    };
     const currentAddress = {
       ...expectedAddress,
       line2: null,
@@ -433,82 +442,83 @@ describe("development content seeds", function() {
       isPrimary: true,
       createdAt: FIXED_ROW_TIME,
       updatedAt: FIXED_ROW_TIME,
-    }
+    };
     const repairedAddress = {
       ...currentAddress,
       isPrimary: false,
-    }
+    };
     const expectedFeature = {
       id: "30000000-0000-4000-8000-000000000099",
       ownerId: expectedAddress.userId,
       name: "Defaulted feature",
       description: "Optional seed fields use repository defaults.",
-    }
+    };
     const currentFeature = {
       ...expectedFeature,
       status: "draft" as const,
       metadata: { drifted: true },
       createdAt: FIXED_ROW_TIME,
       updatedAt: FIXED_ROW_TIME,
-    }
+    };
     const repairedFeature = {
       ...currentFeature,
       metadata: {},
-    }
+    };
     const double = createContentSeedDatabase({
       select: [[currentAddress], [currentAddress], [currentFeature]],
       update: [[repairedAddress], [repairedFeature]],
       insert: [[], []],
-    })
+    });
 
     await convergeDevelopmentContent(double.database, {
       addresses: [expectedAddress],
       featureItems: [expectedFeature],
-    })
+    });
 
     const addressRepair = double.operations.find(
-      ({ kind, table }) => kind === "update" && table === "addresses",
-    )
+      ({ kind, table }) => kind === "update" && table === "addresses"
+    );
     expect(addressRepair?.value).toMatchObject({
       line2: null,
       country: "US",
       isPrimary: false,
-    })
+    });
     const featureRepair = double.operations.find(
-      ({ kind, table }) => kind === "update" && table === "feature_items",
-    )
+      ({ kind, table }) => kind === "update" && table === "feature_items"
+    );
     expect(featureRepair?.value).toMatchObject({
       status: "draft",
       metadata: {},
-    })
+    });
     const audit = double.operations.find(
-      ({ kind, table }) => kind === "insert" && table === "audit_records",
-    )
+      ({ kind, table }) => kind === "insert" && table === "audit_records"
+    );
     expect(audit?.value).toMatchObject({
       actorUserId: expectedFeature.ownerId,
       requestId: `development-seed:${expectedFeature.ownerId}`,
       metadata: {
         changedFields: ["name", "description", "status", "metadata"],
       },
-    })
-    return expect(double.transaction).toHaveBeenCalledTimes(2)
-  })
+    });
+    return expect(double.transaction).toHaveBeenCalledTimes(2);
+  });
 
-  return it("stops convergence and preserves provider lookup failures", async function() {
-    const providerError = new Error("seed provider unavailable")
+  return it("stops convergence and preserves provider lookup failures", async function () {
+    const providerError = new Error("seed provider unavailable");
     const limit = vi.fn(async () => {
-      throw providerError
-    }
-    )
-    const where = vi.fn(() => ({ limit }))
-    const from = vi.fn(() => ({ where }))
-    const select = vi.fn(() => ({ from }))
-    const database = { select } as unknown as Database
+      throw providerError;
+    });
+    const where = vi.fn(() => ({ limit }));
+    const from = vi.fn(() => ({ where }));
+    const select = vi.fn(() => ({ from }));
+    const database = { select } as unknown as Database;
 
-    await expect(convergeDevelopmentContent(database)).rejects.toBe(providerError)
-    expect(select).toHaveBeenCalledOnce()
-    expect(from).toHaveBeenCalledWith(addresses)
-    expect(where).toHaveBeenCalledOnce()
-    return expect(limit).toHaveBeenCalledWith(1)
-  })
-})
+    await expect(convergeDevelopmentContent(database)).rejects.toBe(
+      providerError
+    );
+    expect(select).toHaveBeenCalledOnce();
+    expect(from).toHaveBeenCalledWith(addresses);
+    expect(where).toHaveBeenCalledOnce();
+    return expect(limit).toHaveBeenCalledWith(1);
+  });
+});

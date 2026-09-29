@@ -1,3 +1,5 @@
-throw new Error("@darkfactory/jobs/server/inline is unavailable in browser bundles")
+throw new Error(
+  "@darkfactory/jobs/server/inline is unavailable in browser bundles"
+);
 
-export {}
+export {};

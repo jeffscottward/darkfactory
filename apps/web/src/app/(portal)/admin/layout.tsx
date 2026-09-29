@@ -1,22 +1,25 @@
-import { headers } from "next/headers"
-import { redirect } from "next/navigation"
-import type { ReactNode } from "react"
+import { headers } from "next/headers";
+import { redirect } from "next/navigation";
+import type { ReactNode } from "react";
 
-import { getRequestPortalSession } from "../../../lib/request-portal-session.ts"
-import { portalSignInHref } from "../../../lib/server-session.ts"
+import { getRequestPortalSession } from "../../../lib/request-portal-session.ts";
+import { portalSignInHref } from "../../../lib/server-session.ts";
 
-export default async function AdminLayout({ children }: { readonly children: ReactNode }) {
-  const requestHeaders = await headers()
+export default async function AdminLayout({
+  children,
+}: {
+  readonly children: ReactNode;
+}) {
+  const requestHeaders = await headers();
   const session = await getRequestPortalSession(
     requestHeaders.get("cookie"),
-    requestHeaders.get("cf-connecting-ip"),
-  )
+    requestHeaders.get("cf-connecting-ip")
+  );
   if (session === null) {
-    return redirect(portalSignInHref(requestHeaders))
+    return redirect(portalSignInHref(requestHeaders));
   }
   if (session.role !== "admin") {
-    return redirect("/dashboard")
+    return redirect("/dashboard");
   }
-  return <>{children}
-  </>
+  return <>{children}</>;
 }

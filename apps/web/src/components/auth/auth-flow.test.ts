@@ -1,6 +1,6 @@
-import { createElement } from "react"
-import { renderToStaticMarkup } from "react-dom/server"
-import { afterEach, describe, expect, it, vi } from "vitest"
+import { createElement } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 const browserAuthSdk = vi.hoisted(() => ({
   signIn: { email: vi.fn() },
@@ -9,11 +9,11 @@ const browserAuthSdk = vi.hoisted(() => ({
   resetPassword: vi.fn(),
   sendVerificationEmail: vi.fn(),
   getSession: vi.fn(),
-}))
+}));
 
-vi.mock("@darkfactory/auth/client", () => ({ authClient: browserAuthSdk }))
+vi.mock("@darkfactory/auth/client", () => ({ authClient: browserAuthSdk }));
 
-import type { AuthFlowClient } from "./auth-flow.ts"
+import type { AuthFlowClient } from "./auth-flow.ts";
 import {
   SAFE_ACCOUNT_EMAIL_MESSAGE,
   browserAuthClient,
@@ -28,15 +28,17 @@ import {
   validatePassword,
   validatePasswordConfirmation,
   validatePasswordPresent,
-} from "./auth-flow.ts"
-import { PasswordField } from "./password-field.tsx"
+} from "./auth-flow.ts";
+import { PasswordField } from "./password-field.tsx";
 
-afterEach(function() {
-  vi.restoreAllMocks()
-  return vi.unstubAllGlobals()
-})
+afterEach(function () {
+  vi.restoreAllMocks();
+  return vi.unstubAllGlobals();
+});
 
-const authClient = (overrides: Partial<AuthFlowClient> = {}): AuthFlowClient => ({
+const authClient = (
+  overrides: Partial<AuthFlowClient> = {}
+): AuthFlowClient => ({
   signInEmail: vi.fn().mockResolvedValue({ data: {}, error: null }),
   signUpEmail: vi.fn().mockResolvedValue({ data: {}, error: null }),
   requestPasswordReset: vi.fn().mockResolvedValue({ data: {}, error: null }),
@@ -44,66 +46,80 @@ const authClient = (overrides: Partial<AuthFlowClient> = {}): AuthFlowClient => 
   sendVerificationEmail: vi.fn().mockResolvedValue({ data: {}, error: null }),
   getSession: vi.fn().mockResolvedValue({ data: null, error: null }),
   ...overrides,
-})
+});
 
-describe("browserAuthClient", function() {
-  return it("forwards every browser operation to the Better Auth client without changing its response", async function() {
-    const response = { data: { accepted: true }, error: null }
-    browserAuthSdk.signIn.email.mockResolvedValueOnce(response)
-    browserAuthSdk.signUp.email.mockResolvedValueOnce(response)
-    browserAuthSdk.requestPasswordReset.mockResolvedValueOnce(response)
-    browserAuthSdk.resetPassword.mockResolvedValueOnce(response)
-    browserAuthSdk.sendVerificationEmail.mockResolvedValueOnce(response)
-    browserAuthSdk.getSession.mockResolvedValueOnce(response)
+describe("browserAuthClient", function () {
+  return it("forwards every browser operation to the Better Auth client without changing its response", async function () {
+    const response = { data: { accepted: true }, error: null };
+    browserAuthSdk.signIn.email.mockResolvedValueOnce(response);
+    browserAuthSdk.signUp.email.mockResolvedValueOnce(response);
+    browserAuthSdk.requestPasswordReset.mockResolvedValueOnce(response);
+    browserAuthSdk.resetPassword.mockResolvedValueOnce(response);
+    browserAuthSdk.sendVerificationEmail.mockResolvedValueOnce(response);
+    browserAuthSdk.getSession.mockResolvedValueOnce(response);
 
     const signInInput = {
       email: "member@domain.test",
       password: "CorrectHorseBatteryStaple!42",
       callbackURL: "/dashboard",
-    }
+    };
     const signUpInput = {
       name: "Member Example",
       email: "member@domain.test",
       password: "CorrectHorseBatteryStaple!42",
       callbackURL: "/verify-email?verified=1",
-    }
+    };
     const resetRequest = {
       email: "member@domain.test",
       redirectTo: "/reset-password",
-    }
+    };
     const newPassword = {
       newPassword: "NewCorrectHorseBatteryStaple!84",
       token: "one-time-reset-token",
-    }
+    };
     const verification = {
       email: "member@domain.test",
       callbackURL: "/verify-email?verified=1",
-    }
+    };
 
-    await expect(browserAuthClient.signInEmail(signInInput)).resolves.toBe(response)
-    await expect(browserAuthClient.signUpEmail(signUpInput)).resolves.toBe(response)
-    await expect(browserAuthClient.requestPasswordReset(resetRequest)).resolves.toBe(response)
-    await expect(browserAuthClient.resetPassword(newPassword)).resolves.toBe(response)
-    await expect(browserAuthClient.sendVerificationEmail(verification)).resolves.toBe(response)
-    await expect(browserAuthClient.getSession()).resolves.toBe(response)
-    expect(browserAuthSdk.signIn.email).toHaveBeenCalledWith(signInInput)
-    expect(browserAuthSdk.signUp.email).toHaveBeenCalledWith(signUpInput)
-    expect(browserAuthSdk.requestPasswordReset).toHaveBeenCalledWith(resetRequest)
-    expect(browserAuthSdk.resetPassword).toHaveBeenCalledWith(newPassword)
-    expect(browserAuthSdk.sendVerificationEmail).toHaveBeenCalledWith(verification)
-    return expect(browserAuthSdk.getSession).toHaveBeenCalledWith()
-  })
-})
+    await expect(browserAuthClient.signInEmail(signInInput)).resolves.toBe(
+      response
+    );
+    await expect(browserAuthClient.signUpEmail(signUpInput)).resolves.toBe(
+      response
+    );
+    await expect(
+      browserAuthClient.requestPasswordReset(resetRequest)
+    ).resolves.toBe(response);
+    await expect(browserAuthClient.resetPassword(newPassword)).resolves.toBe(
+      response
+    );
+    await expect(
+      browserAuthClient.sendVerificationEmail(verification)
+    ).resolves.toBe(response);
+    await expect(browserAuthClient.getSession()).resolves.toBe(response);
+    expect(browserAuthSdk.signIn.email).toHaveBeenCalledWith(signInInput);
+    expect(browserAuthSdk.signUp.email).toHaveBeenCalledWith(signUpInput);
+    expect(browserAuthSdk.requestPasswordReset).toHaveBeenCalledWith(
+      resetRequest
+    );
+    expect(browserAuthSdk.resetPassword).toHaveBeenCalledWith(newPassword);
+    expect(browserAuthSdk.sendVerificationEmail).toHaveBeenCalledWith(
+      verification
+    );
+    return expect(browserAuthSdk.getSession).toHaveBeenCalledWith();
+  });
+});
 
-describe("normalizeAuthDestination", function() {
-  it("preserves same-origin relative application paths", function() {
-    expect(normalizeAuthDestination("/feature-items?status=active#results")).toBe(
-      "/feature-items?status=active#results",
-    )
-    return expect(normalizeAuthDestination("/dashboard")).toBe("/dashboard")
-  })
+describe("normalizeAuthDestination", function () {
+  it("preserves same-origin relative application paths", function () {
+    expect(
+      normalizeAuthDestination("/feature-items?status=active#results")
+    ).toBe("/feature-items?status=active#results");
+    return expect(normalizeAuthDestination("/dashboard")).toBe("/dashboard");
+  });
 
-  it("falls back for absolute, protocol-relative, encoded, credentialed, slash-confused, and control-character callbacks", function() {
+  it("falls back for absolute, protocol-relative, encoded, credentialed, slash-confused, and control-character callbacks", function () {
     const hostileCallbacks = [
       "https://attacker.test/steal",
       "//attacker.test/steal",
@@ -117,14 +133,18 @@ describe("normalizeAuthDestination", function() {
       null,
       undefined,
       42,
-    ]
+    ];
 
-    const results=[];for (const callback of hostileCallbacks) {
-      results.push(expect(normalizeAuthDestination(callback)).toBe("/dashboard"))
-    };return results;
-  })
+    const results = [];
+    for (const callback of hostileCallbacks) {
+      results.push(
+        expect(normalizeAuthDestination(callback)).toBe("/dashboard")
+      );
+    }
+    return results;
+  });
 
-  it("decodes repeatedly and rejects malformed escapes, traversal, and encoded controls", function() {
+  it("decodes repeatedly and rejects malformed escapes, traversal, and encoded controls", function () {
     for (const callback of [
       "/%E0%A4%A",
       "/safe/./settings",
@@ -132,27 +152,31 @@ describe("normalizeAuthDestination", function() {
       "/dashboard%0A.evil",
       "/%252f%252fattacker.test/steal",
     ]) {
-      expect(normalizeAuthDestination(callback)).toBe("/dashboard")
+      expect(normalizeAuthDestination(callback)).toBe("/dashboard");
     }
-    return expect(normalizeAuthDestination("  /feature-items?status=active#results  ")).toBe(
-      "/feature-items?status=active#results",
-    )
-  })
+    return expect(
+      normalizeAuthDestination("  /feature-items?status=active#results  ")
+    ).toBe("/feature-items?status=active#results");
+  });
 
-  it("falls back when the runtime URL parser rejects an otherwise local destination", function() {
-    vi.stubGlobal("URL", class {
-      constructor() {
-        throw new TypeError("URL parser unavailable")
+  it("falls back when the runtime URL parser rejects an otherwise local destination", function () {
+    vi.stubGlobal(
+      "URL",
+      class {
+        constructor() {
+          throw new TypeError("URL parser unavailable");
+        }
       }
-    }
-    )
+    );
 
-    return expect(normalizeAuthDestination("/feature-items")).toBe("/dashboard")
-  })
+    return expect(normalizeAuthDestination("/feature-items")).toBe(
+      "/dashboard"
+    );
+  });
 
-
-  return it("prevents auth loops and auth API callbacks", function() {
-    const results1=[];for (const callback of [
+  return it("prevents auth loops and auth API callbacks", function () {
+    const results1 = [];
+    for (const callback of [
       "/sign-in",
       "/sign-up?next=/dashboard",
       "/forgot-password",
@@ -160,74 +184,85 @@ describe("normalizeAuthDestination", function() {
       "/verify-email?error=INVALID_TOKEN",
       "/api/auth/get-session",
     ]) {
-      results1.push(expect(normalizeAuthDestination(callback)).toBe("/dashboard"))
-    };return results1;
-  })
-})
+      results1.push(
+        expect(normalizeAuthDestination(callback)).toBe("/dashboard")
+      );
+    }
+    return results1;
+  });
+});
 
-describe("auth field validation", function() {
-  it("validates email absence, syntax, maximum length, and a trimmed valid address", function() {
-    expect(validateEmail("   ")).toBe("Enter your email address.")
-    expect(validateEmail("member@domain")).toBe("Enter a valid email address.")
-    expect(validateEmail("a".repeat(255))).toBe("Enter a valid email address.")
-    return expect(validateEmail("  member@domain.test  ")).toBeUndefined()
-  })
+describe("auth field validation", function () {
+  it("validates email absence, syntax, maximum length, and a trimmed valid address", function () {
+    expect(validateEmail("   ")).toBe("Enter your email address.");
+    expect(validateEmail("member@domain")).toBe("Enter a valid email address.");
+    expect(validateEmail("a".repeat(255))).toBe("Enter a valid email address.");
+    return expect(validateEmail("  member@domain.test  ")).toBeUndefined();
+  });
 
-  it("enforces the name boundaries after trimming", function() {
-    expect(validateName("   ")).toBe("Enter your name.")
-    expect(validateName(" A ")).toBe("Use at least 2 characters.")
-    expect(validateName("a".repeat(81))).toBe("Use no more than 80 characters.")
-    expect(validateName(" Ada ")).toBeUndefined()
-    return expect(validateName("a".repeat(80))).toBeUndefined()
-  })
+  it("enforces the name boundaries after trimming", function () {
+    expect(validateName("   ")).toBe("Enter your name.");
+    expect(validateName(" A ")).toBe("Use at least 2 characters.");
+    expect(validateName("a".repeat(81))).toBe(
+      "Use no more than 80 characters."
+    );
+    expect(validateName(" Ada ")).toBeUndefined();
+    return expect(validateName("a".repeat(80))).toBeUndefined();
+  });
 
-  it("distinguishes sign-in presence from new-password length requirements", function() {
-    expect(validatePasswordPresent("")).toBe("Enter your password.")
-    expect(validatePasswordPresent("short")).toBeUndefined()
-    expect(validatePassword("")).toBe("Enter your password.")
-    expect(validatePassword("a".repeat(11))).toBe("Use at least 12 characters.")
-    expect(validatePassword("a".repeat(129))).toBe("Use no more than 128 characters.")
-    expect(validatePassword("a".repeat(12))).toBeUndefined()
-    return expect(validatePassword("a".repeat(128))).toBeUndefined()
-  })
+  it("distinguishes sign-in presence from new-password length requirements", function () {
+    expect(validatePasswordPresent("")).toBe("Enter your password.");
+    expect(validatePasswordPresent("short")).toBeUndefined();
+    expect(validatePassword("")).toBe("Enter your password.");
+    expect(validatePassword("a".repeat(11))).toBe(
+      "Use at least 12 characters."
+    );
+    expect(validatePassword("a".repeat(129))).toBe(
+      "Use no more than 128 characters."
+    );
+    expect(validatePassword("a".repeat(12))).toBeUndefined();
+    return expect(validatePassword("a".repeat(128))).toBeUndefined();
+  });
 
-  return it("requires a present confirmation that exactly matches", function() {
+  return it("requires a present confirmation that exactly matches", function () {
     expect(validatePasswordConfirmation("", "a".repeat(12))).toBe(
-      "Confirm your password.",
-    )
-    expect(validatePasswordConfirmation("different-password", "a".repeat(12))).toBe(
-      "Passwords do not match.",
-    )
-    return expect(validatePasswordConfirmation("a".repeat(12), "a".repeat(12))).toBeUndefined()
-  })
-})
+      "Confirm your password."
+    );
+    expect(
+      validatePasswordConfirmation("different-password", "a".repeat(12))
+    ).toBe("Passwords do not match.");
+    return expect(
+      validatePasswordConfirmation("a".repeat(12), "a".repeat(12))
+    ).toBeUndefined();
+  });
+});
 
-describe("typed auth operations", function() {
-  it("signs in through Better Auth and returns only the sanitized local destination", async function() {
+describe("typed auth operations", function () {
+  it("signs in through Better Auth and returns only the sanitized local destination", async function () {
     const signInEmail = vi.fn().mockResolvedValue({
       data: { redirect: true, url: "https://attacker.test/ignored" },
       error: null,
-    })
-    const client = authClient({ signInEmail })
+    });
+    const client = authClient({ signInEmail });
 
     const result = await submitSignIn(client, {
       email: "  MEMBER@DOMAIN.TEST ",
       password: "CorrectHorseBatteryStaple!42",
       callbackURL: "//attacker.test/steal",
-    })
+    });
 
     expect(signInEmail).toHaveBeenCalledWith({
       email: "member@domain.test",
       password: "CorrectHorseBatteryStaple!42",
       callbackURL: "/dashboard",
-    })
+    });
     return expect(result).toEqual({
       status: "success",
       destination: "/dashboard",
-    })
-  })
+    });
+  });
 
-  it("returns an actionable verification recovery for unverified sign-in", async function() {
+  it("returns an actionable verification recovery for unverified sign-in", async function () {
     const client = authClient({
       signInEmail: vi.fn().mockResolvedValue({
         data: null,
@@ -237,23 +272,23 @@ describe("typed auth operations", function() {
           status: 403,
         },
       }),
-    })
+    });
 
     return await expect(
       submitSignIn(client, {
         email: "member@domain.test",
         password: "CorrectHorseBatteryStaple!42",
         callbackURL: "/feature-items",
-      }),
+      })
     ).resolves.toEqual({
       status: "error",
       message: "Verify your email before signing in.",
       actionHref: "/verify-email",
       actionLabel: "Send another verification email",
-    })
-  })
+    });
+  });
 
-  it("does not mislabel an unavailable account as unverified", async function() {
+  it("does not mislabel an unavailable account as unverified", async function () {
     const client = authClient({
       signInEmail: vi.fn().mockResolvedValue({
         data: null,
@@ -263,88 +298,93 @@ describe("typed auth operations", function() {
           status: 403,
         },
       }),
-    })
+    });
 
     return await expect(
       submitSignIn(client, {
         email: "member@domain.test",
         password: "CorrectHorseBatteryStaple!42",
         callbackURL: "/dashboard",
-      }),
+      })
     ).resolves.toEqual({
       status: "error",
-      message: "This account is unavailable. Contact the project administrator.",
-    })
-  })
+      message:
+        "This account is unavailable. Contact the project administrator.",
+    });
+  });
 
-  it("signs up without inventing a session or success destination", async function() {
+  it("signs up without inventing a session or success destination", async function () {
     const signUpEmail = vi.fn().mockResolvedValue({
       data: { user: { id: "synthetic-or-real" } },
       error: null,
-    })
-    const client = authClient({ signUpEmail })
+    });
+    const client = authClient({ signUpEmail });
 
     const result = await submitSignUp(client, {
       name: "Member Example",
       email: " Member@Domain.Test ",
       password: "CorrectHorseBatteryStaple!42",
-    })
+    });
 
     expect(signUpEmail).toHaveBeenCalledWith({
       name: "Member Example",
       email: "member@domain.test",
       password: "CorrectHorseBatteryStaple!42",
       callbackURL: "/verify-email?verified=1",
-    })
+    });
     return expect(result).toEqual({
       status: "success",
       message: SAFE_ACCOUNT_EMAIL_MESSAGE,
-    })
-  })
+    });
+  });
 
-  it("keeps forgot-password and verification resend responses enumeration-safe", async function() {
-    const requestPasswordReset = vi.fn().mockResolvedValue({ data: {}, error: null })
-    const sendVerificationEmail = vi.fn().mockResolvedValue({ data: {}, error: null })
-    const client = authClient({ requestPasswordReset, sendVerificationEmail })
+  it("keeps forgot-password and verification resend responses enumeration-safe", async function () {
+    const requestPasswordReset = vi
+      .fn()
+      .mockResolvedValue({ data: {}, error: null });
+    const sendVerificationEmail = vi
+      .fn()
+      .mockResolvedValue({ data: {}, error: null });
+    const client = authClient({ requestPasswordReset, sendVerificationEmail });
 
     await expect(
-      submitForgotPassword(client, " Member@Domain.Test "),
+      submitForgotPassword(client, " Member@Domain.Test ")
     ).resolves.toEqual({
       status: "success",
       message: SAFE_ACCOUNT_EMAIL_MESSAGE,
-    })
+    });
     await expect(
-      submitVerificationEmail(client, " Member@Domain.Test "),
+      submitVerificationEmail(client, " Member@Domain.Test ")
     ).resolves.toEqual({
       status: "success",
       message: SAFE_ACCOUNT_EMAIL_MESSAGE,
-    })
+    });
     expect(requestPasswordReset).toHaveBeenCalledWith({
       email: "member@domain.test",
       redirectTo: "/reset-password",
-    })
+    });
     return expect(sendVerificationEmail).toHaveBeenCalledWith({
       email: "member@domain.test",
       callbackURL: "/verify-email?verified=1",
-    })
-  })
+    });
+  });
 
-  it("requires an in-memory reset token and maps invalid or expired tokens to recovery", async function() {
-    const resetPassword = vi.fn().mockResolvedValue({ data: {}, error: null })
-    const client = authClient({ resetPassword })
+  it("requires an in-memory reset token and maps invalid or expired tokens to recovery", async function () {
+    const resetPassword = vi.fn().mockResolvedValue({ data: {}, error: null });
+    const client = authClient({ resetPassword });
 
     await expect(
       submitResetPassword(client, {
         token: undefined,
         newPassword: "NewCorrectHorseBatteryStaple!84",
-      }),
+      })
     ).resolves.toEqual({
       status: "error",
       message: "This password reset link is invalid or has expired.",
       actionHref: "/forgot-password",
       actionLabel: "Request a new link",
-    })
-    expect(resetPassword).not.toHaveBeenCalled()
+    });
+    expect(resetPassword).not.toHaveBeenCalled();
 
     for (const malformedToken of [
       "short",
@@ -357,163 +397,181 @@ describe("typed auth operations", function() {
         submitResetPassword(client, {
           token: malformedToken,
           newPassword: "NewCorrectHorseBatteryStaple!84",
-        }),
+        })
       ).resolves.toEqual({
         status: "error",
         message: "This password reset link is invalid or has expired.",
         actionHref: "/forgot-password",
         actionLabel: "Request a new link",
-      })
+      });
     }
-    expect(resetPassword).not.toHaveBeenCalled()
+    expect(resetPassword).not.toHaveBeenCalled();
 
     const invalidClient = authClient({
       resetPassword: vi.fn().mockResolvedValue({
         data: null,
         error: { code: "INVALID_TOKEN", message: "Invalid token", status: 400 },
       }),
-    })
+    });
     return await expect(
       submitResetPassword(invalidClient, {
         token: "one-time-reset-token",
         newPassword: "NewCorrectHorseBatteryStaple!84",
-      }),
+      })
     ).resolves.toEqual({
       status: "error",
       message: "This password reset link is invalid or has expired.",
       actionHref: "/forgot-password",
       actionLabel: "Request a new link",
-    })
-  })
+    });
+  });
 
-  it("never includes the reset token in the result or logs", async function() {
-    const token = "one-time-reset-token"
-    const resetPassword = vi.fn().mockResolvedValue({ data: {}, error: null })
-    const consoleLog = vi.spyOn(console, "log").mockImplementation(() => undefined)
-    const consoleWarn = vi.spyOn(console, "warn").mockImplementation(() => undefined)
-    const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined)
+  it("never includes the reset token in the result or logs", async function () {
+    const token = "one-time-reset-token";
+    const resetPassword = vi.fn().mockResolvedValue({ data: {}, error: null });
+    const consoleLog = vi
+      .spyOn(console, "log")
+      .mockImplementation(() => undefined);
+    const consoleWarn = vi
+      .spyOn(console, "warn")
+      .mockImplementation(() => undefined);
+    const consoleError = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => undefined);
 
     const result = await submitResetPassword(authClient({ resetPassword }), {
       token,
       newPassword: "NewCorrectHorseBatteryStaple!84",
-    })
+    });
 
     expect(resetPassword).toHaveBeenCalledWith({
       token,
       newPassword: "NewCorrectHorseBatteryStaple!84",
-    })
-    expect(JSON.stringify(result)).not.toContain(token)
-    return expect([consoleLog, consoleWarn, consoleError].flatMap((spy) => spy.mock.calls)).toEqual([])
-  })
+    });
+    expect(JSON.stringify(result)).not.toContain(token);
+    return expect(
+      [consoleLog, consoleWarn, consoleError].flatMap((spy) => spy.mock.calls)
+    ).toEqual([]);
+  });
 
-  it("distinguishes deactivated, rejected, and unreachable sign-in attempts", async function() {
+  it("distinguishes deactivated, rejected, and unreachable sign-in attempts", async function () {
     const input = {
       email: "member@domain.test",
       password: "CorrectHorseBatteryStaple!42",
       callbackURL: "/dashboard",
-    }
+    };
     await expect(
       submitSignIn(
         authClient({
           signInEmail: vi.fn().mockResolvedValue({
             data: null,
-            error: { code: "ACCOUNT_DEACTIVATED", message: "private provider detail" },
+            error: {
+              code: "ACCOUNT_DEACTIVATED",
+              message: "private provider detail",
+            },
           }),
         }),
-        input,
-      ),
+        input
+      )
     ).resolves.toEqual({
       status: "error",
-      message: "This account is unavailable. Contact the project administrator.",
-    })
+      message:
+        "This account is unavailable. Contact the project administrator.",
+    });
     await expect(
       submitSignIn(
         authClient({
           signInEmail: vi.fn().mockResolvedValue({
             data: null,
-            error: { code: "INVALID_CREDENTIALS", message: "private provider detail" },
+            error: {
+              code: "INVALID_CREDENTIALS",
+              message: "private provider detail",
+            },
           }),
         }),
-        input,
-      ),
+        input
+      )
     ).resolves.toEqual({
       status: "error",
-      message: "The email or password was not accepted. Check both fields and try again.",
+      message:
+        "The email or password was not accepted. Check both fields and try again.",
       actionHref: "/forgot-password",
       actionLabel: "Reset your password",
-    })
+    });
     return await expect(
       submitSignIn(
         authClient({
           signInEmail: vi.fn().mockRejectedValue(new Error("network details")),
         }),
-        input,
-      ),
+        input
+      )
     ).resolves.toEqual({
       status: "error",
-      message: "We could not complete the request. Check your connection and try again.",
-    })
-  })
+      message:
+        "We could not complete the request. Check your connection and try again.",
+    });
+  });
 
-  return it("keeps account-email provider denials and transport failures generic", async function() {
+  return it("keeps account-email provider denials and transport failures generic", async function () {
     const providerDenial = {
       data: null,
       error: { code: "PROVIDER_FAILURE", message: "private provider detail" },
-    }
+    };
     const deniedClient = authClient({
       signUpEmail: vi.fn().mockResolvedValue(providerDenial),
       requestPasswordReset: vi.fn().mockResolvedValue(providerDenial),
       sendVerificationEmail: vi.fn().mockResolvedValue(providerDenial),
-    })
+    });
     const connectionFailure = {
       status: "error",
-      message: "We could not complete the request. Check your connection and try again.",
-    }
+      message:
+        "We could not complete the request. Check your connection and try again.",
+    };
 
     await expect(
       submitSignUp(deniedClient, {
         name: "Member Example",
         email: "member@domain.test",
         password: "CorrectHorseBatteryStaple!42",
-      }),
-    ).resolves.toEqual(connectionFailure)
+      })
+    ).resolves.toEqual(connectionFailure);
     await expect(
-      submitForgotPassword(deniedClient, "member@domain.test"),
-    ).resolves.toEqual(connectionFailure)
+      submitForgotPassword(deniedClient, "member@domain.test")
+    ).resolves.toEqual(connectionFailure);
     await expect(
-      submitVerificationEmail(deniedClient, "member@domain.test"),
-    ).resolves.toEqual(connectionFailure)
+      submitVerificationEmail(deniedClient, "member@domain.test")
+    ).resolves.toEqual(connectionFailure);
 
     const offlineClient = authClient({
       signUpEmail: vi.fn().mockRejectedValue(new Error("offline")),
       requestPasswordReset: vi.fn().mockRejectedValue(new Error("offline")),
       sendVerificationEmail: vi.fn().mockRejectedValue(new Error("offline")),
       resetPassword: vi.fn().mockRejectedValue(new Error("offline")),
-    })
+    });
     await expect(
       submitSignUp(offlineClient, {
         name: "Member Example",
         email: "member@domain.test",
         password: "CorrectHorseBatteryStaple!42",
-      }),
-    ).resolves.toEqual(connectionFailure)
+      })
+    ).resolves.toEqual(connectionFailure);
     await expect(
-      submitForgotPassword(offlineClient, "member@domain.test"),
-    ).resolves.toEqual(connectionFailure)
+      submitForgotPassword(offlineClient, "member@domain.test")
+    ).resolves.toEqual(connectionFailure);
     await expect(
-      submitVerificationEmail(offlineClient, "member@domain.test"),
-    ).resolves.toEqual(connectionFailure)
+      submitVerificationEmail(offlineClient, "member@domain.test")
+    ).resolves.toEqual(connectionFailure);
     return await expect(
       submitResetPassword(offlineClient, {
         token: "one-time-reset-token",
         newPassword: "NewCorrectHorseBatteryStaple!84",
-      }),
-    ).resolves.toEqual(connectionFailure)
-  })
-})
+      })
+    ).resolves.toEqual(connectionFailure);
+  });
+});
 
-describe("PasswordField accessibility", function() {
-  return it("renders a labeled password input and a 44px visibility control", function() {
+describe("PasswordField accessibility", function () {
+  return it("renders a labeled password input and a 44px visibility control", function () {
     const markup = renderToStaticMarkup(
       createElement(PasswordField, {
         id: "password",
@@ -522,14 +580,14 @@ describe("PasswordField accessibility", function() {
         value: "secret",
         onBlur: () => undefined,
         onChange: () => undefined,
-      }),
-    )
+      })
+    );
 
-    expect(markup).toContain('for="password"')
-    expect(markup).toContain('id="password"')
-    expect(markup).toContain('type="password"')
-    expect(markup).toContain('aria-label="Show password"')
-    expect(markup).toContain('aria-pressed="false"')
-    return expect(markup).toContain("min-h-11")
-  })
-})
+    expect(markup).toContain('for="password"');
+    expect(markup).toContain('id="password"');
+    expect(markup).toContain('type="password"');
+    expect(markup).toContain('aria-label="Show password"');
+    expect(markup).toContain('aria-pressed="false"');
+    return expect(markup).toContain("min-h-11");
+  });
+});

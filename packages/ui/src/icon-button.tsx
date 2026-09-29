@@ -1,9 +1,9 @@
-import type { ComponentPropsWithRef } from "react"
-import type { VariantProps } from "class-variance-authority"
-import { cva } from "class-variance-authority"
-import { LoaderCircle } from "lucide-react"
+import type { ComponentPropsWithRef } from "react";
+import type { VariantProps } from "class-variance-authority";
+import { cva } from "class-variance-authority";
+import { LoaderCircle } from "lucide-react";
 
-import { cn } from "./utilities.ts"
+import { cn } from "./utilities.ts";
 
 export const iconButtonVariants = cva(
   "relative inline-flex size-11 shrink-0 items-center justify-center rounded-md border border-transparent text-foreground transition-colors duration-base ease-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:pointer-events-none disabled:border-disabled-border disabled:bg-disabled disabled:text-disabled-foreground disabled:opacity-100 [&_svg]:size-5 [&_svg]:shrink-0",
@@ -20,15 +20,15 @@ export const iconButtonVariants = cva(
       },
     },
     defaultVariants: { variant: "ghost" },
-  },
-)
+  }
+);
 
 export interface IconButtonProps
   extends Omit<ComponentPropsWithRef<"button">, "aria-label">,
     VariantProps<typeof iconButtonVariants> {
-  "aria-label": string
-  loading?: boolean
-  loadingLabel?: string
+  "aria-label": string;
+  loading?: boolean;
+  loadingLabel?: string;
 }
 
 export const IconButton = ({
@@ -51,7 +51,8 @@ export const IconButton = ({
     disabled={disabled || loading}
     className={cn(iconButtonVariants({ variant }), className)}
   >
-    <span className={cn("inline-flex", loading && "invisible")}>{children}
+    <span className={cn("inline-flex", loading && "invisible")}>
+      {children}
     </span>
     {loading ? (
       <LoaderCircle
@@ -59,5 +60,5 @@ export const IconButton = ({
         className="absolute size-5 animate-spin motion-reduce:animate-none"
       />
     ) : null}
-</button>
-)
+  </button>
+);

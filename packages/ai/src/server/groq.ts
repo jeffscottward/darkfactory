@@ -1,53 +1,52 @@
-import { createDisabledAiPort } from "../index.ts"
+import { createDisabledAiPort } from "../index.ts";
 import type {
   AiFailureCategory,
   AiPort,
   AiRequest,
   AiResult,
-} from "../index.ts"
+} from "../index.ts";
 
-const DEFAULT_TIMEOUT_MS = 5_000
-const MAX_TIMEOUT_MS = 10_000
-const MIN_TIMEOUT_MS = 1
-const CALL_ABORTED = Symbol("AI_CALL_ABORTED")
-const CALL_TIMED_OUT = Symbol("AI_CALL_TIMED_OUT")
+const DEFAULT_TIMEOUT_MS = 5_000;
+const MAX_TIMEOUT_MS = 10_000;
+const MIN_TIMEOUT_MS = 1;
+const CALL_ABORTED = Symbol("AI_CALL_ABORTED");
+const CALL_TIMED_OUT = Symbol("AI_CALL_TIMED_OUT");
 
 export type GroqClientFactoryOptions = Readonly<{
-  apiKey: string
-  fetch: typeof globalThis.fetch | undefined
-  maxRetries: 0
-  timeoutMs: number
-}>
+  apiKey: string;
+  fetch: typeof globalThis.fetch | undefined;
+  maxRetries: 0;
+  timeoutMs: number;
+}>;
 
 export type GroqTextRequest = Readonly<{
-  model: string
-  prompt: string
-  signal: AbortSignal
-}>
+  model: string;
+  prompt: string;
+  signal: AbortSignal;
+}>;
 
 export type GroqTextClient = Readonly<{
-  complete: (request: GroqTextRequest) => Promise<Readonly<{ text: unknown }>>
-}>
+  complete: (request: GroqTextRequest) => Promise<Readonly<{ text: unknown }>>;
+}>;
 
 export type GroqClientFactory = (
-  options: GroqClientFactoryOptions,
-) => GroqTextClient | Promise<GroqTextClient>
+  options: GroqClientFactoryOptions
+) => GroqTextClient | Promise<GroqTextClient>;
 
 export type GroqAiPortOptions = Readonly<{
-  apiKey?: string | undefined
-  model?: string | undefined
-  fetch?: typeof globalThis.fetch | undefined
-  timeoutMs?: number | undefined
-  clientFactory?: GroqClientFactory | undefined
-}>
-
+  apiKey?: string | undefined;
+  model?: string | undefined;
+  fetch?: typeof globalThis.fetch | undefined;
+  timeoutMs?: number | undefined;
+  clientFactory?: GroqClientFactory | undefined;
+}>;
 
 const createDefaultClient: GroqClientFactory = async (options) => {
-  const groqModule = await import("groq-sdk")
+  const groqModule = await import("groq-sdk");
   const Groq =
     typeof groqModule.default === "function"
       ? groqModule.default
-      : groqModule.Groq
+      : groqModule.Groq;
   const client = new Groq({
     apiKey: options.apiKey,
     baseURL: "https://api.groq.com",
@@ -55,7 +54,7 @@ const createDefaultClient: GroqClientFactory = async (options) => {
     logLevel: "off",
     maxRetries: options.maxRetries,
     timeout: options.timeoutMs,
-  })
+  });
 
   return Object.freeze({
     complete: async (request: GroqTextRequest) => {
@@ -65,138 +64,134 @@ const createDefaultClient: GroqClientFactory = async (options) => {
           messages: [{ role: "user", content: request.prompt }],
           stream: false,
         },
-        { signal: request.signal },
-      )
-      return { text: completion.choices?.[0]?.message?.content }
-    }
-  })
-}
+        { signal: request.signal }
+      );
+      return { text: completion.choices?.[0]?.message?.content };
+    },
+  });
+};
 
 const normalizeTimeout = (timeoutMs: number | undefined): number => {
   if (timeoutMs === undefined || !Number.isFinite(timeoutMs)) {
-    return DEFAULT_TIMEOUT_MS
+    return DEFAULT_TIMEOUT_MS;
   }
 
   return Math.min(
     MAX_TIMEOUT_MS,
-    Math.max(MIN_TIMEOUT_MS, Math.trunc(timeoutMs)),
-  )
-}
+    Math.max(MIN_TIMEOUT_MS, Math.trunc(timeoutMs))
+  );
+};
 
 const failed = (
   category: AiFailureCategory,
   retryable: boolean,
-  statusCode?: number,
+  statusCode?: number
 ): AiResult => {
   return statusCode === undefined
     ? { status: "failed", category, retryable }
-    : { status: "failed", category, retryable, statusCode }
-}
+    : { status: "failed", category, retryable, statusCode };
+};
 
 const errorMetadata = (
-  error: unknown,
+  error: unknown
 ): Readonly<{ name?: string; statusCode?: number }> => {
-  if (typeof error !== "object" || error === null) return {}
+  if (typeof error !== "object" || error === null) return {};
 
   try {
     const candidate = error as Readonly<{
-      name?: unknown
-      status?: unknown
-    }>
-    const rawName = candidate.name
-    const rawStatus = candidate.status
-    const name = typeof rawName === "string" ? rawName : undefined
+      name?: unknown;
+      status?: unknown;
+    }>;
+    const rawName = candidate.name;
+    const rawStatus = candidate.status;
+    const name = typeof rawName === "string" ? rawName : undefined;
     const statusCode =
       typeof rawStatus === "number" &&
       Number.isInteger(rawStatus) &&
       rawStatus >= 100 &&
       rawStatus <= 599
         ? rawStatus
-        : undefined
+        : undefined;
 
     return {
       ...(name === undefined ? {} : { name }),
       ...(statusCode === undefined ? {} : { statusCode }),
-    }
+    };
+  } catch (_error) {
+    return {};
   }
-  catch (_error) {
-    return {}
-  }
-}
+};
 
 const normalizeFailure = (error: unknown): AiResult => {
-  if (error === CALL_ABORTED) return failed("aborted", false)
-  if (error === CALL_TIMED_OUT) return failed("timeout", true)
+  if (error === CALL_ABORTED) return failed("aborted", false);
+  if (error === CALL_TIMED_OUT) return failed("timeout", true);
 
-  const { name, statusCode } = errorMetadata(error)
-  if (statusCode === 408) return failed("timeout", true, statusCode)
-  if (statusCode === 429) return failed("rate_limited", true, statusCode)
+  const { name, statusCode } = errorMetadata(error);
+  if (statusCode === 408) return failed("timeout", true, statusCode);
+  if (statusCode === 429) return failed("rate_limited", true, statusCode);
   if (statusCode !== undefined && statusCode >= 500) {
-    return failed("provider_unavailable", true, statusCode)
+    return failed("provider_unavailable", true, statusCode);
   }
   if (statusCode !== undefined && statusCode >= 400) {
-    return failed("provider_rejected", false, statusCode)
+    return failed("provider_rejected", false, statusCode);
   }
-  if (name === "APIConnectionTimeoutError") return failed("timeout", true)
+  if (name === "APIConnectionTimeoutError") return failed("timeout", true);
   if (name === "APIConnectionError" || name === "TypeError") {
-    return failed("network", true)
+    return failed("network", true);
   }
-  if (name === "AbortError") return failed("aborted", false)
-  return failed("unknown", false, statusCode)
-}
+  if (name === "AbortError") return failed("aborted", false);
+  return failed("unknown", false, statusCode);
+};
 
-const runBounded = async <Result,>(
+const runBounded = async <Result>(
   timeoutMs: number,
   callerSignal: AbortSignal | undefined,
-  operation: (signal: AbortSignal) => Promise<Result>,
+  operation: (signal: AbortSignal) => Promise<Result>
 ): Promise<Result> => {
-  if (callerSignal?.aborted) throw CALL_ABORTED
+  if (callerSignal?.aborted) throw CALL_ABORTED;
 
-  const controller = new AbortController()
-  let timeoutId: ReturnType<typeof setTimeout> | undefined
-  let removeAbortListener: (() => void) | undefined
+  const controller = new AbortController();
+  let timeoutId: ReturnType<typeof setTimeout> | undefined;
+  let removeAbortListener: (() => void) | undefined;
 
   const timeout = new Promise<never>((_resolve, reject) => {
-    return timeoutId = setTimeout(() => {
-      reject(CALL_TIMED_OUT)
-      return controller.abort()
-    }
-    , timeoutMs)
-  }
-  )
+    return (timeoutId = setTimeout(() => {
+      reject(CALL_TIMED_OUT);
+      return controller.abort();
+    }, timeoutMs));
+  });
   const callerAbort = new Promise<never>((_resolve, reject) => {
-    if (!callerSignal) return
+    if (!callerSignal) return;
 
     const onAbort = () => {
-      reject(CALL_ABORTED)
-      return controller.abort()
-    }
-    callerSignal.addEventListener("abort", onAbort, { once: true })
-    return removeAbortListener = () => callerSignal.removeEventListener("abort", onAbort)
-  }
-  )
+      reject(CALL_ABORTED);
+      return controller.abort();
+    };
+    callerSignal.addEventListener("abort", onAbort, { once: true });
+    return (removeAbortListener = () =>
+      callerSignal.removeEventListener("abort", onAbort));
+  });
 
   try {
     return await Promise.race([
       operation(controller.signal),
       timeout,
       callerAbort,
-    ])
+    ]);
+  } finally {
+    if (timeoutId !== undefined) clearTimeout(timeoutId);
+    removeAbortListener?.();
   }
-  finally {
-    if (timeoutId !== undefined) clearTimeout(timeoutId)
-    removeAbortListener?.()
-  }
-}
+};
 
 export const createGroqAiPort = (options: GroqAiPortOptions): AiPort => {
-  const apiKey = options.apiKey?.trim()
-  const model = options.model?.trim()
-  if (!apiKey || !model) return createDisabledAiPort("not_configured")
+  const apiKey = options.apiKey?.trim();
+  const model = options.model?.trim();
+  if (!apiKey || !model) return createDisabledAiPort("not_configured");
 
-  const timeoutMs = normalizeTimeout(options.timeoutMs)
-  const clientFactory = options.clientFactory ?? createDefaultClient
-  let clientPromise: Promise<GroqTextClient> | undefined
+  const timeoutMs = normalizeTimeout(options.timeoutMs);
+  const clientFactory = options.clientFactory ?? createDefaultClient;
+  let clientPromise: Promise<GroqTextClient> | undefined;
   const getClient = (): Promise<GroqTextClient> => {
     clientPromise ??= Promise.resolve(
       clientFactory({
@@ -204,39 +199,38 @@ export const createGroqAiPort = (options: GroqAiPortOptions): AiPort => {
         fetch: options.fetch,
         maxRetries: 0,
         timeoutMs,
-      }),
-    )
-    return clientPromise
-  }
+      })
+    );
+    return clientPromise;
+  };
 
   return Object.freeze({
     generateText: async (request: AiRequest): Promise<AiResult> => {
-      if (request.signal?.aborted) return failed("aborted", false)
+      if (request.signal?.aborted) return failed("aborted", false);
 
       try {
         const completion = await runBounded(
           timeoutMs,
           request.signal,
           async (signal) => {
-            const client = await getClient()
+            const client = await getClient();
             return await client.complete({
               model,
               prompt: request.prompt,
               signal,
-            })
+            });
           }
-        )
+        );
         if (
           typeof completion.text !== "string" ||
           completion.text.trim().length === 0
         ) {
-          return failed("invalid_response", false)
+          return failed("invalid_response", false);
         }
-        return { status: "generated", text: completion.text }
+        return { status: "generated", text: completion.text };
+      } catch (error) {
+        return normalizeFailure(error);
       }
-      catch (error) {
-        return normalizeFailure(error)
-      }
-    }
-  })
-}
+    },
+  });
+};

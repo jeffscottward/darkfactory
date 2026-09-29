@@ -1,34 +1,31 @@
-import { sql } from "drizzle-orm"
+import { sql } from "drizzle-orm";
 
-import { withTransaction, type Database } from "./server/client.ts"
-import type { DevelopmentEnvironment } from "./seeds/index.ts"
+import { withTransaction, type Database } from "./server/client.ts";
+import type { DevelopmentEnvironment } from "./seeds/index.ts";
 
 export type ResetDevelopmentOptions = Readonly<{
-  environment: DevelopmentEnvironment
-}>
+  environment: DevelopmentEnvironment;
+}>;
 
 export type ResetDevelopmentResult = Readonly<{
-  tablesCleared: number
-}>
+  tablesCleared: number;
+}>;
 
 export class DevelopmentResetError extends Error {
   constructor(message: string) {
-    super(message)
-    this.name = "DevelopmentResetError"
+    super(message);
+    this.name = "DevelopmentResetError";
   }
 }
 
 export const resetDevelopment = async (
   database: Database,
-  options: ResetDevelopmentOptions,
+  options: ResetDevelopmentOptions
 ): Promise<ResetDevelopmentResult> => {
-  if (
-    options.environment !== "development" &&
-    options.environment !== "test"
-  ) {
+  if (options.environment !== "development" && options.environment !== "test") {
     throw new DevelopmentResetError(
-      "Development reset requires an explicit development or test environment",
-    )
+      "Development reset requires an explicit development or test environment"
+    );
   }
 
   await withTransaction(database, async (transaction) => {
@@ -54,9 +51,8 @@ export const resetDevelopment = async (
         "rate_limit",
         "outbox_events"
       RESTART IDENTITY
-    `)
-  }
-  )
+    `);
+  });
 
-  return Object.freeze({ tablesCleared: 19 })
-}
+  return Object.freeze({ tablesCleared: 19 });
+};

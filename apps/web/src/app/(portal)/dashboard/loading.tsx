@@ -1,10 +1,9 @@
-import { Skeleton } from "@darkfactory/ui"
+import { Skeleton } from "@darkfactory/ui";
 
 export default function DashboardLoading() {
   return (
     <div aria-busy="true" className="space-y-10" role="status">
-      <span className="sr-only">Loading dashboard
-      </span>
+      <span className="sr-only">Loading dashboard</span>
       <div className="space-y-3 border-b border-border pb-6">
         <Skeleton className="h-4 w-20" />
         <Skeleton className="h-8 w-48" />
@@ -15,6 +14,6 @@ export default function DashboardLoading() {
         <Skeleton className="h-32 w-full" />
       </div>
       <Skeleton className="h-48 w-full" />
-  </div>
-  )
+    </div>
+  );
 }

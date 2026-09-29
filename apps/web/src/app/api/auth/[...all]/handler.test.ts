@@ -1,23 +1,23 @@
-import { beforeEach, describe, expect, it, vi } from "vitest"
-import type { SemanticEvent } from "@darkfactory/observability"
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import type { SemanticEvent } from "@darkfactory/observability";
 
-const mocks = vi.hoisted(function() {
-  let appEnvironment = "test"
-  const close = vi.fn(async () => undefined)
-  const emit = vi.fn(async (_event: SemanticEvent) => undefined)
-  const databaseCleanups: Array<() => Promise<void>> = []
+const mocks = vi.hoisted(function () {
+  let appEnvironment = "test";
+  const close = vi.fn(async () => undefined);
+  const emit = vi.fn(async (_event: SemanticEvent) => undefined);
+  const databaseCleanups: Array<() => Promise<void>> = [];
   const finalize = vi.fn(async () => {
-    return await databaseCleanups.at(-1)?.()
-  }
-  )
-  const requestHandler = vi.fn(async (_request: Request) => new Response("handled"))
+    return await databaseCleanups.at(-1)?.();
+  });
+  const requestHandler = vi.fn(
+    async (_request: Request) => new Response("handled")
+  );
   const confirmedSignOutHandler = vi.fn(
-    async () => new Response("signed out", { status: 200 }),
-  )
+    async () => new Response("signed out", { status: 200 })
+  );
   const waitUntil = vi.fn((task: Promise<unknown>) => {
-    return void task.catch(() => undefined)
-  }
-  )
+    return void task.catch(() => undefined);
+  });
   return {
     close,
     finalize,
@@ -40,244 +40,266 @@ const mocks = vi.hoisted(function() {
     composeDatabaseProfile: vi.fn(() => ({
       connection: { connectionString: "postgres://configured.invalid/db" },
     })),
-    createRequestDatabase: vi.fn(async (
-      options: Readonly<{
-        connectionString: string
-        diagnosticSink?: (
-          diagnostic: Readonly<{
-            code: "REQUEST_DATABASE_CLIENT_CLOSE_ERROR"
-          }>,
-        ) => void
-      }>,
-    ) => ({
-      db: { request: true },
-      close: async () => {
-        try {
-          return await close()
-        }
-        catch (error) {
-          options.diagnosticSink?.(Object.freeze({
-            code: "REQUEST_DATABASE_CLIENT_CLOSE_ERROR",
-          }))
-          throw error
-        }
-      }
-    })),
+    createRequestDatabase: vi.fn(
+      async (
+        options: Readonly<{
+          connectionString: string;
+          diagnosticSink?: (
+            diagnostic: Readonly<{
+              code: "REQUEST_DATABASE_CLIENT_CLOSE_ERROR";
+            }>
+          ) => void;
+        }>
+      ) => ({
+        db: { request: true },
+        close: async () => {
+          try {
+            return await close();
+          } catch (error) {
+            options.diagnosticSink?.(
+              Object.freeze({
+                code: "REQUEST_DATABASE_CLIENT_CLOSE_ERROR",
+              })
+            );
+            throw error;
+          }
+        },
+      })
+    ),
     resolveApiRequestId: vi.fn(() => "request-safe"),
     initializeEvlog: vi.fn(() => ({ runtime: "evlog" })),
     createEvlogSink: vi.fn(() => ({ emit })),
     selectEmailPort: vi.fn(() => ({ send: vi.fn() })),
     createAuth: vi.fn(() => ({ auth: true })),
     createAuthHandler: vi.fn(() => requestHandler),
-    createDatabaseConfirmedSignOutHandler: vi.fn(
-      () => confirmedSignOutHandler,
-    ),
+    createDatabaseConfirmedSignOutHandler: vi.fn(() => confirmedSignOutHandler),
     createBackgroundTaskLifecycle: vi.fn(
       (
         schedule: (task: Promise<unknown>) => void,
-        closeDatabase: () => Promise<void>,
+        closeDatabase: () => Promise<void>
       ) => {
-        databaseCleanups.push(closeDatabase)
+        databaseCleanups.push(closeDatabase);
         return {
           schedule,
           finalize,
-        }
+        };
       }
     ),
+  };
+});
+
+vi.mock("@darkfactory/auth/server", function () {
+  return {
+    createAuth: mocks.createAuth,
+    createAuthHandler: mocks.createAuthHandler,
+  };
+});
+vi.mock("@darkfactory/auth/db", function () {
+  return {
+    createDatabaseConfirmedSignOutHandler:
+      mocks.createDatabaseConfirmedSignOutHandler,
+  };
+});
+vi.mock("@darkfactory/config/database", function () {
+  return {
+    composeDatabaseProfile: mocks.composeDatabaseProfile,
+  };
+});
+vi.mock("@darkfactory/config/server", function () {
+  return {
+    parseServerEnv: mocks.parseServerEnv,
+  };
+});
+vi.mock("@darkfactory/db/server", function () {
+  return {
+    createRequestDatabase: mocks.createRequestDatabase,
+  };
+});
+vi.mock("@darkfactory/api/server", function () {
+  return {
+    resolveApiRequestId: mocks.resolveApiRequestId,
+  };
+});
+vi.mock("@darkfactory/observability/server/evlog", function () {
+  return {
+    initializeEvlog: mocks.initializeEvlog,
+    createEvlogSink: mocks.createEvlogSink,
+  };
+});
+vi.mock("@darkfactory/email/server", function () {
+  return {
+    selectEmailPort: mocks.selectEmailPort,
+  };
+});
+vi.mock("../../../../lib/e2e-fixtures.ts", function () {
+  return {
+    resolveE2eEmailPreviewOptions: vi.fn(() => undefined),
+  };
+});
+vi.mock("../../../../lib/background-task-lifecycle.ts", function () {
+  return {
+    createBackgroundTaskLifecycle: mocks.createBackgroundTaskLifecycle,
+  };
+});
+vi.mock("cloudflare:workers", function () {
+  return { waitUntil: mocks.waitUntil };
+});
+
+import { AUTH_REQUEST_MAX_BYTES, handleAuthRequest } from "./handler.ts";
+import { GET, POST } from "./route.ts";
+import { handleStrictSignOutRequest } from "../strict-sign-out/handler.ts";
+import { POST as strictSignOutPost } from "../strict-sign-out/route.ts";
+
+const request = new Request(
+  "https://darkfactory.localhost/api/auth/sign-in/email",
+  {
+    method: "POST",
   }
-}
-)
-
-vi.mock("@darkfactory/auth/server", function() { return ({
-  createAuth: mocks.createAuth,
-  createAuthHandler: mocks.createAuthHandler,
-}) })
-vi.mock("@darkfactory/auth/db", function() { return ({
-  createDatabaseConfirmedSignOutHandler:
-    mocks.createDatabaseConfirmedSignOutHandler,
-}) })
-vi.mock("@darkfactory/config/database", function() { return ({
-  composeDatabaseProfile: mocks.composeDatabaseProfile,
-}) })
-vi.mock("@darkfactory/config/server", function() { return ({
-  parseServerEnv: mocks.parseServerEnv,
-}) })
-vi.mock("@darkfactory/db/server", function() { return ({
-  createRequestDatabase: mocks.createRequestDatabase,
-}) })
-vi.mock("@darkfactory/api/server", function() { return ({
-  resolveApiRequestId: mocks.resolveApiRequestId,
-}) })
-vi.mock("@darkfactory/observability/server/evlog", function() { return ({
-  initializeEvlog: mocks.initializeEvlog,
-  createEvlogSink: mocks.createEvlogSink,
-}) })
-vi.mock("@darkfactory/email/server", function() { return ({
-  selectEmailPort: mocks.selectEmailPort,
-}) })
-vi.mock("../../../../lib/e2e-fixtures.ts", function() { return ({
-  resolveE2eEmailPreviewOptions: vi.fn(() => undefined),
-}) })
-vi.mock("../../../../lib/background-task-lifecycle.ts", function() { return ({
-  createBackgroundTaskLifecycle: mocks.createBackgroundTaskLifecycle,
-}) })
-vi.mock("cloudflare:workers", function() { return ({ waitUntil: mocks.waitUntil }) })
-
-import { AUTH_REQUEST_MAX_BYTES, handleAuthRequest } from "./handler.ts"
-import { GET, POST } from "./route.ts"
-import {
-  handleStrictSignOutRequest,
-} from "../strict-sign-out/handler.ts"
-import {
-  POST as strictSignOutPost,
-} from "../strict-sign-out/route.ts"
-
-const request = new Request("https://darkfactory.localhost/api/auth/sign-in/email", {
-  method: "POST",
-})
+);
 
 const handle = async (): Promise<void> => {
-  await handleAuthRequest(request, vi.fn())
-}
+  await handleAuthRequest(request, vi.fn());
+};
 
+describe("auth route rate-limit configuration", function () {
+  beforeEach(function () {
+    vi.clearAllMocks();
+    mocks.databaseCleanups.length = 0;
+    return mocks.setAppEnvironment("test");
+  });
 
-describe("auth route rate-limit configuration", function() {
-  beforeEach(function() {
-    vi.clearAllMocks()
-    mocks.databaseCleanups.length = 0
-    return mocks.setAppEnvironment("test")
-  })
+  it("disables Better Auth throttling only for the isolated test application environment", async function () {
+    await handle();
 
-  it("disables Better Auth throttling only for the isolated test application environment", async function() {
-    await handle()
+    return expect(mocks.createAuth).toHaveBeenCalledWith(
+      expect.objectContaining({
+        rateLimitEnabled: false,
+      })
+    );
+  });
 
-    return expect(mocks.createAuth).toHaveBeenCalledWith(expect.objectContaining({
-      rateLimitEnabled: false,
-    }))
-  })
+  it.each([
+    "development",
+    "staging",
+    "production",
+  ])("keeps Better Auth throttling enabled in %s", async function (appEnvironment) {
+    mocks.setAppEnvironment(appEnvironment);
+    await handle();
 
-  it.each(["development", "staging", "production"])(
-    "keeps Better Auth throttling enabled in %s",
-    async function(appEnvironment) {
-      mocks.setAppEnvironment(appEnvironment)
-      await handle()
-
-      return expect(mocks.createAuth).toHaveBeenCalledWith(expect.objectContaining({
+    return expect(mocks.createAuth).toHaveBeenCalledWith(
+      expect.objectContaining({
         rateLimitEnabled: true,
-      }))
-    }
-  )
+      })
+    );
+  });
 
-  it("uses isolated diagnostic sinks for both auth entrypoints", async function() {
-    const authSchedule = vi.fn()
-    const strictSchedule = vi.fn()
-    await handleAuthRequest(request, authSchedule)
-    await handleStrictSignOutRequest(request, strictSchedule)
+  it("uses isolated diagnostic sinks for both auth entrypoints", async function () {
+    const authSchedule = vi.fn();
+    const strictSchedule = vi.fn();
+    await handleAuthRequest(request, authSchedule);
+    await handleStrictSignOutRequest(request, strictSchedule);
 
-    expect(mocks.createRequestDatabase).toHaveBeenCalledTimes(2)
-    const authDatabaseOptions = mocks.createRequestDatabase.mock.calls[0]![0]
-    const strictDatabaseOptions = mocks.createRequestDatabase.mock.calls[1]![0]
+    expect(mocks.createRequestDatabase).toHaveBeenCalledTimes(2);
+    const authDatabaseOptions = mocks.createRequestDatabase.mock.calls[0]![0];
+    const strictDatabaseOptions = mocks.createRequestDatabase.mock.calls[1]![0];
     expect(authDatabaseOptions).toEqual({
       connectionString: "postgres://configured.invalid/db",
       diagnosticSink: expect.any(Function),
-    })
+    });
     expect(strictDatabaseOptions).toEqual({
       connectionString: "postgres://configured.invalid/db",
       diagnosticSink: expect.any(Function),
-    })
+    });
     expect(authDatabaseOptions.diagnosticSink).not.toBe(
-      strictDatabaseOptions.diagnosticSink,
-    )
+      strictDatabaseOptions.diagnosticSink
+    );
     expect(mocks.createEvlogSink).toHaveBeenNthCalledWith(
       1,
       expect.objectContaining({
         request,
         executionContext: { waitUntil: authSchedule },
-      }),
-    )
+      })
+    );
     return expect(mocks.createEvlogSink).toHaveBeenNthCalledWith(
       2,
       expect.objectContaining({
         request,
         executionContext: { waitUntil: strictSchedule },
-      }),
-    )
-  })
+      })
+    );
+  });
 
-  return it("preserves auth response precedence and tracks one safe close diagnostic", async function() {
+  return it("preserves auth response precedence and tracks one safe close diagnostic", async function () {
     const cleanupFailure = new Error(
-      "database cleanup failed for postgres://private@configured.invalid/db; cookie=session-private",
-    )
-    const scheduled: Promise<unknown>[] = []
+      "database cleanup failed for postgres://private@configured.invalid/db; cookie=session-private"
+    );
+    const scheduled: Promise<unknown>[] = [];
     const schedule = vi.fn((task: Promise<unknown>) => {
-      return scheduled.push(task)
-    }
-    )
-    mocks.close.mockRejectedValueOnce(cleanupFailure)
+      return scheduled.push(task);
+    });
+    mocks.close.mockRejectedValueOnce(cleanupFailure);
 
-    const response = await handleAuthRequest(request, schedule)
-    await Promise.allSettled(scheduled)
+    const response = await handleAuthRequest(request, schedule);
+    await Promise.allSettled(scheduled);
 
-    expect(await response.text()).toBe("handled")
-    expect(mocks.close).toHaveBeenCalledOnce()
-    expect(mocks.emit).toHaveBeenCalledOnce()
-    const event = mocks.emit.mock.calls[0]![0]
+    expect(await response.text()).toBe("handled");
+    expect(mocks.close).toHaveBeenCalledOnce();
+    expect(mocks.emit).toHaveBeenCalledOnce();
+    const event = mocks.emit.mock.calls[0]![0];
     expect(event).toMatchObject({
       name: "request-database.client-close-failed",
       correlation: { requestId: "request-safe" },
       outcome: "failure",
       source: "worker",
       errorCategory: "REQUEST_DATABASE_CLIENT_CLOSE_ERROR",
-    })
-    expect(JSON.stringify(event)).not.toContain("private")
-    return expect(JSON.stringify(event)).not.toContain("cookie")
-  })
-})
-describe("bounded Better Auth request bodies", function() {
-  beforeEach(function() {
-    vi.clearAllMocks()
-    mocks.setAppEnvironment("test")
-    return mocks.databaseCleanups.length = 0
-  })
+    });
+    expect(JSON.stringify(event)).not.toContain("private");
+    return expect(JSON.stringify(event)).not.toContain("cookie");
+  });
+});
+describe("bounded Better Auth request bodies", function () {
+  beforeEach(function () {
+    vi.clearAllMocks();
+    mocks.setAppEnvironment("test");
+    return (mocks.databaseCleanups.length = 0);
+  });
 
-  it("rejects an oversized declared body before database allocation", async function() {
+  it("rejects an oversized declared body before database allocation", async function () {
     const response = await handleAuthRequest(
-      new Request(
-        "https://darkfactory.localhost/api/auth/sign-in/email",
-        {
-          method: "POST",
-          headers: {
-            "content-length": String(AUTH_REQUEST_MAX_BYTES + 1),
-            "content-type": "application/json",
-          },
-          body: "{}",
+      new Request("https://darkfactory.localhost/api/auth/sign-in/email", {
+        method: "POST",
+        headers: {
+          "content-length": String(AUTH_REQUEST_MAX_BYTES + 1),
+          "content-type": "application/json",
         },
-      ),
-      vi.fn(),
-    )
+        body: "{}",
+      }),
+      vi.fn()
+    );
 
-    expect(response.status).toBe(413)
-    expect(mocks.createRequestDatabase).not.toHaveBeenCalled()
-    return expect(mocks.requestHandler).not.toHaveBeenCalled()
-  })
+    expect(response.status).toBe(413);
+    expect(mocks.createRequestDatabase).not.toHaveBeenCalled();
+    return expect(mocks.requestHandler).not.toHaveBeenCalled();
+  });
 
-  it("rejects missing-length and lying-length streamed overflow before database allocation", async function() {
-    const oversizedStream = () => new ReadableStream<Uint8Array>({
-      start(controller) {
-        controller.enqueue(new Uint8Array(AUTH_REQUEST_MAX_BYTES))
-        controller.enqueue(new Uint8Array([1]))
-        return controller.close()
-      }
-    })
+  it("rejects missing-length and lying-length streamed overflow before database allocation", async function () {
+    const oversizedStream = () =>
+      new ReadableStream<Uint8Array>({
+        start(controller) {
+          controller.enqueue(new Uint8Array(AUTH_REQUEST_MAX_BYTES));
+          controller.enqueue(new Uint8Array([1]));
+          return controller.close();
+        },
+      });
     const lengthless = new Request(
       "https://darkfactory.localhost/api/auth/sign-up/email",
       {
         method: "POST",
         body: oversizedStream(),
         duplex: "half",
-      } as RequestInit,
-    )
-    lengthless.headers.delete("content-length")
+      } as RequestInit
+    );
+    lengthless.headers.delete("content-length");
     const lying = new Request(
       "https://darkfactory.localhost/api/auth/sign-up/email",
       {
@@ -285,21 +307,21 @@ describe("bounded Better Auth request bodies", function() {
         headers: { "content-length": "1" },
         body: oversizedStream(),
         duplex: "half",
-      } as RequestInit,
-    )
+      } as RequestInit
+    );
 
     const responses = await Promise.all([
       handleAuthRequest(lengthless, vi.fn()),
       handleAuthRequest(lying, vi.fn()),
-    ])
+    ]);
 
-    expect(responses.map(({ status }) => status)).toEqual([413, 413])
-    expect(mocks.createRequestDatabase).not.toHaveBeenCalled()
-    return expect(mocks.requestHandler).not.toHaveBeenCalled()
-  })
+    expect(responses.map(({ status }) => status)).toEqual([413, 413]);
+    expect(mocks.createRequestDatabase).not.toHaveBeenCalled();
+    return expect(mocks.requestHandler).not.toHaveBeenCalled();
+  });
 
-  it("reconstructs an exact-boundary credential request with cookies and metadata", async function() {
-    const controller = new AbortController()
+  it("reconstructs an exact-boundary credential request with cookies and metadata", async function () {
+    const controller = new AbortController();
     const source = new Request(
       "https://darkfactory.localhost/api/auth/sign-up/email?redirect=portal",
       {
@@ -311,143 +333,145 @@ describe("bounded Better Auth request bodies", function() {
         },
         body: new Uint8Array(AUTH_REQUEST_MAX_BYTES),
         signal: controller.signal,
-      },
-    )
-    source.headers.delete("content-length")
+      }
+    );
+    source.headers.delete("content-length");
 
-    const response = await handleAuthRequest(source, vi.fn())
+    const response = await handleAuthRequest(source, vi.fn());
 
-    expect(response.status).toBe(200)
-    expect(mocks.createRequestDatabase).toHaveBeenCalledOnce()
-    const forwarded = mocks.requestHandler.mock.calls[0]![0] as Request
-    expect(forwarded).not.toBe(source)
-    expect(forwarded.url).toBe(source.url)
-    expect(forwarded.method).toBe("POST")
-    expect(forwarded.headers.get("cookie")).toBe("session=opaque")
-    expect(forwarded.headers.get("x-auth-marker")).toBe("preserved")
+    expect(response.status).toBe(200);
+    expect(mocks.createRequestDatabase).toHaveBeenCalledOnce();
+    const forwarded = mocks.requestHandler.mock.calls[0]![0] as Request;
+    expect(forwarded).not.toBe(source);
+    expect(forwarded.url).toBe(source.url);
+    expect(forwarded.method).toBe("POST");
+    expect(forwarded.headers.get("cookie")).toBe("session=opaque");
+    expect(forwarded.headers.get("x-auth-marker")).toBe("preserved");
     expect(forwarded.headers.get("content-length")).toBe(
-      String(AUTH_REQUEST_MAX_BYTES),
-    )
+      String(AUTH_REQUEST_MAX_BYTES)
+    );
     expect((await forwarded.arrayBuffer()).byteLength).toBe(
-      AUTH_REQUEST_MAX_BYTES,
-    )
-    expect(forwarded.signal.aborted).toBe(false)
-    controller.abort()
-    return expect(forwarded.signal.aborted).toBe(true)
-  })
+      AUTH_REQUEST_MAX_BYTES
+    );
+    expect(forwarded.signal.aborted).toBe(false);
+    controller.abort();
+    return expect(forwarded.signal.aborted).toBe(true);
+  });
 
-  return it("forwards GET without a body while still allocating its request database", async function() {
+  return it("forwards GET without a body while still allocating its request database", async function () {
     const source = new Request(
       "https://darkfactory.localhost/api/auth/get-session",
       {
         headers: { cookie: "session=opaque" },
-      },
-    )
+      }
+    );
 
-    const response = await handleAuthRequest(source, vi.fn())
+    const response = await handleAuthRequest(source, vi.fn());
 
-    expect(response.status).toBe(200)
-    expect(mocks.createRequestDatabase).toHaveBeenCalledOnce()
-    return expect(mocks.requestHandler).toHaveBeenCalledWith(source)
-  })
-})
+    expect(response.status).toBe(200);
+    expect(mocks.createRequestDatabase).toHaveBeenCalledOnce();
+    return expect(mocks.requestHandler).toHaveBeenCalledWith(source);
+  });
+});
 
-describe("strict sign-out request composition", function() {
-  beforeEach(function() {
-    vi.clearAllMocks()
-    mocks.setAppEnvironment("test")
-    return mocks.databaseCleanups.length = 0
-  })
+describe("strict sign-out request composition", function () {
+  beforeEach(function () {
+    vi.clearAllMocks();
+    mocks.setAppEnvironment("test");
+    return (mocks.databaseCleanups.length = 0);
+  });
 
-  it("builds the database-confirmed handler and finalizes request resources", async function() {
-    const schedule = vi.fn()
-    const response = await handleStrictSignOutRequest(request, schedule)
+  it("builds the database-confirmed handler and finalizes request resources", async function () {
+    const schedule = vi.fn();
+    const response = await handleStrictSignOutRequest(request, schedule);
 
-    expect(await response.text()).toBe("signed out")
+    expect(await response.text()).toBe("signed out");
     expect(mocks.createDatabaseConfirmedSignOutHandler).toHaveBeenCalledWith({
       auth: { auth: true },
       database: { request: true },
       secret: "configured-secret".repeat(2),
       trustedOrigin: "https://darkfactory.localhost",
-    })
-    expect(mocks.confirmedSignOutHandler).toHaveBeenCalledWith(request)
+    });
+    expect(mocks.confirmedSignOutHandler).toHaveBeenCalledWith(request);
     expect(mocks.createBackgroundTaskLifecycle).toHaveBeenCalledWith(
       schedule,
-      expect.any(Function),
-    )
-    return expect(mocks.finalize).toHaveBeenCalledOnce()
-  })
+      expect.any(Function)
+    );
+    return expect(mocks.finalize).toHaveBeenCalledOnce();
+  });
 
-  it("finalizes resources while preserving a strict sign-out failure", async function() {
-    const failure = new Error("confirmed sign-out failed")
-    mocks.confirmedSignOutHandler.mockRejectedValueOnce(failure)
-    mocks.close.mockRejectedValueOnce(new Error("database cleanup failed"))
+  it("finalizes resources while preserving a strict sign-out failure", async function () {
+    const failure = new Error("confirmed sign-out failed");
+    mocks.confirmedSignOutHandler.mockRejectedValueOnce(failure);
+    mocks.close.mockRejectedValueOnce(new Error("database cleanup failed"));
 
-    await expect(
-      handleStrictSignOutRequest(request, vi.fn()),
-    ).rejects.toBe(failure)
-    expect(mocks.finalize).toHaveBeenCalledOnce()
-    return expect(mocks.close).toHaveBeenCalledOnce()
-  })
+    await expect(handleStrictSignOutRequest(request, vi.fn())).rejects.toBe(
+      failure
+    );
+    expect(mocks.finalize).toHaveBeenCalledOnce();
+    return expect(mocks.close).toHaveBeenCalledOnce();
+  });
 
-  return it("preserves a completed sign-out response and tracks one safe close diagnostic", async function() {
+  return it("preserves a completed sign-out response and tracks one safe close diagnostic", async function () {
     const cleanupFailure = new Error(
-      "database cleanup failed with postgresql://private@configured.invalid/db",
-    )
-    const scheduled: Promise<unknown>[] = []
+      "database cleanup failed with postgresql://private@configured.invalid/db"
+    );
+    const scheduled: Promise<unknown>[] = [];
     const schedule = vi.fn((task: Promise<unknown>) => {
-      return scheduled.push(task)
-    }
-    )
-    mocks.close.mockRejectedValueOnce(cleanupFailure)
+      return scheduled.push(task);
+    });
+    mocks.close.mockRejectedValueOnce(cleanupFailure);
 
-    const response = await handleStrictSignOutRequest(request, schedule)
-    await Promise.allSettled(scheduled)
+    const response = await handleStrictSignOutRequest(request, schedule);
+    await Promise.allSettled(scheduled);
 
-    expect(await response.text()).toBe("signed out")
-    expect(mocks.close).toHaveBeenCalledOnce()
-    expect(mocks.emit).toHaveBeenCalledOnce()
+    expect(await response.text()).toBe("signed out");
+    expect(mocks.close).toHaveBeenCalledOnce();
+    expect(mocks.emit).toHaveBeenCalledOnce();
     expect(mocks.emit.mock.calls[0]![0]).toMatchObject({
       name: "request-database.client-close-failed",
       correlation: { requestId: "request-safe" },
       outcome: "failure",
       source: "worker",
       errorCategory: "REQUEST_DATABASE_CLIENT_CLOSE_ERROR",
-    })
-    return expect(JSON.stringify(mocks.emit.mock.calls)).not.toContain("private")
-  })
-})
+    });
+    return expect(JSON.stringify(mocks.emit.mock.calls)).not.toContain(
+      "private"
+    );
+  });
+});
 
-describe("auth Worker route adapters", function() {
-  beforeEach(function() {
-    vi.clearAllMocks()
-    mocks.setAppEnvironment("test")
-    return mocks.databaseCleanups.length = 0
-  })
+describe("auth Worker route adapters", function () {
+  beforeEach(function () {
+    vi.clearAllMocks();
+    mocks.setAppEnvironment("test");
+    return (mocks.databaseCleanups.length = 0);
+  });
 
-  return it("forwards both Better Auth methods and strict sign-out through waitUntil", async function() {
-    const getResponse = await GET(new Request(
-      "https://darkfactory.localhost/api/auth/get-session",
-    ))
-    const postResponse = await POST(request)
-    const strictResponse = await strictSignOutPost(new Request(
-      "https://darkfactory.localhost/api/auth/strict-sign-out",
-      { method: "POST" },
-    ))
+  return it("forwards both Better Auth methods and strict sign-out through waitUntil", async function () {
+    const getResponse = await GET(
+      new Request("https://darkfactory.localhost/api/auth/get-session")
+    );
+    const postResponse = await POST(request);
+    const strictResponse = await strictSignOutPost(
+      new Request("https://darkfactory.localhost/api/auth/strict-sign-out", {
+        method: "POST",
+      })
+    );
 
-    expect(await getResponse.text()).toBe("handled")
-    expect(await postResponse.text()).toBe("handled")
-    expect(await strictResponse.text()).toBe("signed out")
+    expect(await getResponse.text()).toBe("handled");
+    expect(await postResponse.text()).toBe("handled");
+    expect(await strictResponse.text()).toBe("signed out");
 
     const schedulers = mocks.createBackgroundTaskLifecycle.mock.calls.map(
-      ([schedule]) => schedule,
-    )
-    expect(schedulers).toHaveLength(3)
+      ([schedule]) => schedule
+    );
+    expect(schedulers).toHaveLength(3);
     for (const schedule of schedulers) {
-      const task = Promise.resolve()
-      schedule(task)
-      expect(mocks.waitUntil).toHaveBeenCalledWith(task)
+      const task = Promise.resolve();
+      schedule(task);
+      expect(mocks.waitUntil).toHaveBeenCalledWith(task);
     }
-    return expect(mocks.waitUntil).toHaveBeenCalledTimes(3)
-  })
-})
+    return expect(mocks.waitUntil).toHaveBeenCalledTimes(3);
+  });
+});

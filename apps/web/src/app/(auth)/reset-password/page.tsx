@@ -1,11 +1,11 @@
-import { ResetPasswordEntry } from "../../../components/auth/reset-password-entry.tsx"
+import { ResetPasswordEntry } from "../../../components/auth/reset-password-entry.tsx";
 
 export const metadata = {
   title: "Reset password",
   description: "Use a one-time token to replace a DarkFactory password.",
   referrer: "no-referrer",
-}
+};
 
 export default function ResetPasswordPage() {
-  return <ResetPasswordEntry />
+  return <ResetPasswordEntry />;
 }

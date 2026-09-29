@@ -1,4 +1,4 @@
-import type { FeatureItemOutput, FeatureItemStatus } from "@darkfactory/api"
+import type { FeatureItemOutput, FeatureItemStatus } from "@darkfactory/api";
 import {
   Button,
   EmptyState,
@@ -6,51 +6,58 @@ import {
   StatusBadge,
   buttonVariants,
   cn,
-} from "@darkfactory/ui"
-import { Archive, FilePlus2, RotateCcw } from "lucide-react"
-import type { FeatureFailureKind } from "./feature-items-client.ts"
-import { FeatureRecoveryAction } from "./feature-recovery-action.tsx"
+} from "@darkfactory/ui";
+import { Archive, FilePlus2, RotateCcw } from "lucide-react";
+import type { FeatureFailureKind } from "./feature-items-client.ts";
+import { FeatureRecoveryAction } from "./feature-recovery-action.tsx";
 
 export type FeatureItemsCollectionState =
   | Readonly<{ type: "loading" }>
   | Readonly<{ type: "error"; kind: FeatureFailureKind; message: string }>
-  | Readonly<{ type: "ready"; items: readonly FeatureItemOutput[] }>
+  | Readonly<{ type: "ready"; items: readonly FeatureItemOutput[] }>;
 
 export interface FeatureItemsCollectionProps {
-  readonly state: FeatureItemsCollectionState
-  readonly archiveBusy?: boolean
-  readonly archivingId?: string | null
-  readonly isFiltered?: boolean
-  readonly onArchive?: (item: FeatureItemOutput, trigger: HTMLButtonElement) => void
-  readonly onResetFilters?: () => void
-  readonly onRetry?: () => void
+  readonly state: FeatureItemsCollectionState;
+  readonly archiveBusy?: boolean;
+  readonly archivingId?: string | null;
+  readonly isFiltered?: boolean;
+  readonly onArchive?: (
+    item: FeatureItemOutput,
+    trigger: HTMLButtonElement
+  ) => void;
+  readonly onResetFilters?: () => void;
+  readonly onRetry?: () => void;
 }
 
-const statusTone = (status: FeatureItemStatus): "neutral" | "success" | "warning" => {
-  if (status === "active") return "success"
-  if (status === "archived") return "warning"
-  return "neutral"
-}
+const statusTone = (
+  status: FeatureItemStatus
+): "neutral" | "success" | "warning" => {
+  if (status === "active") return "success";
+  if (status === "archived") return "warning";
+  return "neutral";
+};
 
 const statusLabel = (status: FeatureItemStatus): string => {
-  return status.charAt(0).toUpperCase() + status.slice(1)
-}
+  return status.charAt(0).toUpperCase() + status.slice(1);
+};
 
 const LoadingCollection = () => (
   <div aria-busy="true" aria-live="polite" className="space-y-3" role="status">
-    <span className="sr-only">Loading feature items
-    </span>
+    <span className="sr-only">Loading feature items</span>
     {["one", "two", "three"].map((key) => (
-      <div className="grid gap-4 border-b border-border py-5 sm:grid-cols-[minmax(0,1fr)_8rem]" key={key}>
+      <div
+        className="grid gap-4 border-b border-border py-5 sm:grid-cols-[minmax(0,1fr)_8rem]"
+        key={key}
+      >
         <div className="space-y-3">
           <Skeleton className="h-5 w-48 max-w-full" />
           <Skeleton className="h-4 w-80 max-w-full" />
         </div>
         <Skeleton className="h-6 w-20 sm:justify-self-end" />
-    </div>
+      </div>
     ))}
-</div>
-)
+  </div>
+);
 
 export const FeatureItemsCollection = ({
   archiveBusy = false,
@@ -61,57 +68,63 @@ export const FeatureItemsCollection = ({
   onRetry,
   state,
 }: FeatureItemsCollectionProps) => {
-  if (state.type === "loading") return <LoadingCollection />
+  if (state.type === "loading") return <LoadingCollection />;
 
   if (state.type === "error") {
     return (
       <EmptyState
-        action={(
+        action={
           <FeatureRecoveryAction
             kind={state.kind}
             onRetry={onRetry}
             returnHref="/feature-items"
           />
-        )}
+        }
         description={state.message}
         icon={<RotateCcw />}
         title="Feature items could not be loaded"
       />
-    )
+    );
   }
 
   if (state.items.length === 0 && isFiltered) {
     return (
       <EmptyState
-        action={<Button onClick={onResetFilters} variant="secondary">Reset filters
-    </Button>}
+        action={
+          <Button onClick={onResetFilters} variant="secondary">
+            Reset filters
+          </Button>
+        }
         description="The current search and status filter returned no owner-scoped records."
         icon={<RotateCcw />}
         title="No matching feature items"
       />
-    )
+    );
   }
 
   if (state.items.length === 0) {
     return (
       <EmptyState
-        action={(
-          <a className={buttonVariants({ variant: "primary" })} href="/feature-items/new">
+        action={
+          <a
+            className={buttonVariants({ variant: "primary" })}
+            href="/feature-items/new"
+          >
             <FilePlus2 aria-hidden="true" className="size-4" />
             Create the first item
-    </a>
-        )}
+          </a>
+        }
         description="Feature items demonstrate a complete owner-scoped request from this portal through oRPC and PostgreSQL."
         icon={<FilePlus2 />}
         title="No feature items yet"
       />
-    )
+    );
   }
 
   return (
     <div className="divide-y divide-border border-y border-border" role="list">
       {state.items.map((item) => {
-        const isArchiving = archivingId === item.id
+        const isArchiving = archivingId === item.id;
         return (
           <article
             className="grid gap-4 py-5 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center"
@@ -134,16 +147,23 @@ export const FeatureItemsCollection = ({
                 className="max-w-reading text-sm leading-6 text-muted-foreground"
                 style={{ overflowWrap: "anywhere" }}
               >
-                {item.description.length > 0 ? item.description : "No description provided."}
+                {item.description.length > 0
+                  ? item.description
+                  : "No description provided."}
               </p>
               <p className="text-xs text-muted-foreground">
-                Updated {item.updatedAt.toLocaleDateString("en-US", { dateStyle: "medium" })}
+                Updated{" "}
+                {item.updatedAt.toLocaleDateString("en-US", {
+                  dateStyle: "medium",
+                })}
               </p>
             </div>
             <div className="flex flex-wrap gap-2 sm:justify-end">
               <a
                 aria-label={`${item.status === "archived" ? "View" : "Edit"} ${item.name}`}
-                className={cn(buttonVariants({ variant: "secondary", size: "compact" }))}
+                className={cn(
+                  buttonVariants({ variant: "secondary", size: "compact" })
+                )}
                 href={`/feature-items/${encodeURIComponent(item.id)}`}
               >
                 {item.status === "archived" ? "View" : "Edit"}
@@ -160,13 +180,12 @@ export const FeatureItemsCollection = ({
                 >
                   <Archive aria-hidden="true" className="size-4" />
                   Archive
-              </Button>
+                </Button>
               )}
             </div>
-        </article>
-        )
-      }
-      )}
-  </div>
-  )
-}
+          </article>
+        );
+      })}
+    </div>
+  );
+};

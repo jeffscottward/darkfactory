@@ -1,14 +1,14 @@
-import { notFound } from "next/navigation"
+import { notFound } from "next/navigation";
 
-import { isE2eFixtureEnabled } from "../../../lib/e2e-fixtures.ts"
-import { PublicPage } from "../_components/public-content.tsx"
+import { isE2eFixtureEnabled } from "../../../lib/e2e-fixtures.ts";
+import { PublicPage } from "../_components/public-content.tsx";
 
-const fixtureDelayMilliseconds = 1_500
+const fixtureDelayMilliseconds = 1_500;
 
 export default async function LoadingSmokePage() {
-  if (!isE2eFixtureEnabled()) notFound()
+  if (!isE2eFixtureEnabled()) notFound();
 
-  await new Promise((resolve) => setTimeout(resolve, fixtureDelayMilliseconds))
+  await new Promise((resolve) => setTimeout(resolve, fixtureDelayMilliseconds));
 
   return (
     <PublicPage
@@ -19,6 +19,6 @@ export default async function LoadingSmokePage() {
       <p className="py-16 text-base leading-7 text-muted-foreground">
         This route is available only to the isolated end-to-end server.
       </p>
-  </PublicPage>
-  )
+    </PublicPage>
+  );
 }

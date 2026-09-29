@@ -2,7 +2,7 @@ import {
   AUTHORIZATION_ERROR_CODES,
   AuthAuthorizationError,
   type SafeAuthSession,
-} from "@darkfactory/auth/server"
+} from "@darkfactory/auth/server";
 import {
   AdminUsersPersistenceError,
   DashboardPersistenceError,
@@ -10,26 +10,26 @@ import {
   DatabasePersistenceError,
   InvalidRepositoryInputError,
   type Repositories,
-} from "@darkfactory/db/server"
+} from "@darkfactory/db/server";
 import type {
   Address,
   FeatureItem,
   Profile,
   UserPreferences,
-} from "@darkfactory/db/schema"
-import type { SemanticEventPort } from "@darkfactory/observability/port"
-import { ORPCError } from "@orpc/client"
-import { createRouterClient } from "@orpc/server"
-import { describe, expect, it, vi } from "vitest"
+} from "@darkfactory/db/schema";
+import type { SemanticEventPort } from "@darkfactory/observability/port";
+import { ORPCError } from "@orpc/client";
+import { createRouterClient } from "@orpc/server";
+import { describe, expect, it, vi } from "vitest";
 
-import type { ApiContext } from "./context.ts"
+import type { ApiContext } from "./context.ts";
 import type {
   ContactDeliveryPort,
   ContactThrottlePort,
-} from "./contact-service.ts"
-import { appRouter } from "./router.ts"
+} from "./contact-service.ts";
+import { appRouter } from "./router.ts";
 
-const NOW = new Date("2026-01-02T03:04:05.000Z")
+const NOW = new Date("2026-01-02T03:04:05.000Z");
 const memberSession: SafeAuthSession = {
   user: {
     id: "member-1",
@@ -52,7 +52,7 @@ const memberSession: SafeAuthSession = {
     userAgent: null,
   },
   principal: { userId: "member-1", role: "member", status: "active" },
-}
+};
 const adminSession: SafeAuthSession = {
   ...memberSession,
   user: {
@@ -63,7 +63,7 @@ const adminSession: SafeAuthSession = {
   },
   session: { ...memberSession.session, id: "session-admin", userId: "admin-1" },
   principal: { userId: "admin-1", role: "admin", status: "active" },
-}
+};
 
 const profile = (overrides: Partial<Profile> = {}): Profile => ({
   userId: "member-1",
@@ -81,7 +81,7 @@ const profile = (overrides: Partial<Profile> = {}): Profile => ({
   createdAt: NOW,
   updatedAt: NOW,
   ...overrides,
-})
+});
 const address = (overrides: Partial<Address> = {}): Address => ({
   id: "address-1",
   userId: "member-1",
@@ -96,8 +96,10 @@ const address = (overrides: Partial<Address> = {}): Address => ({
   createdAt: NOW,
   updatedAt: NOW,
   ...overrides,
-})
-const preferences = (overrides: Partial<UserPreferences> = {}): UserPreferences => ({
+});
+const preferences = (
+  overrides: Partial<UserPreferences> = {}
+): UserPreferences => ({
   userId: "member-1",
   mode: "system",
   colorScheme: "neutral",
@@ -109,7 +111,7 @@ const preferences = (overrides: Partial<UserPreferences> = {}): UserPreferences 
   createdAt: NOW,
   updatedAt: NOW,
   ...overrides,
-})
+});
 const featureItem = (overrides: Partial<FeatureItem> = {}): FeatureItem => ({
   id: "item-1",
   ownerId: "member-1",
@@ -120,7 +122,7 @@ const featureItem = (overrides: Partial<FeatureItem> = {}): FeatureItem => ({
   createdAt: NOW,
   updatedAt: NOW,
   ...overrides,
-})
+});
 
 const repositories = (): Repositories => ({
   profiles: {
@@ -173,7 +175,7 @@ const repositories = (): Repositories => ({
       recent: [],
     })),
   },
-})
+});
 
 const capabilities = {
   ai: true,
@@ -182,7 +184,7 @@ const capabilities = {
   telemetryExport: false,
   storage: false,
   errorTracking: false,
-} as const
+} as const;
 
 const contextFor = (overrides: Partial<ApiContext> = {}): ApiContext => ({
   requestId: "request-router-1",
@@ -193,71 +195,72 @@ const contextFor = (overrides: Partial<ApiContext> = {}): ApiContext => ({
     if (role !== "member") {
       throw new AuthAuthorizationError(
         AUTHORIZATION_ERROR_CODES.FORBIDDEN,
-        403,
-      )
+        403
+      );
     }
-    return memberSession
-  }
-  ),
+    return memberSession;
+  }),
   ...overrides,
-})
-const clientFor = (context: ApiContext) => createRouterClient(appRouter, { context })
+});
+const clientFor = (context: ApiContext) =>
+  createRouterClient(appRouter, { context });
 
 const expectDefinedError = async (
   promise: Promise<unknown>,
   code: string,
-  status: number,
+  status: number
 ): Promise<void> => {
   try {
-    await promise
-    throw new Error("Expected the router operation to fail")
+    await promise;
+    throw new Error("Expected the router operation to fail");
+  } catch (error) {
+    expect(error).toBeInstanceOf(ORPCError);
+    expect(error).toMatchObject({ code, status, defined: true });
   }
-  catch (error) {
-    expect(error).toBeInstanceOf(ORPCError)
-    expect(error).toMatchObject({ code, status, defined: true })
-  }
-}
+};
 
 const contactInput = {
   name: "Ada Lovelace",
   email: "ada@example.test",
   subject: "Architecture review",
   message: "Please review the service boundary.",
-}
+};
 const contactDelivery = (): ContactDeliveryPort => ({
   sendContact: vi.fn(async () => ({
     status: "sent" as const,
     provider: "resend" as const,
     messageId: "message-1",
   })),
-})
+});
 const contactThrottle = (): ContactThrottlePort => ({
   consume: vi.fn(async () => ({
     allowed: true,
     remaining: 4,
     retryAfterSeconds: 0,
   })),
-})
+});
 
-describe("router authentication context", function() {
-  it("carries the authenticated session into account profile responses", async function() {
-    const repos = repositories()
-    const requireSession = vi.fn(async () => memberSession)
-    const client = clientFor(contextFor({ repositories: repos, requireSession }))
+describe("router authentication context", function () {
+  it("carries the authenticated session into account profile responses", async function () {
+    const repos = repositories();
+    const requireSession = vi.fn(async () => memberSession);
+    const client = clientFor(
+      contextFor({ repositories: repos, requireSession })
+    );
 
     await expect(client.account.profile.get({})).resolves.toMatchObject({
       identity: { email: "member@example.test", emailVerified: true },
       profile: { displayName: "Ada" },
-    })
-    expect(requireSession).toHaveBeenCalledOnce()
-    return expect(repos.profiles.findByUserId).toHaveBeenCalledWith("member-1")
-  })
+    });
+    expect(requireSession).toHaveBeenCalledOnce();
+    return expect(repos.profiles.findByUserId).toHaveBeenCalledWith("member-1");
+  });
 
   it.each([
     {
       failure: new AuthAuthorizationError(
         AUTHORIZATION_ERROR_CODES.AUTH_REQUIRED,
-        401,
+        401
       ),
       code: "UNAUTHORIZED",
       status: 401,
@@ -265,187 +268,232 @@ describe("router authentication context", function() {
     {
       failure: new AuthAuthorizationError(
         AUTHORIZATION_ERROR_CODES.FORBIDDEN,
-        403,
+        403
       ),
       code: "FORBIDDEN",
       status: 403,
     },
-  ] as const)("maps session denial to $code", async function({ failure, code, status }) {
-    const client = clientFor(contextFor({
-      requireSession: vi.fn(async () => {
-        throw failure
-      }
-      ),
-    }))
+  ] as const)("maps session denial to $code", async function ({
+    failure,
+    code,
+    status,
+  }) {
+    const client = clientFor(
+      contextFor({
+        requireSession: vi.fn(async () => {
+          throw failure;
+        }),
+      })
+    );
 
-    return await expectDefinedError(client.account.profile.get({}), code, status)
-  }
-  )
+    return await expectDefinedError(
+      client.account.profile.get({}),
+      code,
+      status
+    );
+  });
 
-  it("preserves unexpected authentication adapter failures", async function() {
-    const failure = new Error("authentication adapter unavailable")
-    const client = clientFor(contextFor({
-      requireSession: vi.fn(async () => {
-        throw failure
-      }
-      ),
-    }))
+  it("preserves unexpected authentication adapter failures", async function () {
+    const failure = new Error("authentication adapter unavailable");
+    const client = clientFor(
+      contextFor({
+        requireSession: vi.fn(async () => {
+          throw failure;
+        }),
+      })
+    );
 
-    return await expect(client.account.profile.get({})).rejects.toBe(failure)
-  })
+    return await expect(client.account.profile.get({})).rejects.toBe(failure);
+  });
 
-  it("denies every account mutation when no session is available", async function() {
-    const client = clientFor(contextFor({
-      requireSession: vi.fn(async () => {
-        throw new AuthAuthorizationError(
-          AUTHORIZATION_ERROR_CODES.AUTH_REQUIRED,
-          401,
-        )
-      }
-      ),
-    }))
+  it("denies every account mutation when no session is available", async function () {
+    const client = clientFor(
+      contextFor({
+        requireSession: vi.fn(async () => {
+          throw new AuthAuthorizationError(
+            AUTHORIZATION_ERROR_CODES.AUTH_REQUIRED,
+            401
+          );
+        }),
+      })
+    );
     const operations: ReadonlyArray<() => Promise<unknown>> = [
-      () => client.account.profile.update({
-        expectedUpdatedAt: NOW,
-        displayName: "Blocked",
-      }),
-      () => client.account.addresses.create({
+      () =>
+        client.account.profile.update({
+          expectedUpdatedAt: NOW,
+          displayName: "Blocked",
+        }),
+      () =>
+        client.account.addresses.create({
+          type: "home",
+          line1: "1 Main St",
+          city: "Paris",
+          region: "Ile-de-France",
+          postalCode: "75001",
+          country: "FR",
+        }),
+      () =>
+        client.account.addresses.update({
+          id: "address-1",
+          expectedUpdatedAt: NOW,
+          city: "Lyon",
+        }),
+      () =>
+        client.account.addresses.remove({
+          id: "address-1",
+          expectedUpdatedAt: NOW,
+        }),
+      () =>
+        client.account.addresses.setPrimary({
+          id: "address-1",
+          expectedUpdatedAt: NOW,
+        }),
+      () =>
+        client.preferences.update({
+          expectedUpdatedAt: NOW,
+          emailNotifications: true,
+        }),
+    ];
+
+    const results = [];
+    for (const operation of operations) {
+      results.push(await expectDefinedError(operation(), "UNAUTHORIZED", 401));
+    }
+    return results;
+  });
+
+  it.each([
+    {
+      failure: new AuthAuthorizationError(
+        AUTHORIZATION_ERROR_CODES.AUTH_REQUIRED,
+        401
+      ),
+      code: "UNAUTHORIZED",
+      status: 401,
+    },
+    {
+      failure: new AuthAuthorizationError(
+        AUTHORIZATION_ERROR_CODES.FORBIDDEN,
+        403
+      ),
+      code: "FORBIDDEN",
+      status: 403,
+    },
+  ] as const)("maps admin denial to $code", async function ({
+    failure,
+    code,
+    status,
+  }) {
+    const client = clientFor(
+      contextFor({
+        requireRole: vi.fn(async () => {
+          throw failure;
+        }),
+      })
+    );
+
+    return await expectDefinedError(
+      client.admin.featureItems.list({ ownerId: "member-1" }),
+      code,
+      status
+    );
+  });
+
+  it("uses the role adapter for an authorized administrator", async function () {
+    const repos = repositories();
+    const requireRole = vi.fn(async () => adminSession);
+    const client = clientFor(contextFor({ repositories: repos, requireRole }));
+
+    await expect(
+      client.admin.featureItems.list({ ownerId: "member-1" })
+    ).resolves.toEqual([featureItem()]);
+    expect(requireRole).toHaveBeenCalledWith("admin");
+    return expect(repos.featureItems.listByOwner).toHaveBeenCalledWith(
+      "member-1",
+      { limit: 50 }
+    );
+  });
+
+  return it("preserves unexpected role adapter failures", async function () {
+    const failure = new Error("role adapter unavailable");
+    const client = clientFor(
+      contextFor({
+        requireRole: vi.fn(async () => {
+          throw failure;
+        }),
+      })
+    );
+
+    return await expect(
+      client.admin.featureItems.list({ ownerId: "member-1" })
+    ).rejects.toBe(failure);
+  });
+});
+
+describe("account router behavior", function () {
+  it("returns successful owner-scoped account mutations without repository-only fields", async function () {
+    const repos = repositories();
+    const client = clientFor(contextFor({ repositories: repos }));
+
+    const listed = await client.account.addresses.list({});
+    expect(listed[0]).not.toHaveProperty("userId");
+    await expect(
+      client.account.addresses.create({
         type: "home",
         line1: "1 Main St",
         city: "Paris",
         region: "Ile-de-France",
         postalCode: "75001",
         country: "FR",
-      }),
-      () => client.account.addresses.update({
+      })
+    ).resolves.toMatchObject({
+      id: "address-1",
+      line2: null,
+      isPrimary: false,
+    });
+    await expect(
+      client.account.addresses.update({
         id: "address-1",
         expectedUpdatedAt: NOW,
         city: "Lyon",
-      }),
-      () => client.account.addresses.remove({ id: "address-1", expectedUpdatedAt: NOW }),
-      () => client.account.addresses.setPrimary({ id: "address-1", expectedUpdatedAt: NOW }),
-      () => client.preferences.update({
+      })
+    ).resolves.toMatchObject({ id: "address-1", city: "Lyon" });
+    await expect(
+      client.account.addresses.remove({
+        id: "address-1",
+        expectedUpdatedAt: NOW,
+      })
+    ).resolves.toEqual({ removed: true });
+    await expect(
+      client.account.addresses.setPrimary({
+        id: "address-1",
+        expectedUpdatedAt: NOW,
+      })
+    ).resolves.toMatchObject({ id: "address-1", isPrimary: true });
+    await expect(
+      client.preferences.update({
         expectedUpdatedAt: NOW,
         emailNotifications: true,
-      }),
-    ]
+      })
+    ).resolves.toMatchObject({ emailNotifications: true });
 
-    const results=[];for (const operation of operations) {
-      results.push(await expectDefinedError(operation(), "UNAUTHORIZED", 401))
-    };return results;
-  })
-
-  it.each([
-    {
-      failure: new AuthAuthorizationError(
-        AUTHORIZATION_ERROR_CODES.AUTH_REQUIRED,
-        401,
-      ),
-      code: "UNAUTHORIZED",
-      status: 401,
-    },
-    {
-      failure: new AuthAuthorizationError(
-        AUTHORIZATION_ERROR_CODES.FORBIDDEN,
-        403,
-      ),
-      code: "FORBIDDEN",
-      status: 403,
-    },
-  ] as const)("maps admin denial to $code", async function({ failure, code, status }) {
-    const client = clientFor(contextFor({
-      requireRole: vi.fn(async () => {
-        throw failure
-      }
-      ),
-    }))
-
-    return await expectDefinedError(
-      client.admin.featureItems.list({ ownerId: "member-1" }),
-      code,
-      status,
-    )
-  }
-  )
-
-  it("uses the role adapter for an authorized administrator", async function() {
-    const repos = repositories()
-    const requireRole = vi.fn(async () => adminSession)
-    const client = clientFor(contextFor({ repositories: repos, requireRole }))
-
-    await expect(
-      client.admin.featureItems.list({ ownerId: "member-1" }),
-    ).resolves.toEqual([featureItem()])
-    expect(requireRole).toHaveBeenCalledWith("admin")
-    return expect(repos.featureItems.listByOwner).toHaveBeenCalledWith(
-      "member-1",
-      { limit: 50 },
-    )
-  })
-
-  return it("preserves unexpected role adapter failures", async function() {
-    const failure = new Error("role adapter unavailable")
-    const client = clientFor(contextFor({
-      requireRole: vi.fn(async () => {
-        throw failure
-      }
-      ),
-    }))
-
-    return await expect(
-      client.admin.featureItems.list({ ownerId: "member-1" }),
-    ).rejects.toBe(failure)
-  })
-})
-
-describe("account router behavior", function() {
-  it("returns successful owner-scoped account mutations without repository-only fields", async function() {
-    const repos = repositories()
-    const client = clientFor(contextFor({ repositories: repos }))
-
-    const listed = await client.account.addresses.list({})
-    expect(listed[0]).not.toHaveProperty("userId")
-    await expect(client.account.addresses.create({
-      type: "home",
-      line1: "1 Main St",
-      city: "Paris",
-      region: "Ile-de-France",
-      postalCode: "75001",
-      country: "FR",
-    })).resolves.toMatchObject({ id: "address-1", line2: null, isPrimary: false })
-    await expect(client.account.addresses.update({
-      id: "address-1",
-      expectedUpdatedAt: NOW,
-      city: "Lyon",
-    })).resolves.toMatchObject({ id: "address-1", city: "Lyon" })
-    await expect(
-      client.account.addresses.remove({ id: "address-1", expectedUpdatedAt: NOW }),
-    ).resolves.toEqual({ removed: true })
-    await expect(
-      client.account.addresses.setPrimary({ id: "address-1", expectedUpdatedAt: NOW }),
-    ).resolves.toMatchObject({ id: "address-1", isPrimary: true })
-    await expect(client.preferences.update({
-      expectedUpdatedAt: NOW,
-      emailNotifications: true,
-    })).resolves.toMatchObject({ emailNotifications: true })
-
-    expect(repos.addresses.listByUserId).toHaveBeenCalledWith("member-1")
+    expect(repos.addresses.listByUserId).toHaveBeenCalledWith("member-1");
     expect(repos.addresses.create).toHaveBeenCalledWith(
-      expect.objectContaining({ userId: "member-1" }),
-    )
+      expect.objectContaining({ userId: "member-1" })
+    );
     expect(repos.addresses.updateOptimistic).toHaveBeenCalledWith(
-      expect.objectContaining({ userId: "member-1", id: "address-1" }),
-    )
+      expect.objectContaining({ userId: "member-1", id: "address-1" })
+    );
     expect(repos.addresses.removeOptimistic).toHaveBeenCalledWith(
-      expect.objectContaining({ userId: "member-1", id: "address-1" }),
-    )
+      expect.objectContaining({ userId: "member-1", id: "address-1" })
+    );
     expect(repos.addresses.setPrimaryOptimistic).toHaveBeenCalledWith(
-      expect.objectContaining({ userId: "member-1", id: "address-1" }),
-    )
+      expect.objectContaining({ userId: "member-1", id: "address-1" })
+    );
     return expect(repos.userPreferences.updateOptimistic).toHaveBeenCalledWith(
-      expect.objectContaining({ userId: "member-1" }),
-    )
-  })
+      expect.objectContaining({ userId: "member-1" })
+    );
+  });
 
   it.each([
     {
@@ -463,78 +511,97 @@ describe("account router behavior", function() {
       code: "STORAGE_ERROR",
       status: 503,
     },
-  ] as const)("maps account adapter failure to $code", async function({ failure, code, status }) {
-    const repos = repositories()
-    vi.mocked(repos.addresses.listByUserId).mockRejectedValue(failure)
-    const client = clientFor(contextFor({ repositories: repos }))
+  ] as const)("maps account adapter failure to $code", async function ({
+    failure,
+    code,
+    status,
+  }) {
+    const repos = repositories();
+    vi.mocked(repos.addresses.listByUserId).mockRejectedValue(failure);
+    const client = clientFor(contextFor({ repositories: repos }));
 
-    return await expectDefinedError(client.account.addresses.list({}), code, status)
-  }
-  )
+    return await expectDefinedError(
+      client.account.addresses.list({}),
+      code,
+      status
+    );
+  });
 
-  it("maps a missing owner-scoped address without leaking whether another owner has it", async function() {
-    const repos = repositories()
-    vi.mocked(repos.addresses.updateOptimistic).mockResolvedValue(null)
-    const client = clientFor(contextFor({ repositories: repos }))
+  it("maps a missing owner-scoped address without leaking whether another owner has it", async function () {
+    const repos = repositories();
+    vi.mocked(repos.addresses.updateOptimistic).mockResolvedValue(null);
+    const client = clientFor(contextFor({ repositories: repos }));
 
-    await expectDefinedError(client.account.addresses.update({
-      id: "victim-address",
-      expectedUpdatedAt: NOW,
-      city: "Lyon",
-    }), "NOT_FOUND", 404)
+    await expectDefinedError(
+      client.account.addresses.update({
+        id: "victim-address",
+        expectedUpdatedAt: NOW,
+        city: "Lyon",
+      }),
+      "NOT_FOUND",
+      404
+    );
     return expect(repos.addresses.updateOptimistic).toHaveBeenCalledWith(
-      expect.objectContaining({ id: "victim-address", userId: "member-1" }),
-    )
-  })
+      expect.objectContaining({ id: "victim-address", userId: "member-1" })
+    );
+  });
 
-  it("rejects owner-bearing account input before persistence", async function() {
-    const repos = repositories()
-    const client = clientFor(contextFor({ repositories: repos }))
+  it("rejects owner-bearing account input before persistence", async function () {
+    const repos = repositories();
+    const client = clientFor(contextFor({ repositories: repos }));
 
-    await expectDefinedError(client.account.addresses.create({
-      type: "home",
-      line1: "1 Main St",
-      city: "Paris",
-      region: "Ile-de-France",
-      postalCode: "75001",
-      country: "FR",
-      ownerId: "victim-1",
-    } as never), "BAD_REQUEST", 400)
-    return expect(repos.addresses.create).not.toHaveBeenCalled()
-  })
+    await expectDefinedError(
+      client.account.addresses.create({
+        type: "home",
+        line1: "1 Main St",
+        city: "Paris",
+        region: "Ile-de-France",
+        postalCode: "75001",
+        country: "FR",
+        ownerId: "victim-1",
+      } as never),
+      "BAD_REQUEST",
+      400
+    );
+    return expect(repos.addresses.create).not.toHaveBeenCalled();
+  });
 
-  return it("does not fail a successful account mutation when observability is unavailable", async function() {
-    const repos = repositories()
+  return it("does not fail a successful account mutation when observability is unavailable", async function () {
+    const repos = repositories();
     const semanticEvents: SemanticEventPort = {
       emit: vi.fn().mockRejectedValue(null),
-    }
-    const client = clientFor(contextFor({ repositories: repos, semanticEvents }))
+    };
+    const client = clientFor(
+      contextFor({ repositories: repos, semanticEvents })
+    );
 
-    await expect(client.account.addresses.create({
-      type: "home",
-      line1: "1 Main St",
-      city: "Paris",
-      region: "Ile-de-France",
-      postalCode: "75001",
-      country: "FR",
-    })).resolves.toMatchObject({ id: "address-1" })
-    expect(repos.addresses.create).toHaveBeenCalledOnce()
-    return expect(semanticEvents.emit).toHaveBeenCalledOnce()
-  })
-})
+    await expect(
+      client.account.addresses.create({
+        type: "home",
+        line1: "1 Main St",
+        city: "Paris",
+        region: "Ile-de-France",
+        postalCode: "75001",
+        country: "FR",
+      })
+    ).resolves.toMatchObject({ id: "address-1" });
+    expect(repos.addresses.create).toHaveBeenCalledOnce();
+    return expect(semanticEvents.emit).toHaveBeenCalledOnce();
+  });
+});
 
-describe("feature and theme service error responses", function() {
-  it("denies a member cross-owner scope before reading feature storage", async function() {
-    const repos = repositories()
-    const client = clientFor(contextFor({ repositories: repos }))
+describe("feature and theme service error responses", function () {
+  it("denies a member cross-owner scope before reading feature storage", async function () {
+    const repos = repositories();
+    const client = clientFor(contextFor({ repositories: repos }));
 
     await expectDefinedError(
       client.featureItems.list({ ownerId: "victim-1" }),
       "FORBIDDEN",
-      403,
-    )
-    return expect(repos.featureItems.listByOwner).not.toHaveBeenCalled()
-  })
+      403
+    );
+    return expect(repos.featureItems.listByOwner).not.toHaveBeenCalled();
+  });
 
   it.each([
     {
@@ -552,31 +619,40 @@ describe("feature and theme service error responses", function() {
       code: "STORAGE_ERROR",
       status: 503,
     },
-  ] as const)("maps feature adapter failure to $code", async function({ failure, code, status }) {
-    const repos = repositories()
-    vi.mocked(repos.featureItems.listByOwner).mockRejectedValue(failure)
-    const client = clientFor(contextFor({ repositories: repos }))
+  ] as const)("maps feature adapter failure to $code", async function ({
+    failure,
+    code,
+    status,
+  }) {
+    const repos = repositories();
+    vi.mocked(repos.featureItems.listByOwner).mockRejectedValue(failure);
+    const client = clientFor(contextFor({ repositories: repos }));
 
-    return await expectDefinedError(client.featureItems.list({}), code, status)
-  }
-  )
+    return await expectDefinedError(client.featureItems.list({}), code, status);
+  });
 
-  it("maps a missing feature and preserves an unexpected adapter failure", async function() {
-    const missingRepos = repositories()
-    vi.mocked(missingRepos.featureItems.findByIdForOwner).mockResolvedValue(null)
+  it("maps a missing feature and preserves an unexpected adapter failure", async function () {
+    const missingRepos = repositories();
+    vi.mocked(missingRepos.featureItems.findByIdForOwner).mockResolvedValue(
+      null
+    );
     await expectDefinedError(
-      clientFor(contextFor({ repositories: missingRepos })).featureItems.get({ id: "missing" }),
+      clientFor(contextFor({ repositories: missingRepos })).featureItems.get({
+        id: "missing",
+      }),
       "NOT_FOUND",
-      404,
-    )
+      404
+    );
 
-    const failure = new Error("unexpected feature adapter contract violation")
-    const failingRepos = repositories()
-    vi.mocked(failingRepos.featureItems.listByOwner).mockRejectedValue(failure)
+    const failure = new Error("unexpected feature adapter contract violation");
+    const failingRepos = repositories();
+    vi.mocked(failingRepos.featureItems.listByOwner).mockRejectedValue(failure);
     return await expect(
-      clientFor(contextFor({ repositories: failingRepos })).featureItems.list({}),
-    ).rejects.toBe(failure)
-  })
+      clientFor(contextFor({ repositories: failingRepos })).featureItems.list(
+        {}
+      )
+    ).rejects.toBe(failure);
+  });
 
   it.each([
     {
@@ -589,110 +665,128 @@ describe("feature and theme service error responses", function() {
       code: "CONFLICT",
       status: 409,
     },
-  ] as const)("maps theme adapter failure to $code", async function({ failure, code, status }) {
-    const repos = repositories()
-    vi.mocked(repos.userPreferences.upsertTheme).mockRejectedValue(failure)
-    const client = clientFor(contextFor({ repositories: repos }))
+  ] as const)("maps theme adapter failure to $code", async function ({
+    failure,
+    code,
+    status,
+  }) {
+    const repos = repositories();
+    vi.mocked(repos.userPreferences.upsertTheme).mockRejectedValue(failure);
+    const client = clientFor(contextFor({ repositories: repos }));
 
-    return await expectDefinedError(client.preferences.theme.update({
-      themeMode: "dark",
-      palette: "violet",
-      expectedUpdatedAt: NOW,
-    }), code, status)
-  }
-  )
+    return await expectDefinedError(
+      client.preferences.theme.update({
+        themeMode: "dark",
+        palette: "violet",
+        expectedUpdatedAt: NOW,
+      }),
+      code,
+      status
+    );
+  });
 
-  return it("preserves an unexpected theme adapter failure", async function() {
-    const failure = new Error("unexpected theme adapter contract violation")
-    const repos = repositories()
-    vi.mocked(repos.userPreferences.upsertTheme).mockRejectedValue(failure)
-    const client = clientFor(contextFor({ repositories: repos }))
+  return it("preserves an unexpected theme adapter failure", async function () {
+    const failure = new Error("unexpected theme adapter contract violation");
+    const repos = repositories();
+    vi.mocked(repos.userPreferences.upsertTheme).mockRejectedValue(failure);
+    const client = clientFor(contextFor({ repositories: repos }));
 
-    return await expect(client.preferences.theme.update({
-      themeMode: "dark",
-      palette: "violet",
-      expectedUpdatedAt: NOW,
-    })).rejects.toBe(failure)
-  })
-})
+    return await expect(
+      client.preferences.theme.update({
+        themeMode: "dark",
+        palette: "violet",
+        expectedUpdatedAt: NOW,
+      })
+    ).rejects.toBe(failure);
+  });
+});
 
-describe("optional router capabilities", function() {
-  it.each(["delivery", "throttle", "key"] as const)(
-    "returns SERVICE_UNAVAILABLE when the contact %s capability is absent",
-    async function(missing) {
-      const delivery = contactDelivery()
-      const throttle = contactThrottle()
-      const optionalPorts: Partial<ApiContext> = {
-        ...(missing === "delivery" ? {} : { contactDelivery: delivery }),
-        ...(missing === "throttle" ? {} : { contactThrottle: throttle }),
-        ...(missing === "key" ? {} : { contactThrottleKey: "k".repeat(64) }),
-      }
-      const client = clientFor(contextFor(optionalPorts))
+describe("optional router capabilities", function () {
+  it.each([
+    "delivery",
+    "throttle",
+    "key",
+  ] as const)("returns SERVICE_UNAVAILABLE when the contact %s capability is absent", async function (missing) {
+    const delivery = contactDelivery();
+    const throttle = contactThrottle();
+    const optionalPorts: Partial<ApiContext> = {
+      ...(missing === "delivery" ? {} : { contactDelivery: delivery }),
+      ...(missing === "throttle" ? {} : { contactThrottle: throttle }),
+      ...(missing === "key" ? {} : { contactThrottleKey: "k".repeat(64) }),
+    };
+    const client = clientFor(contextFor(optionalPorts));
 
-      await expectDefinedError(
-        client.contact.submit(contactInput),
-        "SERVICE_UNAVAILABLE",
-        503,
-      )
-      expect(delivery.sendContact).not.toHaveBeenCalled()
-      return expect(throttle.consume).not.toHaveBeenCalled()
-    }
-  )
+    await expectDefinedError(
+      client.contact.submit(contactInput),
+      "SERVICE_UNAVAILABLE",
+      503
+    );
+    expect(delivery.sendContact).not.toHaveBeenCalled();
+    return expect(throttle.consume).not.toHaveBeenCalled();
+  });
 
-  return it("allows the public contact route with all optional adapters and no event port", async function() {
-    const delivery = contactDelivery()
-    const throttle = contactThrottle()
-    const client = clientFor(contextFor({
-      contactDelivery: delivery,
-      contactThrottle: throttle,
-      contactThrottleKey: "k".repeat(64),
-    }))
+  return it("allows the public contact route with all optional adapters and no event port", async function () {
+    const delivery = contactDelivery();
+    const throttle = contactThrottle();
+    const client = clientFor(
+      contextFor({
+        contactDelivery: delivery,
+        contactThrottle: throttle,
+        contactThrottleKey: "k".repeat(64),
+      })
+    );
 
-    await expect(client.contact.submit(contactInput)).resolves.toEqual({ status: "sent" })
-    expect(throttle.consume).toHaveBeenCalledWith("k".repeat(64))
-    return expect(delivery.sendContact).toHaveBeenCalledOnce()
-  })
-})
+    await expect(client.contact.submit(contactInput)).resolves.toEqual({
+      status: "sent",
+    });
+    expect(throttle.consume).toHaveBeenCalledWith("k".repeat(64));
+    return expect(delivery.sendContact).toHaveBeenCalledOnce();
+  });
+});
 
-describe("router status and serialization boundaries", function() {
-  it("accepts description-only and metadata-only feature updates", async function() {
-    const repos = repositories()
-    const client = clientFor(contextFor({ repositories: repos }))
+describe("router status and serialization boundaries", function () {
+  it("accepts description-only and metadata-only feature updates", async function () {
+    const repos = repositories();
+    const client = clientFor(contextFor({ repositories: repos }));
 
-    await expect(client.featureItems.update({
+    await expect(
+      client.featureItems.update({
+        id: "item-1",
+        description: "Description-only update",
+      })
+    ).resolves.toMatchObject({
       id: "item-1",
       description: "Description-only update",
-    })).resolves.toMatchObject({
-      id: "item-1",
-      description: "Description-only update",
-    })
-    await expect(client.featureItems.update({
+    });
+    await expect(
+      client.featureItems.update({
+        id: "item-1",
+        metadata: {
+          nested: { enabled: true, values: [null, "stable"] },
+        },
+      })
+    ).resolves.toMatchObject({
       id: "item-1",
       metadata: {
         nested: { enabled: true, values: [null, "stable"] },
       },
-    })).resolves.toMatchObject({
-      id: "item-1",
-      metadata: {
-        nested: { enabled: true, values: [null, "stable"] },
-      },
-    })
-    return expect(repos.featureItems.update).toHaveBeenCalledTimes(2)
-  })
+    });
+    return expect(repos.featureItems.update).toHaveBeenCalledTimes(2);
+  });
 
-  it("maps every feature mutation and admin feature read failure", async function() {
-    const updateRepos = repositories()
+  it("maps every feature mutation and admin feature read failure", async function () {
+    const updateRepos = repositories();
     vi.mocked(updateRepos.featureItems.update).mockRejectedValue(
-      new DatabaseConflictError("feature item"),
-    )
+      new DatabaseConflictError("feature item")
+    );
     await expectDefinedError(
       clientFor(contextFor({ repositories: updateRepos })).featureItems.update({
         id: "item-1",
         description: "Conflicting update",
       }),
       "CONFLICT",
-      409,
-    )
+      409
+    );
 
     await expectDefinedError(
       clientFor(contextFor()).featureItems.changeStatus({
@@ -700,56 +794,66 @@ describe("router status and serialization boundaries", function() {
         status: "draft",
       }),
       "CONFLICT",
-      409,
-    )
+      409
+    );
 
-    const archiveRepos = repositories()
+    const archiveRepos = repositories();
     vi.mocked(archiveRepos.featureItems.archive).mockRejectedValue(
-      new DatabasePersistenceError("private archive details"),
-    )
+      new DatabasePersistenceError("private archive details")
+    );
     await expectDefinedError(
-      clientFor(contextFor({ repositories: archiveRepos })).featureItems.archive({
+      clientFor(
+        contextFor({ repositories: archiveRepos })
+      ).featureItems.archive({
         id: "item-1",
       }),
       "STORAGE_ERROR",
-      503,
-    )
+      503
+    );
 
-    const adminRepos = repositories()
-    const adminClient = clientFor(contextFor({
-      repositories: adminRepos,
-      requireRole: vi.fn(async () => adminSession),
-    }))
-    await expect(adminClient.admin.featureItems.list({
-      ownerId: "member-1",
-    })).resolves.toEqual([featureItem()])
+    const adminRepos = repositories();
+    const adminClient = clientFor(
+      contextFor({
+        repositories: adminRepos,
+        requireRole: vi.fn(async () => adminSession),
+      })
+    );
+    await expect(
+      adminClient.admin.featureItems.list({
+        ownerId: "member-1",
+      })
+    ).resolves.toEqual([featureItem()]);
     vi.mocked(adminRepos.featureItems.listByOwner).mockRejectedValue(
-      new DatabasePersistenceError("private admin list details"),
-    )
+      new DatabasePersistenceError("private admin list details")
+    );
     return await expectDefinedError(
       adminClient.admin.featureItems.list({ ownerId: "member-1" }),
       "STORAGE_ERROR",
-      503,
-    )
-  })
+      503
+    );
+  });
 
-  it("maps remaining account, directory, and dashboard failures", async function() {
-    const profileRepos = repositories()
+  it("maps remaining account, directory, and dashboard failures", async function () {
+    const profileRepos = repositories();
     vi.mocked(profileRepos.profiles.findByUserId).mockRejectedValue(
-      new Error("private profile adapter details"),
-    )
+      new Error("private profile adapter details")
+    );
     await expectDefinedError(
-      clientFor(contextFor({ repositories: profileRepos })).account.profile.get({}),
+      clientFor(contextFor({ repositories: profileRepos })).account.profile.get(
+        {}
+      ),
       "STORAGE_ERROR",
-      503,
-    )
+      503
+    );
 
-    const createRepos = repositories()
+    const createRepos = repositories();
     vi.mocked(createRepos.addresses.create).mockRejectedValue(
-      new InvalidRepositoryInputError("private invalid address"),
-    )
+      new InvalidRepositoryInputError("private invalid address")
+    );
     await expectDefinedError(
-      clientFor(contextFor({ repositories: createRepos })).account.addresses.create({
+      clientFor(
+        contextFor({ repositories: createRepos })
+      ).account.addresses.create({
         type: "home",
         line1: "1 Main St",
         city: "Paris",
@@ -758,168 +862,198 @@ describe("router status and serialization boundaries", function() {
         country: "FR",
       }),
       "VALIDATION_ERROR",
-      422,
-    )
+      422
+    );
 
-    const removeRepos = repositories()
-    vi.mocked(removeRepos.addresses.removeOptimistic).mockResolvedValue(false)
+    const removeRepos = repositories();
+    vi.mocked(removeRepos.addresses.removeOptimistic).mockResolvedValue(false);
     await expectDefinedError(
-      clientFor(contextFor({ repositories: removeRepos })).account.addresses.remove({
+      clientFor(
+        contextFor({ repositories: removeRepos })
+      ).account.addresses.remove({
         id: "missing-address",
         expectedUpdatedAt: NOW,
       }),
       "NOT_FOUND",
-      404,
-    )
+      404
+    );
 
-    const primaryRepos = repositories()
-    vi.mocked(primaryRepos.addresses.setPrimaryOptimistic).mockResolvedValue(null)
+    const primaryRepos = repositories();
+    vi.mocked(primaryRepos.addresses.setPrimaryOptimistic).mockResolvedValue(
+      null
+    );
     await expectDefinedError(
-      clientFor(contextFor({ repositories: primaryRepos }))
-        .account.addresses.setPrimary({
-          id: "missing-address",
-          expectedUpdatedAt: NOW,
-        }),
+      clientFor(
+        contextFor({ repositories: primaryRepos })
+      ).account.addresses.setPrimary({
+        id: "missing-address",
+        expectedUpdatedAt: NOW,
+      }),
       "NOT_FOUND",
-      404,
-    )
+      404
+    );
 
-    const preferencesGetRepos = repositories()
-    vi.mocked(preferencesGetRepos.userPreferences.findByUserId).mockRejectedValue(
-      new Error("private preferences adapter details"),
-    )
-    await expectDefinedError(
-      clientFor(contextFor({ repositories: preferencesGetRepos })).preferences.get({}),
-      "STORAGE_ERROR",
-      503,
-    )
-
-    const preferencesUpdateRepos = repositories()
+    const preferencesGetRepos = repositories();
     vi.mocked(
-      preferencesUpdateRepos.userPreferences.updateOptimistic,
-    ).mockRejectedValue(new DatabaseConflictError("preferences"))
+      preferencesGetRepos.userPreferences.findByUserId
+    ).mockRejectedValue(new Error("private preferences adapter details"));
     await expectDefinedError(
-      clientFor(contextFor({
-        repositories: preferencesUpdateRepos,
-      })).preferences.update({
+      clientFor(
+        contextFor({ repositories: preferencesGetRepos })
+      ).preferences.get({}),
+      "STORAGE_ERROR",
+      503
+    );
+
+    const preferencesUpdateRepos = repositories();
+    vi.mocked(
+      preferencesUpdateRepos.userPreferences.updateOptimistic
+    ).mockRejectedValue(new DatabaseConflictError("preferences"));
+    await expectDefinedError(
+      clientFor(
+        contextFor({
+          repositories: preferencesUpdateRepos,
+        })
+      ).preferences.update({
         expectedUpdatedAt: NOW,
         emailNotifications: true,
       }),
       "CONFLICT",
-      409,
-    )
+      409
+    );
 
-    const themeGetRepos = repositories()
-    vi.mocked(themeGetRepos.userPreferences.findThemeByUserId).mockRejectedValue(
-      new DatabasePersistenceError("private theme read details"),
-    )
+    const themeGetRepos = repositories();
+    vi.mocked(
+      themeGetRepos.userPreferences.findThemeByUserId
+    ).mockRejectedValue(
+      new DatabasePersistenceError("private theme read details")
+    );
     await expectDefinedError(
-      clientFor(contextFor({
-        repositories: themeGetRepos,
-      })).preferences.theme.get({}),
+      clientFor(
+        contextFor({
+          repositories: themeGetRepos,
+        })
+      ).preferences.theme.get({}),
       "STORAGE_ERROR",
-      503,
-    )
+      503
+    );
 
-    const adminUsersRepos = repositories()
+    const adminUsersRepos = repositories();
     vi.mocked(adminUsersRepos.adminUsers.search).mockRejectedValue(
-      new AdminUsersPersistenceError(),
-    )
+      new AdminUsersPersistenceError()
+    );
     await expectDefinedError(
-      clientFor(contextFor({
-        repositories: adminUsersRepos,
-        requireRole: vi.fn(async () => adminSession),
-      })).admin.users.list({}),
+      clientFor(
+        contextFor({
+          repositories: adminUsersRepos,
+          requireRole: vi.fn(async () => adminSession),
+        })
+      ).admin.users.list({}),
       "STORAGE_ERROR",
-      503,
-    )
+      503
+    );
 
-    const dashboardRepos = repositories()
+    const dashboardRepos = repositories();
     vi.mocked(dashboardRepos.dashboard.getFeatureSummary).mockRejectedValue(
-      new DashboardPersistenceError(),
-    )
+      new DashboardPersistenceError()
+    );
     return await expectDefinedError(
-      clientFor(contextFor({
-        repositories: dashboardRepos,
-      })).dashboard.summary({}),
+      clientFor(
+        contextFor({
+          repositories: dashboardRepos,
+        })
+      ).dashboard.summary({}),
       "STORAGE_ERROR",
-      503,
-    )
-  })
+      503
+    );
+  });
 
-  return it("preserves unexpected infrastructure and serialization failures", async function() {
-    const accountFailure = new Error("unexpected address serializer failure")
-    const accountRepos = repositories()
+  return it("preserves unexpected infrastructure and serialization failures", async function () {
+    const accountFailure = new Error("unexpected address serializer failure");
+    const accountRepos = repositories();
     const poisonedAddress = new Proxy(address(), {
       get: (target, property, receiver) => {
-        if (property === "id") throw accountFailure
-        return Reflect.get(target, property, receiver)
-      }
-    })
+        if (property === "id") throw accountFailure;
+        return Reflect.get(target, property, receiver);
+      },
+    });
     vi.mocked(accountRepos.addresses.listByUserId).mockResolvedValue([
       poisonedAddress,
-    ])
+    ]);
     await expect(
-      clientFor(contextFor({
-        repositories: accountRepos,
-      })).account.addresses.list({}),
-    ).rejects.toBe(accountFailure)
+      clientFor(
+        contextFor({
+          repositories: accountRepos,
+        })
+      ).account.addresses.list({})
+    ).rejects.toBe(accountFailure);
 
-    const adminFailure = new Error("unexpected admin repository boundary failure")
-    const adminRepos = repositories()
+    const adminFailure = new Error(
+      "unexpected admin repository boundary failure"
+    );
+    const adminRepos = repositories();
     Object.defineProperty(adminRepos, "adminUsers", {
       get: () => {
-        throw adminFailure
-      }
-    })
+        throw adminFailure;
+      },
+    });
     await expect(
-      clientFor(contextFor({
-        repositories: adminRepos,
-        requireRole: vi.fn(async () => adminSession),
-      })).admin.users.list({}),
-    ).rejects.toBe(adminFailure)
+      clientFor(
+        contextFor({
+          repositories: adminRepos,
+          requireRole: vi.fn(async () => adminSession),
+        })
+      ).admin.users.list({})
+    ).rejects.toBe(adminFailure);
 
-    const dashboardFailure = new Error("unexpected dashboard serializer failure")
-    const dashboardRepos = repositories()
-    const poisonedSummary = new Proxy({
-      total: 0,
-      draft: 0,
-      active: 0,
-      archived: 0,
-      recent: [] as FeatureItem[],
-    }, {
-      get: (target, property, receiver) => {
-        if (property === "recent") throw dashboardFailure
-        return Reflect.get(target, property, receiver)
+    const dashboardFailure = new Error(
+      "unexpected dashboard serializer failure"
+    );
+    const dashboardRepos = repositories();
+    const poisonedSummary = new Proxy(
+      {
+        total: 0,
+        draft: 0,
+        active: 0,
+        archived: 0,
+        recent: [] as FeatureItem[],
+      },
+      {
+        get: (target, property, receiver) => {
+          if (property === "recent") throw dashboardFailure;
+          return Reflect.get(target, property, receiver);
+        },
       }
-    })
+    );
     vi.mocked(dashboardRepos.dashboard.getFeatureSummary).mockResolvedValue(
-      poisonedSummary,
-    )
+      poisonedSummary
+    );
     await expect(
-      clientFor(contextFor({
-        repositories: dashboardRepos,
-      })).dashboard.summary({}),
-    ).rejects.toBe(dashboardFailure)
+      clientFor(
+        contextFor({
+          repositories: dashboardRepos,
+        })
+      ).dashboard.summary({})
+    ).rejects.toBe(dashboardFailure);
 
-    const contactFailure = new Error("unexpected contact context failure")
+    const contactFailure = new Error("unexpected contact context failure");
     const contactContext = contextFor({
       contactThrottle: contactThrottle(),
       contactThrottleKey: "k".repeat(64),
-    })
+    });
     Object.defineProperty(contactContext, "contactDelivery", {
       get: () => {
-        throw contactFailure
-      }
-    })
+        throw contactFailure;
+      },
+    });
     return await expect(
-      clientFor(contactContext).contact.submit(contactInput),
-    ).rejects.toBe(contactFailure)
-  })
-})
+      clientFor(contactContext).contact.submit(contactInput)
+    ).rejects.toBe(contactFailure);
+  });
+});
 
-describe("router event failure and lifetime boundaries", function() {
-  it("passes account and contact event lifetime context without leaking payloads", async function() {
+describe("router event failure and lifetime boundaries", function () {
+  it("passes account and contact event lifetime context without leaking payloads", async function () {
     const span: NonNullable<ApiContext["span"]> = {
       correlation: {
         requestId: "trace-request",
@@ -928,30 +1062,33 @@ describe("router event failure and lifetime boundaries", function() {
       },
       addEvent: vi.fn(),
       recordMetric: vi.fn(),
-    }
-    const waitUntil: NonNullable<ApiContext["waitUntil"]> =
-      vi.fn((promise: Promise<unknown>) => void promise)
+    };
+    const waitUntil: NonNullable<ApiContext["waitUntil"]> = vi.fn(
+      (promise: Promise<unknown>) => void promise
+    );
     const accountEmit = vi.fn(async () => ({
       structuredEvent: "emitted" as const,
       span: "skipped" as const,
       analytics: "skipped" as const,
-    }))
-    const accountEvents: SemanticEventPort = { emit: accountEmit }
+    }));
+    const accountEvents: SemanticEventPort = { emit: accountEmit };
 
     await expect(
-      clientFor(contextFor({
-        semanticEvents: accountEvents,
-        span,
-        waitUntil,
-      })).account.addresses.create({
+      clientFor(
+        contextFor({
+          semanticEvents: accountEvents,
+          span,
+          waitUntil,
+        })
+      ).account.addresses.create({
         type: "home",
         line1: "1 Main St",
         city: "Paris",
         region: "Ile-de-France",
         postalCode: "75001",
         country: "FR",
-      }),
-    ).resolves.toMatchObject({ id: "address-1" })
+      })
+    ).resolves.toMatchObject({ id: "address-1" });
     expect(accountEmit).toHaveBeenCalledWith(
       expect.objectContaining({
         entityId: "address-1",
@@ -961,22 +1098,24 @@ describe("router event failure and lifetime boundaries", function() {
           spanId: "2222222222222222",
         }),
       }),
-      { span, waitUntil },
-    )
+      { span, waitUntil }
+    );
 
-    const contactEmit = vi.fn().mockRejectedValue(false)
-    const contactEvents: SemanticEventPort = { emit: contactEmit }
-    const delivery = contactDelivery()
+    const contactEmit = vi.fn().mockRejectedValue(false);
+    const contactEvents: SemanticEventPort = { emit: contactEmit };
+    const delivery = contactDelivery();
     await expect(
-      clientFor(contextFor({
-        semanticEvents: contactEvents,
-        span,
-        waitUntil,
-        contactDelivery: delivery,
-        contactThrottle: contactThrottle(),
-        contactThrottleKey: "k".repeat(64),
-      })).contact.submit(contactInput),
-    ).resolves.toEqual({ status: "sent" })
+      clientFor(
+        contextFor({
+          semanticEvents: contactEvents,
+          span,
+          waitUntil,
+          contactDelivery: delivery,
+          contactThrottle: contactThrottle(),
+          contactThrottleKey: "k".repeat(64),
+        })
+      ).contact.submit(contactInput)
+    ).resolves.toEqual({ status: "sent" });
     expect(contactEmit).toHaveBeenCalledWith(
       expect.objectContaining({
         name: "contact.submitted",
@@ -985,44 +1124,46 @@ describe("router event failure and lifetime boundaries", function() {
           traceId: "11111111111111111111111111111111",
         }),
       }),
-      { span, waitUntil },
-    )
-    return expect(JSON.stringify(vi.mocked(contactEmit).mock.calls[0]?.[0])).not.toContain(
-      contactInput.email,
-    )
-  })
+      { span, waitUntil }
+    );
+    return expect(
+      JSON.stringify(vi.mocked(contactEmit).mock.calls[0]?.[0])
+    ).not.toContain(contactInput.email);
+  });
 
-  it("classifies typed feature and unexpected theme event failures", async function() {
-    const featureRepos = repositories()
+  it("classifies typed feature and unexpected theme event failures", async function () {
+    const featureRepos = repositories();
     vi.mocked(featureRepos.featureItems.create).mockRejectedValue(
-      new DatabaseConflictError("private feature conflict"),
-    )
+      new DatabaseConflictError("private feature conflict")
+    );
     const featureEmit = vi.fn(async () => ({
       structuredEvent: "emitted" as const,
       span: "skipped" as const,
       analytics: "skipped" as const,
-    }))
-    const featureEvents: SemanticEventPort = { emit: featureEmit }
+    }));
+    const featureEvents: SemanticEventPort = { emit: featureEmit };
     await expectDefinedError(
-      clientFor(contextFor({
-        repositories: featureRepos,
-        semanticEvents: featureEvents,
-      })).featureItems.create({
+      clientFor(
+        contextFor({
+          repositories: featureRepos,
+          semanticEvents: featureEvents,
+        })
+      ).featureItems.create({
         name: "Conflicting item",
         description: "Must not be created",
       }),
       "CONFLICT",
-      409,
-    )
+      409
+    );
     expect(featureEmit).toHaveBeenCalledWith(
       expect.objectContaining({
         outcome: "failure",
         errorCategory: "conflict",
       }),
-      {},
-    )
+      {}
+    );
 
-    const themeFailure = new Error("private unexpected theme failure")
+    const themeFailure = new Error("private unexpected theme failure");
     const themeSpan: NonNullable<ApiContext["span"]> = {
       correlation: {
         requestId: "theme-trace-request",
@@ -1031,79 +1172,86 @@ describe("router event failure and lifetime boundaries", function() {
       },
       addEvent: vi.fn(),
       recordMetric: vi.fn(),
-    }
-    const themeWaitUntil: NonNullable<ApiContext["waitUntil"]> =
-      vi.fn((promise: Promise<unknown>) => void promise)
-    const themeRepos = repositories()
+    };
+    const themeWaitUntil: NonNullable<ApiContext["waitUntil"]> = vi.fn(
+      (promise: Promise<unknown>) => void promise
+    );
+    const themeRepos = repositories();
     vi.mocked(themeRepos.userPreferences.upsertTheme).mockRejectedValue(
-      themeFailure,
-    )
+      themeFailure
+    );
     const themeEmit = vi.fn(async () => ({
       structuredEvent: "emitted" as const,
       span: "skipped" as const,
       analytics: "skipped" as const,
-    }))
-    const themeEvents: SemanticEventPort = { emit: themeEmit }
+    }));
+    const themeEvents: SemanticEventPort = { emit: themeEmit };
     await expect(
-      clientFor(contextFor({
-        repositories: themeRepos,
-        semanticEvents: themeEvents,
-        span: themeSpan,
-        waitUntil: themeWaitUntil,
-      })).preferences.theme.update({
+      clientFor(
+        contextFor({
+          repositories: themeRepos,
+          semanticEvents: themeEvents,
+          span: themeSpan,
+          waitUntil: themeWaitUntil,
+        })
+      ).preferences.theme.update({
         themeMode: "dark",
         palette: "violet",
         expectedUpdatedAt: NOW,
-      }),
-    ).rejects.toBe(themeFailure)
+      })
+    ).rejects.toBe(themeFailure);
     return expect(themeEmit).toHaveBeenCalledWith(
       expect.objectContaining({
         outcome: "failure",
         errorCategory: "unexpected",
       }),
-      { span: themeSpan, waitUntil: themeWaitUntil },
-    )
-  })
-  return it("keeps feature and theme mutations successful when observability rejects", async function() {
-    const featureRepos = repositories()
-    const featureEmit = vi.fn().mockRejectedValue(
-      "private feature observability failure",
-    )
-    const featureEvents: SemanticEventPort = { emit: featureEmit }
+      { span: themeSpan, waitUntil: themeWaitUntil }
+    );
+  });
+  return it("keeps feature and theme mutations successful when observability rejects", async function () {
+    const featureRepos = repositories();
+    const featureEmit = vi
+      .fn()
+      .mockRejectedValue("private feature observability failure");
+    const featureEvents: SemanticEventPort = { emit: featureEmit };
 
     await expect(
-      clientFor(contextFor({
-        repositories: featureRepos,
-        semanticEvents: featureEvents,
-      })).featureItems.create({
+      clientFor(
+        contextFor({
+          repositories: featureRepos,
+          semanticEvents: featureEvents,
+        })
+      ).featureItems.create({
         name: "Observable feature",
         description: "Persists independently of observability",
-      }),
+      })
     ).resolves.toMatchObject({
       id: "item-1",
       name: "Observable feature",
-    })
-    expect(featureRepos.featureItems.create).toHaveBeenCalledOnce()
-    expect(featureEmit).toHaveBeenCalledOnce()
+    });
+    expect(featureRepos.featureItems.create).toHaveBeenCalledOnce();
+    expect(featureEmit).toHaveBeenCalledOnce();
 
-    const themeRepos = repositories()
-    const themeEmit = vi.fn().mockRejectedValue(503)
-    const themeEvents: SemanticEventPort = { emit: themeEmit }
+    const themeRepos = repositories();
+    const themeEmit = vi.fn().mockRejectedValue(503);
+    const themeEvents: SemanticEventPort = { emit: themeEmit };
 
     await expect(
-      clientFor(contextFor({
-        repositories: themeRepos,
-        semanticEvents: themeEvents,
-      })).preferences.theme.update({
+      clientFor(
+        contextFor({
+          repositories: themeRepos,
+          semanticEvents: themeEvents,
+        })
+      ).preferences.theme.update({
         themeMode: "dark",
         palette: "violet",
         expectedUpdatedAt: NOW,
-      }),
+      })
     ).resolves.toMatchObject({
       themeMode: "dark",
       palette: "violet",
-    })
-    expect(themeRepos.userPreferences.upsertTheme).toHaveBeenCalledOnce()
-    return expect(themeEmit).toHaveBeenCalledOnce()
-  })
-})
+    });
+    expect(themeRepos.userPreferences.upsertTheme).toHaveBeenCalledOnce();
+    return expect(themeEmit).toHaveBeenCalledOnce();
+  });
+});

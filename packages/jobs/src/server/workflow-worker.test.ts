@@ -1,12 +1,12 @@
-import { createHash } from "node:crypto"
+import { createHash } from "node:crypto";
 
 import {
   MAX_WORKFLOW_SCOPE_BYTES,
   MAX_WORKFLOW_SCOPE_PATH_BYTES,
   canonicalJsonV1,
-} from "@darkfactory/state/workflow"
+} from "@darkfactory/state/workflow";
 
-import { describe, expect, it, vi } from "vitest"
+import { describe, expect, it, vi } from "vitest";
 
 import {
   OMP_IMPLEMENTATION_ARTIFACT_IDENTITY,
@@ -17,11 +17,11 @@ import {
   OmpWorkspaceCleanupError,
   type OmpCliAdapter,
   type OmpExecutionResult,
-} from "./omp.ts"
+} from "./omp.ts";
 import {
   MAX_WORKFLOW_PLAN_SUMMARY_BYTES,
   hashWorkflowPlanEvidenceV1,
-} from "./plan-evidence.ts"
+} from "./plan-evidence.ts";
 import {
   DEFAULT_WORKFLOW_HEARTBEAT_MS,
   DEFAULT_WORKFLOW_LEASE_MS,
@@ -31,16 +31,16 @@ import {
   type ClaimedWorkflowEffect,
   type WorkflowOutboxPort,
   WorkflowWorkerConfigurationError,
-} from "./workflow-worker.ts"
+} from "./workflow-worker.ts";
 
 const scope = Object.freeze({
   repositoryId: "darkfactory",
-  paths: Object.freeze(["packages/jobs"])
-})
-const RECOVERY_CHANGE_HASH = "c".repeat(64)
-const RECOVERY_SOURCE_HEAD = "d".repeat(40)
-const RECOVERY_WORKSPACE_KEY = "e".repeat(64)
-const RECOVERY_OWNER_NONCE = "123e4567-e89b-42d3-a456-426614174000"
+  paths: Object.freeze(["packages/jobs"]),
+});
+const RECOVERY_CHANGE_HASH = "c".repeat(64);
+const RECOVERY_SOURCE_HEAD = "d".repeat(40);
+const RECOVERY_WORKSPACE_KEY = "e".repeat(64);
+const RECOVERY_OWNER_NONCE = "123e4567-e89b-42d3-a456-426614174000";
 const RECOVERY_CONTENT = JSON.stringify({
   version: 1,
   sourceHead: RECOVERY_SOURCE_HEAD,
@@ -56,7 +56,9 @@ const RECOVERY_CONTENT = JSON.stringify({
       path: "packages/jobs/generated.civet",
       kind: "file",
       mode: 0o644,
-      contentBase64: Buffer.from("export const recovered = true\n").toString("base64"),
+      contentBase64: Buffer.from("export const recovered = true\n").toString(
+        "base64"
+      ),
     },
     {
       path: "packages/jobs/latest.civet",
@@ -68,7 +70,7 @@ const RECOVERY_CONTENT = JSON.stringify({
       kind: "deleted",
     },
   ],
-})
+});
 const RECOVERY_ARTIFACT = Object.freeze({
   identity: OMP_IMPLEMENTATION_ARTIFACT_IDENTITY,
   bytes: Buffer.byteLength(RECOVERY_CONTENT),
@@ -78,7 +80,7 @@ const RECOVERY_ARTIFACT = Object.freeze({
   workspaceKey: RECOVERY_WORKSPACE_KEY,
   ownerNonce: RECOVERY_OWNER_NONCE,
   changeHash: RECOVERY_CHANGE_HASH,
-})
+});
 const RECOVERY_VERIFICATION: NonNullable<OmpExecutionResult["verification"]> =
   Object.freeze({
     commandIdentity: OMP_VERIFIER_COMMAND_IDENTITY,
@@ -94,7 +96,7 @@ const RECOVERY_VERIFICATION: NonNullable<OmpExecutionResult["verification"]> =
     resultBytes: 5,
     resultSummary: "clean",
     digest: "b".repeat(64),
-  })
+  });
 const RECOVERY_EVIDENCE = Object.freeze({
   effectId: "implement",
   effectKind: "implement",
@@ -104,11 +106,11 @@ const RECOVERY_EVIDENCE = Object.freeze({
   exitCode: 0,
   changeHash: RECOVERY_CHANGE_HASH,
   implementationArtifact: RECOVERY_ARTIFACT,
-})
-const authorizeRepository = (): boolean => true
+});
+const authorizeRepository = (): boolean => true;
 
 const claim = (
-  overrides: Partial<ClaimedWorkflowEffect> = {},
+  overrides: Partial<ClaimedWorkflowEffect> = {}
 ): ClaimedWorkflowEffect => ({
   id: "effect-1",
   runId: "run-1",
@@ -122,11 +124,11 @@ const claim = (
   leaseOwner: "worker-a",
   fenceToken: 7,
   ...overrides,
-})
+});
 
 const success = (
   stdout = "done",
-  change: OmpExecutionResult["change"] = null,
+  change: OmpExecutionResult["change"] = null
 ): OmpExecutionResult => ({
   command: "print",
   status: "succeeded",
@@ -144,7 +146,7 @@ const success = (
   change,
   verification: null,
   implementationArtifact: null,
-})
+});
 
 const aborted = (): OmpExecutionResult => ({
   command: "print",
@@ -158,57 +160,56 @@ const aborted = (): OmpExecutionResult => ({
     stdoutBytes: 0,
     stderrBytes: 0,
     truncated: false,
-    redacted: false
+    redacted: false,
   },
   change: null,
   verification: null,
-  implementationArtifact: null
-})
+  implementationArtifact: null,
+});
 
 const outbox = (
   claims: ClaimedWorkflowEffect[][],
-  overrides: Partial<WorkflowOutboxPort> = {},
+  overrides: Partial<WorkflowOutboxPort> = {}
 ): WorkflowOutboxPort => ({
   claimDueEffects: vi.fn(async () => claims.shift() ?? []),
   heartbeatEffect: vi.fn(async () => true),
   completeEffect: vi.fn(async () => true),
   failEffect: vi.fn(async () => true),
   ...overrides,
-})
+});
 
 const adapter = (result = success()): OmpCliAdapter => ({
   execute: vi.fn(async () => result),
   cleanupRetainedWorkspace: vi.fn(async () => undefined),
-})
+});
 
 describe("workflow outbox worker", () => {
   it("uses the 30 second lease and 10 second heartbeat defaults", async () => {
-    const repository = outbox([[]])
+    const repository = outbox([[]]);
     const worker = createWorkflowOutboxWorker({
       repository,
       adapter: adapter(),
       leaseOwner: "worker-a",
       authorizeRepository,
-    })
+    });
 
-    await worker.runOnce()
+    await worker.runOnce();
 
     expect(repository.claimDueEffects).toHaveBeenNthCalledWith(1, {
       handler: WORKFLOW_EFFECT_HANDLER_V2,
       leaseOwner: "worker-a",
       limit: 1,
       leaseMilliseconds: DEFAULT_WORKFLOW_LEASE_MS,
-    })
+    });
     expect(repository.claimDueEffects).toHaveBeenNthCalledWith(2, {
       handler: WORKFLOW_EFFECT_HANDLER_V1,
       leaseOwner: "worker-a",
       limit: 1,
       leaseMilliseconds: DEFAULT_WORKFLOW_LEASE_MS,
-    })
-    expect(DEFAULT_WORKFLOW_LEASE_MS).toBe(30_000)
-    return expect(DEFAULT_WORKFLOW_HEARTBEAT_MS).toBe(10_000)
-  }
-  )
+    });
+    expect(DEFAULT_WORKFLOW_LEASE_MS).toBe(30_000);
+    return expect(DEFAULT_WORKFLOW_HEARTBEAT_MS).toBe(10_000);
+  });
 
   it("claims V2 before V1 within one total batch", async () => {
     const v2 = claim({
@@ -221,55 +222,56 @@ describe("workflow outbox worker", () => {
         taskRevision: 2,
         taskHash: "a".repeat(64),
         sourceSequence: 3,
-        planClarification: "Keep the change bounded."
-      }
-    })
+        planClarification: "Keep the change bounded.",
+      },
+    });
     const v1 = claim({
       id: "v1",
       effectId: "v1",
       handler: WORKFLOW_EFFECT_HANDLER_V1,
-      idempotencyKey: "run-1:v1"
-    })
-    const claimDueEffects = vi.fn(async (
-      input: Parameters<WorkflowOutboxPort["claimDueEffects"]>[0],
-    ) => {
-      const available = input.handler === WORKFLOW_EFFECT_HANDLER_V2 ? [v2] : [v1]
-      return available.slice(0, input.limit)
-    }
-    )
-    const repository = outbox([], { claimDueEffects })
-    const omp = adapter()
+      idempotencyKey: "run-1:v1",
+    });
+    const claimDueEffects = vi.fn(
+      async (input: Parameters<WorkflowOutboxPort["claimDueEffects"]>[0]) => {
+        const available =
+          input.handler === WORKFLOW_EFFECT_HANDLER_V2 ? [v2] : [v1];
+        return available.slice(0, input.limit);
+      }
+    );
+    const repository = outbox([], { claimDueEffects });
+    const omp = adapter();
     const results = await createWorkflowOutboxWorker({
       repository,
       adapter: omp,
       leaseOwner: "worker-a",
       authorizeRepository,
-      batchSize: 2
-    }).runOnce()
+      batchSize: 2,
+    }).runOnce();
 
     expect(results).toEqual([
       { id: "v2", status: "completed" },
-      { id: "v1", status: "completed" }
-    ])
-    expect(omp.execute).toHaveBeenCalledWith(expect.objectContaining({
-      instruction: expect.stringContaining(
-        "Requested plan changes: \"Keep the change bounded.\".",
-      )
-    }))
+      { id: "v1", status: "completed" },
+    ]);
+    expect(omp.execute).toHaveBeenCalledWith(
+      expect.objectContaining({
+        instruction: expect.stringContaining(
+          'Requested plan changes: "Keep the change bounded.".'
+        ),
+      })
+    );
     expect(claimDueEffects).toHaveBeenNthCalledWith(1, {
       handler: WORKFLOW_EFFECT_HANDLER_V2,
       leaseOwner: "worker-a",
       limit: 2,
-      leaseMilliseconds: DEFAULT_WORKFLOW_LEASE_MS
-    })
+      leaseMilliseconds: DEFAULT_WORKFLOW_LEASE_MS,
+    });
     return expect(claimDueEffects).toHaveBeenNthCalledWith(2, {
       handler: WORKFLOW_EFFECT_HANDLER_V1,
       leaseOwner: "worker-a",
       limit: 1,
-      leaseMilliseconds: DEFAULT_WORKFLOW_LEASE_MS
-    })
-  }
-  )
+      leaseMilliseconds: DEFAULT_WORKFLOW_LEASE_MS,
+    });
+  });
 
   it("fails closed when a V1 claim carries plan clarification", async () => {
     const legacy = claim({
@@ -282,24 +284,27 @@ describe("workflow outbox worker", () => {
         sourceSequence: 3,
         executionMode: "wayfinder",
         humanRequest: "Repair the workflow.",
-        planClarification: "Keep the change bounded."
-      }
-    })
-    const repository = outbox([[legacy]])
-    const omp = adapter()
+        planClarification: "Keep the change bounded.",
+      },
+    });
+    const repository = outbox([[legacy]]);
+    const omp = adapter();
 
-    await expect(createWorkflowOutboxWorker({
-      repository,
-      adapter: omp,
-      leaseOwner: "worker-a",
-      authorizeRepository
-    }).runOnce()).resolves.toEqual([{ id: "effect-1", status: "failed" }])
-    expect(omp.execute).not.toHaveBeenCalled()
-    return expect(repository.failEffect).toHaveBeenCalledWith(expect.objectContaining({
-      id: "effect-1"
-    }))
-  }
-  )
+    await expect(
+      createWorkflowOutboxWorker({
+        repository,
+        adapter: omp,
+        leaseOwner: "worker-a",
+        authorizeRepository,
+      }).runOnce()
+    ).resolves.toEqual([{ id: "effect-1", status: "failed" }]);
+    expect(omp.execute).not.toHaveBeenCalled();
+    return expect(repository.failEffect).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: "effect-1",
+      })
+    );
+  });
 
   it("fails closed when a V2 claim carries invalid plan clarification", async () => {
     const malformed = claim({
@@ -309,18 +314,20 @@ describe("workflow outbox worker", () => {
         taskRevision: 2,
         taskHash: "a".repeat(64),
         sourceSequence: 3,
-        planClarification: " Keep the change bounded."
-      }
-    })
-    const repository = outbox([[malformed]])
-    const omp = adapter()
+        planClarification: " Keep the change bounded.",
+      },
+    });
+    const repository = outbox([[malformed]]);
+    const omp = adapter();
 
-    await expect(createWorkflowOutboxWorker({
-      repository,
-      adapter: omp,
-      leaseOwner: "worker-a",
-      authorizeRepository
-    }).runOnce()).resolves.toEqual([{ id: "effect-1", status: "failed" }])
+    await expect(
+      createWorkflowOutboxWorker({
+        repository,
+        adapter: omp,
+        leaseOwner: "worker-a",
+        authorizeRepository,
+      }).runOnce()
+    ).resolves.toEqual([{ id: "effect-1", status: "failed" }]);
     expect(repository.failEffect).toHaveBeenCalledWith({
       id: "effect-1",
       leaseOwner: "worker-a",
@@ -329,12 +336,11 @@ describe("workflow outbox worker", () => {
         status: "failed",
         eventType: "EFFECT_FAILED",
         failureCode: "failed",
-        retryable: false
-      })
-    })
-    return expect(omp.execute).not.toHaveBeenCalled()
-  }
-  )
+        retryable: false,
+      }),
+    });
+    return expect(omp.execute).not.toHaveBeenCalled();
+  });
 
   it("fails closed when a non-plan V2 claim carries valid plan clarification", async () => {
     const misplaced = claim({
@@ -345,18 +351,20 @@ describe("workflow outbox worker", () => {
         taskRevision: 2,
         taskHash: "a".repeat(64),
         sourceSequence: 3,
-        planClarification: "Keep the change bounded."
-      }
-    })
-    const repository = outbox([[misplaced]])
-    const omp = adapter()
+        planClarification: "Keep the change bounded.",
+      },
+    });
+    const repository = outbox([[misplaced]]);
+    const omp = adapter();
 
-    await expect(createWorkflowOutboxWorker({
-      repository,
-      adapter: omp,
-      leaseOwner: "worker-a",
-      authorizeRepository
-    }).runOnce()).resolves.toEqual([{ id: "effect-1", status: "failed" }])
+    await expect(
+      createWorkflowOutboxWorker({
+        repository,
+        adapter: omp,
+        leaseOwner: "worker-a",
+        authorizeRepository,
+      }).runOnce()
+    ).resolves.toEqual([{ id: "effect-1", status: "failed" }]);
     expect(repository.failEffect).toHaveBeenCalledWith({
       id: "effect-1",
       leaseOwner: "worker-a",
@@ -365,267 +373,289 @@ describe("workflow outbox worker", () => {
         status: "failed",
         eventType: "EFFECT_FAILED",
         failureCode: "failed",
-        retryable: false
-      })
-    })
-    return expect(omp.execute).not.toHaveBeenCalled()
-  }
-  )
+        retryable: false,
+      }),
+    });
+    return expect(omp.execute).not.toHaveBeenCalled();
+  });
 
   it("decodes canonical scope and maps its repository to the OMP cwd", async () => {
-
-    const repository = outbox([[claim()]])
-    const omp = adapter()
+    const repository = outbox([[claim()]]);
+    const omp = adapter();
     const worker = createWorkflowOutboxWorker({
       repository,
       adapter: omp,
       leaseOwner: "worker-a",
-      authorizeRepository
-    })
+      authorizeRepository,
+    });
 
-    await worker.runOnce()
+    await worker.runOnce();
 
-    expect(omp.execute).toHaveBeenCalledWith(expect.objectContaining({
-      command: "print",
-      workspaceId: "run-1",
-      effectKind: "plan",
-      cwd: "darkfactory",
-      scopePaths: ["packages/jobs"]
-    }))
-    const request = vi.mocked(omp.execute).mock.calls[0]![0]
-    expect(request.instruction).toContain(canonicalJsonV1(scope))
-    return expect(request.instruction).not.toContain("Do not execute work outside")
-  }
-  )
+    expect(omp.execute).toHaveBeenCalledWith(
+      expect.objectContaining({
+        command: "print",
+        workspaceId: "run-1",
+        effectKind: "plan",
+        cwd: "darkfactory",
+        scopePaths: ["packages/jobs"],
+      })
+    );
+    const request = vi.mocked(omp.execute).mock.calls[0]![0];
+    expect(request.instruction).toContain(canonicalJsonV1(scope));
+    return expect(request.instruction).not.toContain(
+      "Do not execute work outside"
+    );
+  });
   it("fails closed when the owner is not granted the canonical repository", async () => {
-    const repository = outbox([[claim()]])
-    const omp = adapter()
-    const authorizeRepository = vi.fn(() => false)
+    const repository = outbox([[claim()]]);
+    const omp = adapter();
+    const authorizeRepository = vi.fn(() => false);
     const worker = createWorkflowOutboxWorker({
       repository,
       adapter: omp,
       leaseOwner: "worker-a",
-      authorizeRepository
-    })
+      authorizeRepository,
+    });
 
     await expect(worker.runOnce()).resolves.toEqual([
-      expect.objectContaining({ id: "effect-1", status: "failed" })
-    ])
-    expect(authorizeRepository).toHaveBeenCalledWith("owner-1", "darkfactory")
-    expect(repository.failEffect).toHaveBeenCalledWith(expect.objectContaining({
-      result: expect.objectContaining({ retryable: false })
-    }))
-    expect(repository.heartbeatEffect).not.toHaveBeenCalled()
-    return expect(omp.execute).not.toHaveBeenCalled()
-  }
-  )
-
+      expect.objectContaining({ id: "effect-1", status: "failed" }),
+    ]);
+    expect(authorizeRepository).toHaveBeenCalledWith("owner-1", "darkfactory");
+    expect(repository.failEffect).toHaveBeenCalledWith(
+      expect.objectContaining({
+        result: expect.objectContaining({ retryable: false }),
+      })
+    );
+    expect(repository.heartbeatEffect).not.toHaveBeenCalled();
+    return expect(omp.execute).not.toHaveBeenCalled();
+  });
 
   it("dead-letters malformed, traversal, and oversized scope before heartbeat or spawn", async () => {
     const invalidScopes = [
       "repository",
-      JSON.stringify({ repositoryId: "../darkfactory", paths: ["packages/jobs"] }),
+      JSON.stringify({
+        repositoryId: "../darkfactory",
+        paths: ["packages/jobs"],
+      }),
       JSON.stringify({ repositoryId: "darkfactory", paths: ["../jobs"] }),
       JSON.stringify({
         repositoryId: "darkfactory",
-        paths: ["x".repeat(MAX_WORKFLOW_SCOPE_PATH_BYTES + 1)]
+        paths: ["x".repeat(MAX_WORKFLOW_SCOPE_PATH_BYTES + 1)],
       }),
       JSON.stringify({
         repositoryId: "darkfactory",
         paths: Array.from(
           { length: 17 },
-          (_, index) => `${index}-${"x".repeat(MAX_WORKFLOW_SCOPE_PATH_BYTES - 3)}`
-        )
-      }).padEnd(MAX_WORKFLOW_SCOPE_BYTES + 1, " ")
-    ]
+          (_, index) =>
+            `${index}-${"x".repeat(MAX_WORKFLOW_SCOPE_PATH_BYTES - 3)}`
+        ),
+      }).padEnd(MAX_WORKFLOW_SCOPE_BYTES + 1, " "),
+    ];
 
-    const results1=[];for (const effectScope of invalidScopes) {
-      const repository = outbox([[claim({ effectScope })]])
-      const omp = adapter()
+    const results1 = [];
+    for (const effectScope of invalidScopes) {
+      const repository = outbox([[claim({ effectScope })]]);
+      const omp = adapter();
       const worker = createWorkflowOutboxWorker({
         repository,
         adapter: omp,
         leaseOwner: "worker-a",
-        authorizeRepository
-      })
+        authorizeRepository,
+      });
 
       await expect(worker.runOnce()).resolves.toEqual([
-        expect.objectContaining({ id: "effect-1", status: "failed" })
-      ])
-      expect(repository.failEffect).toHaveBeenCalledWith(expect.objectContaining({
-        id: "effect-1",
-        leaseOwner: "worker-a",
-        fenceToken: 7,
-        result: expect.objectContaining({
-          failureCode: "failed",
-          retryable: false
+        expect.objectContaining({ id: "effect-1", status: "failed" }),
+      ]);
+      expect(repository.failEffect).toHaveBeenCalledWith(
+        expect.objectContaining({
+          id: "effect-1",
+          leaseOwner: "worker-a",
+          fenceToken: 7,
+          result: expect.objectContaining({
+            failureCode: "failed",
+            retryable: false,
+          }),
         })
-      }))
-      expect(repository.heartbeatEffect).not.toHaveBeenCalled()
-      results1.push(expect(omp.execute).not.toHaveBeenCalled())
-    };return results1;
-  }
-  )
+      );
+      expect(repository.heartbeatEffect).not.toHaveBeenCalled();
+      results1.push(expect(omp.execute).not.toHaveBeenCalled());
+    }
+    return results1;
+  });
 
   it("delimits a bounded human task title while retaining identifier validation", async () => {
-    const repository = outbox([[claim({
-      taskMetadata: {
-        taskId: "Repair the pilot shutdown path",
-        workspaceId: "workspace-1",
-        taskRevision: 3,
-        taskHash: "a".repeat(64),
-        sourceSequence: 5
-      }
-    })]])
-    const omp = adapter()
-    const worker = createWorkflowOutboxWorker({
-      repository,
-      adapter: omp,
-      leaseOwner: "worker-a",
-      authorizeRepository
-    })
-
-    await expect(worker.runOnce()).resolves.toEqual([
-      expect.objectContaining({ id: "effect-1", status: "completed" })
-    ])
-    const instruction = vi.mocked(omp.execute).mock.calls[0]![0].instruction
-    return expect(instruction).toContain(
-      `Task title: ${JSON.stringify("Repair the pilot shutdown path")}.`,
-    )
-  }
-  )
-
-
-  it("dead-letters an adapter request exception without stopping later claims", async () => {
-    const repository = outbox([[
-      claim({ id: "effect-1", effectId: "effect-1" }),
-      claim({ id: "effect-2", effectId: "effect-2", idempotencyKey: "run-1:effect-2" })
-    ]])
-    const omp: OmpCliAdapter = {
-      cleanupRetainedWorkspace: vi.fn(async () => undefined),
-      execute: vi.fn()
-        .mockRejectedValueOnce(new Error("invalid adapter request"))
-        .mockResolvedValueOnce(success())
-    }
+    const repository = outbox([
+      [
+        claim({
+          taskMetadata: {
+            taskId: "Repair the pilot shutdown path",
+            workspaceId: "workspace-1",
+            taskRevision: 3,
+            taskHash: "a".repeat(64),
+            sourceSequence: 5,
+          },
+        }),
+      ],
+    ]);
+    const omp = adapter();
     const worker = createWorkflowOutboxWorker({
       repository,
       adapter: omp,
       leaseOwner: "worker-a",
       authorizeRepository,
-      batchSize: 2
-    })
+    });
+
+    await expect(worker.runOnce()).resolves.toEqual([
+      expect.objectContaining({ id: "effect-1", status: "completed" }),
+    ]);
+    const instruction = vi.mocked(omp.execute).mock.calls[0]![0].instruction;
+    return expect(instruction).toContain(
+      `Task title: ${JSON.stringify("Repair the pilot shutdown path")}.`
+    );
+  });
+
+  it("dead-letters an adapter request exception without stopping later claims", async () => {
+    const repository = outbox([
+      [
+        claim({ id: "effect-1", effectId: "effect-1" }),
+        claim({
+          id: "effect-2",
+          effectId: "effect-2",
+          idempotencyKey: "run-1:effect-2",
+        }),
+      ],
+    ]);
+    const omp: OmpCliAdapter = {
+      cleanupRetainedWorkspace: vi.fn(async () => undefined),
+      execute: vi
+        .fn()
+        .mockRejectedValueOnce(new Error("invalid adapter request"))
+        .mockResolvedValueOnce(success()),
+    };
+    const worker = createWorkflowOutboxWorker({
+      repository,
+      adapter: omp,
+      leaseOwner: "worker-a",
+      authorizeRepository,
+      batchSize: 2,
+    });
 
     await expect(worker.runOnce()).resolves.toEqual([
       expect.objectContaining({ id: "effect-1", status: "failed" }),
-      expect.objectContaining({ id: "effect-2", status: "completed" })
-    ])
-    expect(repository.failEffect).toHaveBeenCalledWith(expect.objectContaining({
-      id: "effect-1",
-      result: expect.objectContaining({
-        failureCode: "failed",
-        retryable: false
+      expect.objectContaining({ id: "effect-2", status: "completed" }),
+    ]);
+    expect(repository.failEffect).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: "effect-1",
+        result: expect.objectContaining({
+          failureCode: "failed",
+          retryable: false,
+        }),
       })
-    }))
-    return expect(repository.completeEffect).toHaveBeenCalledWith(expect.objectContaining({
-      id: "effect-2"
-    }))
-  }
-  )
+    );
+    return expect(repository.completeEffect).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: "effect-2",
+      })
+    );
+  });
 
   it("recovers an expired claim after restart and completes it once", async () => {
-    const recovered = claim({ leaseOwner: "worker-after-restart", fenceToken: 9 })
-    const repository = outbox([[recovered], []])
-    const omp = adapter()
+    const recovered = claim({
+      leaseOwner: "worker-after-restart",
+      fenceToken: 9,
+    });
+    const repository = outbox([[recovered], []]);
+    const omp = adapter();
     const restarted = createWorkflowOutboxWorker({
       repository,
       adapter: omp,
       leaseOwner: "worker-after-restart",
       authorizeRepository,
-    })
+    });
 
     await expect(restarted.runOnce()).resolves.toEqual([
       expect.objectContaining({ id: recovered.id, status: "completed" }),
-    ])
-    await expect(restarted.runOnce()).resolves.toEqual([])
-    expect(omp.execute).toHaveBeenCalledTimes(1)
-    return expect(repository.completeEffect).toHaveBeenCalledTimes(1)
-  }
-  )
+    ]);
+    await expect(restarted.runOnce()).resolves.toEqual([]);
+    expect(omp.execute).toHaveBeenCalledTimes(1);
+    return expect(repository.completeEffect).toHaveBeenCalledTimes(1);
+  });
 
   it("does not dispatch duplicate claims returned to another worker", async () => {
-    const sharedClaims = [claim()]
-    const claimDueEffects = vi.fn(async () => sharedClaims.splice(0, 1))
-    const repository = outbox([], { claimDueEffects })
-    const firstAdapter = adapter()
-    const secondAdapter = adapter()
+    const sharedClaims = [claim()];
+    const claimDueEffects = vi.fn(async () => sharedClaims.splice(0, 1));
+    const repository = outbox([], { claimDueEffects });
+    const firstAdapter = adapter();
+    const secondAdapter = adapter();
     const first = createWorkflowOutboxWorker({
       repository,
       adapter: firstAdapter,
       leaseOwner: "worker-a",
       authorizeRepository,
-    })
+    });
     const second = createWorkflowOutboxWorker({
       repository,
       adapter: secondAdapter,
       leaseOwner: "worker-b",
       authorizeRepository,
-    })
+    });
 
-    await Promise.all([first.runOnce(), second.runOnce()])
+    await Promise.all([first.runOnce(), second.runOnce()]);
 
-    expect(vi.mocked(firstAdapter.execute).mock.calls.length + vi.mocked(secondAdapter.execute).mock.calls.length)
-      .toBe(1)
-    return expect(repository.completeEffect).toHaveBeenCalledTimes(1)
-  }
-  )
+    expect(
+      vi.mocked(firstAdapter.execute).mock.calls.length +
+        vi.mocked(secondAdapter.execute).mock.calls.length
+    ).toBe(1);
+    return expect(repository.completeEffect).toHaveBeenCalledTimes(1);
+  });
 
   it("rejects stale fences before dispatch and at completion", async () => {
     const beforeDispatch = outbox([[claim()]], {
       heartbeatEffect: vi.fn(async () => false),
-    })
-    const unusedAdapter = adapter()
+    });
+    const unusedAdapter = adapter();
     const first = createWorkflowOutboxWorker({
       repository: beforeDispatch,
       adapter: unusedAdapter,
       leaseOwner: "worker-a",
       authorizeRepository,
-    })
+    });
     await expect(first.runOnce()).resolves.toEqual([
       expect.objectContaining({ status: "lease-lost" }),
-    ])
-    expect(unusedAdapter.execute).not.toHaveBeenCalled()
-    expect(beforeDispatch.completeEffect).not.toHaveBeenCalled()
+    ]);
+    expect(unusedAdapter.execute).not.toHaveBeenCalled();
+    expect(beforeDispatch.completeEffect).not.toHaveBeenCalled();
 
     const staleCompletion = outbox([[claim()]], {
       completeEffect: vi.fn(async () => false),
-    })
+    });
     const second = createWorkflowOutboxWorker({
       repository: staleCompletion,
       adapter: adapter(),
       leaseOwner: "worker-a",
       authorizeRepository,
-    })
+    });
     return await expect(second.runOnce()).resolves.toEqual([
       expect.objectContaining({ status: "lease-lost" }),
-    ])
-  }
-  )
+    ]);
+  });
 
   it("persists actual bounded implementation change evidence, never raw CLI output", async () => {
-    const secretOutput = "private prompt result sk-do-not-store-123456"
-    const changeHash = "a".repeat(64)
-    const changedPaths = Object.freeze(["packages/jobs/src/server/omp.ts"])
-    const repository = outbox([[claim({ effectKind: "implement" })]])
+    const secretOutput = "private prompt result sk-do-not-store-123456";
+    const changeHash = "a".repeat(64);
+    const changedPaths = Object.freeze(["packages/jobs/src/server/omp.ts"]);
+    const repository = outbox([[claim({ effectKind: "implement" })]]);
     const worker = createWorkflowOutboxWorker({
       repository,
       adapter: adapter(success(secretOutput, { changeHash, changedPaths })),
       leaseOwner: "worker-a",
       authorizeRepository,
-    })
+    });
 
-    await worker.runOnce()
+    await worker.runOnce();
 
-    const completion = vi.mocked(repository.completeEffect).mock.calls[0]?.[0]
+    const completion = vi.mocked(repository.completeEffect).mock.calls[0]?.[0];
     expect(completion).toMatchObject({
       id: "effect-1",
       leaseOwner: "worker-a",
@@ -637,68 +667,74 @@ describe("workflow outbox worker", () => {
         changeHash,
         changedPaths,
       },
-    })
-    return expect(JSON.stringify(completion)).not.toContain(secretOutput)
-  }
-  )
+    });
+    return expect(JSON.stringify(completion)).not.toContain(secretOutput);
+  });
 
   it("fails an implementation that exits zero without a scoped change", async () => {
-    const repository = outbox([[claim({ effectKind: "implement" })]])
+    const repository = outbox([[claim({ effectKind: "implement" })]]);
     const worker = createWorkflowOutboxWorker({
       repository,
       adapter: adapter(success()),
       leaseOwner: "worker-a",
       authorizeRepository,
-    })
+    });
 
     await expect(worker.runOnce()).resolves.toEqual([
       expect.objectContaining({ id: "effect-1", status: "failed" }),
-    ])
-    expect(repository.completeEffect).not.toHaveBeenCalled()
-    return expect(repository.failEffect).toHaveBeenCalledWith(expect.objectContaining({
-      result: expect.objectContaining({ failureCode: "no-changes" }),
-    }))
-  }
-  )
+    ]);
+    expect(repository.completeEffect).not.toHaveBeenCalled();
+    return expect(repository.failEffect).toHaveBeenCalledWith(
+      expect.objectContaining({
+        result: expect.objectContaining({ failureCode: "no-changes" }),
+      })
+    );
+  });
 
   it("aborts active claims before an idempotent stop settles", async () => {
-    let observedSignal: AbortSignal | undefined
-    const repository = outbox([[claim()]])
+    let observedSignal: AbortSignal | undefined;
+    const repository = outbox([[claim()]]);
     const omp: OmpCliAdapter = {
       cleanupRetainedWorkspace: vi.fn(async () => undefined),
-      execute: vi.fn((request) => new Promise<OmpExecutionResult>((resolve) => {
-        observedSignal = request.signal
-        return request.signal?.addEventListener("abort", () => resolve(aborted()), { once: true })
-      }
-      ))
-    }
+      execute: vi.fn(
+        (request) =>
+          new Promise<OmpExecutionResult>((resolve) => {
+            observedSignal = request.signal;
+            return request.signal?.addEventListener(
+              "abort",
+              () => resolve(aborted()),
+              { once: true }
+            );
+          })
+      ),
+    };
     const worker = createWorkflowOutboxWorker({
       repository,
       adapter: omp,
       leaseOwner: "worker-a",
-      authorizeRepository
-    })
+      authorizeRepository,
+    });
 
-    const running = worker.runOnce()
-    await vi.waitFor(() => expect(omp.execute).toHaveBeenCalledOnce())
-    await Promise.all([worker.stop(), worker.stop()])
+    const running = worker.runOnce();
+    await vi.waitFor(() => expect(omp.execute).toHaveBeenCalledOnce());
+    await Promise.all([worker.stop(), worker.stop()]);
 
-    expect(observedSignal?.aborted).toBe(true)
+    expect(observedSignal?.aborted).toBe(true);
     await expect(running).resolves.toEqual([
-      expect.objectContaining({ id: "effect-1", status: "lease-lost" })
-    ])
-    expect(repository.completeEffect).not.toHaveBeenCalled()
-    return expect(repository.failEffect).not.toHaveBeenCalled()
-  }
-  )
+      expect.objectContaining({ id: "effect-1", status: "lease-lost" }),
+    ]);
+    expect(repository.completeEffect).not.toHaveBeenCalled();
+    return expect(repository.failEffect).not.toHaveBeenCalled();
+  });
   it("rejects invalid worker timing, batch, owner, and authorization configuration", () => {
     const base = {
       repository: outbox([[]]),
       adapter: adapter(),
       leaseOwner: "worker-a",
-      authorizeRepository
-    }
-    const results2=[];for (const options of [
+      authorizeRepository,
+    };
+    const results2 = [];
+    for (const options of [
       { ...base, leaseOwner: "" },
       { ...base, authorizeRepository: undefined as never },
       { ...base, leaseMilliseconds: 0 },
@@ -708,13 +744,16 @@ describe("workflow outbox worker", () => {
       { ...base, pollMilliseconds: 0 },
       { ...base, pollMilliseconds: 60_001 },
       { ...base, batchSize: 0 },
-      { ...base, batchSize: 33 }
+      { ...base, batchSize: 33 },
     ]) {
-      results2.push(expect(() => createWorkflowOutboxWorker(options))
-        .toThrow(WorkflowWorkerConfigurationError))
-    };return results2;
-  }
-  )
+      results2.push(
+        expect(() => createWorkflowOutboxWorker(options)).toThrow(
+          WorkflowWorkerConfigurationError
+        )
+      );
+    }
+    return results2;
+  });
 
   it("dead-letters every malformed claim boundary and reports lost failure leases", async () => {
     const badClaims = [
@@ -722,99 +761,123 @@ describe("workflow outbox worker", () => {
       claim({ id: "unsafe id" }),
       claim({ effectScope: "" }),
       claim({ effectScope: `${canonicalJsonV1(scope)}\n` }),
-      claim({ effectScope: JSON.stringify({ repositoryId: "darkfactory", paths: ["packages/jobs"] }) }),
-      claim({ taskMetadata: {
-        taskId: "",
-        workspaceId: "workspace-1",
-        taskRevision: 0,
-        taskHash: "a".repeat(64),
-        sourceSequence: 0
-      } }),
-      claim({ taskMetadata: {
-        taskId: "task",
-        workspaceId: "unsafe workspace",
-        taskRevision: 0,
-        taskHash: "a".repeat(64),
-        sourceSequence: 0
-      } }),
-      claim({ taskMetadata: {
-        taskId: "task",
-        workspaceId: "workspace-1",
-        taskRevision: -1,
-        taskHash: "a".repeat(64),
-        sourceSequence: 0
-      } }),
-      claim({ taskMetadata: {
-        taskId: "task",
-        workspaceId: "workspace-1",
-        taskRevision: 0,
-        taskHash: "a".repeat(64),
-        sourceSequence: 0,
-        executionMode: "pilot",
-        humanRequest: "Pilot requests must not carry Wayfinder input."
-      } }),
+      claim({
+        effectScope: JSON.stringify({
+          repositoryId: "darkfactory",
+          paths: ["packages/jobs"],
+        }),
+      }),
+      claim({
+        taskMetadata: {
+          taskId: "",
+          workspaceId: "workspace-1",
+          taskRevision: 0,
+          taskHash: "a".repeat(64),
+          sourceSequence: 0,
+        },
+      }),
+      claim({
+        taskMetadata: {
+          taskId: "task",
+          workspaceId: "unsafe workspace",
+          taskRevision: 0,
+          taskHash: "a".repeat(64),
+          sourceSequence: 0,
+        },
+      }),
+      claim({
+        taskMetadata: {
+          taskId: "task",
+          workspaceId: "workspace-1",
+          taskRevision: -1,
+          taskHash: "a".repeat(64),
+          sourceSequence: 0,
+        },
+      }),
+      claim({
+        taskMetadata: {
+          taskId: "task",
+          workspaceId: "workspace-1",
+          taskRevision: 0,
+          taskHash: "a".repeat(64),
+          sourceSequence: 0,
+          executionMode: "pilot",
+          humanRequest: "Pilot requests must not carry Wayfinder input.",
+        },
+      }),
       claim({ effectKind: "deploy" as never }),
       claim({ fenceToken: 0 }),
-      claim({ taskMetadata: {
-        taskId: "task\ncontrol",
-        workspaceId: "workspace-1",
-        taskRevision: 0,
-        taskHash: "a".repeat(64),
-        sourceSequence: 0
-      } }),
-      claim({ taskMetadata: {
-        taskId: "task",
-        workspaceId: "workspace-1",
-        taskRevision: 0,
-        taskHash: "a".repeat(64),
-        sourceSequence: -1
-      } })
-    ]
+      claim({
+        taskMetadata: {
+          taskId: "task\ncontrol",
+          workspaceId: "workspace-1",
+          taskRevision: 0,
+          taskHash: "a".repeat(64),
+          sourceSequence: 0,
+        },
+      }),
+      claim({
+        taskMetadata: {
+          taskId: "task",
+          workspaceId: "workspace-1",
+          taskRevision: 0,
+          taskHash: "a".repeat(64),
+          sourceSequence: -1,
+        },
+      }),
+    ];
     for (const badClaim of badClaims) {
       const repository = outbox([[badClaim]], {
         failEffect: vi.fn(async () => false),
-      })
+      });
       const worker = createWorkflowOutboxWorker({
         repository,
         adapter: adapter(),
         leaseOwner: "worker-a",
-        authorizeRepository
-      })
+        authorizeRepository,
+      });
       await expect(worker.runOnce()).resolves.toEqual([
-        { id: badClaim.id, status: "lease-lost" }
-      ])
-      expect(repository.failEffect).toHaveBeenCalledWith(expect.objectContaining({
-        id: badClaim.id,
-        leaseOwner: "worker-a",
-        fenceToken: badClaim.fenceToken,
-        result: expect.objectContaining({
-          status: "failed",
-          eventType: "EFFECT_FAILED",
-          failureCode: "failed",
-          retryable: false,
-        }),
-      }))
+        { id: badClaim.id, status: "lease-lost" },
+      ]);
+      expect(repository.failEffect).toHaveBeenCalledWith(
+        expect.objectContaining({
+          id: badClaim.id,
+          leaseOwner: "worker-a",
+          fenceToken: badClaim.fenceToken,
+          result: expect.objectContaining({
+            status: "failed",
+            eventType: "EFFECT_FAILED",
+            failureCode: "failed",
+            retryable: false,
+          }),
+        })
+      );
     }
 
     const repository = outbox([[claim({ id: "broken id" })]], {
       failEffect: vi.fn(async () => {
-        throw new Error("outbox unavailable")
-      }
-      ),
-    })
-    return await expect(createWorkflowOutboxWorker({
-      repository,
-      adapter: adapter(),
-      leaseOwner: "worker-a",
-      authorizeRepository
-    }).runOnce()).resolves.toEqual([{ id: "broken id", status: "lease-lost" }])
-  }
-  )
+        throw new Error("outbox unavailable");
+      }),
+    });
+    return await expect(
+      createWorkflowOutboxWorker({
+        repository,
+        adapter: adapter(),
+        leaseOwner: "worker-a",
+        authorizeRepository,
+      }).runOnce()
+    ).resolves.toEqual([{ id: "broken id", status: "lease-lost" }]);
+  });
 
   it("maps all successful event kinds and bounded output metadata", async () => {
     const claims = [
       claim({ id: "plan", effectId: "plan", idempotencyKey: "run-1:plan" }),
-      claim({ id: "implement", effectId: "implement", idempotencyKey: "run-1:implement", effectKind: "implement" }),
+      claim({
+        id: "implement",
+        effectId: "implement",
+        idempotencyKey: "run-1:implement",
+        effectKind: "implement",
+      }),
       claim({
         id: "verify",
         effectId: "verify",
@@ -822,9 +885,9 @@ describe("workflow outbox worker", () => {
         effectKind: "verify",
         implementationEvidence: RECOVERY_EVIDENCE,
         implementationChangeHash: RECOVERY_CHANGE_HASH,
-      })
-    ]
-    const repository = outbox([claims])
+      }),
+    ];
+    const repository = outbox([claims]);
     const omp: OmpCliAdapter = {
       cleanupRetainedWorkspace: vi.fn(async () => undefined),
       execute: vi.fn(async (request) => {
@@ -835,214 +898,256 @@ describe("workflow outbox worker", () => {
               changedPaths: ["packages/jobs"],
             }),
             implementationArtifact: RECOVERY_ARTIFACT,
-          }
+          };
         }
         if (request.effectKind === "verify") {
           return {
             ...success(request.effectKind),
             verification: RECOVERY_VERIFICATION,
-          }
+          };
         }
-        return success(request.effectKind)
-      }
-      )
-    }
+        return success(request.effectKind);
+      }),
+    };
     const results = await createWorkflowOutboxWorker({
       repository,
       adapter: omp,
       leaseOwner: "worker-a",
       authorizeRepository,
-      batchSize: 3
-    }).runOnce()
+      batchSize: 3,
+    }).runOnce();
 
     expect(results.map(({ status }) => status)).toEqual([
-      "completed", "completed", "completed"
-    ])
-    expect(vi.mocked(repository.completeEffect).mock.calls.map(
-      ([input]) => input.result.eventType,
-    )).toEqual([
-      "PLAN_SUCCEEDED", "IMPLEMENTATION_SUCCEEDED", "VERIFICATION_SUCCEEDED"
-    ])
-    expect(vi.mocked(repository.completeEffect).mock.calls[0]![0].result)
-      .toMatchObject({
-        durationMs: 12,
-        outputBytes: 4,
-        outputTruncated: false,
-        outputRedacted: false,
-        changeHash: null,
-        changedPaths: []
-      })
-    const plan = vi.mocked(repository.completeEffect).mock.calls[0]![0].result.plan!
-    expect(plan.summary).toBe("plan")
-    expect(plan.digest).toBe(hashWorkflowPlanEvidenceV1(plan))
-    expect(vi.mocked(repository.completeEffect).mock.calls[1]![0].result.plan).toBeNull()
-    expect(vi.mocked(repository.completeEffect).mock.calls[2]![0].result.plan).toBeNull()
-    expect(vi.mocked(repository.completeEffect).mock.calls[1]![0].result)
-      .toMatchObject({ implementationArtifact: RECOVERY_ARTIFACT })
-    return expect(vi.mocked(repository.completeEffect).mock.calls[2]![0].result)
-      .toMatchObject({ verification: RECOVERY_VERIFICATION })
-  }
-  )
+      "completed",
+      "completed",
+      "completed",
+    ]);
+    expect(
+      vi
+        .mocked(repository.completeEffect)
+        .mock.calls.map(([input]) => input.result.eventType)
+    ).toEqual([
+      "PLAN_SUCCEEDED",
+      "IMPLEMENTATION_SUCCEEDED",
+      "VERIFICATION_SUCCEEDED",
+    ]);
+    expect(
+      vi.mocked(repository.completeEffect).mock.calls[0]![0].result
+    ).toMatchObject({
+      durationMs: 12,
+      outputBytes: 4,
+      outputTruncated: false,
+      outputRedacted: false,
+      changeHash: null,
+      changedPaths: [],
+    });
+    const plan = vi.mocked(repository.completeEffect).mock.calls[0]![0].result
+      .plan!;
+    expect(plan.summary).toBe("plan");
+    expect(plan.digest).toBe(hashWorkflowPlanEvidenceV1(plan));
+    expect(
+      vi.mocked(repository.completeEffect).mock.calls[1]![0].result.plan
+    ).toBeNull();
+    expect(
+      vi.mocked(repository.completeEffect).mock.calls[2]![0].result.plan
+    ).toBeNull();
+    expect(
+      vi.mocked(repository.completeEffect).mock.calls[1]![0].result
+    ).toMatchObject({ implementationArtifact: RECOVERY_ARTIFACT });
+    return expect(
+      vi.mocked(repository.completeEffect).mock.calls[2]![0].result
+    ).toMatchObject({ verification: RECOVERY_VERIFICATION });
+  });
 
   it("redacts secret-bearing oversized plan output and fails closed before completion", async () => {
-    const secret = "sk-private-plan-token"
-    const oversized = `${secret} ${"é".repeat(MAX_WORKFLOW_PLAN_SUMMARY_BYTES)}`
-    const repository = outbox([[claim()]])
+    const secret = "sk-private-plan-token";
+    const oversized = `${secret} ${"é".repeat(MAX_WORKFLOW_PLAN_SUMMARY_BYTES)}`;
+    const repository = outbox([[claim()]]);
     const result = await createWorkflowOutboxWorker({
       repository,
       adapter: adapter(success(oversized)),
       leaseOwner: "worker-a",
-      authorizeRepository
-    }).runOnce()
+      authorizeRepository,
+    }).runOnce();
 
-    expect(result).toEqual([{ id: "effect-1", status: "failed" }])
-    expect(repository.completeEffect).not.toHaveBeenCalled()
-    expect(repository.failEffect).toHaveBeenCalledWith(expect.objectContaining({
-      result: expect.objectContaining({
-        status: "failed",
-        retryable: false,
-        outputBytes: expect.any(Number),
-        outputRedacted: true
+    expect(result).toEqual([{ id: "effect-1", status: "failed" }]);
+    expect(repository.completeEffect).not.toHaveBeenCalled();
+    expect(repository.failEffect).toHaveBeenCalledWith(
+      expect.objectContaining({
+        result: expect.objectContaining({
+          status: "failed",
+          retryable: false,
+          outputBytes: expect.any(Number),
+          outputRedacted: true,
+        }),
       })
-    }))
-    const failure = vi.mocked(repository.failEffect).mock.calls[0]![0].result
-    expect(failure.outputBytes).toBeGreaterThan(MAX_WORKFLOW_PLAN_SUMMARY_BYTES)
-    expect(failure.outputTruncated).toBe(false)
-    return expect(JSON.stringify(vi.mocked(repository.failEffect).mock.calls))
-      .not.toContain(secret)
-  }
-  )
+    );
+    const failure = vi.mocked(repository.failEffect).mock.calls[0]![0].result;
+    expect(failure.outputBytes).toBeGreaterThan(
+      MAX_WORKFLOW_PLAN_SUMMARY_BYTES
+    );
+    expect(failure.outputTruncated).toBe(false);
+    return expect(
+      JSON.stringify(vi.mocked(repository.failEffect).mock.calls)
+    ).not.toContain(secret);
+  });
 
-  it.each(["", "  \n\t"])("fails closed instead of completing an empty plan %#", async (stdout) => {
-    const repository = outbox([[claim()]])
+  it.each([
+    "",
+    "  \n\t",
+  ])("fails closed instead of completing an empty plan %#", async (stdout) => {
+    const repository = outbox([[claim()]]);
     const result = await createWorkflowOutboxWorker({
       repository,
       adapter: adapter(success(stdout)),
       leaseOwner: "worker-a",
-      authorizeRepository
-    }).runOnce()
+      authorizeRepository,
+    }).runOnce();
 
-    expect(result).toEqual([{ id: "effect-1", status: "failed" }])
-    expect(repository.completeEffect).not.toHaveBeenCalled()
-    return expect(repository.failEffect).toHaveBeenCalledWith(expect.objectContaining({
-      result: expect.objectContaining({
-        status: "failed",
-        retryable: false
+    expect(result).toEqual([{ id: "effect-1", status: "failed" }]);
+    expect(repository.completeEffect).not.toHaveBeenCalled();
+    return expect(repository.failEffect).toHaveBeenCalledWith(
+      expect.objectContaining({
+        result: expect.objectContaining({
+          status: "failed",
+          retryable: false,
+        }),
       })
-    }))
-  }
-  )
+    );
+  });
 
   it("maps terminal failures, retryability, change evidence, and stale failure fences", async () => {
-    const statuses = ["failed", "timed-out", "output-limit", "no-changes", "aborted"] as const
-    const results3=[];for (const status of statuses) {
+    const statuses = [
+      "failed",
+      "timed-out",
+      "output-limit",
+      "no-changes",
+      "aborted",
+    ] as const;
+    const results3 = [];
+    for (const status of statuses) {
       const repository = outbox([[claim({ effectKind: "implement" })]], {
         failEffect: vi.fn(async () => status !== "output-limit"),
-      })
+      });
       const result: OmpExecutionResult = {
         ...success(),
         status,
         exitCode: status === "failed" ? 2 : null,
         change: {
           changeHash: "c".repeat(64),
-          changedPaths: ["packages/jobs"]
-        }
-      }
+          changedPaths: ["packages/jobs"],
+        },
+      };
       const worker = createWorkflowOutboxWorker({
         repository,
         adapter: adapter(result),
         leaseOwner: "worker-a",
-        authorizeRepository
-      })
+        authorizeRepository,
+      });
 
-      await expect(worker.runOnce()).resolves.toEqual([{
-        id: "effect-1",
-        status: status === "output-limit" ? "lease-lost" : "failed"
-      }])
-      results3.push(expect(repository.failEffect).toHaveBeenCalledWith(expect.objectContaining({
-        result: expect.objectContaining({
-          failureCode: status,
-          eventType: "EFFECT_FAILED",
-          retryable: status !== "aborted",
-          changeHash: "c".repeat(64),
-          changedPaths: ["packages/jobs"]
-        })
-      })))
-    };return results3;
-  }
-  )
+      await expect(worker.runOnce()).resolves.toEqual([
+        {
+          id: "effect-1",
+          status: status === "output-limit" ? "lease-lost" : "failed",
+        },
+      ]);
+      results3.push(
+        expect(repository.failEffect).toHaveBeenCalledWith(
+          expect.objectContaining({
+            result: expect.objectContaining({
+              failureCode: status,
+              eventType: "EFFECT_FAILED",
+              retryable: status !== "aborted",
+              changeHash: "c".repeat(64),
+              changedPaths: ["packages/jobs"],
+            }),
+          })
+        )
+      );
+    }
+    return results3;
+  });
 
   it("loses a claim on heartbeat rejection and heartbeat failure during execution", async () => {
-    const results4=[];for (const heartbeatError of [false, new Error("heartbeat unavailable")]) {
-      let finish: (() => void) | undefined
-      const heartbeatEffect = vi.fn()
+    const results4 = [];
+    for (const heartbeatError of [false, new Error("heartbeat unavailable")]) {
+      let finish: (() => void) | undefined;
+      const heartbeatEffect = vi
+        .fn()
         .mockResolvedValueOnce(true)
         .mockImplementationOnce(async () => {
-          if (heartbeatError instanceof Error) throw heartbeatError
-          return heartbeatError
-        }
-        )
-      const repository = outbox([[claim()]], { heartbeatEffect })
+          if (heartbeatError instanceof Error) throw heartbeatError;
+          return heartbeatError;
+        });
+      const repository = outbox([[claim()]], { heartbeatEffect });
       const omp: OmpCliAdapter = {
         cleanupRetainedWorkspace: vi.fn(async () => undefined),
-        execute: vi.fn((request) => new Promise<OmpExecutionResult>((resolve) => {
-          finish = () => resolve(aborted())
-          return request.signal?.addEventListener("abort", () => finish?.(), { once: true })
-        }
-        ))
-      }
+        execute: vi.fn(
+          (request) =>
+            new Promise<OmpExecutionResult>((resolve) => {
+              finish = () => resolve(aborted());
+              return request.signal?.addEventListener(
+                "abort",
+                () => finish?.(),
+                { once: true }
+              );
+            })
+        ),
+      };
       const running = createWorkflowOutboxWorker({
         repository,
         adapter: omp,
         leaseOwner: "worker-a",
         authorizeRepository,
         leaseMilliseconds: 20,
-        heartbeatMilliseconds: 1
-      }).runOnce()
-      await vi.waitFor(() => expect(heartbeatEffect).toHaveBeenCalledTimes(2))
+        heartbeatMilliseconds: 1,
+      }).runOnce();
+      await vi.waitFor(() => expect(heartbeatEffect).toHaveBeenCalledTimes(2));
 
       await expect(running).resolves.toEqual([
-        { id: "effect-1", status: "lease-lost" }
-      ])
-      expect(repository.completeEffect).not.toHaveBeenCalled()
-      results4.push(expect(repository.failEffect).not.toHaveBeenCalled())
-    };return results4;
-  }
-  )
+        { id: "effect-1", status: "lease-lost" },
+      ]);
+      expect(repository.completeEffect).not.toHaveBeenCalled();
+      results4.push(expect(repository.failEffect).not.toHaveBeenCalled());
+    }
+    return results4;
+  });
 
   it("propagates owned process termination failures but dead-letters ordinary adapter errors", async () => {
-    const results5=[];for (const error of [
+    const results5 = [];
+    for (const error of [
       new OmpProcessTerminationError(),
-      new Error("ordinary adapter failure")
+      new Error("ordinary adapter failure"),
     ]) {
-      const repository = outbox([[claim()]])
+      const repository = outbox([[claim()]]);
       const worker = createWorkflowOutboxWorker({
         repository,
         adapter: {
           cleanupRetainedWorkspace: vi.fn(async () => undefined),
           execute: vi.fn(async () => {
-            throw error
-          }
-          )
+            throw error;
+          }),
         },
         leaseOwner: "worker-a",
-        authorizeRepository
-      })
+        authorizeRepository,
+      });
       if (error instanceof OmpProcessTerminationError) {
-        await expect(worker.runOnce()).rejects.toBe(error)
-        results5.push(expect(repository.failEffect).not.toHaveBeenCalled())
+        await expect(worker.runOnce()).rejects.toBe(error);
+        results5.push(expect(repository.failEffect).not.toHaveBeenCalled());
+      } else {
+        results5.push(
+          await expect(worker.runOnce()).resolves.toEqual([
+            { id: "effect-1", status: "failed" },
+          ])
+        );
       }
-      else {
-        results5.push(await expect(worker.runOnce()).resolves.toEqual([
-          { id: "effect-1", status: "failed" }
-        ]))
-      }
-    };return results5;
-  }
-  )
+    }
+    return results5;
+  });
 
   it("normalizes exception failure persistence dispositions", async () => {
-    const results6=[];for (const [persistence, status] of [
+    const results6 = [];
+    for (const [persistence, status] of [
       [true, "failed"],
       ["persisted", "failed"],
       ["retry", "failed"],
@@ -1051,170 +1156,174 @@ describe("workflow outbox worker", () => {
     ] as const) {
       const repository = outbox([[claim()]], {
         failEffect: vi.fn(async () => persistence),
-      })
+      });
       const worker = createWorkflowOutboxWorker({
         repository,
         adapter: {
           cleanupRetainedWorkspace: vi.fn(async () => undefined),
           execute: vi.fn(async () => {
-            throw new Error("ordinary adapter failure")
-          }
-          )
+            throw new Error("ordinary adapter failure");
+          }),
         },
         leaseOwner: "worker-a",
-        authorizeRepository
-      })
+        authorizeRepository,
+      });
 
-      results6.push(await expect(worker.runOnce()).resolves.toEqual([
-        { id: "effect-1", status }
-      ]))
-    };return results6;
-  }
-  )
+      results6.push(
+        await expect(worker.runOnce()).resolves.toEqual([
+          { id: "effect-1", status },
+        ])
+      );
+    }
+    return results6;
+  });
   it("propagates fatal cleanup rejection after committing completion", async () => {
-    const cleanupError = new OmpWorkspaceCleanupError()
-    const repository = outbox([[claim()]])
+    const cleanupError = new OmpWorkspaceCleanupError();
+    const repository = outbox([[claim()]]);
     const result = {
       ...success(),
       lifecycle: {
         finalize: vi.fn(async () => {
-          throw cleanupError
-        }
-        )
-      }
-    }
+          throw cleanupError;
+        }),
+      },
+    };
     const worker = createWorkflowOutboxWorker({
       repository,
       adapter: {
         cleanupRetainedWorkspace: vi.fn(async () => undefined),
-        execute: vi.fn(async () => result)
+        execute: vi.fn(async () => result),
       },
       leaseOwner: "worker-a",
-      authorizeRepository
-    })
+      authorizeRepository,
+    });
 
-    await expect(worker.runOnce()).rejects.toBe(cleanupError)
-    expect(repository.completeEffect).toHaveBeenCalledOnce()
-    return expect(repository.failEffect).not.toHaveBeenCalled()
-  }
-  )
+    await expect(worker.runOnce()).rejects.toBe(cleanupError);
+    expect(repository.completeEffect).toHaveBeenCalledOnce();
+    return expect(repository.failEffect).not.toHaveBeenCalled();
+  });
 
   it("loses mismatched leases and initial heartbeat errors without dispatching", async () => {
-    const mismatched = outbox([[claim({ leaseOwner: "worker-b" })]])
-    const mismatchedAdapter = adapter()
-    await expect(createWorkflowOutboxWorker({
-      repository: mismatched,
-      adapter: mismatchedAdapter,
-      leaseOwner: "worker-a",
-      authorizeRepository
-    }).runOnce()).resolves.toEqual([{ id: "effect-1", status: "lease-lost" }])
-    expect(mismatched.heartbeatEffect).not.toHaveBeenCalled()
-    expect(mismatchedAdapter.execute).not.toHaveBeenCalled()
+    const mismatched = outbox([[claim({ leaseOwner: "worker-b" })]]);
+    const mismatchedAdapter = adapter();
+    await expect(
+      createWorkflowOutboxWorker({
+        repository: mismatched,
+        adapter: mismatchedAdapter,
+        leaseOwner: "worker-a",
+        authorizeRepository,
+      }).runOnce()
+    ).resolves.toEqual([{ id: "effect-1", status: "lease-lost" }]);
+    expect(mismatched.heartbeatEffect).not.toHaveBeenCalled();
+    expect(mismatchedAdapter.execute).not.toHaveBeenCalled();
 
     const heartbeatError = outbox([[claim()]], {
       heartbeatEffect: vi.fn(async () => {
-        throw new Error("heartbeat unavailable")
-      }
-      )
-    })
-    const heartbeatAdapter = adapter()
-    await expect(createWorkflowOutboxWorker({
-      repository: heartbeatError,
-      adapter: heartbeatAdapter,
-      leaseOwner: "worker-a",
-      authorizeRepository
-    }).runOnce()).resolves.toEqual([{ id: "effect-1", status: "lease-lost" }])
-    return expect(heartbeatAdapter.execute).not.toHaveBeenCalled()
-  }
-  )
+        throw new Error("heartbeat unavailable");
+      }),
+    });
+    const heartbeatAdapter = adapter();
+    await expect(
+      createWorkflowOutboxWorker({
+        repository: heartbeatError,
+        adapter: heartbeatAdapter,
+        leaseOwner: "worker-a",
+        authorizeRepository,
+      }).runOnce()
+    ).resolves.toEqual([{ id: "effect-1", status: "lease-lost" }]);
+    return expect(heartbeatAdapter.execute).not.toHaveBeenCalled();
+  });
 
   it("dead-letters completion persistence errors and loses repeated failure persistence", async () => {
     const completionRepository = outbox([[claim()]], {
       completeEffect: vi.fn(async () => {
-        throw new Error("completion unavailable")
-      }
-      )
-    })
-    await expect(createWorkflowOutboxWorker({
-      repository: completionRepository,
-      adapter: adapter(),
-      leaseOwner: "worker-a",
-      authorizeRepository
-    }).runOnce()).resolves.toEqual([{ id: "effect-1", status: "failed" }])
+        throw new Error("completion unavailable");
+      }),
+    });
+    await expect(
+      createWorkflowOutboxWorker({
+        repository: completionRepository,
+        adapter: adapter(),
+        leaseOwner: "worker-a",
+        authorizeRepository,
+      }).runOnce()
+    ).resolves.toEqual([{ id: "effect-1", status: "failed" }]);
     expect(completionRepository.failEffect).toHaveBeenCalledWith(
       expect.objectContaining({
-        result: expect.objectContaining({ retryable: false })
-      }),
-    )
+        result: expect.objectContaining({ retryable: false }),
+      })
+    );
 
     const failEffect = vi.fn(async () => {
-      throw new Error("failure persistence unavailable")
-    }
-    )
-    const failureRepository = outbox([[claim()]], { failEffect })
-    await expect(createWorkflowOutboxWorker({
-      repository: failureRepository,
-      adapter: adapter({ ...aborted(), status: "failed" }),
-      leaseOwner: "worker-a",
-      authorizeRepository
-    }).runOnce()).resolves.toEqual([{ id: "effect-1", status: "lease-lost" }])
-    return expect(failEffect).toHaveBeenCalledTimes(2)
-  }
-  )
+      throw new Error("failure persistence unavailable");
+    });
+    const failureRepository = outbox([[claim()]], { failEffect });
+    await expect(
+      createWorkflowOutboxWorker({
+        repository: failureRepository,
+        adapter: adapter({ ...aborted(), status: "failed" }),
+        leaseOwner: "worker-a",
+        authorizeRepository,
+      }).runOnce()
+    ).resolves.toEqual([{ id: "effect-1", status: "lease-lost" }]);
+    return expect(failEffect).toHaveBeenCalledTimes(2);
+  });
 
   it("coalesces concurrent runs and starts and stops the polling loop idempotently", async () => {
-    let releaseClaim: (() => void) | undefined
-    const claimDueEffects = vi.fn()
+    let releaseClaim: (() => void) | undefined;
+    const claimDueEffects = vi
+      .fn()
       .mockImplementationOnce(() => {
         return new Promise<readonly ClaimedWorkflowEffect[]>((resolve) => {
-          return releaseClaim = () => resolve([])
-        }
-        )
-      }
-      )
-      .mockResolvedValue([])
-    const repository = outbox([], { claimDueEffects })
+          return (releaseClaim = () => resolve([]));
+        });
+      })
+      .mockResolvedValue([]);
+    const repository = outbox([], { claimDueEffects });
     const worker = createWorkflowOutboxWorker({
       repository,
       adapter: adapter(),
       leaseOwner: "worker-a",
       authorizeRepository,
-      pollMilliseconds: 60_000
-    })
-    const first = worker.runOnce()
-    const second = worker.runOnce()
-    expect(second).toBe(first)
-    releaseClaim?.()
-    await expect(first).resolves.toEqual([])
+      pollMilliseconds: 60_000,
+    });
+    const first = worker.runOnce();
+    const second = worker.runOnce();
+    expect(second).toBe(first);
+    releaseClaim?.();
+    await expect(first).resolves.toEqual([]);
 
-    await Promise.all([worker.start(), worker.start()])
-    expect(worker.isRunning()).toBe(true)
-    await vi.waitFor(() => expect(repository.claimDueEffects).toHaveBeenCalledTimes(4))
-    await Promise.all([worker.stop(), worker.stop()])
-    return expect(worker.isRunning()).toBe(false)
-  }
-  )
+    await Promise.all([worker.start(), worker.start()]);
+    expect(worker.isRunning()).toBe(true);
+    await vi.waitFor(() =>
+      expect(repository.claimDueEffects).toHaveBeenCalledTimes(4)
+    );
+    await Promise.all([worker.stop(), worker.stop()]);
+    return expect(worker.isRunning()).toBe(false);
+  });
   it("persists trusted verification and implementation artifacts before finalizing lifecycle", async () => {
-    const implementationFinalize = vi.fn(async () => undefined)
-    const verificationFinalize = vi.fn(async () => undefined)
-    const artifact = RECOVERY_ARTIFACT
-    const verification = RECOVERY_VERIFICATION
-    const repository = outbox([[
-      claim({
-        id: "implement",
-        effectId: "implement",
-        idempotencyKey: "run-1:implement",
-        effectKind: "implement"
-      }),
-      claim({
-        id: "verify",
-        effectId: "verify",
-        idempotencyKey: "run-1:verify",
-        effectKind: "verify",
-        implementationEvidence: RECOVERY_EVIDENCE,
-        implementationChangeHash: RECOVERY_CHANGE_HASH
-      })
-    ]])
+    const implementationFinalize = vi.fn(async () => undefined);
+    const verificationFinalize = vi.fn(async () => undefined);
+    const artifact = RECOVERY_ARTIFACT;
+    const verification = RECOVERY_VERIFICATION;
+    const repository = outbox([
+      [
+        claim({
+          id: "implement",
+          effectId: "implement",
+          idempotencyKey: "run-1:implement",
+          effectKind: "implement",
+        }),
+        claim({
+          id: "verify",
+          effectId: "verify",
+          idempotencyKey: "run-1:verify",
+          effectKind: "verify",
+          implementationEvidence: RECOVERY_EVIDENCE,
+          implementationChangeHash: RECOVERY_CHANGE_HASH,
+        }),
+      ],
+    ]);
     const omp: OmpCliAdapter = {
       cleanupRetainedWorkspace: vi.fn(async () => undefined),
       execute: vi.fn(async (request) => {
@@ -1222,77 +1331,80 @@ describe("workflow outbox worker", () => {
           return {
             ...success("implemented", {
               changeHash: "c".repeat(64),
-              changedPaths: ["packages/jobs"]
+              changedPaths: ["packages/jobs"],
             }),
             implementationArtifact: artifact,
-            lifecycle: { finalize: implementationFinalize }
-          }
+            lifecycle: { finalize: implementationFinalize },
+          };
         }
         return {
           ...success("verified", {
             changeHash: "c".repeat(64),
-            changedPaths: ["packages/jobs"]
+            changedPaths: ["packages/jobs"],
           }),
           verification,
           implementationArtifact: artifact,
-          lifecycle: { finalize: verificationFinalize }
-        }
-      }
-      )
-    }
-    await expect(createWorkflowOutboxWorker({
-      repository,
-      adapter: omp,
-      leaseOwner: "worker-a",
-      authorizeRepository,
-      batchSize: 2
-    }).runOnce()).resolves.toEqual([
+          lifecycle: { finalize: verificationFinalize },
+        };
+      }),
+    };
+    await expect(
+      createWorkflowOutboxWorker({
+        repository,
+        adapter: omp,
+        leaseOwner: "worker-a",
+        authorizeRepository,
+        batchSize: 2,
+      }).runOnce()
+    ).resolves.toEqual([
       { id: "implement", status: "completed" },
-      { id: "verify", status: "completed" }
-    ])
+      { id: "verify", status: "completed" },
+    ]);
 
-    const completions = vi.mocked(repository.completeEffect).mock.calls.map(
-      ([input]) => input.result,
-    )
-    expect(completions[0]).toMatchObject({ implementationArtifact: artifact })
-    expect(completions[1]).toMatchObject({ verification })
-    expect(implementationFinalize).toHaveBeenCalledWith("persisted")
-    return expect(verificationFinalize).toHaveBeenCalledWith("persisted")
-  }
-  )
+    const completions = vi
+      .mocked(repository.completeEffect)
+      .mock.calls.map(([input]) => input.result);
+    expect(completions[0]).toMatchObject({ implementationArtifact: artifact });
+    expect(completions[1]).toMatchObject({ verification });
+    expect(implementationFinalize).toHaveBeenCalledWith("persisted");
+    return expect(verificationFinalize).toHaveBeenCalledWith("persisted");
+  });
 
   it("passes durable implementation recovery to verify after a worker restart", async () => {
-    const repository = outbox([[
-      claim({
-        id: "verify-after-restart",
-        effectId: "verify-after-restart",
-        idempotencyKey: "run-1:verify-after-restart",
+    const repository = outbox([
+      [
+        claim({
+          id: "verify-after-restart",
+          effectId: "verify-after-restart",
+          idempotencyKey: "run-1:verify-after-restart",
+          effectKind: "verify",
+          implementationEvidence: RECOVERY_EVIDENCE,
+          implementationChangeHash: RECOVERY_CHANGE_HASH,
+        }),
+      ],
+    ]);
+    const omp = adapter(success());
+
+    await expect(
+      createWorkflowOutboxWorker({
+        repository,
+        adapter: omp,
+        leaseOwner: "worker-a",
+        authorizeRepository,
+      }).runOnce()
+    ).resolves.toEqual([{ id: "verify-after-restart", status: "completed" }]);
+
+    return expect(omp.execute).toHaveBeenCalledWith(
+      expect.objectContaining({
+        cwd: "darkfactory",
         effectKind: "verify",
-        implementationEvidence: RECOVERY_EVIDENCE,
-        implementationChangeHash: RECOVERY_CHANGE_HASH,
-      }),
-    ]])
-    const omp = adapter(success())
-
-    await expect(createWorkflowOutboxWorker({
-      repository,
-      adapter: omp,
-      leaseOwner: "worker-a",
-      authorizeRepository,
-    }).runOnce()).resolves.toEqual([
-      { id: "verify-after-restart", status: "completed" },
-    ])
-
-    return expect(omp.execute).toHaveBeenCalledWith(expect.objectContaining({
-      cwd: "darkfactory",
-      effectKind: "verify",
-      recovery: {
-        artifact: RECOVERY_ARTIFACT,
-        changeHash: RECOVERY_CHANGE_HASH,
-      },
-    }))
-  }
-  )
+        recovery: {
+          artifact: RECOVERY_ARTIFACT,
+          changeHash: RECOVERY_CHANGE_HASH,
+        },
+      })
+    );
+  });
 
   it.each([
     undefined,
@@ -1319,359 +1431,373 @@ describe("workflow outbox worker", () => {
       },
     },
   ])("fails a verify claim closed when durable recovery is missing or tampered %#", async (implementationEvidence) => {
-    const repository = outbox([[
-      claim({
-        effectKind: "verify",
-        implementationEvidence,
-        implementationChangeHash: RECOVERY_CHANGE_HASH,
-      }),
-    ]])
-    const omp = adapter()
+    const repository = outbox([
+      [
+        claim({
+          effectKind: "verify",
+          implementationEvidence,
+          implementationChangeHash: RECOVERY_CHANGE_HASH,
+        }),
+      ],
+    ]);
+    const omp = adapter();
 
-    await expect(createWorkflowOutboxWorker({
-      repository,
-      adapter: omp,
-      leaseOwner: "worker-a",
-      authorizeRepository,
-    }).runOnce()).resolves.toEqual([{ id: "effect-1", status: "failed" }])
-    expect(omp.execute).not.toHaveBeenCalled()
-    return expect(repository.failEffect).toHaveBeenCalledOnce()
-  }
-  )
+    await expect(
+      createWorkflowOutboxWorker({
+        repository,
+        adapter: omp,
+        leaseOwner: "worker-a",
+        authorizeRepository,
+      }).runOnce()
+    ).resolves.toEqual([{ id: "effect-1", status: "failed" }]);
+    expect(omp.execute).not.toHaveBeenCalled();
+    return expect(repository.failEffect).toHaveBeenCalledOnce();
+  });
 
   it("finalizes lifecycle as unpersisted on stale, throwing, and lost leases", async () => {
     for (const persistence of ["stale", "throws"] as const) {
-      const finalize = vi.fn(async () => undefined)
+      const finalize = vi.fn(async () => undefined);
       const repository = outbox([[claim()]], {
-        completeEffect: persistence === "stale"
-          ? vi.fn(async () => false)
-          : vi.fn(async () => {
-              throw new Error("completion unavailable")
-          }
-            )
-      })
+        completeEffect:
+          persistence === "stale"
+            ? vi.fn(async () => false)
+            : vi.fn(async () => {
+                throw new Error("completion unavailable");
+              }),
+      });
       const worker = createWorkflowOutboxWorker({
         repository,
         adapter: adapter({
           ...success(),
-          lifecycle: { finalize }
+          lifecycle: { finalize },
         }),
         leaseOwner: "worker-a",
-        authorizeRepository
-      })
-      const [result] = await worker.runOnce()
-      expect(result?.status).toBe(persistence === "stale" ? "lease-lost" : "failed")
-      expect(finalize).toHaveBeenCalledWith("unpersisted")
+        authorizeRepository,
+      });
+      const [result] = await worker.runOnce();
+      expect(result?.status).toBe(
+        persistence === "stale" ? "lease-lost" : "failed"
+      );
+      expect(finalize).toHaveBeenCalledWith("unpersisted");
     }
 
-    let resolveExecution: ((result: OmpExecutionResult) => void) | undefined
-    const lostFinalize = vi.fn(async () => undefined)
-    const heartbeatEffect = vi.fn()
+    let resolveExecution: ((result: OmpExecutionResult) => void) | undefined;
+    const lostFinalize = vi.fn(async () => undefined);
+    const heartbeatEffect = vi
+      .fn()
       .mockResolvedValueOnce(true)
-      .mockResolvedValueOnce(false)
-    const lostRepository = outbox([[claim()]], { heartbeatEffect })
+      .mockResolvedValueOnce(false);
+    const lostRepository = outbox([[claim()]], { heartbeatEffect });
     const running = createWorkflowOutboxWorker({
       repository: lostRepository,
       adapter: {
         cleanupRetainedWorkspace: vi.fn(async () => undefined),
-        execute: vi.fn(() => new Promise<OmpExecutionResult>((resolve) => {
-          return resolveExecution = resolve
-        }
-        ))
+        execute: vi.fn(
+          () =>
+            new Promise<OmpExecutionResult>((resolve) => {
+              return (resolveExecution = resolve);
+            })
+        ),
       },
       leaseOwner: "worker-a",
       authorizeRepository,
       leaseMilliseconds: 20,
-      heartbeatMilliseconds: 1
-    }).runOnce()
-    await vi.waitFor(() => expect(heartbeatEffect).toHaveBeenCalledTimes(2))
+      heartbeatMilliseconds: 1,
+    }).runOnce();
+    await vi.waitFor(() => expect(heartbeatEffect).toHaveBeenCalledTimes(2));
     resolveExecution?.({
       ...aborted(),
-      lifecycle: { finalize: lostFinalize }
-    })
+      lifecycle: { finalize: lostFinalize },
+    });
     await expect(running).resolves.toEqual([
-      { id: "effect-1", status: "lease-lost" }
-    ])
-    return expect(lostFinalize).toHaveBeenCalledWith("unpersisted")
-  }
-  )
+      { id: "effect-1", status: "lease-lost" },
+    ]);
+    return expect(lostFinalize).toHaveBeenCalledWith("unpersisted");
+  });
   it("finalizes failed execution lifecycle according to terminal persistence", async () => {
-    const results7=[];for (const persisted of [true, false]) {
-      const finalize = vi.fn(async () => undefined)
+    const results7 = [];
+    for (const persisted of [true, false]) {
+      const finalize = vi.fn(async () => undefined);
       const repository = outbox([[claim()]], {
-        failEffect: vi.fn(async () => persisted)
-      })
+        failEffect: vi.fn(async () => persisted),
+      });
       const result: OmpExecutionResult = {
         ...aborted(),
         status: "timed-out",
-        lifecycle: { finalize }
-      }
-      await expect(createWorkflowOutboxWorker({
-        repository,
-        adapter: adapter(result),
-        leaseOwner: "worker-a",
-        authorizeRepository
-      }).runOnce()).resolves.toEqual([{
-        id: "effect-1",
-        status: persisted ? "failed" : "lease-lost"
-      }])
-      results7.push(expect(finalize).toHaveBeenCalledWith(
-        persisted ? "persisted" : "unpersisted",
-      ))
-    };return results7;
-  }
-  )
+        lifecycle: { finalize },
+      };
+      await expect(
+        createWorkflowOutboxWorker({
+          repository,
+          adapter: adapter(result),
+          leaseOwner: "worker-a",
+          authorizeRepository,
+        }).runOnce()
+      ).resolves.toEqual([
+        {
+          id: "effect-1",
+          status: persisted ? "failed" : "lease-lost",
+        },
+      ]);
+      results7.push(
+        expect(finalize).toHaveBeenCalledWith(
+          persisted ? "persisted" : "unpersisted"
+        )
+      );
+    }
+    return results7;
+  });
   it("marks a retry disposition before the same claim later persists successfully", async () => {
-    const firstFinalize = vi.fn(async () => undefined)
-    const secondFinalize = vi.fn(async () => undefined)
+    const firstFinalize = vi.fn(async () => undefined);
+    const secondFinalize = vi.fn(async () => undefined);
     const repository = outbox([[claim()], [claim()]], {
-      failEffect: vi.fn(async () => "retry" as const)
-    })
+      failEffect: vi.fn(async () => "retry" as const),
+    });
     const omp: OmpCliAdapter = {
       cleanupRetainedWorkspace: vi.fn(async () => undefined),
-      execute: vi.fn()
+      execute: vi
+        .fn()
         .mockResolvedValueOnce({
           ...aborted(),
           status: "timed-out",
-          lifecycle: { finalize: firstFinalize }
+          lifecycle: { finalize: firstFinalize },
         })
         .mockResolvedValueOnce({
           ...success(),
-          lifecycle: { finalize: secondFinalize }
-        })
-    }
+          lifecycle: { finalize: secondFinalize },
+        }),
+    };
     const worker = createWorkflowOutboxWorker({
       repository,
       adapter: omp,
       leaseOwner: "worker-a",
-      authorizeRepository
-    })
+      authorizeRepository,
+    });
 
     await expect(worker.runOnce()).resolves.toEqual([
-      { id: "effect-1", status: "failed" }
-    ])
+      { id: "effect-1", status: "failed" },
+    ]);
     await expect(worker.runOnce()).resolves.toEqual([
-      { id: "effect-1", status: "completed" }
-    ])
-    expect(firstFinalize).toHaveBeenCalledWith("retry")
-    return expect(secondFinalize).toHaveBeenCalledWith("persisted")
-  }
-  )
+      { id: "effect-1", status: "completed" },
+    ]);
+    expect(firstFinalize).toHaveBeenCalledWith("retry");
+    return expect(secondFinalize).toHaveBeenCalledWith("persisted");
+  });
   it("uses an empty changed-path fallback when successful change evidence omits paths after validation", async () => {
-    let changedPathReads = 0
+    let changedPathReads = 0;
     const change = {
       changeHash: RECOVERY_CHANGE_HASH,
       get changedPaths() {
-        changedPathReads += 1
-        return changedPathReads === 1 ? ["packages/jobs"] : undefined
-      }
-    }
-    const repository = outbox([[claim({ effectKind: "implement" })]])
-    await expect(createWorkflowOutboxWorker({
-      repository,
-      adapter: adapter({ ...success(), change } as never),
-      leaseOwner: "worker-a",
-      authorizeRepository
-    }).runOnce()).resolves.toEqual([{ id: "effect-1", status: "completed" }])
-    return expect(vi.mocked(repository.completeEffect).mock.calls[0]![0].result.changedPaths)
-      .toEqual([])
-  }
-  )
+        changedPathReads += 1;
+        return changedPathReads === 1 ? ["packages/jobs"] : undefined;
+      },
+    };
+    const repository = outbox([[claim({ effectKind: "implement" })]]);
+    await expect(
+      createWorkflowOutboxWorker({
+        repository,
+        adapter: adapter({ ...success(), change } as never),
+        leaseOwner: "worker-a",
+        authorizeRepository,
+      }).runOnce()
+    ).resolves.toEqual([{ id: "effect-1", status: "completed" }]);
+    return expect(
+      vi.mocked(repository.completeEffect).mock.calls[0]![0].result.changedPaths
+    ).toEqual([]);
+  });
 
   it("finalizes and dead-letters unexpected completion construction errors", async () => {
-    const completionError = new Error("completion output unavailable")
-    const finalize = vi.fn(async () => undefined)
-    const goodOutput = success().output
-    let outputReads = 0
+    const completionError = new Error("completion output unavailable");
+    const finalize = vi.fn(async () => undefined);
+    const goodOutput = success().output;
+    let outputReads = 0;
     const result = {
       ...success(),
-      lifecycle: { finalize }
-    }
+      lifecycle: { finalize },
+    };
     Object.defineProperty(result, "output", {
       get: () => {
-        outputReads += 1
-        if (outputReads === 3) throw completionError
-        return goodOutput
-      }
-    })
-    const repository = outbox([[claim()]])
-    await expect(createWorkflowOutboxWorker({
-      repository,
-      adapter: adapter(result as OmpExecutionResult),
-      leaseOwner: "worker-a",
-      authorizeRepository
-    }).runOnce()).resolves.toEqual([{ id: "effect-1", status: "failed" }])
-    expect(finalize).toHaveBeenCalledWith("unpersisted")
-    return expect(repository.failEffect).toHaveBeenCalledWith(expect.objectContaining({
-      result: expect.objectContaining({
-        failureCode: "failed",
-        retryable: false
+        outputReads += 1;
+        if (outputReads === 3) throw completionError;
+        return goodOutput;
+      },
+    });
+    const repository = outbox([[claim()]]);
+    await expect(
+      createWorkflowOutboxWorker({
+        repository,
+        adapter: adapter(result as OmpExecutionResult),
+        leaseOwner: "worker-a",
+        authorizeRepository,
+      }).runOnce()
+    ).resolves.toEqual([{ id: "effect-1", status: "failed" }]);
+    expect(finalize).toHaveBeenCalledWith("unpersisted");
+    return expect(repository.failEffect).toHaveBeenCalledWith(
+      expect.objectContaining({
+        result: expect.objectContaining({
+          failureCode: "failed",
+          retryable: false,
+        }),
       })
-    }))
-  }
-  )
+    );
+  });
 
   it("treats an adapter rejection caused by shutdown as a lost lease", async () => {
-    let observedSignal: AbortSignal | undefined
-    const repository = outbox([[claim()]])
-    const once = Object.freeze({ once: true })
+    let observedSignal: AbortSignal | undefined;
+    const repository = outbox([[claim()]]);
+    const once = Object.freeze({ once: true });
     const omp: OmpCliAdapter = {
       cleanupRetainedWorkspace: vi.fn(async () => undefined),
-      execute: vi.fn((request) => new Promise<OmpExecutionResult>((_resolve, reject) => {
-        observedSignal = request.signal
-        return request.signal?.addEventListener(
-          "abort",
-          () => reject(new Error("adapter aborted")),
-          once
-        )
-      }
-      ))
-    }
+      execute: vi.fn(
+        (request) =>
+          new Promise<OmpExecutionResult>((_resolve, reject) => {
+            observedSignal = request.signal;
+            return request.signal?.addEventListener(
+              "abort",
+              () => reject(new Error("adapter aborted")),
+              once
+            );
+          })
+      ),
+    };
     const worker = createWorkflowOutboxWorker({
       repository,
       adapter: omp,
       leaseOwner: "worker-a",
-      authorizeRepository
-    })
-    const running = worker.runOnce()
-    await vi.waitFor(() => expect(omp.execute).toHaveBeenCalledOnce())
-    await worker.stop()
-    expect(observedSignal?.aborted).toBe(true)
+      authorizeRepository,
+    });
+    const running = worker.runOnce();
+    await vi.waitFor(() => expect(omp.execute).toHaveBeenCalledOnce());
+    await worker.stop();
+    expect(observedSignal?.aborted).toBe(true);
     await expect(running).resolves.toEqual([
-      { id: "effect-1", status: "lease-lost" }
-    ])
-    return expect(repository.failEffect).not.toHaveBeenCalled()
-  }
-  )
+      { id: "effect-1", status: "lease-lost" },
+    ]);
+    return expect(repository.failEffect).not.toHaveBeenCalled();
+  });
 
   it("fails closed when shutdown begins during completion persistence", async () => {
-    let rejectCompletion: ((error: Error) => void) | undefined
-    const completeEffect = vi.fn(() => new Promise<boolean>((_resolve, reject) => {
-      return rejectCompletion = reject
-    }
-    ))
-    const repository = outbox([[claim()]], { completeEffect })
+    let rejectCompletion: ((error: Error) => void) | undefined;
+    const completeEffect = vi.fn(
+      () =>
+        new Promise<boolean>((_resolve, reject) => {
+          return (rejectCompletion = reject);
+        })
+    );
+    const repository = outbox([[claim()]], { completeEffect });
     const worker = createWorkflowOutboxWorker({
       repository,
       adapter: adapter(),
       leaseOwner: "worker-a",
-      authorizeRepository
-    })
-    const running = worker.runOnce()
-    await vi.waitFor(() => expect(completeEffect).toHaveBeenCalledOnce())
-    const stopping = worker.stop()
-    rejectCompletion?.(new Error("completion unavailable"))
+      authorizeRepository,
+    });
+    const running = worker.runOnce();
+    await vi.waitFor(() => expect(completeEffect).toHaveBeenCalledOnce());
+    const stopping = worker.stop();
+    rejectCompletion?.(new Error("completion unavailable"));
     await expect(Promise.all([running, stopping])).resolves.toEqual([
       [{ id: "effect-1", status: "lease-lost" }],
-      undefined
-    ])
-    return expect(repository.failEffect).not.toHaveBeenCalled()
-  }
-  )
+      undefined,
+    ]);
+    return expect(repository.failEffect).not.toHaveBeenCalled();
+  });
 
   it("stops before claiming completes and refuses later manual runs", async () => {
-    let releaseClaims: (() => void) | undefined
+    let releaseClaims: (() => void) | undefined;
     const repository = outbox([], {
       claimDueEffects: vi.fn(() => {
         return new Promise<readonly ClaimedWorkflowEffect[]>((resolve) => {
-          return releaseClaims = () => resolve([claim()])
-        }
-        )
-      }
-      )
-    })
-    const omp = adapter()
+          return (releaseClaims = () => resolve([claim()]));
+        });
+      }),
+    });
+    const omp = adapter();
     const worker = createWorkflowOutboxWorker({
       repository,
       adapter: omp,
       leaseOwner: "worker-a",
-      authorizeRepository
-    })
-    await worker.start()
-    await vi.waitFor(() => expect(repository.claimDueEffects).toHaveBeenCalledOnce())
-    const stopping = worker.stop()
-    releaseClaims?.()
-    await expect(stopping).resolves.toBeUndefined()
-    await expect(worker.runOnce()).resolves.toEqual([])
-    return expect(omp.execute).not.toHaveBeenCalled()
-  }
-  )
+      authorizeRepository,
+    });
+    await worker.start();
+    await vi.waitFor(() =>
+      expect(repository.claimDueEffects).toHaveBeenCalledOnce()
+    );
+    const stopping = worker.stop();
+    releaseClaims?.();
+    await expect(stopping).resolves.toBeUndefined();
+    await expect(worker.runOnce()).resolves.toEqual([]);
+    return expect(omp.execute).not.toHaveBeenCalled();
+  });
 
   it("stops after the legacy claim completes and before processing it", async () => {
-    let releaseLegacyClaims: (() => void) | undefined
-    const claimDueEffects = vi.fn((
-      input: Parameters<WorkflowOutboxPort["claimDueEffects"]>[0],
-    ) => {
-      if (input.handler === WORKFLOW_EFFECT_HANDLER_V2) {
-        return Promise.resolve([])
+    let releaseLegacyClaims: (() => void) | undefined;
+    const claimDueEffects = vi.fn(
+      (input: Parameters<WorkflowOutboxPort["claimDueEffects"]>[0]) => {
+        if (input.handler === WORKFLOW_EFFECT_HANDLER_V2) {
+          return Promise.resolve([]);
+        }
+        return new Promise<readonly ClaimedWorkflowEffect[]>((resolve) => {
+          return (releaseLegacyClaims = () =>
+            resolve([claim({ handler: WORKFLOW_EFFECT_HANDLER_V1 })]));
+        });
       }
-      return new Promise<readonly ClaimedWorkflowEffect[]>((resolve) => {
-        return releaseLegacyClaims = () => resolve([
-          claim({ handler: WORKFLOW_EFFECT_HANDLER_V1 }),
-        ])
-      }
-      )
-    }
-    )
-    const repository = outbox([], { claimDueEffects })
-    const omp = adapter()
+    );
+    const repository = outbox([], { claimDueEffects });
+    const omp = adapter();
     const worker = createWorkflowOutboxWorker({
       repository,
       adapter: omp,
       leaseOwner: "worker-a",
-      authorizeRepository
-    })
+      authorizeRepository,
+    });
 
-    await worker.start()
-    await vi.waitFor(() => expect(claimDueEffects).toHaveBeenCalledTimes(2))
-    const stopping = worker.stop()
-    releaseLegacyClaims?.()
+    await worker.start();
+    await vi.waitFor(() => expect(claimDueEffects).toHaveBeenCalledTimes(2));
+    const stopping = worker.stop();
+    releaseLegacyClaims?.();
 
-    await expect(stopping).resolves.toBeUndefined()
-    return expect(omp.execute).not.toHaveBeenCalled()
-  }
-  )
+    await expect(stopping).resolves.toBeUndefined();
+    return expect(omp.execute).not.toHaveBeenCalled();
+  });
 
   return it("ignores the poll timer after shutdown already woke its sleep", async () => {
-    let timerCallback: (() => void) | undefined
-    let markSleeping: (() => void) | undefined
-    const sleeping = new Promise<void>((resolve) => markSleeping = resolve)
-    const setTimeout = vi.spyOn(globalThis, "setTimeout")
+    let timerCallback: (() => void) | undefined;
+    let markSleeping: (() => void) | undefined;
+    const sleeping = new Promise<void>((resolve) => (markSleeping = resolve));
+    const setTimeout = vi
+      .spyOn(globalThis, "setTimeout")
       .mockImplementation((callback) => {
-        if (typeof callback !== "function") throw new TypeError("Expected timer callback")
-        timerCallback = () => callback()
-        markSleeping?.()
-        return 1 as never
-      }
-      )
-    const clearTimeout = vi.spyOn(globalThis, "clearTimeout")
-      .mockImplementation(() => undefined)
+        if (typeof callback !== "function")
+          throw new TypeError("Expected timer callback");
+        timerCallback = () => callback();
+        markSleeping?.();
+        return 1 as never;
+      });
+    const clearTimeout = vi
+      .spyOn(globalThis, "clearTimeout")
+      .mockImplementation(() => undefined);
     try {
-      const repository = outbox([[], []])
+      const repository = outbox([[], []]);
       const worker = createWorkflowOutboxWorker({
         repository,
         adapter: adapter(),
         leaseOwner: "worker-a",
         authorizeRepository,
-        pollMilliseconds: 1
-      })
-      await worker.start()
-      await sleeping
-      expect(repository.claimDueEffects).toHaveBeenCalledTimes(2)
-      expect(setTimeout).toHaveBeenCalledWith(expect.any(Function), 1)
+        pollMilliseconds: 1,
+      });
+      await worker.start();
+      await sleeping;
+      expect(repository.claimDueEffects).toHaveBeenCalledTimes(2);
+      expect(setTimeout).toHaveBeenCalledWith(expect.any(Function), 1);
 
-      await worker.stop()
-      timerCallback?.()
+      await worker.stop();
+      timerCallback?.();
 
-      expect(clearTimeout).toHaveBeenCalledWith(1)
-      return expect(worker.isRunning()).toBe(false)
+      expect(clearTimeout).toHaveBeenCalledWith(1);
+      return expect(worker.isRunning()).toBe(false);
+    } finally {
+      setTimeout.mockRestore();
+      clearTimeout.mockRestore();
     }
-    finally {
-      setTimeout.mockRestore()
-      clearTimeout.mockRestore()
-    }
-  }
-  )
-}
-
-)
+  });
+});

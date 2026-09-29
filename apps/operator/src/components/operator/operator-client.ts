@@ -1,6 +1,6 @@
-"use client"
+"use client";
 
-import { createOperatorClient } from "@darkfactory/operator/client"
+import { createOperatorClient } from "@darkfactory/operator/client";
 import {
   OPERATOR_WORKFLOW_STATES,
   type OperatorClient,
@@ -9,83 +9,89 @@ import {
   type OperatorWorkflowState,
   type OperatorWayfinderQueuedRunOutput,
   type OperatorWayfinderStatusOutput,
-} from "@darkfactory/operator/contract"
+} from "@darkfactory/operator/contract";
 
-export const WORKFLOW_STATES = Object.freeze([...OPERATOR_WORKFLOW_STATES])
+export const WORKFLOW_STATES = Object.freeze([...OPERATOR_WORKFLOW_STATES]);
 
-export type WorkflowState = OperatorWorkflowState
-export type OperatorRunSummary = OperatorRunSummaryOutput
-export type OperatorRunDetailOutput = OperatorContractRunDetailOutput
-export type OperatorTimelineEntry = OperatorRunDetailOutput["timeline"][number]
-export type OperatorApprovalBinding = NonNullable<OperatorRunDetailOutput["approval"]>
-export type OperatorImplementationPlan =
-  NonNullable<OperatorRunDetailOutput["implementationPlan"]>
-export type OperatorPlanRevision = OperatorRunDetailOutput["planRevisions"][number]
-export type OperatorEvidenceItem = OperatorRunDetailOutput["evidence"][number]
-export type OperatorMessage = OperatorRunDetailOutput["messages"][number]
+export type WorkflowState = OperatorWorkflowState;
+export type OperatorRunSummary = OperatorRunSummaryOutput;
+export type OperatorRunDetailOutput = OperatorContractRunDetailOutput;
+export type OperatorTimelineEntry = OperatorRunDetailOutput["timeline"][number];
+export type OperatorApprovalBinding = NonNullable<
+  OperatorRunDetailOutput["approval"]
+>;
+export type OperatorImplementationPlan = NonNullable<
+  OperatorRunDetailOutput["implementationPlan"]
+>;
+export type OperatorPlanRevision =
+  OperatorRunDetailOutput["planRevisions"][number];
+export type OperatorEvidenceItem = OperatorRunDetailOutput["evidence"][number];
+export type OperatorMessage = OperatorRunDetailOutput["messages"][number];
 export type OperatorWorkspaceOutput = Readonly<{
-  runs: readonly OperatorRunSummary[]
-}>
-export type OperatorWayfinderStatus = OperatorWayfinderStatusOutput
-export type OperatorWayfinderQueuedRun = OperatorWayfinderQueuedRunOutput
+  runs: readonly OperatorRunSummary[];
+}>;
+export type OperatorWayfinderStatus = OperatorWayfinderStatusOutput;
+export type OperatorWayfinderQueuedRun = OperatorWayfinderQueuedRunOutput;
 
 export interface OperatorSubmitScope {
-  readonly repositoryId: string
-  readonly paths: readonly string[]
+  readonly repositoryId: string;
+  readonly paths: readonly string[];
 }
 
 export interface OperatorSubmissionValues {
-  readonly title: string
-  readonly repositoryId: string
-  readonly scopePaths: string
+  readonly title: string;
+  readonly repositoryId: string;
+  readonly scopePaths: string;
 }
 
 export type OperatorSubmissionOutcome =
   | Readonly<{
-    selectedRun: OperatorRunDetailOutput
-    workspace: OperatorWorkspaceOutput
-  }>
+      selectedRun: OperatorRunDetailOutput;
+      workspace: OperatorWorkspaceOutput;
+    }>
   | Readonly<{
-    selectedRun: OperatorRunDetailOutput
-    workspaceFailure: OperatorFailure
-  }>
+      selectedRun: OperatorRunDetailOutput;
+      workspaceFailure: OperatorFailure;
+    }>;
 
 export interface OperatorGateway {
   readonly submit: (
     title: string,
     scope: OperatorSubmitScope,
-    idempotencyKey: string,
-  ) => Promise<OperatorRunDetailOutput>
-  readonly workspace: () => Promise<OperatorWorkspaceOutput>
-  readonly detail: (id: string) => Promise<OperatorRunDetailOutput>
+    idempotencyKey: string
+  ) => Promise<OperatorRunDetailOutput>;
+  readonly workspace: () => Promise<OperatorWorkspaceOutput>;
+  readonly detail: (id: string) => Promise<OperatorRunDetailOutput>;
   readonly approve: (
     id: string,
-    approval: OperatorApprovalBinding,
-  ) => Promise<OperatorRunDetailOutput>
-  readonly reject: (id: string) => Promise<OperatorRunDetailOutput>
-  readonly cancel: (id: string) => Promise<OperatorRunDetailOutput>
-  readonly retry: (id: string) => Promise<OperatorRunDetailOutput>
+    approval: OperatorApprovalBinding
+  ) => Promise<OperatorRunDetailOutput>;
+  readonly reject: (id: string) => Promise<OperatorRunDetailOutput>;
+  readonly cancel: (id: string) => Promise<OperatorRunDetailOutput>;
+  readonly retry: (id: string) => Promise<OperatorRunDetailOutput>;
   readonly message: (
     id: string,
     body: string,
-    idempotencyKey: string,
-  ) => Promise<OperatorRunDetailOutput>
+    idempotencyKey: string
+  ) => Promise<OperatorRunDetailOutput>;
   readonly revise: (
     id: string,
     message: string,
-    idempotencyKey: string,
-  ) => Promise<OperatorRunDetailOutput>
-  readonly wayfinderStatus: () => Promise<OperatorWayfinderStatus>
+    idempotencyKey: string
+  ) => Promise<OperatorRunDetailOutput>;
+  readonly wayfinderStatus: () => Promise<OperatorWayfinderStatus>;
   readonly startWayfinder: (
     request: string,
-    scope: OperatorSubmitScope,
-  ) => Promise<OperatorWayfinderQueuedRun>
+    scope: OperatorSubmitScope
+  ) => Promise<OperatorWayfinderQueuedRun>;
 }
 
-export const createOperatorGateway = (client: OperatorClient): OperatorGateway => {
+export const createOperatorGateway = (
+  client: OperatorClient
+): OperatorGateway => {
   const approve = (
     id: string,
-    approval: OperatorApprovalBinding,
+    approval: OperatorApprovalBinding
   ): Promise<OperatorRunDetailOutput> => {
     const input = {
       id,
@@ -98,25 +104,33 @@ export const createOperatorGateway = (client: OperatorClient): OperatorGateway =
         effectHash: approval.effectHash,
         effectScope: approval.effectScope,
       },
-    }
-    return client.operator.approve(input)
-  }
+    };
+    return client.operator.approve(input);
+  };
 
   const revise = (
     id: string,
     message: string,
-    idempotencyKey: string,
+    idempotencyKey: string
   ): Promise<OperatorRunDetailOutput> => {
-    return client.operator.wayfinder.revise({ runId: id, message, idempotencyKey })
-  }
+    return client.operator.wayfinder.revise({
+      runId: id,
+      message,
+      idempotencyKey,
+    });
+  };
 
   return Object.freeze({
-    submit: (title: string, scope: OperatorSubmitScope, idempotencyKey: string) => {
+    submit: (
+      title: string,
+      scope: OperatorSubmitScope,
+      idempotencyKey: string
+    ) => {
       return client.operator.submit({
         title,
         scope: { repositoryId: scope.repositoryId, paths: [...scope.paths] },
         idempotencyKey,
-      })
+      });
     },
     workspace: () => client.operator.workspace({ limit: 100 }),
     detail: (id: string) => client.operator.detail({ id }),
@@ -125,7 +139,7 @@ export const createOperatorGateway = (client: OperatorClient): OperatorGateway =
     cancel: (id: string) => client.operator.cancel({ id }),
     retry: (id: string) => client.operator.retry({ id }),
     message: (id: string, body: string, idempotencyKey: string) => {
-      return client.operator.message({ id, body, idempotencyKey })
+      return client.operator.message({ id, body, idempotencyKey });
     },
     revise,
     wayfinderStatus: () => client.operator.wayfinder.status({}),
@@ -133,50 +147,57 @@ export const createOperatorGateway = (client: OperatorClient): OperatorGateway =
       return client.operator.wayfinder.start({
         request,
         scope: { repositoryId: scope.repositoryId, paths: [...scope.paths] },
-      })
-    }
-  })
-}
+      });
+    },
+  });
+};
 
 export const createBrowserOperatorGateway = (): OperatorGateway => {
-  let gateway: OperatorGateway | undefined
+  let gateway: OperatorGateway | undefined;
   const current = (): OperatorGateway => {
-    gateway ??= createOperatorGateway(createOperatorClient({ baseUrl: window.location.origin }))
-    return gateway
-  }
+    gateway ??= createOperatorGateway(
+      createOperatorClient({ baseUrl: window.location.origin })
+    );
+    return gateway;
+  };
 
   return Object.freeze({
-    submit: (title: string, scope: OperatorSubmitScope, idempotencyKey: string) => {
-      return current().submit(title, scope, idempotencyKey)
+    submit: (
+      title: string,
+      scope: OperatorSubmitScope,
+      idempotencyKey: string
+    ) => {
+      return current().submit(title, scope, idempotencyKey);
     },
     workspace: () => current().workspace(),
     detail: (id: string) => current().detail(id),
-    approve: (id: string, approval: OperatorApprovalBinding) => current().approve(id, approval),
+    approve: (id: string, approval: OperatorApprovalBinding) =>
+      current().approve(id, approval),
     reject: (id: string) => current().reject(id),
     cancel: (id: string) => current().cancel(id),
     retry: (id: string) => current().retry(id),
     message: (id: string, body: string, idempotencyKey: string) => {
-      return current().message(id, body, idempotencyKey)
+      return current().message(id, body, idempotencyKey);
     },
     revise: (id: string, message: string, idempotencyKey: string) => {
-      return current().revise(id, message, idempotencyKey)
+      return current().revise(id, message, idempotencyKey);
     },
     wayfinderStatus: () => current().wayfinderStatus(),
     startWayfinder: (request: string, scope: OperatorSubmitScope) => {
-      return current().startWayfinder(request, scope)
-    }
-  })
-}
+      return current().startWayfinder(request, scope);
+    },
+  });
+};
 
 const errorCode = (error: unknown): string | null => {
-  if (typeof error !== "object" || error === null) return null
-  const direct = Reflect.get(error, "code")
-  if (typeof direct === "string") return direct
-  const data = Reflect.get(error, "data")
-  if (typeof data !== "object" || data === null) return null
-  const nested = Reflect.get(data, "code")
-  return typeof nested === "string" ? nested : null
-}
+  if (typeof error !== "object" || error === null) return null;
+  const direct = Reflect.get(error, "code");
+  if (typeof direct === "string") return direct;
+  const data = Reflect.get(error, "data");
+  if (typeof data !== "object" || data === null) return null;
+  const nested = Reflect.get(data, "code");
+  return typeof nested === "string" ? nested : null;
+};
 
 export interface OperatorFailure {
   readonly kind:
@@ -186,66 +207,88 @@ export interface OperatorFailure {
     | "not-found"
     | "stale"
     | "transient"
-    | "unknown"
-  readonly message: string
+    | "unknown";
+  readonly message: string;
 }
 
 export const classifyOperatorFailure = (error: unknown): OperatorFailure => {
-  switch(errorCode(error)) {
+  switch (errorCode(error)) {
     case "UNAUTHORIZED":
-      return { kind: "unauthorized", message: "Your session ended. Sign in again to continue." }
+      return {
+        kind: "unauthorized",
+        message: "Your session ended. Sign in again to continue.",
+      };
     case "FORBIDDEN":
-      return { kind: "forbidden", message: "You do not have access to this workflow run." }
+      return {
+        kind: "forbidden",
+        message: "You do not have access to this workflow run.",
+      };
     case "NOT_FOUND":
-      return { kind: "not-found", message: "This workflow run is no longer available." }
+      return {
+        kind: "not-found",
+        message: "This workflow run is no longer available.",
+      };
     case "CONFLICT":
     case "STALE_APPROVAL":
-      return { kind: "stale", message: "The plan changed. Reload the run before you take action." }
+      return {
+        kind: "stale",
+        message: "The plan changed. Reload the run before you take action.",
+      };
     case "STORAGE_ERROR":
     case "SERVICE_UNAVAILABLE":
-      return { kind: "transient", message: "Operator data is temporarily unavailable. Try again." }
+      return {
+        kind: "transient",
+        message: "Operator data is temporarily unavailable. Try again.",
+      };
     default:
-      return { kind: "unknown", message: "The operator request could not be completed. Try again." }
+      return {
+        kind: "unknown",
+        message: "The operator request could not be completed. Try again.",
+      };
   }
-}
+};
 
-export const classifyOperatorSubmissionFailure = (error: unknown): OperatorFailure => {
-  switch(errorCode(error)) {
+export const classifyOperatorSubmissionFailure = (
+  error: unknown
+): OperatorFailure => {
+  switch (errorCode(error)) {
     case "BAD_REQUEST":
     case "VALIDATION_ERROR":
       return {
         kind: "invalid",
-        message: "Check the run title, repository ID, and relative scope paths, then try again.",
-      }
+        message:
+          "Check the run title, repository ID, and relative scope paths, then try again.",
+      };
     default:
-      return classifyOperatorFailure(error)
+      return classifyOperatorFailure(error);
   }
-}
+};
 
-export const createOperatorIdempotencyKey = (): string => globalThis.crypto.randomUUID()
+export const createOperatorIdempotencyKey = (): string =>
+  globalThis.crypto.randomUUID();
 
 export interface OperatorIdempotencyKeySlot {
-  readonly invalidate: () => void
-  readonly key: () => string
+  readonly invalidate: () => void;
+  readonly key: () => string;
 }
 
 export const createOperatorIdempotencyKeySlot = (
-  createKey: () => string = createOperatorIdempotencyKey,
+  createKey: () => string = createOperatorIdempotencyKey
 ): OperatorIdempotencyKeySlot => {
-  let currentKey: string | null = null
+  let currentKey: string | null = null;
   const invalidate = (): void => {
-    currentKey = null
-  }
+    currentKey = null;
+  };
   const key = (): string => {
-    return currentKey ??= createKey()
-  }
-  return Object.freeze({ invalidate, key })
-}
+    return (currentKey ??= createKey());
+  };
+  return Object.freeze({ invalidate, key });
+};
 
 export const submitOperatorRun = async (
   gateway: OperatorGateway,
   values: OperatorSubmissionValues,
-  idempotencyKey: string,
+  idempotencyKey: string
 ): Promise<OperatorSubmissionOutcome> => {
   const selectedRun = await gateway.submit(
     values.title,
@@ -253,18 +296,17 @@ export const submitOperatorRun = async (
       repositoryId: values.repositoryId.trim().toLowerCase(),
       paths: values.scopePaths.split(/\r?\n/u).map((path) => path.trim()),
     },
-    idempotencyKey,
-  )
+    idempotencyKey
+  );
   try {
     return {
       selectedRun,
       workspace: await gateway.workspace(),
-    }
-  }
-  catch (error) {
+    };
+  } catch (error) {
     return {
       selectedRun,
       workspaceFailure: classifyOperatorFailure(error),
-    }
+    };
   }
-}
+};

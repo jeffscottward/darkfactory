@@ -1,5 +1,5 @@
-import { PgDialect } from "drizzle-orm/pg-core"
-import { describe, expect, it, vi } from "vitest"
+import { PgDialect } from "drizzle-orm/pg-core";
+import { describe, expect, it, vi } from "vitest";
 
 import {
   CONFIRMED_SIGN_OUT_ERROR_CODE,
@@ -9,10 +9,11 @@ import {
   createRawSessionIdentityReader,
   hasValidBetterAuthSessionCookie,
   type ConfirmedSignOutDependencies,
-} from "./db.ts"
+} from "./db.ts";
 
-const TRUSTED_ORIGIN = "https://darkfactory.localhost"
-const SIGNING_SECRET = "strict-logout-test-secret-at-least-thirty-two-characters"
+const TRUSTED_ORIGIN = "https://darkfactory.localhost";
+const SIGNING_SECRET =
+  "strict-logout-test-secret-at-least-thirty-two-characters";
 
 const signedCookie = async (value: string): Promise<string> => {
   const key = await crypto.subtle.importKey(
@@ -20,15 +21,15 @@ const signedCookie = async (value: string): Promise<string> => {
     new TextEncoder().encode(SIGNING_SECRET),
     { name: "HMAC", hash: "SHA-256" },
     false,
-    ["sign"],
-  )
+    ["sign"]
+  );
   const bytes = new Uint8Array(
-    await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(value)),
-  )
-  const signature = btoa(String.fromCharCode(...bytes))
-  return encodeURIComponent(`${value}.${signature}`)
-}
-const ACTIVE_COOKIE = "better-auth.session_token=old-session-token"
+    await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(value))
+  );
+  const signature = btoa(String.fromCharCode(...bytes));
+  return encodeURIComponent(`${value}.${signature}`);
+};
+const ACTIVE_COOKIE = "better-auth.session_token=old-session-token";
 
 const request = (origin: string | null = TRUSTED_ORIGIN, method = "POST") => {
   return new Request(`${TRUSTED_ORIGIN}/api/auth/strict-sign-out`, {
@@ -37,11 +38,11 @@ const request = (origin: string | null = TRUSTED_ORIGIN, method = "POST") => {
       cookie: ACTIVE_COOKIE,
       ...(origin === null ? {} : { origin }),
     },
-  })
-}
+  });
+};
 
 const dependencies = (
-  overrides: Partial<ConfirmedSignOutDependencies> = {},
+  overrides: Partial<ConfirmedSignOutDependencies> = {}
 ): ConfirmedSignOutDependencies => ({
   trustedOrigin: TRUSTED_ORIGIN,
   currentSession: vi.fn().mockResolvedValue({
@@ -50,67 +51,87 @@ const dependencies = (
   }),
   hasValidSessionCookie: vi.fn().mockResolvedValue(false),
   revokeCurrentSession: vi.fn().mockResolvedValue("revoked"),
-  expireSessionCookie: vi.fn().mockResolvedValue(Response.json(
-    { success: true },
-    { headers: { "set-cookie": "better-auth.session_token=; Path=/; Max-Age=0; HttpOnly; Secure; SameSite=Lax" } },
-  )),
+  expireSessionCookie: vi.fn().mockResolvedValue(
+    Response.json(
+      { success: true },
+      {
+        headers: {
+          "set-cookie":
+            "better-auth.session_token=; Path=/; Max-Age=0; HttpOnly; Secure; SameSite=Lax",
+        },
+      }
+    )
+  ),
   ...overrides,
-})
+});
 
 const successfulCookieResponse = (...cookies: string[]): Response => {
-  const headers = new Headers()
+  const headers = new Headers();
   for (const cookie of cookies) {
-    headers.append("set-cookie", cookie)
+    headers.append("set-cookie", cookie);
   }
-  return Response.json({ success: true }, { headers })
-}
+  return Response.json({ success: true }, { headers });
+};
 
-const body = async (response: Response) => response.json() as Promise<Record<string, unknown>>
+const body = async (response: Response) =>
+  response.json() as Promise<Record<string, unknown>>;
 
-describe("confirmed Better Auth session revocation", function() {
-  it("rejects GET and cross-origin requests before authentication or mutation", async function() {
-    const results=[];for (const candidate of [request(TRUSTED_ORIGIN, "GET"), request("https://attacker.example"), request(null)]) {
-      const currentSession = vi.fn()
-      const revokeCurrentSession = vi.fn()
-      const handler = createConfirmedSignOutHandler(dependencies({
+describe("confirmed Better Auth session revocation", function () {
+  it("rejects GET and cross-origin requests before authentication or mutation", async function () {
+    const results = [];
+    for (const candidate of [
+      request(TRUSTED_ORIGIN, "GET"),
+      request("https://attacker.example"),
+      request(null),
+    ]) {
+      const currentSession = vi.fn();
+      const revokeCurrentSession = vi.fn();
+      const handler = createConfirmedSignOutHandler(
+        dependencies({
+          currentSession,
+          revokeCurrentSession,
+        })
+      );
+
+      const response = await handler(candidate);
+
+      expect(response.status).toBe(candidate.method === "GET" ? 405 : 403);
+      expect(currentSession).not.toHaveBeenCalled();
+      results.push(expect(revokeCurrentSession).not.toHaveBeenCalled());
+    }
+    return results;
+  });
+
+  it("returns the explicit cross-origin rejection contract", async function () {
+    const currentSession = vi.fn();
+    const revokeCurrentSession = vi.fn();
+    const handler = createConfirmedSignOutHandler(
+      dependencies({
         currentSession,
         revokeCurrentSession,
-      }))
+      })
+    );
 
-      const response = await handler(candidate)
+    const response = await handler(request("https://attacker.example"));
 
-      expect(response.status).toBe(candidate.method === "GET" ? 405 : 403)
-      expect(currentSession).not.toHaveBeenCalled()
-      results.push(expect(revokeCurrentSession).not.toHaveBeenCalled())
-    };return results;
-  })
-
-  it("returns the explicit cross-origin rejection contract", async function() {
-    const currentSession = vi.fn()
-    const revokeCurrentSession = vi.fn()
-    const handler = createConfirmedSignOutHandler(dependencies({
-      currentSession,
-      revokeCurrentSession,
-    }))
-
-    const response = await handler(request("https://attacker.example"))
-
-    expect(response.status).toBe(403)
-    expect(response.headers.get("cache-control")).toBe("no-store")
-    expect(response.headers.get("allow")).toBeNull()
+    expect(response.status).toBe(403);
+    expect(response.headers.get("cache-control")).toBe("no-store");
+    expect(response.headers.get("allow")).toBeNull();
     expect(await body(response)).toEqual({
       success: false,
       message: "Request origin is not allowed.",
-    })
-    expect(currentSession).not.toHaveBeenCalled()
-    return expect(revokeCurrentSession).not.toHaveBeenCalled()
-  })
+    });
+    expect(currentSession).not.toHaveBeenCalled();
+    return expect(revokeCurrentSession).not.toHaveBeenCalled();
+  });
 
-  it("accepts a framework-internal request URL with the canonical browser origin", async function() {
-    const revokeCurrentSession = vi.fn().mockResolvedValue("revoked")
-    const handler = createConfirmedSignOutHandler(dependencies({
-      revokeCurrentSession,
-    }))
+  it("accepts a framework-internal request URL with the canonical browser origin", async function () {
+    const revokeCurrentSession = vi.fn().mockResolvedValue("revoked");
+    const handler = createConfirmedSignOutHandler(
+      dependencies({
+        revokeCurrentSession,
+      })
+    );
     const internalRequest = new Request(
       "http://127.0.0.1:43123/api/auth/strict-sign-out",
       {
@@ -119,168 +140,210 @@ describe("confirmed Better Auth session revocation", function() {
           cookie: ACTIVE_COOKIE,
           origin: TRUSTED_ORIGIN,
         },
-      },
-    )
+      }
+    );
 
-    const response = await handler(internalRequest)
+    const response = await handler(internalRequest);
 
-    expect(response.status).toBe(200)
-    return expect(revokeCurrentSession).toHaveBeenCalledOnce()
-  })
+    expect(response.status).toBe(200);
+    return expect(revokeCurrentSession).toHaveBeenCalledOnce();
+  });
 
-  it("expires a valid signed stale cookie after another tab already revoked the row", async function() {
-    const revokeCurrentSession = vi.fn()
-    const expireSessionCookie = vi.fn().mockResolvedValue(Response.json(
-      { success: true },
-      { headers: { "set-cookie": "better-auth.session_token=; Path=/; Max-Age=0" } },
-    ))
-    const handler = createConfirmedSignOutHandler(dependencies({
-      currentSession: vi.fn().mockResolvedValue(null),
-      hasValidSessionCookie: vi.fn().mockResolvedValue(true),
-      revokeCurrentSession,
-      expireSessionCookie,
-    }))
+  it("expires a valid signed stale cookie after another tab already revoked the row", async function () {
+    const revokeCurrentSession = vi.fn();
+    const expireSessionCookie = vi.fn().mockResolvedValue(
+      Response.json(
+        { success: true },
+        {
+          headers: {
+            "set-cookie": "better-auth.session_token=; Path=/; Max-Age=0",
+          },
+        }
+      )
+    );
+    const handler = createConfirmedSignOutHandler(
+      dependencies({
+        currentSession: vi.fn().mockResolvedValue(null),
+        hasValidSessionCookie: vi.fn().mockResolvedValue(true),
+        revokeCurrentSession,
+        expireSessionCookie,
+      })
+    );
 
-    const response = await handler(request())
+    const response = await handler(request());
 
-    expect(response.status).toBe(200)
-    expect(revokeCurrentSession).not.toHaveBeenCalled()
-    return expect(expireSessionCookie).toHaveBeenCalledOnce()
-  })
+    expect(response.status).toBe(200);
+    expect(revokeCurrentSession).not.toHaveBeenCalled();
+    return expect(expireSessionCookie).toHaveBeenCalledOnce();
+  });
 
-  it("rejects a forged cookie instead of treating it as prior revocation proof", async function() {
-    const revokeCurrentSession = vi.fn()
-    const expireSessionCookie = vi.fn()
-    const handler = createConfirmedSignOutHandler(dependencies({
-      currentSession: vi.fn().mockResolvedValue(null),
-      hasValidSessionCookie: vi.fn().mockResolvedValue(false),
-      revokeCurrentSession,
-      expireSessionCookie,
-    }))
+  it("rejects a forged cookie instead of treating it as prior revocation proof", async function () {
+    const revokeCurrentSession = vi.fn();
+    const expireSessionCookie = vi.fn();
+    const handler = createConfirmedSignOutHandler(
+      dependencies({
+        currentSession: vi.fn().mockResolvedValue(null),
+        hasValidSessionCookie: vi.fn().mockResolvedValue(false),
+        revokeCurrentSession,
+        expireSessionCookie,
+      })
+    );
 
-    const response = await handler(request())
+    const response = await handler(request());
 
-    expect(response.status).toBe(401)
-    expect(revokeCurrentSession).not.toHaveBeenCalled()
-    return expect(expireSessionCookie).not.toHaveBeenCalled()
-  })
+    expect(response.status).toBe(401);
+    expect(revokeCurrentSession).not.toHaveBeenCalled();
+    return expect(expireSessionCookie).not.toHaveBeenCalled();
+  });
 
-  it("revokes the authenticated row before expiring the Better Auth cookie", async function() {
-    const order: string[] = []
-    const activeSessions = new Set(["session-current"])
-    const currentSession = vi.fn(async (_headers: Headers) => (
+  it("revokes the authenticated row before expiring the Better Auth cookie", async function () {
+    const order: string[] = [];
+    const activeSessions = new Set(["session-current"]);
+    const currentSession = vi.fn(async (_headers: Headers) =>
       activeSessions.has("session-current")
         ? { sessionId: "session-current", userId: "user-current" }
         : null
-    ))
-    const revokeCurrentSession = vi.fn(async ({ sessionId }: { sessionId: string }) => {
-      order.push("revoke")
-      return activeSessions.delete(sessionId) ? "revoked" : "missing"
-    }
-    )
+    );
+    const revokeCurrentSession = vi.fn(
+      async ({ sessionId }: { sessionId: string }) => {
+        order.push("revoke");
+        return activeSessions.delete(sessionId) ? "revoked" : "missing";
+      }
+    );
     const expireSessionCookie = vi.fn(async () => {
-      order.push("expire-cookie")
+      order.push("expire-cookie");
       return Response.json(
         { success: true },
-        { headers: { "set-cookie": "better-auth.session_token=; Path=/; Max-Age=0; HttpOnly; Secure; SameSite=Lax" } },
-      )
-    }
-    )
-    const handler = createConfirmedSignOutHandler(dependencies({
-      currentSession,
-      revokeCurrentSession,
-      expireSessionCookie,
-    }))
+        {
+          headers: {
+            "set-cookie":
+              "better-auth.session_token=; Path=/; Max-Age=0; HttpOnly; Secure; SameSite=Lax",
+          },
+        }
+      );
+    });
+    const handler = createConfirmedSignOutHandler(
+      dependencies({
+        currentSession,
+        revokeCurrentSession,
+        expireSessionCookie,
+      })
+    );
 
-    const response = await handler(request())
+    const response = await handler(request());
 
-    expect(response.status).toBe(200)
-    expect(await body(response)).toEqual({ success: true })
-    expect(response.headers.get("set-cookie")).toContain("Max-Age=0")
-    expect(order).toEqual(["revoke", "expire-cookie"])
+    expect(response.status).toBe(200);
+    expect(await body(response)).toEqual({ success: true });
+    expect(response.headers.get("set-cookie")).toContain("Max-Age=0");
+    expect(order).toEqual(["revoke", "expire-cookie"]);
     expect(revokeCurrentSession).toHaveBeenCalledWith({
       sessionId: "session-current",
       userId: "user-current",
-    })
-    return await expect(currentSession(new Headers({ cookie: ACTIVE_COOKIE }))).resolves.toBeNull()
-  })
+    });
+    return await expect(
+      currentSession(new Headers({ cookie: ACTIVE_COOKIE }))
+    ).resolves.toBeNull();
+  });
 
-  it("preserves the cookie path and reports unknown when database revocation fails", async function() {
-    const expireSessionCookie = vi.fn()
-    const handler = createConfirmedSignOutHandler(dependencies({
-      revokeCurrentSession: vi.fn().mockRejectedValue(new Error("database unavailable")),
-      expireSessionCookie,
-    }))
+  it("preserves the cookie path and reports unknown when database revocation fails", async function () {
+    const expireSessionCookie = vi.fn();
+    const handler = createConfirmedSignOutHandler(
+      dependencies({
+        revokeCurrentSession: vi
+          .fn()
+          .mockRejectedValue(new Error("database unavailable")),
+        expireSessionCookie,
+      })
+    );
 
-    const response = await handler(request())
+    const response = await handler(request());
 
-    expect(response.status).toBe(503)
+    expect(response.status).toBe(503);
     expect(await body(response)).toEqual({
       success: false,
       code: CONFIRMED_SIGN_OUT_ERROR_CODE,
       message: "Sign out could not be confirmed.",
-    })
-    return expect(expireSessionCookie).not.toHaveBeenCalled()
-  })
+    });
+    return expect(expireSessionCookie).not.toHaveBeenCalled();
+  });
 
-  it("expires the cookie after a concurrent delete returns no row", async function() {
-    const expireSessionCookie = vi.fn().mockResolvedValue(Response.json(
-      { success: true },
-      { headers: { "set-cookie": "better-auth.session_token=; Path=/; Max-Age=0" } },
-    ))
-    const handler = createConfirmedSignOutHandler(dependencies({
-      revokeCurrentSession: vi.fn().mockResolvedValue("missing"),
-      expireSessionCookie,
-    }))
+  it("expires the cookie after a concurrent delete returns no row", async function () {
+    const expireSessionCookie = vi.fn().mockResolvedValue(
+      Response.json(
+        { success: true },
+        {
+          headers: {
+            "set-cookie": "better-auth.session_token=; Path=/; Max-Age=0",
+          },
+        }
+      )
+    );
+    const handler = createConfirmedSignOutHandler(
+      dependencies({
+        revokeCurrentSession: vi.fn().mockResolvedValue("missing"),
+        expireSessionCookie,
+      })
+    );
 
-    const response = await handler(request())
+    const response = await handler(request());
 
-    expect(response.status).toBe(200)
-    expect((await body(response))["success"]).toBe(true)
-    return expect(expireSessionCookie).toHaveBeenCalledOnce()
-  })
+    expect(response.status).toBe(200);
+    expect((await body(response))["success"]).toBe(true);
+    return expect(expireSessionCookie).toHaveBeenCalledOnce();
+  });
 
-  it("fails closed when the session id still belongs to a different user", async function() {
-    const expireSessionCookie = vi.fn()
-    const handler = createConfirmedSignOutHandler(dependencies({
-      revokeCurrentSession: vi.fn().mockResolvedValue("mismatch"),
-      expireSessionCookie,
-    }))
+  it("fails closed when the session id still belongs to a different user", async function () {
+    const expireSessionCookie = vi.fn();
+    const handler = createConfirmedSignOutHandler(
+      dependencies({
+        revokeCurrentSession: vi.fn().mockResolvedValue("mismatch"),
+        expireSessionCookie,
+      })
+    );
 
-    const response = await handler(request())
+    const response = await handler(request());
 
-    expect(response.status).toBe(503)
-    return expect(expireSessionCookie).not.toHaveBeenCalled()
-  })
+    expect(response.status).toBe(503);
+    return expect(expireSessionCookie).not.toHaveBeenCalled();
+  });
 
-  it("does not claim success when Better Auth fails to emit cookie expiry", async function() {
-    const handler = createConfirmedSignOutHandler(dependencies({
-      expireSessionCookie: vi.fn().mockResolvedValue(Response.json({ success: true })),
-    }))
+  it("does not claim success when Better Auth fails to emit cookie expiry", async function () {
+    const handler = createConfirmedSignOutHandler(
+      dependencies({
+        expireSessionCookie: vi
+          .fn()
+          .mockResolvedValue(Response.json({ success: true })),
+      })
+    );
 
-    const response = await handler(request())
+    const response = await handler(request());
 
-    expect(response.status).toBe(503)
-    return expect((await body(response))["success"]).toBe(false)
-  })
+    expect(response.status).toBe(503);
+    return expect((await body(response))["success"]).toBe(false);
+  });
 
+  it("rejects an unrelated cookie deletion as session-cookie clearance", async function () {
+    const handler = createConfirmedSignOutHandler(
+      dependencies({
+        expireSessionCookie: vi
+          .fn()
+          .mockResolvedValue(
+            successfulCookieResponse(
+              "darkfactory.preference=; Path=/; Max-Age=0"
+            )
+          ),
+      })
+    );
 
-  it("rejects an unrelated cookie deletion as session-cookie clearance", async function() {
-    const handler = createConfirmedSignOutHandler(dependencies({
-      expireSessionCookie: vi.fn().mockResolvedValue(successfulCookieResponse(
-        "darkfactory.preference=; Path=/; Max-Age=0",
-      )),
-    }))
+    const response = await handler(request());
 
-    const response = await handler(request())
-
-    expect(response.status).toBe(503)
+    expect(response.status).toBe(503);
     return expect(await body(response)).toEqual({
       success: false,
       code: CONFIRMED_SIGN_OUT_ERROR_CODE,
       message: "Sign out could not be confirmed.",
-    })
-  })
+    });
+  });
 
   it.each([
     [
@@ -387,37 +450,44 @@ describe("confirmed Better Auth session revocation", function() {
       "duplicate Secure attributes",
       "better-auth.session_token=; Path=/; Max-Age=0; Secure; Secure",
     ],
-  ])("fails closed for $0", async function(_case, cookie) {
-    const handler = createConfirmedSignOutHandler(dependencies({
-      expireSessionCookie: vi.fn().mockResolvedValue(
-        successfulCookieResponse(cookie),
-      ),
-    }))
+  ])("fails closed for $0", async function (_case, cookie) {
+    const handler = createConfirmedSignOutHandler(
+      dependencies({
+        expireSessionCookie: vi
+          .fn()
+          .mockResolvedValue(successfulCookieResponse(cookie)),
+      })
+    );
 
-    const response = await handler(request())
+    const response = await handler(request());
 
-    expect(response.status).toBe(503)
+    expect(response.status).toBe(503);
     return expect(await body(response)).toEqual({
       success: false,
       code: CONFIRMED_SIGN_OUT_ERROR_CODE,
       message: "Sign out could not be confirmed.",
-    })
-  }
-  )
+    });
+  });
 
-  it("fails closed when Better Auth emits ambiguous session-cookie headers", async function() {
-    const handler = createConfirmedSignOutHandler(dependencies({
-      expireSessionCookie: vi.fn().mockResolvedValue(successfulCookieResponse(
-        "__Secure-better-auth.session_token=; Path=/; Max-Age=0; Secure",
-        "__Secure-better-auth.session_token=still-active; Path=/; Max-Age=3600; Secure",
-      )),
-    }))
+  it("fails closed when Better Auth emits ambiguous session-cookie headers", async function () {
+    const handler = createConfirmedSignOutHandler(
+      dependencies({
+        expireSessionCookie: vi
+          .fn()
+          .mockResolvedValue(
+            successfulCookieResponse(
+              "__Secure-better-auth.session_token=; Path=/; Max-Age=0; Secure",
+              "__Secure-better-auth.session_token=still-active; Path=/; Max-Age=3600; Secure"
+            )
+          ),
+      })
+    );
 
-    const response = await handler(request())
+    const response = await handler(request());
 
-    expect(response.status).toBe(503)
-    return expect((await body(response))["success"]).toBe(false)
-  })
+    expect(response.status).toBe(503);
+    return expect((await body(response))["success"]).toBe(false);
+  });
 
   it.each([
     [
@@ -444,20 +514,25 @@ describe("confirmed Better Auth session revocation", function() {
       "a session cookie with an empty attribute segment",
       "better-auth.session_token=; Path=/;; Max-Age=0; HttpOnly",
     ],
-  ])("confirms clearance of $0 among multiple Set-Cookie headers", async function(_case, cookie) {
-    const handler = createConfirmedSignOutHandler(dependencies({
-      expireSessionCookie: vi.fn().mockResolvedValue(successfulCookieResponse(
-        "darkfactory.preference=retained; Path=/; Max-Age=3600",
-        cookie,
-      )),
-    }))
+  ])("confirms clearance of $0 among multiple Set-Cookie headers", async function (_case, cookie) {
+    const handler = createConfirmedSignOutHandler(
+      dependencies({
+        expireSessionCookie: vi
+          .fn()
+          .mockResolvedValue(
+            successfulCookieResponse(
+              "darkfactory.preference=retained; Path=/; Max-Age=3600",
+              cookie
+            )
+          ),
+      })
+    );
 
-    const response = await handler(request())
+    const response = await handler(request());
 
-    expect(response.status).toBe(200)
-    return expect(await body(response)).toEqual({ success: true })
-  }
-  )
+    expect(response.status).toBe(200);
+    return expect(await body(response)).toEqual({ success: true });
+  });
 
   it.each([
     [
@@ -470,55 +545,51 @@ describe("confirmed Better Auth session revocation", function() {
       "stale-cookie validation",
       {
         currentSession: vi.fn().mockResolvedValue(null),
-        hasValidSessionCookie: vi.fn().mockRejectedValue(new Error("cookie secret")),
+        hasValidSessionCookie: vi
+          .fn()
+          .mockRejectedValue(new Error("cookie secret")),
       },
     ],
     [
       "cookie expiry",
       {
-        expireSessionCookie: vi.fn().mockRejectedValue(new Error("expiry secret")),
+        expireSessionCookie: vi
+          .fn()
+          .mockRejectedValue(new Error("expiry secret")),
       },
     ],
-  ])("redacts a $0 adapter failure", async function(_case, overrides) {
-    const handler = createConfirmedSignOutHandler(dependencies(overrides))
-    const response = await handler(request())
+  ])("redacts a $0 adapter failure", async function (_case, overrides) {
+    const handler = createConfirmedSignOutHandler(dependencies(overrides));
+    const response = await handler(request());
 
-    expect(response.status).toBe(503)
+    expect(response.status).toBe(503);
     return expect(await body(response)).toEqual({
       success: false,
       code: CONFIRMED_SIGN_OUT_ERROR_CODE,
       message: "Sign out could not be confirmed.",
-    })
-  }
-  )
+    });
+  });
 
-  it("requires a successful JSON cookie-expiry acknowledgement", async function() {
+  it("requires a successful JSON cookie-expiry acknowledgement", async function () {
     const clearedSessionCookie =
-      "better-auth.session_token=; Path=/; Max-Age=0"
+      "better-auth.session_token=; Path=/; Max-Age=0";
     const expiryResponses = [
       Response.json(
         { success: true },
         {
           status: 500,
           headers: { "set-cookie": clearedSessionCookie },
-        },
+        }
       ),
       Response.json(
         { success: false },
-        { headers: { "set-cookie": clearedSessionCookie } },
+        { headers: { "set-cookie": clearedSessionCookie } }
       ),
-      Response.json(
-        [],
-        { headers: { "set-cookie": clearedSessionCookie } },
-      ),
-      Response.json(
-        null,
-        { headers: { "set-cookie": clearedSessionCookie } },
-      ),
-      Response.json(
-        "success",
-        { headers: { "set-cookie": clearedSessionCookie } },
-      ),
+      Response.json([], { headers: { "set-cookie": clearedSessionCookie } }),
+      Response.json(null, { headers: { "set-cookie": clearedSessionCookie } }),
+      Response.json("success", {
+        headers: { "set-cookie": clearedSessionCookie },
+      }),
       new Response("{not-json", {
         status: 200,
         headers: {
@@ -526,39 +597,50 @@ describe("confirmed Better Auth session revocation", function() {
           "set-cookie": clearedSessionCookie,
         },
       }),
-    ]
+    ];
 
-    const results1=[];for (const expiryResponse of expiryResponses) {
-      const handler = createConfirmedSignOutHandler(dependencies({
-        expireSessionCookie: vi.fn().mockResolvedValue(expiryResponse),
-      }))
-      const response = await handler(request())
-      expect(response.status).toBe(503)
-      results1.push(expect(await body(response)).toEqual({
-        success: false,
-        code: CONFIRMED_SIGN_OUT_ERROR_CODE,
-        message: "Sign out could not be confirmed.",
-      }))
-    };return results1;
-  })
+    const results1 = [];
+    for (const expiryResponse of expiryResponses) {
+      const handler = createConfirmedSignOutHandler(
+        dependencies({
+          expireSessionCookie: vi.fn().mockResolvedValue(expiryResponse),
+        })
+      );
+      const response = await handler(request());
+      expect(response.status).toBe(503);
+      results1.push(
+        expect(await body(response)).toEqual({
+          success: false,
+          code: CONFIRMED_SIGN_OUT_ERROR_CODE,
+          message: "Sign out could not be confirmed.",
+        })
+      );
+    }
+    return results1;
+  });
 
-  it("reads suspended and deactivated Better Auth session identities without the active-user guard", async function() {
-    const results2=[];for (const status of ["suspended", "deactivated"]) {
+  it("reads suspended and deactivated Better Auth session identities without the active-user guard", async function () {
+    const results2 = [];
+    for (const status of ["suspended", "deactivated"]) {
       const getSession = vi.fn().mockResolvedValue({
         session: { id: `session-${status}` },
         user: { id: `user-${status}`, status },
-      })
+      });
       const readIdentity = createRawSessionIdentityReader({
         api: { getSession },
-      } as never)
+      } as never);
 
-      results2.push(await expect(readIdentity(new Headers({ cookie: ACTIVE_COOKIE }))).resolves.toEqual({
-        sessionId: `session-${status}`,
-        userId: `user-${status}`,
-      }))
-    };return results2;
-  })
-
+      results2.push(
+        await expect(
+          readIdentity(new Headers({ cookie: ACTIVE_COOKIE }))
+        ).resolves.toEqual({
+          sessionId: `session-${status}`,
+          userId: `user-${status}`,
+        })
+      );
+    }
+    return results2;
+  });
 
   it.each([
     ["null response", null],
@@ -570,100 +652,117 @@ describe("confirmed Better Auth session revocation", function() {
     ["missing user", { session: { id: "session-current" } }],
     ["null user", { session: { id: "session-current" }, user: null }],
     ["array user", { session: { id: "session-current" }, user: [] }],
-    ["invalid session id", { session: { id: 42 }, user: { id: "user-current" } }],
-    ["invalid user id", { session: { id: "session-current" }, user: { id: 42 } }],
-  ])("returns null for a malformed raw identity: $0", async function(_case, value) {
-    const getSession = vi.fn().mockResolvedValue(value)
+    [
+      "invalid session id",
+      { session: { id: 42 }, user: { id: "user-current" } },
+    ],
+    [
+      "invalid user id",
+      { session: { id: "session-current" }, user: { id: 42 } },
+    ],
+  ])("returns null for a malformed raw identity: $0", async function (_case, value) {
+    const getSession = vi.fn().mockResolvedValue(value);
     const readIdentity = createRawSessionIdentityReader({
       api: { getSession },
-    } as never)
+    } as never);
 
-    return await expect(readIdentity(new Headers())).resolves.toBeNull()
-  }
-  )
-  it("cryptographically distinguishes a signed stale cookie from a forgery", async function() {
-    const valid = await signedCookie("old-session-token")
+    return await expect(readIdentity(new Headers())).resolves.toBeNull();
+  });
+  it("cryptographically distinguishes a signed stale cookie from a forgery", async function () {
+    const valid = await signedCookie("old-session-token");
 
-    await expect(hasValidBetterAuthSessionCookie(
-      new Headers({ cookie: `better-auth.session_token=${valid}` }),
-      SIGNING_SECRET,
-    )).resolves.toBe(true)
-    await expect(hasValidBetterAuthSessionCookie(
-      new Headers({ cookie: "better-auth.session_token=forged.invalid" }),
-      SIGNING_SECRET,
-    )).resolves.toBe(false)
+    await expect(
+      hasValidBetterAuthSessionCookie(
+        new Headers({ cookie: `better-auth.session_token=${valid}` }),
+        SIGNING_SECRET
+      )
+    ).resolves.toBe(true);
+    await expect(
+      hasValidBetterAuthSessionCookie(
+        new Headers({ cookie: "better-auth.session_token=forged.invalid" }),
+        SIGNING_SECRET
+      )
+    ).resolves.toBe(false);
 
-    await expect(hasValidBetterAuthSessionCookie(
-      new Headers(),
-      SIGNING_SECRET,
-    )).resolves.toBe(false)
-    const results3=[];for (const malformedValue of [
+    await expect(
+      hasValidBetterAuthSessionCookie(new Headers(), SIGNING_SECRET)
+    ).resolves.toBe(false);
+    const results3 = [];
+    for (const malformedValue of [
       "no-separator",
       ".signature",
       "value.",
       "value.%",
     ]) {
-      results3.push(await expect(hasValidBetterAuthSessionCookie(
-        new Headers({
-          cookie: `better-auth.session_token=${encodeURIComponent(malformedValue)}`,
-        }),
-        SIGNING_SECRET,
-      )).resolves.toBe(false))
-    };return results3;
-  })
+      results3.push(
+        await expect(
+          hasValidBetterAuthSessionCookie(
+            new Headers({
+              cookie: `better-auth.session_token=${encodeURIComponent(malformedValue)}`,
+            }),
+            SIGNING_SECRET
+          )
+        ).resolves.toBe(false)
+      );
+    }
+    return results3;
+  });
   it.each([
     [[{ id: "session-current" }], [], "revoked"],
     [[{ id: "different-session" }], [], "missing"],
     [[], [], "missing"],
     [[], [{ userId: "different-user" }], "mismatch"],
-  ])("confirms exact ownership as %s", async function(deletedRows, existingRows, expected) {
-    const returning = vi.fn().mockResolvedValue(deletedRows)
-    const deleteWhere = vi.fn().mockReturnValue({ returning })
-    const remove = vi.fn().mockReturnValue({ where: deleteWhere })
-    const limit = vi.fn().mockResolvedValue(existingRows)
-    const selectWhere = vi.fn().mockReturnValue({ limit })
-    const from = vi.fn().mockReturnValue({ where: selectWhere })
-    const select = vi.fn().mockReturnValue({ from })
+  ])("confirms exact ownership as %s", async function (deletedRows, existingRows, expected) {
+    const returning = vi.fn().mockResolvedValue(deletedRows);
+    const deleteWhere = vi.fn().mockReturnValue({ returning });
+    const remove = vi.fn().mockReturnValue({ where: deleteWhere });
+    const limit = vi.fn().mockResolvedValue(existingRows);
+    const selectWhere = vi.fn().mockReturnValue({ limit });
+    const from = vi.fn().mockReturnValue({ where: selectWhere });
+    const select = vi.fn().mockReturnValue({ from });
     const revoke = createCurrentSessionRevoker({
       delete: remove,
       select,
-    } as never)
+    } as never);
 
-    await expect(revoke({
-      sessionId: "session-current",
-      userId: "user-current",
-    })).resolves.toBe(expected)
-    expect(remove).toHaveBeenCalledOnce()
-    const predicate = deleteWhere.mock.calls[0]?.[0]
-    expect(predicate).toBeDefined()
-    const query = new PgDialect().sqlToQuery(predicate)
-    expect(query.sql).toContain('"session"."id"')
-    expect(query.sql).toContain('"session"."user_id"')
-    expect(query.sql).toContain(" and ")
-    expect(query.params).toEqual(["session-current", "user-current"])
-    expect(returning).toHaveBeenCalledWith({ id: expect.anything() })
-    return expect(select).toHaveBeenCalledTimes(expected === "revoked" ? 0 : 1)
-  }
-  )
+    await expect(
+      revoke({
+        sessionId: "session-current",
+        userId: "user-current",
+      })
+    ).resolves.toBe(expected);
+    expect(remove).toHaveBeenCalledOnce();
+    const predicate = deleteWhere.mock.calls[0]?.[0];
+    expect(predicate).toBeDefined();
+    const query = new PgDialect().sqlToQuery(predicate);
+    expect(query.sql).toContain('"session"."id"');
+    expect(query.sql).toContain('"session"."user_id"');
+    expect(query.sql).toContain(" and ");
+    expect(query.params).toEqual(["session-current", "user-current"]);
+    expect(returning).toHaveBeenCalledWith({ id: expect.anything() });
+    return expect(select).toHaveBeenCalledTimes(expected === "revoked" ? 0 : 1);
+  });
 
-  it("composes raw identity lookup, exact revocation, and Better Auth cookie expiry", async function() {
+  it("composes raw identity lookup, exact revocation, and Better Auth cookie expiry", async function () {
     const getSession = vi.fn().mockResolvedValue({
       session: { id: "session-current" },
       user: { id: "user-current" },
-    })
-    const authHandler = vi.fn().mockResolvedValue(Response.json(
-      { success: true },
-      {
-        headers: {
-          "set-cookie":
-            "better-auth.session_token=; Path=/; Max-Age=0; HttpOnly; Secure",
-        },
-      },
-    ))
-    const returning = vi.fn().mockResolvedValue([{ id: "session-current" }])
-    const deleteWhere = vi.fn().mockReturnValue({ returning })
-    const remove = vi.fn().mockReturnValue({ where: deleteWhere })
-    const select = vi.fn()
+    });
+    const authHandler = vi.fn().mockResolvedValue(
+      Response.json(
+        { success: true },
+        {
+          headers: {
+            "set-cookie":
+              "better-auth.session_token=; Path=/; Max-Age=0; HttpOnly; Secure",
+          },
+        }
+      )
+    );
+    const returning = vi.fn().mockResolvedValue([{ id: "session-current" }]);
+    const deleteWhere = vi.fn().mockReturnValue({ returning });
+    const remove = vi.fn().mockReturnValue({ where: deleteWhere });
+    const select = vi.fn();
     const handler = createDatabaseConfirmedSignOutHandler({
       auth: {
         api: { getSession },
@@ -672,34 +771,36 @@ describe("confirmed Better Auth session revocation", function() {
       database: { delete: remove, select } as never,
       secret: SIGNING_SECRET,
       trustedOrigin: TRUSTED_ORIGIN,
-    })
+    });
 
-    const response = await handler(request())
+    const response = await handler(request());
 
-    expect(response.status).toBe(200)
-    expect(getSession).toHaveBeenCalledOnce()
-    expect(remove).toHaveBeenCalledOnce()
-    expect(select).not.toHaveBeenCalled()
-    expect(authHandler).toHaveBeenCalledOnce()
-    const forwardedRequest = authHandler.mock.calls[0]?.[0] as Request
-    expect(forwardedRequest.method).toBe("POST")
-    expect(new URL(forwardedRequest.url).pathname).toBe("/api/auth/sign-out")
-    return expect(forwardedRequest.headers.get("origin")).toBe(TRUSTED_ORIGIN)
-  })
+    expect(response.status).toBe(200);
+    expect(getSession).toHaveBeenCalledOnce();
+    expect(remove).toHaveBeenCalledOnce();
+    expect(select).not.toHaveBeenCalled();
+    expect(authHandler).toHaveBeenCalledOnce();
+    const forwardedRequest = authHandler.mock.calls[0]?.[0] as Request;
+    expect(forwardedRequest.method).toBe("POST");
+    expect(new URL(forwardedRequest.url).pathname).toBe("/api/auth/sign-out");
+    return expect(forwardedRequest.headers.get("origin")).toBe(TRUSTED_ORIGIN);
+  });
 
-  return it("composes signed stale-cookie validation without touching the database", async function() {
-    const validCookie = await signedCookie("already-revoked-session")
-    const getSession = vi.fn().mockResolvedValue(null)
-    const authHandler = vi.fn().mockResolvedValue(Response.json(
-      { success: true },
-      {
-        headers: {
-          "set-cookie": "better-auth.session_token=; Path=/; Max-Age=0",
-        },
-      },
-    ))
-    const remove = vi.fn()
-    const select = vi.fn()
+  return it("composes signed stale-cookie validation without touching the database", async function () {
+    const validCookie = await signedCookie("already-revoked-session");
+    const getSession = vi.fn().mockResolvedValue(null);
+    const authHandler = vi.fn().mockResolvedValue(
+      Response.json(
+        { success: true },
+        {
+          headers: {
+            "set-cookie": "better-auth.session_token=; Path=/; Max-Age=0",
+          },
+        }
+      )
+    );
+    const remove = vi.fn();
+    const select = vi.fn();
     const handler = createDatabaseConfirmedSignOutHandler({
       auth: {
         api: { getSession },
@@ -708,7 +809,7 @@ describe("confirmed Better Auth session revocation", function() {
       database: { delete: remove, select } as never,
       secret: SIGNING_SECRET,
       trustedOrigin: TRUSTED_ORIGIN,
-    })
+    });
     const staleRequest = new Request(
       `${TRUSTED_ORIGIN}/api/auth/strict-sign-out`,
       {
@@ -717,14 +818,14 @@ describe("confirmed Better Auth session revocation", function() {
           origin: TRUSTED_ORIGIN,
           cookie: `better-auth.session_token=${validCookie}`,
         },
-      },
-    )
+      }
+    );
 
-    const response = await handler(staleRequest)
+    const response = await handler(staleRequest);
 
-    expect(response.status).toBe(200)
-    expect(remove).not.toHaveBeenCalled()
-    expect(select).not.toHaveBeenCalled()
-    return expect(authHandler).toHaveBeenCalledOnce()
-  })
-})
+    expect(response.status).toBe(200);
+    expect(remove).not.toHaveBeenCalled();
+    expect(select).not.toHaveBeenCalled();
+    return expect(authHandler).toHaveBeenCalledOnce();
+  });
+});

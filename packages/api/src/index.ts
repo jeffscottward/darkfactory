@@ -17,7 +17,7 @@ export {
   ThemePreferenceSchema,
   UpdateThemePreferenceSchema,
   appContract,
-} from "./contract.ts"
+} from "./contract.ts";
 export {
   ACCOUNT_ERRORS,
   ADDRESS_TYPES,
@@ -38,7 +38,7 @@ export {
   ProfileSchema,
   ProfileFieldsSchema,
   ProfileUpdateSchema,
-} from "./contract.ts"
+} from "./contract.ts";
 export type {
   AdminFeatureItemListInput,
   FeatureItemOutput,
@@ -50,7 +50,7 @@ export type {
   UpdateThemePreferenceInput,
   ContactSubmitInput,
   ContactSubmitOutput,
-} from "./contract.ts"
+} from "./contract.ts";
 export type {
   AccountProfileOutput,
   AddressCreateInput,
@@ -64,16 +64,14 @@ export type {
   PreferencesUpdateInput,
   ProfileOutput,
   ProfileUpdateInput,
-} from "./contract.ts"
+} from "./contract.ts";
 
-
-
-export { createApiClient } from "./client.ts"
-export type { ApiClient, ApiClientOptions } from "./client.ts"
+export { createApiClient } from "./client.ts";
+export type { ApiClient, ApiClientOptions } from "./client.ts";
 
 export {
   OPENAPI_INFO,
   buildOpenApiDocument,
   serializeOpenApiDocument,
-} from "./openapi.ts"
-export * from "./generated/public-registry.ts"
+} from "./openapi.ts";
+export * from "./generated/public-registry.ts";

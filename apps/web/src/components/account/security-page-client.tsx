@@ -1,89 +1,104 @@
-"use client"
+"use client";
 
-import { SectionHeader } from "@darkfactory/ui"
-import { useCallback, useEffect, useState } from "react"
+import { SectionHeader } from "@darkfactory/ui";
+import { useCallback, useEffect, useState } from "react";
 
-import type { AccountFeedback } from "./account-feedback.tsx"
+import type { AccountFeedback } from "./account-feedback.tsx";
 import {
   createBrowserSecurityGateway,
   safeSecurityFeedback,
   securityFailureKind,
   type ChangePasswordInput,
-} from "./security-client.ts"
+} from "./security-client.ts";
 import {
   PasswordForm,
   SecurityPanel,
   type SecurityPanelState,
-} from "./security-panel.tsx"
+} from "./security-panel.tsx";
 
 export const SecurityPageClient = () => {
-  const [gateway] = useState(createBrowserSecurityGateway)
-  const [state, setState] = useState<SecurityPanelState>({ type: "loading" })
-  const [sessionFeedback, setSessionFeedback] = useState<AccountFeedback | null>(null)
-  const [passwordFeedback, setPasswordFeedback] = useState<AccountFeedback | null>(null)
-  const [isRevoking, setIsRevoking] = useState(false)
-  const [passwordVersion, setPasswordVersion] = useState(0)
+  const [gateway] = useState(createBrowserSecurityGateway);
+  const [state, setState] = useState<SecurityPanelState>({ type: "loading" });
+  const [sessionFeedback, setSessionFeedback] =
+    useState<AccountFeedback | null>(null);
+  const [passwordFeedback, setPasswordFeedback] =
+    useState<AccountFeedback | null>(null);
+  const [isRevoking, setIsRevoking] = useState(false);
+  const [passwordVersion, setPasswordVersion] = useState(0);
 
   const load = useCallback(async () => {
-    setSessionFeedback(null)
-    setState({ type: "loading" })
+    setSessionFeedback(null);
+    setState({ type: "loading" });
     try {
-      const result = await gateway.listSessions()
-      return setState({ type: "ready", sessions: result.sessions })
+      const result = await gateway.listSessions();
+      return setState({ type: "ready", sessions: result.sessions });
+    } catch (error) {
+      return setState({
+        type: "error",
+        kind: securityFailureKind(error),
+        message: safeSecurityFeedback(error),
+      });
     }
-    catch (error) {
-      return setState({ type: "error", kind: securityFailureKind(error), message: safeSecurityFeedback(error) })
-    }
-  }
-  , [gateway])
+  }, [gateway]);
 
   useEffect(() => {
-    void load()
-    return undefined
-  }
-  , [load])
+    void load();
+    return undefined;
+  }, [load]);
 
   const revokeOthers = async (): Promise<void> => {
-    if (isRevoking) return
-    setIsRevoking(true)
-    setSessionFeedback(null)
+    if (isRevoking) return;
+    setIsRevoking(true);
+    setSessionFeedback(null);
     try {
-      await gateway.revokeOtherSessions()
-      setSessionFeedback({ tone: "success", message: "Other sessions signed out." })
+      await gateway.revokeOtherSessions();
+      setSessionFeedback({
+        tone: "success",
+        message: "Other sessions signed out.",
+      });
       try {
-        const result = await gateway.listSessions()
-        setState({ type: "ready", sessions: result.sessions })
+        const result = await gateway.listSessions();
+        setState({ type: "ready", sessions: result.sessions });
+      } catch {
+        setSessionFeedback({
+          tone: "info",
+          message:
+            "Other sessions were signed out, but the session list could not be refreshed.",
+        });
       }
-      catch {
-        setSessionFeedback({ tone: "info", message: "Other sessions were signed out, but the session list could not be refreshed." })
-      }
+    } catch (error) {
+      setSessionFeedback({
+        tone: "error",
+        message: safeSecurityFeedback(error),
+      });
+    } finally {
+      setIsRevoking(false);
     }
-    catch (error) {
-      setSessionFeedback({ tone: "error", message: safeSecurityFeedback(error) })
-    }
-    finally {
-      setIsRevoking(false)
-    }
-  }
+  };
 
   const changePassword = async (input: ChangePasswordInput): Promise<void> => {
-    setPasswordFeedback(null)
+    setPasswordFeedback(null);
     try {
-      await gateway.changePassword(input)
-      setPasswordVersion((version) => version + 1)
-      setPasswordFeedback({ tone: "success", message: "Password changed." })
+      await gateway.changePassword(input);
+      setPasswordVersion((version) => version + 1);
+      setPasswordFeedback({ tone: "success", message: "Password changed." });
       try {
-        const result = await gateway.listSessions()
-        setState({ type: "ready", sessions: result.sessions })
+        const result = await gateway.listSessions();
+        setState({ type: "ready", sessions: result.sessions });
+      } catch {
+        setSessionFeedback({
+          tone: "info",
+          message:
+            "Password changed, but the session list could not be refreshed.",
+        });
       }
-      catch {
-        setSessionFeedback({ tone: "info", message: "Password changed, but the session list could not be refreshed." })
-      }
+    } catch (error) {
+      setPasswordFeedback({
+        tone: "error",
+        message: safeSecurityFeedback(error),
+      });
     }
-    catch (error) {
-      setPasswordFeedback({ tone: "error", message: safeSecurityFeedback(error) })
-    }
-  }
+  };
 
   return (
     <div className="space-y-12">
@@ -94,10 +109,21 @@ export const SecurityPageClient = () => {
         onRevokeOthers={() => void revokeOthers()}
         state={state}
       />
-      <section aria-labelledby="change-password" className="space-y-6 border-t border-border pt-8">
-        <SectionHeader description="Changing the password requires the current password. Password values are never displayed after entry." id="change-password" title="Change password" />
-        <PasswordForm feedback={passwordFeedback} key={passwordVersion} onSave={changePassword} />
+      <section
+        aria-labelledby="change-password"
+        className="space-y-6 border-t border-border pt-8"
+      >
+        <SectionHeader
+          description="Changing the password requires the current password. Password values are never displayed after entry."
+          id="change-password"
+          title="Change password"
+        />
+        <PasswordForm
+          feedback={passwordFeedback}
+          key={passwordVersion}
+          onSave={changePassword}
+        />
       </section>
-  </div>
-  )
-}
+    </div>
+  );
+};

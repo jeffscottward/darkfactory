@@ -2,115 +2,114 @@ import {
   AuthAuthorizationError,
   type SafeAuthSession,
   type SafePrincipal,
-} from "@darkfactory/auth/server"
-import { implement } from "@orpc/server"
+} from "@darkfactory/auth/server";
+import { implement } from "@orpc/server";
 
-import { operatorApiContract } from "../contract.ts"
-import type { OperatorContext } from "./context.ts"
+import { operatorApiContract } from "../contract.ts";
+import type { OperatorContext } from "./context.ts";
 import {
   OperatorServiceError,
   createOperatorService,
   type OperatorServiceErrorCode,
-} from "./operator-service.ts"
-import { createOperatorWayfinderService } from "./wayfinder-service.ts"
+} from "./operator-service.ts";
+import { createOperatorWayfinderService } from "./wayfinder-service.ts";
 
-const operator = implement(operatorApiContract).$context<OperatorContext>()
+const operator = implement(operatorApiContract).$context<OperatorContext>();
 
 type AuthorizationErrorFactories = Readonly<{
-  UNAUTHORIZED: (options?: { message?: string }) => Error
-  FORBIDDEN: (options?: { message?: string }) => Error
-}>
+  UNAUTHORIZED: (options?: { message?: string }) => Error;
+  FORBIDDEN: (options?: { message?: string }) => Error;
+}>;
 
 type ServiceErrorFactories<Code extends string> = Record<
   Code,
   (options?: { message?: string }) => Error
->
+>;
 
 const authorizationErrors = (errors: unknown): AuthorizationErrorFactories => {
-  return errors as AuthorizationErrorFactories
-}
+  return errors as AuthorizationErrorFactories;
+};
 
 const mapOperatorServiceError = (
   error: unknown,
-  errors: ServiceErrorFactories<OperatorServiceErrorCode>,
+  errors: ServiceErrorFactories<OperatorServiceErrorCode>
 ): never => {
-  if (!(error instanceof OperatorServiceError)) throw error
-  throw errors[error.code]()
-}
+  if (!(error instanceof OperatorServiceError)) throw error;
+  throw errors[error.code]();
+};
 
 const requireAuthenticated = operator.middleware(
   async ({ context, next, errors }) => {
-    const authErrors = authorizationErrors(errors)
+    const authErrors = authorizationErrors(errors);
     try {
-      const session = await context.requireSession()
+      const session = await context.requireSession();
       return next({
         context: {
           principal: session.principal,
           authSession: session,
         },
-      })
-    }
-    catch (error) {
-      if (!(error instanceof AuthAuthorizationError)) throw error
+      });
+    } catch (error) {
+      if (!(error instanceof AuthAuthorizationError)) throw error;
       if (error.status === 401) {
-        throw authErrors.UNAUTHORIZED()
+        throw authErrors.UNAUTHORIZED();
       }
-      throw authErrors.FORBIDDEN()
+      throw authErrors.FORBIDDEN();
     }
   }
-)
+);
 
 const submit = operator.operator.submit
   .use(requireAuthenticated)
   .handler(async ({ context, input, errors }) => {
     try {
-      return await createOperatorService(context.workflowOperator)
-        .submit(context.principal, input)
+      return await createOperatorService(context.workflowOperator).submit(
+        context.principal,
+        input
+      );
+    } catch (error) {
+      return mapOperatorServiceError(error, errors);
     }
-    catch (error) {
-      return mapOperatorServiceError(error, errors)
-    }
-  }
-  )
+  });
 
 const workspace = operator.operator.workspace
   .use(requireAuthenticated)
   .handler(async ({ context, input, errors }) => {
     try {
-      return await createOperatorService(context.workflowOperator)
-        .workspace(context.principal, input)
+      return await createOperatorService(context.workflowOperator).workspace(
+        context.principal,
+        input
+      );
+    } catch (error) {
+      return mapOperatorServiceError(error, errors);
     }
-    catch (error) {
-      return mapOperatorServiceError(error, errors)
-    }
-  }
-  )
+  });
 
 const list = operator.operator.list
   .use(requireAuthenticated)
   .handler(async ({ context, input, errors }) => {
     try {
-      return await createOperatorService(context.workflowOperator)
-        .list(context.principal, input)
+      return await createOperatorService(context.workflowOperator).list(
+        context.principal,
+        input
+      );
+    } catch (error) {
+      return mapOperatorServiceError(error, errors);
     }
-    catch (error) {
-      return mapOperatorServiceError(error, errors)
-    }
-  }
-  )
+  });
 
 const detail = operator.operator.detail
   .use(requireAuthenticated)
   .handler(async ({ context, input, errors }) => {
     try {
-      return await createOperatorService(context.workflowOperator)
-        .detail(context.principal, input.id)
+      return await createOperatorService(context.workflowOperator).detail(
+        context.principal,
+        input.id
+      );
+    } catch (error) {
+      return mapOperatorServiceError(error, errors);
     }
-    catch (error) {
-      return mapOperatorServiceError(error, errors)
-    }
-  }
-  )
+  });
 
 const approve = operator.operator.approve
   .use(requireAuthenticated)
@@ -120,14 +119,12 @@ const approve = operator.operator.approve
         context.principal,
         input.id,
         input.approval,
-        context.requestId,
-      )
+        context.requestId
+      );
+    } catch (error) {
+      return mapOperatorServiceError(error, errors);
     }
-    catch (error) {
-      return mapOperatorServiceError(error, errors)
-    }
-  }
-  )
+  });
 
 const reject = operator.operator.reject
   .use(requireAuthenticated)
@@ -137,40 +134,40 @@ const reject = operator.operator.reject
         context.principal,
         input.id,
         input.reason,
-        context.requestId,
-      )
+        context.requestId
+      );
+    } catch (error) {
+      return mapOperatorServiceError(error, errors);
     }
-    catch (error) {
-      return mapOperatorServiceError(error, errors)
-    }
-  }
-  )
+  });
 
 const cancel = operator.operator.cancel
   .use(requireAuthenticated)
   .handler(async ({ context, input, errors }) => {
     try {
-      return await createOperatorService(context.workflowOperator)
-        .cancel(context.principal, input.id, context.requestId)
+      return await createOperatorService(context.workflowOperator).cancel(
+        context.principal,
+        input.id,
+        context.requestId
+      );
+    } catch (error) {
+      return mapOperatorServiceError(error, errors);
     }
-    catch (error) {
-      return mapOperatorServiceError(error, errors)
-    }
-  }
-  )
+  });
 
 const retry = operator.operator.retry
   .use(requireAuthenticated)
   .handler(async ({ context, input, errors }) => {
     try {
-      return await createOperatorService(context.workflowOperator)
-        .retry(context.principal, input.id, context.requestId)
+      return await createOperatorService(context.workflowOperator).retry(
+        context.principal,
+        input.id,
+        context.requestId
+      );
+    } catch (error) {
+      return mapOperatorServiceError(error, errors);
     }
-    catch (error) {
-      return mapOperatorServiceError(error, errors)
-    }
-  }
-  )
+  });
 
 const message = operator.operator.message
   .use(requireAuthenticated)
@@ -181,38 +178,34 @@ const message = operator.operator.message
         input.id,
         input.body,
         input.idempotencyKey,
-        context.requestId,
-      )
+        context.requestId
+      );
+    } catch (error) {
+      return mapOperatorServiceError(error, errors);
     }
-    catch (error) {
-      return mapOperatorServiceError(error, errors)
-    }
-  }
-  )
+  });
 const wayfinderStatus = operator.operator.wayfinder.status
   .use(requireAuthenticated)
   .handler(async ({ context, errors }) => {
     try {
-      return await createOperatorWayfinderService(context.wayfinder).status()
+      return await createOperatorWayfinderService(context.wayfinder).status();
+    } catch (error) {
+      return mapOperatorServiceError(error, errors);
     }
-    catch (error) {
-      return mapOperatorServiceError(error, errors)
-    }
-  }
-  )
+  });
 
 const wayfinderStart = operator.operator.wayfinder.start
   .use(requireAuthenticated)
   .handler(async ({ context, input, errors }) => {
     try {
-      return await createOperatorWayfinderService(context.wayfinder)
-        .start(context.principal, input)
+      return await createOperatorWayfinderService(context.wayfinder).start(
+        context.principal,
+        input
+      );
+    } catch (error) {
+      return mapOperatorServiceError(error, errors);
     }
-    catch (error) {
-      return mapOperatorServiceError(error, errors)
-    }
-  }
-  )
+  });
 
 const wayfinderRevise = operator.operator.wayfinder.revise
   .use(requireAuthenticated)
@@ -223,15 +216,12 @@ const wayfinderRevise = operator.operator.wayfinder.revise
         input.runId,
         input.message,
         input.idempotencyKey,
-        context.requestId,
-      )
+        context.requestId
+      );
+    } catch (error) {
+      return mapOperatorServiceError(error, errors);
     }
-    catch (error) {
-      return mapOperatorServiceError(error, errors)
-    }
-  }
-  )
-
+  });
 
 export const operatorRouter = operator.router({
   operator: {
@@ -250,7 +240,7 @@ export const operatorRouter = operator.router({
       revise: wayfinderRevise,
     },
   },
-})
+});
 
 export type AuthenticatedOperatorContext = OperatorContext &
-  Readonly<{ principal: SafePrincipal; authSession: SafeAuthSession }>
+  Readonly<{ principal: SafePrincipal; authSession: SafeAuthSession }>;

@@ -7,10 +7,10 @@ import {
   rm,
   symlink,
   writeFile,
-} from "node:fs/promises"
-import { tmpdir } from "node:os"
-import { dirname, join, resolve, sep } from "node:path"
-import { afterEach, describe, expect, it } from "vitest"
+} from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { dirname, join, resolve, sep } from "node:path";
+import { afterEach, describe, expect, it } from "vitest";
 
 import {
   assertDirectoryChain,
@@ -24,50 +24,62 @@ import {
   isPathInside,
   pathExists,
   pathSafetyPredicatesForTest,
-} from "../../scripts/generate-feature/path-safety.ts"
+} from "../../scripts/generate-feature/path-safety.ts";
 
-const temporaryDirectories: string[] = []
+const temporaryDirectories: string[] = [];
 
 const createTemporaryDirectory = async (): Promise<string> => {
-  const directory = await mkdtemp(join(tmpdir(), "darkfactory-path-safety-"))
-  temporaryDirectories.push(directory)
-  return directory
-}
+  const directory = await mkdtemp(join(tmpdir(), "darkfactory-path-safety-"));
+  temporaryDirectories.push(directory);
+  return directory;
+};
 
-afterEach(async function() {
+afterEach(async function () {
   return await Promise.all(
     temporaryDirectories.splice(0).map((directory) => {
-      return rm(directory, { force: true, recursive: true })
-    }
-    )
-  )
-})
+      return rm(directory, { force: true, recursive: true });
+    })
+  );
+});
 
-describe("generate-feature path safety", function() {
-  it("classifies the root, descendants, parents, siblings, and absolute offsets", function() {
-    const root = resolve(sep, "workspace", "root")
+describe("generate-feature path safety", function () {
+  it("classifies the root, descendants, parents, siblings, and absolute offsets", function () {
+    const root = resolve(sep, "workspace", "root");
 
-    expect(isPathInside(root, root)).toBe(true)
-    expect(isPathInside(root, join(root, "nested", "file.ts"))).toBe(true)
-    expect(isPathInside(root, dirname(root))).toBe(false)
-    expect(isPathInside(root, `${root}-sibling`)).toBe(false)
-    expect(pathSafetyPredicatesForTest.isRelativeOffsetInside("child/file.ts")).toBe(true)
-    expect(pathSafetyPredicatesForTest.isRelativeOffsetInside(`..${sep}outside`)).toBe(false)
-    expect(pathSafetyPredicatesForTest.isRelativeOffsetInside("..")).toBe(false)
-    return expect(pathSafetyPredicatesForTest.isRelativeOffsetInside(resolve(sep, "other-volume"))).toBe(false)
-  })
+    expect(isPathInside(root, root)).toBe(true);
+    expect(isPathInside(root, join(root, "nested", "file.ts"))).toBe(true);
+    expect(isPathInside(root, dirname(root))).toBe(false);
+    expect(isPathInside(root, `${root}-sibling`)).toBe(false);
+    expect(
+      pathSafetyPredicatesForTest.isRelativeOffsetInside("child/file.ts")
+    ).toBe(true);
+    expect(
+      pathSafetyPredicatesForTest.isRelativeOffsetInside(`..${sep}outside`)
+    ).toBe(false);
+    expect(pathSafetyPredicatesForTest.isRelativeOffsetInside("..")).toBe(
+      false
+    );
+    return expect(
+      pathSafetyPredicatesForTest.isRelativeOffsetInside(
+        resolve(sep, "other-volume")
+      )
+    ).toBe(false);
+  });
 
-  it("asserts containment with a typed fail-closed error", function() {
-    const root = resolve(sep, "workspace")
-    expect(() => assertPathInside(root, join(root, "inside"))).not.toThrow()
-    return expect(() => assertPathInside(root, resolve(root, "..", "outside"))).toThrowError(
-      "Generated path escapes its workspace",
-    )
-  })
+  it("asserts containment with a typed fail-closed error", function () {
+    const root = resolve(sep, "workspace");
+    expect(() => assertPathInside(root, join(root, "inside"))).not.toThrow();
+    return expect(() =>
+      assertPathInside(root, resolve(root, "..", "outside"))
+    ).toThrowError("Generated path escapes its workspace");
+  });
 
-  it("accepts portable relative paths and rejects every unsafe shape", function() {
-    expect(() => assertSafeRelativePath("apps/web/src/features/item.ts")).not.toThrow()
-    const results=[];for (const unsafePath of [
+  it("accepts portable relative paths and rejects every unsafe shape", function () {
+    expect(() =>
+      assertSafeRelativePath("apps/web/src/features/item.ts")
+    ).not.toThrow();
+    const results = [];
+    for (const unsafePath of [
       "",
       resolve(sep, "absolute"),
       "apps\\web",
@@ -77,157 +89,198 @@ describe("generate-feature path safety", function() {
       "apps/../web",
       "apps/web/..",
     ]) {
-      results.push(expect(() => assertSafeRelativePath(unsafePath)).toThrowError(
-        "Generated path is unsafe",
-      ))
-    };return results;
-  })
+      results.push(
+        expect(() => assertSafeRelativePath(unsafePath)).toThrowError(
+          "Generated path is unsafe"
+        )
+      );
+    }
+    return results;
+  });
 
-  it("captures immutable identities and distinguishes every identity mismatch", async function() {
-    const root = await createTemporaryDirectory()
-    const file = join(root, "artifact")
-    await writeFile(file, "content", "utf8")
-    const expected = await identityAt(file)
-    const stats = await lstat(file)
+  it("captures immutable identities and distinguishes every identity mismatch", async function () {
+    const root = await createTemporaryDirectory();
+    const file = join(root, "artifact");
+    await writeFile(file, "content", "utf8");
+    const expected = await identityAt(file);
+    const stats = await lstat(file);
 
-    expect(expected).toEqual({ path: file, device: stats.dev, inode: stats.ino })
-    expect(Object.isFrozen(expected)).toBe(true)
-    await expect(hasIdentity(expected)).resolves.toBe(true)
-    await expect(hasIdentity({ ...expected, device: expected.device + 1 })).resolves.toBe(false)
-    await expect(hasIdentity({ ...expected, inode: expected.inode + 1 })).resolves.toBe(false)
-    await expect(hasIdentity({ ...expected, path: join(root, "missing") })).resolves.toBe(false)
+    expect(expected).toEqual({
+      path: file,
+      device: stats.dev,
+      inode: stats.ino,
+    });
+    expect(Object.isFrozen(expected)).toBe(true);
+    await expect(hasIdentity(expected)).resolves.toBe(true);
+    await expect(
+      hasIdentity({ ...expected, device: expected.device + 1 })
+    ).resolves.toBe(false);
+    await expect(
+      hasIdentity({ ...expected, inode: expected.inode + 1 })
+    ).resolves.toBe(false);
+    await expect(
+      hasIdentity({ ...expected, path: join(root, "missing") })
+    ).resolves.toBe(false);
 
-    const link = join(root, "artifact-link")
-    await symlink(file, link)
-    await expect(hasIdentity({ ...expected, path: link })).resolves.toBe(false)
+    const link = join(root, "artifact-link");
+    await symlink(file, link);
+    await expect(hasIdentity({ ...expected, path: link })).resolves.toBe(false);
 
-    const plainFile = join(root, "plain")
-    await writeFile(plainFile, "plain", "utf8")
-    return await expect(hasIdentity({ ...expected, path: join(plainFile, "child") })).rejects.toMatchObject({
+    const plainFile = join(root, "plain");
+    await writeFile(plainFile, "plain", "utf8");
+    return await expect(
+      hasIdentity({ ...expected, path: join(plainFile, "child") })
+    ).rejects.toMatchObject({
       code: "ENOTDIR",
-    })
-  })
+    });
+  });
 
-  it("canonicalizes a workspace alias and validates the root and marker types", async function() {
-    const parent = await createTemporaryDirectory()
-    const workspace = join(parent, "workspace")
-    const alias = join(parent, "workspace-alias")
-    await mkdir(workspace)
-    await writeFile(join(workspace, "package.json"), "{}\n", "utf8")
-    await symlink(workspace, alias, "dir")
+  it("canonicalizes a workspace alias and validates the root and marker types", async function () {
+    const parent = await createTemporaryDirectory();
+    const workspace = join(parent, "workspace");
+    const alias = join(parent, "workspace-alias");
+    await mkdir(workspace);
+    await writeFile(join(workspace, "package.json"), "{}\n", "utf8");
+    await symlink(workspace, alias, "dir");
 
-    await expect(canonicalWorkspaceRoot(workspace)).resolves.toBe(await realpath(workspace))
-    await expect(canonicalWorkspaceRoot(alias)).resolves.toBe(await realpath(workspace))
+    await expect(canonicalWorkspaceRoot(workspace)).resolves.toBe(
+      await realpath(workspace)
+    );
+    await expect(canonicalWorkspaceRoot(alias)).resolves.toBe(
+      await realpath(workspace)
+    );
 
-    const fileRoot = join(parent, "not-a-directory")
-    await writeFile(fileRoot, "occupied", "utf8")
-    await expect(canonicalWorkspaceRoot(fileRoot)).rejects.toMatchObject({ code: "TARGET_INVALID" })
-
-    const directoryMarkerRoot = join(parent, "directory-marker")
-    await mkdir(join(directoryMarkerRoot, "package.json"), { recursive: true })
-    await expect(canonicalWorkspaceRoot(directoryMarkerRoot)).rejects.toMatchObject({
+    const fileRoot = join(parent, "not-a-directory");
+    await writeFile(fileRoot, "occupied", "utf8");
+    await expect(canonicalWorkspaceRoot(fileRoot)).rejects.toMatchObject({
       code: "TARGET_INVALID",
-    })
+    });
 
-    const symlinkMarkerRoot = join(parent, "symlink-marker")
-    const outsideMarker = join(parent, "outside-package.json")
-    await mkdir(symlinkMarkerRoot)
-    await writeFile(outsideMarker, "{}\n", "utf8")
-    await symlink(outsideMarker, join(symlinkMarkerRoot, "package.json"))
-    await expect(canonicalWorkspaceRoot(symlinkMarkerRoot)).rejects.toMatchObject({
+    const directoryMarkerRoot = join(parent, "directory-marker");
+    await mkdir(join(directoryMarkerRoot, "package.json"), { recursive: true });
+    await expect(
+      canonicalWorkspaceRoot(directoryMarkerRoot)
+    ).rejects.toMatchObject({
       code: "TARGET_INVALID",
-    })
+    });
 
-    return await expect(canonicalWorkspaceRoot(join(parent, "missing"))).rejects.toMatchObject({
+    const symlinkMarkerRoot = join(parent, "symlink-marker");
+    const outsideMarker = join(parent, "outside-package.json");
+    await mkdir(symlinkMarkerRoot);
+    await writeFile(outsideMarker, "{}\n", "utf8");
+    await symlink(outsideMarker, join(symlinkMarkerRoot, "package.json"));
+    await expect(
+      canonicalWorkspaceRoot(symlinkMarkerRoot)
+    ).rejects.toMatchObject({
+      code: "TARGET_INVALID",
+    });
+
+    return await expect(
+      canonicalWorkspaceRoot(join(parent, "missing"))
+    ).rejects.toMatchObject({
       code: "TARGET_INVALID",
       cause: { code: "ENOENT" },
-    })
-  })
+    });
+  });
 
-  it("walks existing and missing paths without following symbolic links", async function() {
-    const root = await createTemporaryDirectory()
-    await mkdir(join(root, "safe", "nested"), { recursive: true })
-    await writeFile(join(root, "safe", "nested", "file"), "content", "utf8")
+  it("walks existing and missing paths without following symbolic links", async function () {
+    const root = await createTemporaryDirectory();
+    await mkdir(join(root, "safe", "nested"), { recursive: true });
+    await writeFile(join(root, "safe", "nested", "file"), "content", "utf8");
 
-    await expect(assertNoSymlinkPath(root, "safe/nested/file")).resolves.toBeUndefined()
-    await expect(assertNoSymlinkPath(root, "safe/missing/child")).resolves.toBeUndefined()
+    await expect(
+      assertNoSymlinkPath(root, "safe/nested/file")
+    ).resolves.toBeUndefined();
+    await expect(
+      assertNoSymlinkPath(root, "safe/missing/child")
+    ).resolves.toBeUndefined();
 
-    const outside = join(root, "outside")
-    await mkdir(outside)
-    await symlink(outside, join(root, "linked"), "dir")
-    await expect(assertNoSymlinkPath(root, "linked/child")).rejects.toMatchObject({
+    const outside = join(root, "outside");
+    await mkdir(outside);
+    await symlink(outside, join(root, "linked"), "dir");
+    await expect(
+      assertNoSymlinkPath(root, "linked/child")
+    ).rejects.toMatchObject({
       code: "SYMLINK_UNSAFE",
-    })
+    });
 
-    const plainFile = join(root, "plain")
-    await writeFile(plainFile, "plain", "utf8")
-    await expect(assertNoSymlinkPath(root, "plain/child")).rejects.toMatchObject({
+    const plainFile = join(root, "plain");
+    await writeFile(plainFile, "plain", "utf8");
+    await expect(
+      assertNoSymlinkPath(root, "plain/child")
+    ).rejects.toMatchObject({
       code: "ENOTDIR",
-    })
-    return await expect(assertNoSymlinkPath(root, "../outside")).rejects.toMatchObject({
+    });
+    return await expect(
+      assertNoSymlinkPath(root, "../outside")
+    ).rejects.toMatchObject({
       code: "PATH_UNSAFE",
-    })
-  })
+    });
+  });
 
-  it("captures and revalidates a frozen safe directory chain", async function() {
-    const root = await realpath(await createTemporaryDirectory())
-    const first = join(root, "first")
-    const second = join(first, "second")
-    await mkdir(second, { recursive: true })
+  it("captures and revalidates a frozen safe directory chain", async function () {
+    const root = await realpath(await createTemporaryDirectory());
+    const first = join(root, "first");
+    const second = join(first, "second");
+    await mkdir(second, { recursive: true });
 
-    const identities = await captureDirectoryChain(root, "first/second")
+    const identities = await captureDirectoryChain(root, "first/second");
 
-    expect(Object.isFrozen(identities)).toBe(true)
-    expect(identities).toHaveLength(3)
-    expect(identities.every((identity) => Object.isFrozen(identity))).toBe(true)
-    await expect(assertDirectoryChain(identities)).resolves.toBeUndefined()
+    expect(Object.isFrozen(identities)).toBe(true);
+    expect(identities).toHaveLength(3);
+    expect(identities.every((identity) => Object.isFrozen(identity))).toBe(
+      true
+    );
+    await expect(assertDirectoryChain(identities)).resolves.toBeUndefined();
 
-    const displacedSecond = join(first, "displaced-second")
-    await rename(second, displacedSecond)
-    await mkdir(second)
-    const replacementIdentity = await identityAt(second)
-    expect([
-      replacementIdentity.device,
-      replacementIdentity.inode,
-    ]).not.toEqual([
-      identities[2]?.device,
-      identities[2]?.inode,
-    ])
-    return await expect(assertDirectoryChain(identities)).rejects.toMatchObject({
-      name: "GeneratorError",
-      code: "ANCESTOR_CHANGED",
-      message: "Generated ancestor identity changed",
-    })
-  })
+    const displacedSecond = join(first, "displaced-second");
+    await rename(second, displacedSecond);
+    await mkdir(second);
+    const replacementIdentity = await identityAt(second);
+    expect([replacementIdentity.device, replacementIdentity.inode]).not.toEqual(
+      [identities[2]?.device, identities[2]?.inode]
+    );
+    return await expect(assertDirectoryChain(identities)).rejects.toMatchObject(
+      {
+        name: "GeneratorError",
+        code: "ANCESTOR_CHANGED",
+        message: "Generated ancestor identity changed",
+      }
+    );
+  });
 
-  it("rejects non-directory and symbolic-link directory-chain members", async function() {
-    const root = await createTemporaryDirectory()
-    await writeFile(join(root, "file"), "content", "utf8")
+  it("rejects non-directory and symbolic-link directory-chain members", async function () {
+    const root = await createTemporaryDirectory();
+    await writeFile(join(root, "file"), "content", "utf8");
     await expect(captureDirectoryChain(root, "file")).rejects.toMatchObject({
       code: "SYMLINK_UNSAFE",
-    })
+    });
 
-    const outside = join(root, "outside")
-    await mkdir(outside)
-    await symlink(outside, join(root, "linked"), "dir")
+    const outside = join(root, "outside");
+    await mkdir(outside);
+    await symlink(outside, join(root, "linked"), "dir");
     await expect(captureDirectoryChain(root, "linked")).rejects.toMatchObject({
       code: "SYMLINK_UNSAFE",
-    })
+    });
     await expect(captureDirectoryChain(root, "missing")).rejects.toMatchObject({
       code: "ENOENT",
-    })
-    return await expect(captureDirectoryChain(root, "../outside")).rejects.toMatchObject({
+    });
+    return await expect(
+      captureDirectoryChain(root, "../outside")
+    ).rejects.toMatchObject({
       code: "PATH_UNSAFE",
-    })
-  })
+    });
+  });
 
-  return it("reports present, missing, and invalid traversal paths without swallowing errors", async function() {
-    const root = await createTemporaryDirectory()
-    const file = join(root, "file")
-    await writeFile(file, "content", "utf8")
+  return it("reports present, missing, and invalid traversal paths without swallowing errors", async function () {
+    const root = await createTemporaryDirectory();
+    const file = join(root, "file");
+    await writeFile(file, "content", "utf8");
 
-    await expect(pathExists(file)).resolves.toBe(true)
-    await expect(pathExists(join(root, "missing"))).resolves.toBe(false)
-    return await expect(pathExists(join(file, "child"))).rejects.toMatchObject({ code: "ENOTDIR" })
-  })
-})
+    await expect(pathExists(file)).resolves.toBe(true);
+    await expect(pathExists(join(root, "missing"))).resolves.toBe(false);
+    return await expect(pathExists(join(file, "child"))).rejects.toMatchObject({
+      code: "ENOTDIR",
+    });
+  });
+});

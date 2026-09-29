@@ -1,13 +1,13 @@
-import Link from "next/link"
+import Link from "next/link";
 
-import { AuthPanel } from "../../../components/auth/auth-panel.tsx"
-import { EmailActionForm } from "../../../components/auth/email-action-form.tsx"
-import { SessionRedirect } from "../../../components/auth/session-redirect.tsx"
+import { AuthPanel } from "../../../components/auth/auth-panel.tsx";
+import { EmailActionForm } from "../../../components/auth/email-action-form.tsx";
+import { SessionRedirect } from "../../../components/auth/session-redirect.tsx";
 
 export const metadata = {
   title: "Forgot password",
   description: "Request a one-time DarkFactory password reset link.",
-}
+};
 
 export default function ForgotPasswordPage() {
   return (
@@ -20,13 +20,13 @@ export default function ForgotPasswordPage() {
           href="/sign-in"
         >
           Return to sign in
-  </Link>
+        </Link>
       }
       title="Reset access without exposing the account."
     >
       <SessionRedirect callbackURL="/dashboard">
         <EmailActionForm operation="password-reset" />
       </SessionRedirect>
-  </AuthPanel>
-  )
+    </AuthPanel>
+  );
 }

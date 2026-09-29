@@ -2,10 +2,10 @@ import {
   MAX_WORKFLOW_HUMAN_REQUEST_BYTES_V1,
   MAX_WORKFLOW_SCOPE_BYTES,
   parseWorkflowEffectScopeV1,
-} from "@darkfactory/state/workflow"
-import { oc } from "@orpc/contract"
-import type { ContractRouterClient } from "@orpc/contract"
-import { z } from "zod"
+} from "@darkfactory/state/workflow";
+import { oc } from "@orpc/contract";
+import type { ContractRouterClient } from "@orpc/contract";
+import { z } from "zod";
 
 export const OPERATOR_WORKFLOW_STATES = [
   "draft",
@@ -16,38 +16,39 @@ export const OPERATOR_WORKFLOW_STATES = [
   "blocked",
   "completed",
   "cancelled",
-] as const
+] as const;
 
-export const OperatorWorkflowStateSchema = z.enum(OPERATOR_WORKFLOW_STATES)
-const HashSchema = z.string().regex(/^[a-f0-9]{64}$/u)
-export const MAX_OPERATOR_IMPLEMENTATION_PLAN_BYTES = 6 * 1_024
+export const OperatorWorkflowStateSchema = z.enum(OPERATOR_WORKFLOW_STATES);
+const HashSchema = z.string().regex(/^[a-f0-9]{64}$/u);
+export const MAX_OPERATOR_IMPLEMENTATION_PLAN_BYTES = 6 * 1_024;
 
-const utf8Encoder = new TextEncoder()
-const OperatorApprovalEffectScopeSchema = z.string().min(1)
+const utf8Encoder = new TextEncoder();
+const OperatorApprovalEffectScopeSchema = z
+  .string()
+  .min(1)
   .superRefine((value, context) => {
     if (utf8Encoder.encode(value).byteLength > MAX_WORKFLOW_SCOPE_BYTES) {
       context.addIssue({
         code: "custom",
-        message: "Invalid workflow effect scope"
-      })
-      return
+        message: "Invalid workflow effect scope",
+      });
+      return;
     }
     try {
-      return void parseWorkflowEffectScopeV1(JSON.parse(value))
-    }
-    catch {
+      return void parseWorkflowEffectScopeV1(JSON.parse(value));
+    } catch {
       return context.addIssue({
         code: "custom",
-        message: "Invalid workflow effect scope"
-      })
+        message: "Invalid workflow effect scope",
+      });
     }
-  }
-  )
+  });
 
-export const OperatorIdempotencyKeySchema = z.string()
+export const OperatorIdempotencyKeySchema = z
+  .string()
   .min(1)
   .max(128)
-  .regex(/^[A-Za-z0-9][A-Za-z0-9._:-]*$/u)
+  .regex(/^[A-Za-z0-9][A-Za-z0-9._:-]*$/u);
 
 export const OperatorRunSummarySchema = z.object({
   id: z.string().min(1),
@@ -57,7 +58,7 @@ export const OperatorRunSummarySchema = z.object({
   updatedAt: z.date(),
   headHash: HashSchema,
   blockedReason: z.string().max(500).optional(),
-})
+});
 
 export const OperatorTimelineEntrySchema = z.object({
   sequence: z.number().int().positive(),
@@ -65,21 +66,23 @@ export const OperatorTimelineEntrySchema = z.object({
   summary: z.string().max(500),
   hash: HashSchema,
   createdAt: z.date(),
-})
+});
 
-export const OperatorApprovalBindingSchema = z.object({
-  machineId: z.string().min(1).max(100),
-  machineVersion: z.number().int().positive(),
-  eventVersion: z.number().int().positive(),
-  snapshotSequence: z.number().int().nonnegative(),
-  journalHeadHash: HashSchema,
-  effectHash: HashSchema,
-  effectScope: OperatorApprovalEffectScopeSchema,
-  stale: z.boolean(),
-}).strict()
+export const OperatorApprovalBindingSchema = z
+  .object({
+    machineId: z.string().min(1).max(100),
+    machineVersion: z.number().int().positive(),
+    eventVersion: z.number().int().positive(),
+    snapshotSequence: z.number().int().nonnegative(),
+    journalHeadHash: HashSchema,
+    effectHash: HashSchema,
+    effectScope: OperatorApprovalEffectScopeSchema,
+    stale: z.boolean(),
+  })
+  .strict();
 
 export const OperatorApprovalBindingInputSchema =
-  OperatorApprovalBindingSchema.omit({ stale: true })
+  OperatorApprovalBindingSchema.omit({ stale: true });
 
 export const OperatorEvidenceSchema = z.object({
   id: z.string().min(1),
@@ -88,51 +91,62 @@ export const OperatorEvidenceSchema = z.object({
   redactedContent: z.string().max(4_096),
   redacted: z.boolean(),
   createdAt: z.date(),
-})
+});
 
-export const OperatorImplementationPlanSchema = z.object({
-  summary: z.string().min(1).superRefine((value, context) => {
-    if (
-      value.trim().length === 0 ||
-      /[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/u.test(value) ||
-      utf8Encoder.encode(value).byteLength > MAX_OPERATOR_IMPLEMENTATION_PLAN_BYTES
-    ) {
-      return context.addIssue({
-        code: "custom",
-        message: "Invalid implementation plan summary"
-      })
-    };return
-  }
-  ),
-  digest: HashSchema,
-  truncated: z.boolean(),
-  redacted: z.boolean()
-}).strict()
+export const OperatorImplementationPlanSchema = z
+  .object({
+    summary: z
+      .string()
+      .min(1)
+      .superRefine((value, context) => {
+        if (
+          value.trim().length === 0 ||
+          /[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/u.test(value) ||
+          utf8Encoder.encode(value).byteLength >
+            MAX_OPERATOR_IMPLEMENTATION_PLAN_BYTES
+        ) {
+          return context.addIssue({
+            code: "custom",
+            message: "Invalid implementation plan summary",
+          });
+        }
+        return;
+      }),
+    digest: HashSchema,
+    truncated: z.boolean(),
+    redacted: z.boolean(),
+  })
+  .strict();
 
 export const OperatorMessageSchema = z.object({
   id: z.string().min(1),
   authorLabel: z.string().min(1).max(200),
   body: z.string().max(2_000),
   createdAt: z.date(),
-})
+});
 
-const OperatorPlanRevisionTextSchema = z.string().min(1).superRefine((value, context) => {
-  if (
-    /[\u0000-\u001F\u007F]/u.test(value) ||
-    utf8Encoder.encode(value).byteLength > MAX_WORKFLOW_HUMAN_REQUEST_BYTES_V1
-  ) {
-    return context.addIssue({
-      code: "custom",
-      message: "Invalid operator conversation text"
-    })
-  };return
-}
-)
+const OperatorPlanRevisionTextSchema = z
+  .string()
+  .min(1)
+  .superRefine((value, context) => {
+    if (
+      /[\u0000-\u001F\u007F]/u.test(value) ||
+      utf8Encoder.encode(value).byteLength > MAX_WORKFLOW_HUMAN_REQUEST_BYTES_V1
+    ) {
+      return context.addIssue({
+        code: "custom",
+        message: "Invalid operator conversation text",
+      });
+    }
+    return;
+  });
 
-export const OperatorPlanRevisionSchema = z.object({
-  message: OperatorPlanRevisionTextSchema,
-  createdAt: z.date(),
-}).strict()
+export const OperatorPlanRevisionSchema = z
+  .object({
+    message: OperatorPlanRevisionTextSchema,
+    createdAt: z.date(),
+  })
+  .strict();
 
 export const OperatorRunDetailSchema = z.object({
   run: OperatorRunSummarySchema.extend({
@@ -147,7 +161,7 @@ export const OperatorRunDetailSchema = z.object({
   implementationPlan: OperatorImplementationPlanSchema.nullable(),
   evidence: z.array(OperatorEvidenceSchema).max(200),
   messages: z.array(OperatorMessageSchema).max(500),
-})
+});
 
 export const OPERATOR_ERRORS = {
   BAD_REQUEST: { status: 400, message: "Invalid operator request" },
@@ -156,98 +170,125 @@ export const OPERATOR_ERRORS = {
   NOT_FOUND: { status: 404, message: "Workflow run not found" },
   CONFLICT: { status: 409, message: "Workflow run conflict" },
   STALE_APPROVAL: { status: 409, message: "Approval binding is stale" },
-  PROJECTION_INVALID: { status: 409, message: "Workflow projection is invalid" },
+  PROJECTION_INVALID: {
+    status: 409,
+    message: "Workflow projection is invalid",
+  },
   VALIDATION_ERROR: { status: 422, message: "Workflow action is invalid" },
   STORAGE_ERROR: { status: 503, message: "Workflow storage unavailable" },
   SERVICE_UNAVAILABLE: { status: 503, message: "Workflow service unavailable" },
-} as const
+} as const;
 
-const operator = oc.errors(OPERATOR_ERRORS)
-const RunIdSchema = z.object({ id: z.string().min(1).max(128) }).strict()
+const operator = oc.errors(OPERATOR_ERRORS);
+const RunIdSchema = z.object({ id: z.string().min(1).max(128) }).strict();
 
-const OperatorSubmitScopeSchema = z.object({
-  repositoryId: z.string(),
-  paths: z.array(z.string()),
-}).strict().transform((value, context) => {
-  try {
-    return parseWorkflowEffectScopeV1(value)
-  }
-  catch {
-    context.addIssue({
-      code: "custom",
-      message: "Invalid workflow effect scope",
-    })
-    return z.NEVER
-  }
-}
-)
+const OperatorSubmitScopeSchema = z
+  .object({
+    repositoryId: z.string(),
+    paths: z.array(z.string()),
+  })
+  .strict()
+  .transform((value, context) => {
+    try {
+      return parseWorkflowEffectScopeV1(value);
+    } catch {
+      context.addIssue({
+        code: "custom",
+        message: "Invalid workflow effect scope",
+      });
+      return z.NEVER;
+    }
+  });
 
-export const OperatorSubmitInputSchema = z.object({
-  idempotencyKey: OperatorIdempotencyKeySchema,
-  title: z.string().trim().min(1).max(200),
-  scope: OperatorSubmitScopeSchema,
-}).strict()
+export const OperatorSubmitInputSchema = z
+  .object({
+    idempotencyKey: OperatorIdempotencyKeySchema,
+    title: z.string().trim().min(1).max(200),
+    scope: OperatorSubmitScopeSchema,
+  })
+  .strict();
 
-export const OperatorWorkspaceInputSchema = z.object({
-  limit: z.number().int().min(1).max(100).default(100),
-}).strict()
+export const OperatorWorkspaceInputSchema = z
+  .object({
+    limit: z.number().int().min(1).max(100).default(100),
+  })
+  .strict();
 
-export const OperatorListInputSchema = z.object({
-  state: OperatorWorkflowStateSchema.optional(),
-  limit: z.number().int().min(1).max(100).default(50),
-  cursor: z.string().min(1).max(256).optional(),
-}).strict()
+export const OperatorListInputSchema = z
+  .object({
+    state: OperatorWorkflowStateSchema.optional(),
+    limit: z.number().int().min(1).max(100).default(50),
+    cursor: z.string().min(1).max(256).optional(),
+  })
+  .strict();
 
 export const OperatorListOutputSchema = z.object({
   runs: z.array(OperatorRunSummarySchema).max(100),
   nextCursor: z.string().max(256).nullable(),
-})
-export const OPERATOR_WAYFINDER_TRACKER = "local-markdown" as const
-export const OperatorWayfinderStatusSchema = z.object({
-  availability: z.enum(["installed", "unavailable"]),
-  tracker: z.literal(OPERATOR_WAYFINDER_TRACKER),
-}).strict()
+});
+export const OPERATOR_WAYFINDER_TRACKER = "local-markdown" as const;
+export const OperatorWayfinderStatusSchema = z
+  .object({
+    availability: z.enum(["installed", "unavailable"]),
+    tracker: z.literal(OPERATOR_WAYFINDER_TRACKER),
+  })
+  .strict();
 
-const WAYFINDER_CONTROL_CHARACTER_PATTERN = /[\u0000-\u001F\u007F]/u
-export const OperatorWayfinderStartInputSchema = z.object({
-  scope: OperatorSubmitScopeSchema,
-  request: z.string().trim().min(1).superRefine((value, context) => {
-    if (
-      WAYFINDER_CONTROL_CHARACTER_PATTERN.test(value) ||
-      utf8Encoder.encode(value).byteLength > MAX_WORKFLOW_HUMAN_REQUEST_BYTES_V1
-    ) {
-      return context.addIssue({
-        code: "custom",
-        message: "Invalid Wayfinder request"
-      })
-    };return
-  }
-  ),
-}).strict()
+const WAYFINDER_CONTROL_CHARACTER_PATTERN = /[\u0000-\u001F\u007F]/u;
+export const OperatorWayfinderStartInputSchema = z
+  .object({
+    scope: OperatorSubmitScopeSchema,
+    request: z
+      .string()
+      .trim()
+      .min(1)
+      .superRefine((value, context) => {
+        if (
+          WAYFINDER_CONTROL_CHARACTER_PATTERN.test(value) ||
+          utf8Encoder.encode(value).byteLength >
+            MAX_WORKFLOW_HUMAN_REQUEST_BYTES_V1
+        ) {
+          return context.addIssue({
+            code: "custom",
+            message: "Invalid Wayfinder request",
+          });
+        }
+        return;
+      }),
+  })
+  .strict();
 
-export const OperatorWayfinderReviseInputSchema = z.object({
-  runId: z.string().min(1).max(128),
-  idempotencyKey: OperatorIdempotencyKeySchema,
-  message: z.string().trim().min(1).superRefine((value, context) => {
-    if (
-      WAYFINDER_CONTROL_CHARACTER_PATTERN.test(value) ||
-      utf8Encoder.encode(value).byteLength > MAX_WORKFLOW_HUMAN_REQUEST_BYTES_V1
-    ) {
-      return context.addIssue({
-        code: "custom",
-        message: "Invalid Wayfinder revision message"
-      })
-    };return
-  }
-  ),
-}).strict()
+export const OperatorWayfinderReviseInputSchema = z
+  .object({
+    runId: z.string().min(1).max(128),
+    idempotencyKey: OperatorIdempotencyKeySchema,
+    message: z
+      .string()
+      .trim()
+      .min(1)
+      .superRefine((value, context) => {
+        if (
+          WAYFINDER_CONTROL_CHARACTER_PATTERN.test(value) ||
+          utf8Encoder.encode(value).byteLength >
+            MAX_WORKFLOW_HUMAN_REQUEST_BYTES_V1
+        ) {
+          return context.addIssue({
+            code: "custom",
+            message: "Invalid Wayfinder revision message",
+          });
+        }
+        return;
+      }),
+  })
+  .strict();
 
-export const OperatorWayfinderQueuedRunSchema = z.object({
-  runId: z.string().min(1).max(256),
-  status: z.literal("queued"),
-  tracker: z.literal(OPERATOR_WAYFINDER_TRACKER),
-}).strict()
-
+export const OperatorWayfinderQueuedRunSchema = z
+  .object({
+    runId: z.string().min(1).max(256),
+    status: z.literal("queued"),
+    tracker: z.literal(OPERATOR_WAYFINDER_TRACKER),
+  })
+  .strict();
 
 const submit = operator
   .route({
@@ -258,7 +299,7 @@ const submit = operator
     tags: ["Operator"],
   })
   .input(OperatorSubmitInputSchema)
-  .output(OperatorRunDetailSchema)
+  .output(OperatorRunDetailSchema);
 
 const workspace = operator
   .route({
@@ -269,7 +310,7 @@ const workspace = operator
     tags: ["Operator"],
   })
   .input(OperatorWorkspaceInputSchema)
-  .output(z.object({ runs: z.array(OperatorRunSummarySchema).max(100) }))
+  .output(z.object({ runs: z.array(OperatorRunSummarySchema).max(100) }));
 
 const list = operator
   .route({
@@ -280,7 +321,7 @@ const list = operator
     tags: ["Operator"],
   })
   .input(OperatorListInputSchema)
-  .output(OperatorListOutputSchema)
+  .output(OperatorListOutputSchema);
 
 const detail = operator
   .route({
@@ -291,7 +332,7 @@ const detail = operator
     tags: ["Operator"],
   })
   .input(RunIdSchema)
-  .output(OperatorRunDetailSchema)
+  .output(OperatorRunDetailSchema);
 
 const approve = operator
   .route({
@@ -302,7 +343,7 @@ const approve = operator
     tags: ["Operator"],
   })
   .input(RunIdSchema.extend({ approval: OperatorApprovalBindingInputSchema }))
-  .output(OperatorRunDetailSchema)
+  .output(OperatorRunDetailSchema);
 
 const reject = operator
   .route({
@@ -312,8 +353,12 @@ const reject = operator
     summary: "Reject a workflow approval",
     tags: ["Operator"],
   })
-  .input(RunIdSchema.extend({ reason: z.string().trim().min(1).max(2_000).optional() }))
-  .output(OperatorRunDetailSchema)
+  .input(
+    RunIdSchema.extend({
+      reason: z.string().trim().min(1).max(2_000).optional(),
+    })
+  )
+  .output(OperatorRunDetailSchema);
 
 const cancel = operator
   .route({
@@ -324,7 +369,7 @@ const cancel = operator
     tags: ["Operator"],
   })
   .input(RunIdSchema)
-  .output(OperatorRunDetailSchema)
+  .output(OperatorRunDetailSchema);
 
 const retry = operator
   .route({
@@ -335,7 +380,7 @@ const retry = operator
     tags: ["Operator"],
   })
   .input(RunIdSchema)
-  .output(OperatorRunDetailSchema)
+  .output(OperatorRunDetailSchema);
 
 const message = operator
   .route({
@@ -345,11 +390,13 @@ const message = operator
     summary: "Add an operator message",
     tags: ["Operator"],
   })
-  .input(RunIdSchema.extend({
-    idempotencyKey: OperatorIdempotencyKeySchema,
-    body: z.string().trim().min(1).max(2_000),
-  }))
-  .output(OperatorRunDetailSchema)
+  .input(
+    RunIdSchema.extend({
+      idempotencyKey: OperatorIdempotencyKeySchema,
+      body: z.string().trim().min(1).max(2_000),
+    })
+  )
+  .output(OperatorRunDetailSchema);
 const wayfinderStatus = operator
   .route({
     method: "GET",
@@ -359,7 +406,7 @@ const wayfinderStatus = operator
     tags: ["Operator"],
   })
   .input(z.object({}).strict())
-  .output(OperatorWayfinderStatusSchema)
+  .output(OperatorWayfinderStatusSchema);
 
 const wayfinderStart = operator
   .route({
@@ -370,7 +417,7 @@ const wayfinderStart = operator
     tags: ["Operator"],
   })
   .input(OperatorWayfinderStartInputSchema)
-  .output(OperatorWayfinderQueuedRunSchema)
+  .output(OperatorWayfinderQueuedRunSchema);
 
 const wayfinderRevise = operator
   .route({
@@ -381,8 +428,7 @@ const wayfinderRevise = operator
     tags: ["Operator"],
   })
   .input(OperatorWayfinderReviseInputSchema)
-  .output(OperatorRunDetailSchema)
-
+  .output(OperatorRunDetailSchema);
 
 export const operatorContract = {
   submit,
@@ -399,30 +445,38 @@ export const operatorContract = {
     start: wayfinderStart,
     revise: wayfinderRevise,
   },
-}
-export const operatorApiContract = { operator: operatorContract }
-export type OperatorClient = ContractRouterClient<typeof operatorApiContract>
+};
+export const operatorApiContract = { operator: operatorContract };
+export type OperatorClient = ContractRouterClient<typeof operatorApiContract>;
 
-
-export type OperatorSubmitInput = z.input<typeof OperatorSubmitInputSchema>
-export type OperatorSubmit = z.output<typeof OperatorSubmitInputSchema>
-export type OperatorWorkflowState = z.infer<typeof OperatorWorkflowStateSchema>
-export type OperatorRunSummaryOutput = z.infer<typeof OperatorRunSummarySchema>
-export type OperatorApprovalBindingInput = z.input<typeof OperatorApprovalBindingInputSchema>
-export type OperatorImplementationPlanOutput =
-  z.infer<typeof OperatorImplementationPlanSchema>
-export type OperatorRunDetailOutput = z.infer<typeof OperatorRunDetailSchema>
-export type OperatorListInput = z.input<typeof OperatorListInputSchema>
-export type OperatorListOutput = z.infer<typeof OperatorListOutputSchema>
-export type OperatorWayfinderStatusOutput =
-  z.infer<typeof OperatorWayfinderStatusSchema>
-export type OperatorWayfinderStartInput =
-  z.input<typeof OperatorWayfinderStartInputSchema>
-export type OperatorWayfinderStart =
-  z.output<typeof OperatorWayfinderStartInputSchema>
-export type OperatorWayfinderReviseInput =
-  z.input<typeof OperatorWayfinderReviseInputSchema>
-export type OperatorWayfinderRevise =
-  z.output<typeof OperatorWayfinderReviseInputSchema>
-export type OperatorWayfinderQueuedRunOutput =
-  z.infer<typeof OperatorWayfinderQueuedRunSchema>
+export type OperatorSubmitInput = z.input<typeof OperatorSubmitInputSchema>;
+export type OperatorSubmit = z.output<typeof OperatorSubmitInputSchema>;
+export type OperatorWorkflowState = z.infer<typeof OperatorWorkflowStateSchema>;
+export type OperatorRunSummaryOutput = z.infer<typeof OperatorRunSummarySchema>;
+export type OperatorApprovalBindingInput = z.input<
+  typeof OperatorApprovalBindingInputSchema
+>;
+export type OperatorImplementationPlanOutput = z.infer<
+  typeof OperatorImplementationPlanSchema
+>;
+export type OperatorRunDetailOutput = z.infer<typeof OperatorRunDetailSchema>;
+export type OperatorListInput = z.input<typeof OperatorListInputSchema>;
+export type OperatorListOutput = z.infer<typeof OperatorListOutputSchema>;
+export type OperatorWayfinderStatusOutput = z.infer<
+  typeof OperatorWayfinderStatusSchema
+>;
+export type OperatorWayfinderStartInput = z.input<
+  typeof OperatorWayfinderStartInputSchema
+>;
+export type OperatorWayfinderStart = z.output<
+  typeof OperatorWayfinderStartInputSchema
+>;
+export type OperatorWayfinderReviseInput = z.input<
+  typeof OperatorWayfinderReviseInputSchema
+>;
+export type OperatorWayfinderRevise = z.output<
+  typeof OperatorWayfinderReviseInputSchema
+>;
+export type OperatorWayfinderQueuedRunOutput = z.infer<
+  typeof OperatorWayfinderQueuedRunSchema
+>;

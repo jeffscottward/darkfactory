@@ -1,6 +1,6 @@
-import { PublicLink, PublicPage } from "../_components/public-content.tsx"
+import { PublicLink, PublicPage } from "../_components/public-content.tsx";
 
-const repositoryBase = "https://github.com/jeffscottward/darkfactory"
+const repositoryBase = "https://github.com/jeffscottward/darkfactory";
 
 const resources = [
   {
@@ -27,38 +27,48 @@ const resources = [
     href: repositoryBase,
     body: "The complete workspace, tests, generated artifacts, infrastructure definitions, and history behind the public description.",
   },
-] as const
+] as const;
 
 export const metadata = {
   title: "Resources",
-  description: "Stable links to the DarkFactory architecture, generated OpenAPI, capability manifest, and repository.",
-}
+  description:
+    "Stable links to the DarkFactory architecture, generated OpenAPI, capability manifest, and repository.",
+};
 
 export default function ResourcesPage() {
   return (
     <PublicPage
-      actions={<PublicLink href={repositoryBase}>Open the repository
-  </PublicLink>}
+      actions={
+        <PublicLink href={repositoryBase}>Open the repository</PublicLink>
+      }
       description="This index links to files that exist in the repository. Authored guidance, generated contracts, machine-readable declarations, and examples are labeled separately so their authority is clear."
       eyebrow="Resources"
       title="Start from source, not a marketing claim."
     >
       <section aria-labelledby="source-index-title" className="py-16 md:py-20">
-        <h2 className="font-heading text-3xl font-semibold tracking-tight text-foreground" id="source-index-title">
+        <h2
+          className="font-heading text-3xl font-semibold tracking-tight text-foreground"
+          id="source-index-title"
+        >
           Stable source index
         </h2>
         <ul className="mt-8 divide-y divide-border border-y border-border">
           {resources.map((resource) => (
-            <li className="grid gap-5 py-8 md:grid-cols-12" key={resource.title}>
+            <li
+              className="grid gap-5 py-8 md:grid-cols-12"
+              key={resource.title}
+            >
               <div className="md:col-span-4">
-                <p className="text-xs font-semibold uppercase tracking-wide text-primary">{resource.type}
+                <p className="text-xs font-semibold uppercase tracking-wide text-primary">
+                  {resource.type}
                 </p>
                 <h3 className="mt-3 font-heading text-2xl font-semibold tracking-tight text-foreground">
                   {resource.title}
                 </h3>
               </div>
               <div className="md:col-span-6 md:col-start-6">
-                <p className="text-base leading-7 text-muted-foreground">{resource.body}
+                <p className="text-base leading-7 text-muted-foreground">
+                  {resource.body}
                 </p>
                 <a
                   className="mt-4 inline-flex min-h-11 items-center font-semibold text-primary underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
@@ -67,62 +77,85 @@ export default function ResourcesPage() {
                   target="_blank"
                 >
                   View {resource.title.toLowerCase()} on GitHub
-                  <span className="sr-only"> (opens in a new tab)
-                  </span>
+                  <span className="sr-only"> (opens in a new tab)</span>
                 </a>
               </div>
-          </li>
+            </li>
           ))}
         </ul>
       </section>
 
-      <section aria-labelledby="example-labels-title" className="grid gap-12 border-y border-border bg-surface py-16 md:grid-cols-12 md:py-20">
+      <section
+        aria-labelledby="example-labels-title"
+        className="grid gap-12 border-y border-border bg-surface py-16 md:grid-cols-12 md:py-20"
+      >
         <div className="md:col-span-5">
-          <p className="text-sm font-semibold tracking-wide text-primary">Reading the examples
+          <p className="text-sm font-semibold tracking-wide text-primary">
+            Reading the examples
           </p>
-          <h2 className="mt-4 font-heading text-3xl font-semibold tracking-tight text-foreground" id="example-labels-title">
+          <h2
+            className="mt-4 font-heading text-3xl font-semibold tracking-tight text-foreground"
+            id="example-labels-title"
+          >
             Architecture evidence is not product proof.
           </h2>
         </div>
         <dl className="divide-y divide-border border-y border-border md:col-span-6 md:col-start-7">
           <div className="py-6">
-            <dt className="font-heading text-xl font-semibold text-foreground">Architecture example
+            <dt className="font-heading text-xl font-semibold text-foreground">
+              Architecture example
             </dt>
             <dd className="mt-2 text-base leading-7 text-muted-foreground">
-              Request flows and boundary diagrams describe the intended dependency direction. Tests and implementation remain the behavioral evidence.
+              Request flows and boundary diagrams describe the intended
+              dependency direction. Tests and implementation remain the
+              behavioral evidence.
             </dd>
           </div>
           <div className="py-6">
-            <dt className="font-heading text-xl font-semibold text-foreground">Product example
+            <dt className="font-heading text-xl font-semibold text-foreground">
+              Product example
             </dt>
             <dd className="mt-2 text-base leading-7 text-muted-foreground">
-              The neutral Feature Item exists to demonstrate a vertical slice. It is example vocabulary, not a recommended customer, industry, or data model.
+              The neutral Feature Item exists to demonstrate a vertical slice.
+              It is example vocabulary, not a recommended customer, industry, or
+              data model.
             </dd>
           </div>
           <div className="py-6">
-            <dt className="font-heading text-xl font-semibold text-foreground">Optional capability
+            <dt className="font-heading text-xl font-semibold text-foreground">
+              Optional capability
             </dt>
             <dd className="mt-2 text-base leading-7 text-muted-foreground">
-              A manifest entry declares an extension boundary. It does not imply that every provider is configured in every environment.
+              A manifest entry declares an extension boundary. It does not imply
+              that every provider is configured in every environment.
             </dd>
           </div>
         </dl>
       </section>
 
-      <section aria-labelledby="resources-next-title" className="grid gap-8 pt-16 md:grid-cols-12 md:items-end md:pt-20">
+      <section
+        aria-labelledby="resources-next-title"
+        className="grid gap-8 pt-16 md:grid-cols-12 md:items-end md:pt-20"
+      >
         <div className="md:col-span-7">
-          <h2 className="font-heading text-3xl font-semibold tracking-tight text-foreground" id="resources-next-title">
+          <h2
+            className="font-heading text-3xl font-semibold tracking-tight text-foreground"
+            id="resources-next-title"
+          >
             Need the reasoning behind the boundaries?
           </h2>
           <p className="mt-4 max-w-reading text-base leading-7 text-muted-foreground">
-            The about page explains why the starter keeps its core small, its adapters visible, and its context useful to both people and AI agents.
+            The about page explains why the starter keeps its core small, its
+            adapters visible, and its context useful to both people and AI
+            agents.
           </p>
         </div>
         <div className="md:col-span-4 md:col-start-9 md:text-right">
-          <PublicLink href="/about" variant="secondary">Read the approach
+          <PublicLink href="/about" variant="secondary">
+            Read the approach
           </PublicLink>
         </div>
       </section>
-  </PublicPage>
-  )
+    </PublicPage>
+  );
 }

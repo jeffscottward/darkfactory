@@ -1,4 +1,4 @@
-"use client"
+"use client";
 
 import {
   createApiClient,
@@ -11,18 +11,28 @@ import {
   type PreferencesOutput,
   type PreferencesUpdateInput,
   type ProfileUpdateInput,
-} from "@darkfactory/api"
+} from "@darkfactory/api";
 
 export interface AccountGateway {
-  readonly getProfile: () => Promise<AccountProfileOutput>
-  readonly updateProfile: (input: ProfileUpdateInput) => Promise<AccountProfileOutput>
-  readonly listAddresses: () => Promise<AddressOutput[]>
-  readonly createAddress: (input: AddressCreateInput) => Promise<AddressOutput>
-  readonly updateAddress: (input: AddressUpdateInput) => Promise<AddressOutput>
-  readonly removeAddress: (id: string, expectedUpdatedAt: Date) => Promise<Readonly<{ removed: true }>>
-  readonly setPrimaryAddress: (id: string, expectedUpdatedAt: Date) => Promise<AddressOutput>
-  readonly getPreferences: () => Promise<PreferencesOutput>
-  readonly updatePreferences: (input: PreferencesUpdateInput) => Promise<PreferencesOutput>
+  readonly getProfile: () => Promise<AccountProfileOutput>;
+  readonly updateProfile: (
+    input: ProfileUpdateInput
+  ) => Promise<AccountProfileOutput>;
+  readonly listAddresses: () => Promise<AddressOutput[]>;
+  readonly createAddress: (input: AddressCreateInput) => Promise<AddressOutput>;
+  readonly updateAddress: (input: AddressUpdateInput) => Promise<AddressOutput>;
+  readonly removeAddress: (
+    id: string,
+    expectedUpdatedAt: Date
+  ) => Promise<Readonly<{ removed: true }>>;
+  readonly setPrimaryAddress: (
+    id: string,
+    expectedUpdatedAt: Date
+  ) => Promise<AddressOutput>;
+  readonly getPreferences: () => Promise<PreferencesOutput>;
+  readonly updatePreferences: (
+    input: PreferencesUpdateInput
+  ) => Promise<PreferencesOutput>;
 }
 
 export const createAccountGateway = (client: ApiClient): AccountGateway => ({
@@ -31,29 +41,33 @@ export const createAccountGateway = (client: ApiClient): AccountGateway => ({
   listAddresses: () => client.account.addresses.list({}),
   createAddress: (input) => client.account.addresses.create(input),
   updateAddress: (input) => client.account.addresses.update(input),
-  removeAddress: (id, expectedUpdatedAt) => client.account.addresses.remove({ id, expectedUpdatedAt }),
-  setPrimaryAddress: (id, expectedUpdatedAt) => client.account.addresses.setPrimary({ id, expectedUpdatedAt }),
+  removeAddress: (id, expectedUpdatedAt) =>
+    client.account.addresses.remove({ id, expectedUpdatedAt }),
+  setPrimaryAddress: (id, expectedUpdatedAt) =>
+    client.account.addresses.setPrimary({ id, expectedUpdatedAt }),
   getPreferences: () => client.preferences.get({}),
   updatePreferences: (input) => client.preferences.update(input),
-})
+});
 
 type BrowserAccountGatewayOptions = Readonly<{
-  createClient?: (options: ApiClientOptions) => ApiClient
-  resolveOrigin?: () => string
-}>
+  createClient?: (options: ApiClientOptions) => ApiClient;
+  resolveOrigin?: () => string;
+}>;
 
 export const createBrowserAccountGateway = (
-  options: BrowserAccountGatewayOptions = {},
+  options: BrowserAccountGatewayOptions = {}
 ): AccountGateway => {
-  const createClient = options.createClient ?? createApiClient
-  const resolveOrigin = options.resolveOrigin ?? (() => window.location.origin)
-  let gateway: AccountGateway | undefined
+  const createClient = options.createClient ?? createApiClient;
+  const resolveOrigin = options.resolveOrigin ?? (() => window.location.origin);
+  let gateway: AccountGateway | undefined;
   const getGateway = (): AccountGateway => {
     if (gateway === undefined) {
-      gateway = createAccountGateway(createClient({ baseUrl: resolveOrigin() }))
+      gateway = createAccountGateway(
+        createClient({ baseUrl: resolveOrigin() })
+      );
     }
-    return gateway
-  }
+    return gateway;
+  };
 
   return {
     getProfile: () => getGateway().getProfile(),
@@ -61,73 +75,80 @@ export const createBrowserAccountGateway = (
     listAddresses: () => getGateway().listAddresses(),
     createAddress: (input) => getGateway().createAddress(input),
     updateAddress: (input) => getGateway().updateAddress(input),
-    removeAddress: (id, expectedUpdatedAt) => getGateway().removeAddress(id, expectedUpdatedAt),
-    setPrimaryAddress: (id, expectedUpdatedAt) => getGateway().setPrimaryAddress(id, expectedUpdatedAt),
+    removeAddress: (id, expectedUpdatedAt) =>
+      getGateway().removeAddress(id, expectedUpdatedAt),
+    setPrimaryAddress: (id, expectedUpdatedAt) =>
+      getGateway().setPrimaryAddress(id, expectedUpdatedAt),
     getPreferences: () => getGateway().getPreferences(),
     updatePreferences: (input) => getGateway().updatePreferences(input),
-  }
-}
+  };
+};
 
 const errorCode = (error: unknown): string | null => {
-  if (typeof error !== "object" || error === null) return null
-  const code = Reflect.get(error, "code")
-  if (typeof code === "string") return code
-  const data = Reflect.get(error, "data")
-  if (typeof data !== "object" || data === null) return null
-  const nestedCode = Reflect.get(data, "code")
-  return typeof nestedCode === "string" ? nestedCode : null
-}
+  if (typeof error !== "object" || error === null) return null;
+  const code = Reflect.get(error, "code");
+  if (typeof code === "string") return code;
+  const data = Reflect.get(error, "data");
+  if (typeof data !== "object" || data === null) return null;
+  const nestedCode = Reflect.get(data, "code");
+  return typeof nestedCode === "string" ? nestedCode : null;
+};
 
 export const isAmbiguousAccountFailure = (error: unknown): boolean => {
-  return errorCode(error) === null
-}
+  return errorCode(error) === null;
+};
 
 export interface LatestRequestGuard {
-  readonly next: () => number
-  readonly isLatest: (generation: number) => boolean
+  readonly next: () => number;
+  readonly isLatest: (generation: number) => boolean;
 }
 
 export const createLatestRequestGuard = (): LatestRequestGuard => {
-  let generation = 0
+  let generation = 0;
   return {
     next: () => ++generation,
     isLatest: (candidate) => candidate === generation,
-  }
-}
+  };
+};
 
 export type AccountFailureKind =
   | "unauthorized"
   | "forbidden"
   | "not-found"
   | "conflict"
-  | "retryable"
+  | "retryable";
 
 export const accountFailureKind = (error: unknown): AccountFailureKind => {
   switch (errorCode(error)) {
-    case "UNAUTHORIZED": return "unauthorized"
-    case "FORBIDDEN": return "forbidden"
-    case "NOT_FOUND": return "not-found"
-    case "CONFLICT": return "conflict"
-    default: return "retryable"
+    case "UNAUTHORIZED":
+      return "unauthorized";
+    case "FORBIDDEN":
+      return "forbidden";
+    case "NOT_FOUND":
+      return "not-found";
+    case "CONFLICT":
+      return "conflict";
+    default:
+      return "retryable";
   }
-}
+};
 
 export const safeAccountFeedback = (error: unknown): string => {
   switch (errorCode(error)) {
     case "UNAUTHORIZED":
-      return "Your session ended. Sign in again to continue."
+      return "Your session ended. Sign in again to continue.";
     case "FORBIDDEN":
-      return "You do not have permission to change this account."
+      return "You do not have permission to change this account.";
     case "VALIDATION_ERROR":
     case "BAD_REQUEST":
-      return "Check the highlighted fields and try again."
+      return "Check the highlighted fields and try again.";
     case "NOT_FOUND":
-      return "That account record is no longer available. Reload and try again."
+      return "That account record is no longer available. Reload and try again.";
     case "CONFLICT":
-      return "This account changed elsewhere. Reload before trying again."
+      return "This account changed elsewhere. Reload before trying again.";
     case "STORAGE_ERROR":
-      return "Account storage is temporarily unavailable. Try again."
+      return "Account storage is temporarily unavailable. Try again.";
     default:
-      return "The request could not be completed. Try again."
+      return "The request could not be completed. Try again.";
   }
-}
+};

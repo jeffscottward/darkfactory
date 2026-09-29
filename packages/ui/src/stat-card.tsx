@@ -1,11 +1,12 @@
-import type { ComponentPropsWithRef, ReactNode } from "react"
+import type { ComponentPropsWithRef, ReactNode } from "react";
 
-import { cn } from "./utilities.ts"
+import { cn } from "./utilities.ts";
 
-export interface StatCardProps extends Omit<ComponentPropsWithRef<"dl">, "title"> {
-  label: ReactNode
-  value: ReactNode
-  description?: ReactNode
+export interface StatCardProps
+  extends Omit<ComponentPropsWithRef<"dl">, "title"> {
+  label: ReactNode;
+  value: ReactNode;
+  description?: ReactNode;
 }
 
 export const StatCard = ({
@@ -18,17 +19,20 @@ export const StatCard = ({
   <dl
     className={cn(
       "grid min-w-0 gap-2 border-l-2 border-primary pl-4 text-left",
-      className,
+      className
     )}
     {...props}
   >
-    <dt className="font-body text-sm font-medium text-muted-foreground">{label}
+    <dt className="font-body text-sm font-medium text-muted-foreground">
+      {label}
     </dt>
-    <dd className="font-heading text-2xl font-semibold tracking-tight text-foreground">{value}
+    <dd className="font-heading text-2xl font-semibold tracking-tight text-foreground">
+      {value}
     </dd>
     {description === undefined ? null : (
-      <dd className="font-body text-xs leading-4 text-muted-foreground">{description}
-    </dd>
+      <dd className="font-body text-xs leading-4 text-muted-foreground">
+        {description}
+      </dd>
     )}
-</dl>
-)
+  </dl>
+);

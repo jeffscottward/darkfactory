@@ -1,11 +1,11 @@
-import { describe, expect, it } from "vitest"
+import { describe, expect, it } from "vitest";
 
 import {
   MAX_UI_STATE_SNAPSHOT_LENGTH,
   UI_STATE_VERSION,
   createUiStore,
   parseUiStateSnapshot,
-} from "./client.ts"
+} from "./client.ts";
 
 const hydratedPreferences = {
   sidebar: "collapsed" as const,
@@ -13,59 +13,59 @@ const hydratedPreferences = {
   themeMode: "dark" as const,
   palette: "blue" as const,
   consent: "granted" as const,
-}
+};
 
 const hydratedSnapshot = {
   version: UI_STATE_VERSION,
   state: hydratedPreferences,
-}
+};
 
-const hydratedSnapshotJson = JSON.stringify(hydratedSnapshot)
+const hydratedSnapshotJson = JSON.stringify(hydratedSnapshot);
 
-describe("createUiStore", function() {
-  it("updates navigation and sidebar state", function() {
-    const store = createUiStore()
+describe("createUiStore", function () {
+  it("updates navigation and sidebar state", function () {
+    const store = createUiStore();
 
-    store.getState().toggleSidebar()
-    store.getState().setMobileNavigationOpen(true)
+    store.getState().toggleSidebar();
+    store.getState().setMobileNavigationOpen(true);
 
-    expect(store.getState().sidebar).toBe("collapsed")
-    expect(store.getState().mobileNavigationOpen).toBe(true)
+    expect(store.getState().sidebar).toBe("collapsed");
+    expect(store.getState().mobileNavigationOpen).toBe(true);
 
-    store.getState().setSidebar("expanded")
-    store.getState().closeMobileNavigation()
+    store.getState().setSidebar("expanded");
+    store.getState().closeMobileNavigation();
 
-    expect(store.getState().sidebar).toBe("expanded")
-    return expect(store.getState().mobileNavigationOpen).toBe(false)
-  })
+    expect(store.getState().sidebar).toBe("expanded");
+    return expect(store.getState().mobileNavigationOpen).toBe(false);
+  });
 
-  it("updates theme mode, palette, and consent immutably", function() {
-    const store = createUiStore()
-    const initialState = store.getState()
+  it("updates theme mode, palette, and consent immutably", function () {
+    const store = createUiStore();
+    const initialState = store.getState();
 
-    initialState.setThemeMode("dark")
-    const themedState = store.getState()
-    themedState.setPalette("violet")
-    const paletteState = store.getState()
-    paletteState.setConsent("denied")
-    const consentState = store.getState()
+    initialState.setThemeMode("dark");
+    const themedState = store.getState();
+    themedState.setPalette("violet");
+    const paletteState = store.getState();
+    paletteState.setConsent("denied");
+    const consentState = store.getState();
 
-    expect(themedState).not.toBe(initialState)
-    expect(paletteState).not.toBe(themedState)
-    expect(consentState).not.toBe(paletteState)
-    expect(consentState.themeMode).toBe("dark")
-    expect(consentState.palette).toBe("violet")
-    return expect(consentState.consent).toBe("denied")
-  })
+    expect(themedState).not.toBe(initialState);
+    expect(paletteState).not.toBe(themedState);
+    expect(consentState).not.toBe(paletteState);
+    expect(consentState.themeMode).toBe("dark");
+    expect(consentState.palette).toBe("violet");
+    return expect(consentState.consent).toBe("denied");
+  });
 
-  it("resets every preference to a fresh deterministic default state", function() {
-    const store = createUiStore()
-    store.getState().hydrate(hydratedSnapshotJson)
-    const hydratedState = store.getState()
+  it("resets every preference to a fresh deterministic default state", function () {
+    const store = createUiStore();
+    store.getState().hydrate(hydratedSnapshotJson);
+    const hydratedState = store.getState();
 
-    hydratedState.reset()
+    hydratedState.reset();
 
-    expect(store.getState()).not.toBe(hydratedState)
+    expect(store.getState()).not.toBe(hydratedState);
     return expect(store.getState().dehydrate()).toEqual({
       version: 1,
       state: {
@@ -75,20 +75,22 @@ describe("createUiStore", function() {
         palette: "neutral",
         consent: "unknown",
       },
-    })
-  })
+    });
+  });
 
-  it("hydrates a valid versioned snapshot deterministically", function() {
-    const store = createUiStore()
+  it("hydrates a valid versioned snapshot deterministically", function () {
+    const store = createUiStore();
 
-    expect(store.getState().hydrate(hydratedSnapshotJson)).toBe(true)
-    expect(store.getState().dehydrate()).toEqual(hydratedSnapshot)
-    expect(store.getState().dehydrate()).not.toBe(hydratedSnapshot)
-    return expect(store.getState().dehydrate().state).not.toBe(hydratedSnapshot.state)
-  })
+    expect(store.getState().hydrate(hydratedSnapshotJson)).toBe(true);
+    expect(store.getState().dehydrate()).toEqual(hydratedSnapshot);
+    expect(store.getState().dehydrate()).not.toBe(hydratedSnapshot);
+    return expect(store.getState().dehydrate().state).not.toBe(
+      hydratedSnapshot.state
+    );
+  });
 
-  it("fails closed without changing state for malformed hydration", function() {
-    const validState = hydratedSnapshot.state
+  it("fails closed without changing state for malformed hydration", function () {
+    const validState = hydratedSnapshot.state;
     const malformedSnapshots: readonly unknown[] = [
       null,
       [],
@@ -103,95 +105,110 @@ describe("createUiStore", function() {
         version: 1,
         state: { ...validState, mobileNavigationOpen: "true" },
       }),
-      JSON.stringify({ version: 1, state: { ...validState, themeMode: "auto" } }),
-      JSON.stringify({ version: 1, state: { ...validState, palette: "studio" } }),
-      JSON.stringify({ version: 1, state: { ...validState, consent: "pending" } }),
-      JSON.stringify({ version: 1, state: { ...validState, serverRecords: [] } }),
+      JSON.stringify({
+        version: 1,
+        state: { ...validState, themeMode: "auto" },
+      }),
+      JSON.stringify({
+        version: 1,
+        state: { ...validState, palette: "studio" },
+      }),
+      JSON.stringify({
+        version: 1,
+        state: { ...validState, consent: "pending" },
+      }),
+      JSON.stringify({
+        version: 1,
+        state: { ...validState, serverRecords: [] },
+      }),
       JSON.stringify({ version: 1, state: validState, extra: true }),
-    ]
+    ];
 
-    const results=[];for (const malformed of malformedSnapshots) {
-      const store = createUiStore()
-      const before = store.getState()
-      const beforeSnapshot = before.dehydrate()
+    const results = [];
+    for (const malformed of malformedSnapshots) {
+      const store = createUiStore();
+      const before = store.getState();
+      const beforeSnapshot = before.dehydrate();
 
-      expect(parseUiStateSnapshot(malformed)).toBeNull()
-      expect(store.getState().hydrate(malformed)).toBe(false)
-      expect(store.getState()).toBe(before)
-      results.push(expect(store.getState().dehydrate()).toEqual(beforeSnapshot))
-    };return results;
-  })
+      expect(parseUiStateSnapshot(malformed)).toBeNull();
+      expect(store.getState().hydrate(malformed)).toBe(false);
+      expect(store.getState()).toBe(before);
+      results.push(
+        expect(store.getState().dehydrate()).toEqual(beforeSnapshot)
+      );
+    }
+    return results;
+  });
 
-  it("does not execute hostile accessors or proxy traps during hydration", function() {
-    let accessorReads = 0
+  it("does not execute hostile accessors or proxy traps during hydration", function () {
+    let accessorReads = 0;
     const accessorSnapshot = Object.defineProperty({}, "state", {
       enumerable: true,
       get: () => {
-        accessorReads += 1
-        throw new Error("hostile accessor executed")
-      }
-    })
-    const revocable = Proxy.revocable({}, {})
-    revocable.revoke()
-    const store = createUiStore()
-    const before = store.getState()
+        accessorReads += 1;
+        throw new Error("hostile accessor executed");
+      },
+    });
+    const revocable = Proxy.revocable({}, {});
+    revocable.revoke();
+    const store = createUiStore();
+    const before = store.getState();
 
-    expect(() => store.getState().hydrate(accessorSnapshot)).not.toThrow()
-    expect(() => store.getState().hydrate(revocable.proxy)).not.toThrow()
-    expect(accessorReads).toBe(0)
-    return expect(store.getState()).toBe(before)
-  })
+    expect(() => store.getState().hydrate(accessorSnapshot)).not.toThrow();
+    expect(() => store.getState().hydrate(revocable.proxy)).not.toThrow();
+    expect(accessorReads).toBe(0);
+    return expect(store.getState()).toBe(before);
+  });
 
-  it("notifies subscribers with previous state and honors unsubscribe", function() {
-    const store = createUiStore()
-    const initialState = store.getState()
+  it("notifies subscribers with previous state and honors unsubscribe", function () {
+    const store = createUiStore();
+    const initialState = store.getState();
     const updates: Array<{
-      state: typeof initialState
-      previousState: typeof initialState
-    }> = []
+      state: typeof initialState;
+      previousState: typeof initialState;
+    }> = [];
     const unsubscribe = store.subscribe((state, previousState) => {
-      return updates.push({ state, previousState })
-    }
-    )
+      return updates.push({ state, previousState });
+    });
 
-    store.getState().setPalette("blue")
+    store.getState().setPalette("blue");
 
-    expect(updates).toHaveLength(1)
-    expect(updates[0]?.previousState).toBe(initialState)
-    expect(updates[0]?.state).toBe(store.getState())
-    expect(updates[0]?.state).not.toBe(initialState)
+    expect(updates).toHaveLength(1);
+    expect(updates[0]?.previousState).toBe(initialState);
+    expect(updates[0]?.state).toBe(store.getState());
+    expect(updates[0]?.state).not.toBe(initialState);
 
-    unsubscribe()
-    store.getState().setPalette("slate")
-    return expect(updates).toHaveLength(1)
-  })
+    unsubscribe();
+    store.getState().setPalette("slate");
+    return expect(updates).toHaveLength(1);
+  });
 
-  it("parses exactly the bounded versioned client UI preference schema", function() {
-    const first = parseUiStateSnapshot(hydratedSnapshotJson)
-    const second = parseUiStateSnapshot(hydratedSnapshotJson)
+  it("parses exactly the bounded versioned client UI preference schema", function () {
+    const first = parseUiStateSnapshot(hydratedSnapshotJson);
+    const second = parseUiStateSnapshot(hydratedSnapshotJson);
 
-    expect(first).toEqual(hydratedSnapshot)
-    expect(second).toEqual(hydratedSnapshot)
-    expect(first).not.toBe(second)
-    expect(first?.state).not.toBe(second?.state)
-    return expect(UI_STATE_VERSION).toBe(1)
-  })
+    expect(first).toEqual(hydratedSnapshot);
+    expect(second).toEqual(hydratedSnapshot);
+    expect(first).not.toBe(second);
+    expect(first?.state).not.toBe(second?.state);
+    return expect(UI_STATE_VERSION).toBe(1);
+  });
 
-  return it("toggles from both sidebar states and ignores invalid runtime setter input", function() {
-    const store = createUiStore()
-    const initialSnapshot = store.getState().dehydrate()
+  return it("toggles from both sidebar states and ignores invalid runtime setter input", function () {
+    const store = createUiStore();
+    const initialSnapshot = store.getState().dehydrate();
 
-    store.getState().toggleSidebar()
-    expect(store.getState().sidebar).toBe("collapsed")
-    store.getState().toggleSidebar()
-    expect(store.getState().sidebar).toBe("expanded")
+    store.getState().toggleSidebar();
+    expect(store.getState().sidebar).toBe("collapsed");
+    store.getState().toggleSidebar();
+    expect(store.getState().sidebar).toBe("expanded");
 
-    store.getState().setSidebar("open" as never)
-    store.getState().setMobileNavigationOpen("true" as never)
-    store.getState().setThemeMode("auto" as never)
-    store.getState().setPalette("studio" as never)
-    store.getState().setConsent("pending" as never)
+    store.getState().setSidebar("open" as never);
+    store.getState().setMobileNavigationOpen("true" as never);
+    store.getState().setThemeMode("auto" as never);
+    store.getState().setPalette("studio" as never);
+    store.getState().setConsent("pending" as never);
 
-    return expect(store.getState().dehydrate()).toEqual(initialSnapshot)
-  })
-})
+    return expect(store.getState().dehydrate()).toEqual(initialSnapshot);
+  });
+});

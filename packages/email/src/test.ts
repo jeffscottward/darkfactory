@@ -1,4 +1,4 @@
-import type { PasswordResetEmailInput } from "./index.ts"
+import type { PasswordResetEmailInput } from "./index.ts";
 
 const defaultPasswordResetEmailInput: PasswordResetEmailInput = {
   to: "member@domain.test",
@@ -7,10 +7,10 @@ const defaultPasswordResetEmailInput: PasswordResetEmailInput = {
     "https://darkfactory.localhost/api/auth/reset-password/test-reset-token" +
     "?callbackURL=https%3A%2F%2Fdarkfactory.localhost%2Freset-password",
   expiresInMinutes: 60,
-}
+};
 
 export const createPasswordResetEmailInput = (
-  overrides: Partial<PasswordResetEmailInput> = {},
+  overrides: Partial<PasswordResetEmailInput> = {}
 ): PasswordResetEmailInput => {
-  return Object.freeze({ ...defaultPasswordResetEmailInput, ...overrides })
-}
+  return Object.freeze({ ...defaultPasswordResetEmailInput, ...overrides });
+};

@@ -1,37 +1,45 @@
-import { count, desc, eq } from "drizzle-orm"
+import { count, desc, eq } from "drizzle-orm";
 
 import {
   featureItems,
   type FeatureItem,
   type FeatureItemStatus,
-} from "../schema/index.ts"
-import type { DatabaseExecutor } from "./client.ts"
+} from "../schema/index.ts";
+import type { DatabaseExecutor } from "./client.ts";
 
 export class DashboardPersistenceError extends Error {
   constructor() {
-    super("Dashboard storage is unavailable")
-    this.name = "DashboardPersistenceError"
+    super("Dashboard storage is unavailable");
+    this.name = "DashboardPersistenceError";
   }
 }
 
 export type DashboardFeatureSummary = Readonly<{
-  total: number
-  draft: number
-  active: number
-  archived: number
-  recent: FeatureItem[]
-}>
+  total: number;
+  draft: number;
+  active: number;
+  archived: number;
+  recent: FeatureItem[];
+}>;
 
 export type DashboardRepository = Readonly<{
-  getFeatureSummary: (ownerId: string, recentLimit: number) => Promise<DashboardFeatureSummary>
-}>
+  getFeatureSummary: (
+    ownerId: string,
+    recentLimit: number
+  ) => Promise<DashboardFeatureSummary>;
+}>;
 
 export const createDashboardRepository = (
-  database: DatabaseExecutor,
+  database: DatabaseExecutor
 ): DashboardRepository => ({
   getFeatureSummary: async (ownerId, recentLimit) => {
-    if (ownerId.trim().length === 0 || !Number.isInteger(recentLimit) || recentLimit < 0 || recentLimit > 100) {
-      throw new DashboardPersistenceError()
+    if (
+      ownerId.trim().length === 0 ||
+      !Number.isInteger(recentLimit) ||
+      recentLimit < 0 ||
+      recentLimit > 100
+    ) {
+      throw new DashboardPersistenceError();
     }
     try {
       const [counts, recent] = await Promise.all([
@@ -46,22 +54,21 @@ export const createDashboardRepository = (
           .where(eq(featureItems.ownerId, ownerId))
           .orderBy(desc(featureItems.updatedAt), desc(featureItems.id))
           .limit(recentLimit),
-      ])
+      ]);
       const byStatus: Record<FeatureItemStatus, number> = {
         draft: 0,
         active: 0,
         archived: 0,
-      }
-      for (const row of counts) byStatus[row.status] = row.value
+      };
+      for (const row of counts) byStatus[row.status] = row.value;
       return {
         total: byStatus.draft + byStatus.active + byStatus.archived,
         ...byStatus,
         recent,
-      }
+      };
+    } catch (error) {
+      if (error instanceof DashboardPersistenceError) throw error;
+      throw new DashboardPersistenceError();
     }
-    catch (error) {
-      if (error instanceof DashboardPersistenceError) throw error
-      throw new DashboardPersistenceError()
-    }
-  }
-})
+  },
+});

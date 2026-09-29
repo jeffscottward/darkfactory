@@ -1,22 +1,26 @@
-"use client"
+"use client";
 
-import { useState, type ChangeEventHandler, type FocusEventHandler } from "react"
-import { Eye, EyeOff } from "lucide-react"
-import { Input, Label, cn } from "@darkfactory/ui"
+import {
+  useState,
+  type ChangeEventHandler,
+  type FocusEventHandler,
+} from "react";
+import { Eye, EyeOff } from "lucide-react";
+import { Input, Label, cn } from "@darkfactory/ui";
 
 export type PasswordFieldProps = Readonly<{
-  id: string
-  label: string
-  name: string
-  value: string
-  onChange: ChangeEventHandler<HTMLInputElement>
-  onBlur: FocusEventHandler<HTMLInputElement>
-  autoComplete?: string | undefined
-  description?: string | undefined
-  error?: string | undefined
-  disabled?: boolean | undefined
-  required?: boolean | undefined
-}>
+  id: string;
+  label: string;
+  name: string;
+  value: string;
+  onChange: ChangeEventHandler<HTMLInputElement>;
+  onBlur: FocusEventHandler<HTMLInputElement>;
+  autoComplete?: string | undefined;
+  description?: string | undefined;
+  error?: string | undefined;
+  disabled?: boolean | undefined;
+  required?: boolean | undefined;
+}>;
 
 export const PasswordField = ({
   id,
@@ -31,19 +35,22 @@ export const PasswordField = ({
   disabled = false,
   required = true,
 }: PasswordFieldProps) => {
-  const [isVisible, setIsVisible] = useState(false)
-  const descriptionId = description ? `${id}-description` : undefined
-  const errorId = error ? `${id}-error` : undefined
-  const describedBy = [descriptionId, errorId].filter(Boolean).join(" ") || undefined
+  const [isVisible, setIsVisible] = useState(false);
+  const descriptionId = description ? `${id}-description` : undefined;
+  const errorId = error ? `${id}-error` : undefined;
+  const describedBy =
+    [descriptionId, errorId].filter(Boolean).join(" ") || undefined;
 
   return (
     <div className="grid gap-2">
-      <Label htmlFor={id}>{label}
-      </Label>
+      <Label htmlFor={id}>{label}</Label>
       {description ? (
-        <p className="text-sm leading-5 text-muted-foreground" id={descriptionId}>
+        <p
+          className="text-sm leading-5 text-muted-foreground"
+          id={descriptionId}
+        >
           {description}
-      </p>
+        </p>
       ) : null}
       <div className="relative">
         <Input
@@ -67,20 +74,28 @@ export const PasswordField = ({
           className={cn(
             "absolute inset-y-0 right-0 inline-flex min-h-11 min-w-11 items-center justify-center rounded-r-md text-muted-foreground",
             "transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
-            "disabled:cursor-not-allowed disabled:bg-muted disabled:text-muted-foreground",
+            "disabled:cursor-not-allowed disabled:bg-muted disabled:text-muted-foreground"
           )}
           disabled={disabled}
           onClick={() => setIsVisible((visible) => !visible)}
           type="button"
         >
-          {isVisible ? <EyeOff aria-hidden="true" size={18} /> : <Eye aria-hidden="true" size={18} />}
+          {isVisible ? (
+            <EyeOff aria-hidden="true" size={18} />
+          ) : (
+            <Eye aria-hidden="true" size={18} />
+          )}
         </button>
       </div>
       {error ? (
-        <p className="text-sm font-medium text-destructive" id={errorId} role="alert">
+        <p
+          className="text-sm font-medium text-destructive"
+          id={errorId}
+          role="alert"
+        >
           {error}
-      </p>
+        </p>
       ) : null}
-  </div>
-  )
-}
+    </div>
+  );
+};

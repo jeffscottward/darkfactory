@@ -1,98 +1,101 @@
-import { sql } from "drizzle-orm"
+import { sql } from "drizzle-orm";
 
-import type { DatabaseExecutor } from "./client.ts"
-import { withTransaction } from "./client.ts"
+import type { DatabaseExecutor } from "./client.ts";
+import { withTransaction } from "./client.ts";
 
-const DEFAULT_MAX_ROWS = 100_000
-const DEFAULT_CLEANUP_BATCH_SIZE = 100
-const DEFAULT_MAX_REQUESTS = 5
-const HMAC_KEY_PATTERN = /^[a-f0-9]{64}$/
+const DEFAULT_MAX_ROWS = 100_000;
+const DEFAULT_CLEANUP_BATCH_SIZE = 100;
+const DEFAULT_MAX_REQUESTS = 5;
+const HMAC_KEY_PATTERN = /^[a-f0-9]{64}$/;
 
 export type ContactThrottleResult = Readonly<{
-  allowed: boolean
-  remaining: number
-  retryAfterSeconds: number
-}>
+  allowed: boolean;
+  remaining: number;
+  retryAfterSeconds: number;
+}>;
 
 export interface ContactThrottleRepository {
-  readonly consume: (keyHash: string) => Promise<ContactThrottleResult>
+  readonly consume: (keyHash: string) => Promise<ContactThrottleResult>;
 }
 
 export type ContactThrottleRepositoryOptions = Readonly<{
-  maxRows?: number | undefined
-  cleanupBatchSize?: number | undefined
-  maxRequests?: number | undefined
-}>
+  maxRows?: number | undefined;
+  cleanupBatchSize?: number | undefined;
+  maxRequests?: number | undefined;
+}>;
 
 type ContactThrottleRow = Readonly<{
-  allowed: boolean
-  remaining: number
-  retry_after_seconds: number
-}>
+  allowed: boolean;
+  remaining: number;
+  retry_after_seconds: number;
+}>;
 
 type ContactThrottleCapacityRow = Readonly<{
-  row_count: number
-  retry_after_seconds: number | null
-}>
+  row_count: number;
+  retry_after_seconds: number | null;
+}>;
 
-type QueryRows<Row> = Readonly<{ rows: Row[] }>
+type QueryRows<Row> = Readonly<{ rows: Row[] }>;
 
 const positiveBoundedInteger = (
   value: number,
   maximum: number,
-  name: string,
+  name: string
 ): number => {
   if (!Number.isInteger(value) || value <= 0 || value > maximum) {
-    throw new RangeError(`${name} must be an integer between 1 and ${maximum}`)
+    throw new RangeError(`${name} must be an integer between 1 and ${maximum}`);
   }
-  return value
-}
+  return value;
+};
 
 export const createContactThrottleRepository = (
   database: DatabaseExecutor,
-  options: ContactThrottleRepositoryOptions = {},
+  options: ContactThrottleRepositoryOptions = {}
 ): ContactThrottleRepository => {
   const maxRows = positiveBoundedInteger(
     options.maxRows ?? DEFAULT_MAX_ROWS,
     DEFAULT_MAX_ROWS,
-    "maxRows",
-  )
+    "maxRows"
+  );
   const cleanupBatchSize = positiveBoundedInteger(
     options.cleanupBatchSize ?? DEFAULT_CLEANUP_BATCH_SIZE,
     1_000,
-    "cleanupBatchSize",
-  )
+    "cleanupBatchSize"
+  );
   const maxRequests = positiveBoundedInteger(
     options.maxRequests ?? DEFAULT_MAX_REQUESTS,
     1_000,
-    "maxRequests",
-  )
+    "maxRequests"
+  );
 
   return Object.freeze({
     consume: async (keyHash: string): Promise<ContactThrottleResult> => {
       if (!HMAC_KEY_PATTERN.test(keyHash)) {
-        throw new TypeError("keyHash must be a lowercase SHA-256 HMAC")
+        throw new TypeError("keyHash must be a lowercase SHA-256 HMAC");
       }
 
       return await withTransaction(database, async (transaction) => {
         await transaction.execute(
-          sql`select pg_advisory_xact_lock(hashtextextended(${keyHash}, 0))`,
-        )
+          sql`select pg_advisory_xact_lock(hashtextextended(${keyHash}, 0))`
+        );
 
         const existingResult = await transaction.execute(sql`
           select key_hash
           from contact_rate_limits
           where key_hash = ${keyHash}
           for update
-        `)
-        const existing = (
-          existingResult as unknown as QueryRows<Readonly<{ key_hash: string }>>
-        ).rows.length > 0
+        `);
+        const existing =
+          (
+            existingResult as unknown as QueryRows<
+              Readonly<{ key_hash: string }>
+            >
+          ).rows.length > 0;
 
         if (!existing) {
           await transaction.execute(
-            sql`select pg_advisory_xact_lock(hashtextextended('darkfactory.contact-rate-limit.capacity', 0))`,
-          )
+            sql`select pg_advisory_xact_lock(hashtextextended('darkfactory.contact-rate-limit.capacity', 0))`
+          );
           await transaction.execute(sql`
             delete from contact_rate_limits
             where key_hash in (
@@ -103,7 +106,7 @@ export const createContactThrottleRepository = (
               limit ${cleanupBatchSize}
               for update skip locked
             )
-          `)
+          `);
           const capacityResult = await transaction.execute(sql`
             select
               count(*)::integer as row_count,
@@ -112,19 +115,19 @@ export const createContactThrottleRepository = (
                 ceil(extract(epoch from (min(expires_at) - clock_timestamp())))
               )::integer as retry_after_seconds
             from contact_rate_limits
-          `)
+          `);
           const capacity = (
             capacityResult as unknown as QueryRows<ContactThrottleCapacityRow>
-          ).rows[0]
+          ).rows[0];
           if (capacity === undefined) {
-            throw new Error("Contact throttle did not return table capacity")
+            throw new Error("Contact throttle did not return table capacity");
           }
           if (capacity.row_count >= maxRows) {
             return {
               allowed: false,
               remaining: 0,
               retryAfterSeconds: capacity.retry_after_seconds ?? 1,
-            }
+            };
           }
         }
 
@@ -179,21 +182,19 @@ export const createContactThrottleRepository = (
           where key_hash = ${keyHash}
             and not exists (select 1 from attempted)
           limit 1
-        `)
-        const rows = (
-          queryResult as unknown as QueryRows<ContactThrottleRow>
-        ).rows
-        const result = rows[0]
+        `);
+        const rows = (queryResult as unknown as QueryRows<ContactThrottleRow>)
+          .rows;
+        const result = rows[0];
         if (result === undefined) {
-          throw new Error("Contact throttle did not return a decision")
+          throw new Error("Contact throttle did not return a decision");
         }
         return {
           allowed: result.allowed,
           remaining: result.remaining,
           retryAfterSeconds: result.retry_after_seconds,
-        }
-      }
-      )
-    }
-  })
-}
+        };
+      });
+    },
+  });
+};

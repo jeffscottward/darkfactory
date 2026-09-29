@@ -1,32 +1,34 @@
-import { OpenAPIGenerator, type OpenAPI } from "@orpc/openapi"
-import { ZodToJsonSchemaConverter } from "@orpc/zod/zod4"
+import { OpenAPIGenerator, type OpenAPI } from "@orpc/openapi";
+import { ZodToJsonSchemaConverter } from "@orpc/zod/zod4";
 
-import { appContract } from "./contract.ts"
+import { appContract } from "./contract.ts";
 
 export const OPENAPI_INFO = {
   title: "DarkFactory API",
   version: "0.2.1",
-} as const
+} as const;
 
 export const buildOpenApiDocument = async (): Promise<OpenAPI.Document> => {
   const generator = new OpenAPIGenerator({
     schemaConverters: [new ZodToJsonSchemaConverter()],
-  })
-  return generator.generate(appContract, { info: OPENAPI_INFO })
-}
+  });
+  return generator.generate(appContract, { info: OPENAPI_INFO });
+};
 
 const sortJson = (value: unknown): unknown => {
-  if (Array.isArray(value)) return value.map(sortJson)
+  if (Array.isArray(value)) return value.map(sortJson);
   if (value !== null && typeof value === "object") {
     return Object.fromEntries(
       Object.entries(value)
         .sort(([left], [right]) => left.localeCompare(right))
-        .map(([key, child]) => [key, sortJson(child)]),
-    )
+        .map(([key, child]) => [key, sortJson(child)])
+    );
   }
-  return value
-}
+  return value;
+};
 
-export const serializeOpenApiDocument = (document: OpenAPI.Document): string => {
-  return `${JSON.stringify(sortJson(document), null, 2)}\n`
-}
+export const serializeOpenApiDocument = (
+  document: OpenAPI.Document
+): string => {
+  return `${JSON.stringify(sortJson(document), null, 2)}\n`;
+};

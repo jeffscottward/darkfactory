@@ -1,6 +1,6 @@
-import type { ReactNode } from "react"
+import type { ReactNode } from "react";
 
-import "./globals.css"
+import "./globals.css";
 
 export const metadata = {
   applicationName: "DarkFactory Operator",
@@ -8,19 +8,23 @@ export const metadata = {
     default: "Operator",
     template: "%s | DarkFactory Operator",
   },
-  description: "A local-only control plane for bounded DarkFactory workflow runs.",
-}
+  description:
+    "A local-only control plane for bounded DarkFactory workflow runs.",
+};
 
-export const viewport = { colorScheme: "light dark" }
+export const viewport = { colorScheme: "light dark" };
 
-export default function RootLayout({ children }: Readonly<{ children: ReactNode }>) {
+export default function RootLayout({
+  children,
+}: Readonly<{ children: ReactNode }>) {
   return (
     <html data-mode="system" data-palette="neutral" lang="en">
       <body>
-        <a className="skip-link" href="#main-content">Skip to main content
+        <a className="skip-link" href="#main-content">
+          Skip to main content
         </a>
         {children}
       </body>
-  </html>
-  )
+    </html>
+  );
 }

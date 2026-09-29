@@ -1,9 +1,9 @@
-import type { ComponentPropsWithRef } from "react"
+import type { ComponentPropsWithRef } from "react";
 
-import { cn } from "./utilities.ts"
+import { cn } from "./utilities.ts";
 
 export interface SeparatorProps extends ComponentPropsWithRef<"hr"> {
-  orientation?: "horizontal" | "vertical"
+  orientation?: "horizontal" | "vertical";
 }
 
 export const Separator = ({
@@ -16,8 +16,8 @@ export const Separator = ({
     className={cn(
       "shrink-0 border-0 bg-border",
       orientation === "horizontal" ? "h-px w-full" : "h-full min-h-6 w-px",
-      className,
+      className
     )}
     {...props}
   />
-)
+);

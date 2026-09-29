@@ -1,32 +1,37 @@
-import { beforeEach, describe, expect, it, vi } from "vitest"
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import type { SemanticEvent } from "../port.ts"
+import type { SemanticEvent } from "../port.ts";
 
-const workers = vi.hoisted(function() {
-  const emit = vi.fn()
-  const setLevel = vi.fn()
+const workers = vi.hoisted(function () {
+  const emit = vi.fn();
+  const setLevel = vi.fn();
   return {
     emit,
     setLevel,
     initWorkersLogger: vi.fn(),
-    createWorkersLogger: vi.fn(function() { return ({ emit, setLevel }) }),
-  }
-}
-)
+    createWorkersLogger: vi.fn(function () {
+      return { emit, setLevel };
+    }),
+  };
+});
 
-vi.mock("evlog/workers", function() { return ({
-  initWorkersLogger: workers.initWorkersLogger,
-  createWorkersLogger: workers.createWorkersLogger,
-}) })
+vi.mock("evlog/workers", function () {
+  return {
+    initWorkersLogger: workers.initWorkersLogger,
+    createWorkersLogger: workers.createWorkersLogger,
+  };
+});
 
-beforeEach(function() {
-  vi.resetModules()
-  workers.emit.mockReset()
-  workers.setLevel.mockReset()
-  workers.initWorkersLogger.mockReset()
-  workers.createWorkersLogger.mockReset()
-  return workers.createWorkersLogger.mockImplementation(function() { return ({ emit: workers.emit, setLevel: workers.setLevel }) })
-})
+beforeEach(function () {
+  vi.resetModules();
+  workers.emit.mockReset();
+  workers.setLevel.mockReset();
+  workers.initWorkersLogger.mockReset();
+  workers.createWorkersLogger.mockReset();
+  return workers.createWorkersLogger.mockImplementation(function () {
+    return { emit: workers.emit, setLevel: workers.setLevel };
+  });
+});
 
 const rawEvent = (requestId: string): SemanticEvent => ({
   eventId: `event_${requestId}`,
@@ -42,44 +47,44 @@ const rawEvent = (requestId: string): SemanticEvent => ({
   },
   outcome: "success",
   attributes: { password: "raw-password", safe: "kept" },
-})
+});
 
-describe("evlog Worker runtime", function() {
-  it("initializes globally once, keeps redaction enabled, and safely interleaves request sinks", async function() {
-    const { createEvlogSink, initializeEvlog } = await import("./evlog.ts")
+describe("evlog Worker runtime", function () {
+  it("initializes globally once, keeps redaction enabled, and safely interleaves request sinks", async function () {
+    const { createEvlogSink, initializeEvlog } = await import("./evlog.ts");
     const runtime = initializeEvlog({
       serviceName: "darkfactory-test",
       silent: true,
-    })
-    const executionContext = { waitUntil: vi.fn() }
+    });
+    const executionContext = { waitUntil: vi.fn() };
     const requestA = new Request(
       "https://darkfactory.localhost/rpc/feature.create",
       { method: "POST" }
-    )
+    );
     const requestB = new Request(
       "https://darkfactory.localhost/rpc/feature.update",
       { method: "POST" }
-    )
+    );
     const sinkA = createEvlogSink({
       runtime,
       request: requestA,
       executionContext,
-    })
-    const sinkB = createEvlogSink({ runtime, request: requestB })
+    });
+    const sinkB = createEvlogSink({ runtime, request: requestB });
 
-    await sinkA.emit(rawEvent("request_a"))
-    await sinkB.emit(rawEvent("request_b"))
-    await sinkA.emit(rawEvent("request_a_second"))
+    await sinkA.emit(rawEvent("request_a"));
+    await sinkB.emit(rawEvent("request_b"));
+    await sinkA.emit(rawEvent("request_a_second"));
 
-    expect(workers.initWorkersLogger).toHaveBeenCalledOnce()
+    expect(workers.initWorkersLogger).toHaveBeenCalledOnce();
     expect(workers.initWorkersLogger).toHaveBeenCalledWith({
       env: { service: "darkfactory-test" },
       pretty: false,
       redact: true,
       silent: true,
       stringify: false,
-    })
-    expect(workers.createWorkersLogger).toHaveBeenCalledTimes(3)
+    });
+    expect(workers.createWorkersLogger).toHaveBeenCalledTimes(3);
     expect(workers.createWorkersLogger.mock.calls).toEqual([
       [
         requestA,
@@ -96,8 +101,8 @@ describe("evlog Worker runtime", function() {
           requestId: "request_a_second",
         },
       ],
-    ])
-    expect(workers.emit).toHaveBeenCalledTimes(3)
+    ]);
+    expect(workers.emit).toHaveBeenCalledTimes(3);
     expect(workers.emit).toHaveBeenNthCalledWith(
       1,
       expect.objectContaining({
@@ -107,109 +112,108 @@ describe("evlog Worker runtime", function() {
         }),
         attributes: { password: "[REDACTED]", safe: "kept" },
       })
-    )
-    expect(JSON.stringify(workers.emit.mock.calls)).not.toContain("raw-password")
-    return expect(workers.setLevel).not.toHaveBeenCalled()
-  })
+    );
+    expect(JSON.stringify(workers.emit.mock.calls)).not.toContain(
+      "raw-password"
+    );
+    return expect(workers.setLevel).not.toHaveBeenCalled();
+  });
 
-  it("rejects conflicting global initialization without changing the active runtime", async function() {
-    const { initializeEvlog } = await import("./evlog.ts")
+  it("rejects conflicting global initialization without changing the active runtime", async function () {
+    const { initializeEvlog } = await import("./evlog.ts");
     const runtime = initializeEvlog({
       serviceName: "darkfactory-test",
       silent: true,
-    })
+    });
     expect(
       initializeEvlog({
         serviceName: "darkfactory-test",
         silent: true,
       })
-    ).toBe(runtime)
-    expect(function() {
+    ).toBe(runtime);
+    expect(function () {
       return initializeEvlog({
         serviceName: "other-service",
         silent: false,
-      })
-    }
-    ).toThrow("evlog Worker runtime is already initialized")
-    return expect(workers.initWorkersLogger).toHaveBeenCalledOnce()
-  })
+      });
+    }).toThrow("evlog Worker runtime is already initialized");
+    return expect(workers.initWorkersLogger).toHaveBeenCalledOnce();
+  });
 
-  it("does not expose provider errors or event data in its stable failure result", async function() {
-    const { createEvlogSink, initializeEvlog } = await import("./evlog.ts")
+  it("does not expose provider errors or event data in its stable failure result", async function () {
+    const { createEvlogSink, initializeEvlog } = await import("./evlog.ts");
     const runtime = initializeEvlog({
       serviceName: "darkfactory-test",
       silent: true,
-    })
-    workers.emit.mockImplementationOnce(function() {
-      throw new Error("raw-provider-payload password=hidden")
-    }
-    )
+    });
+    workers.emit.mockImplementationOnce(function () {
+      throw new Error("raw-provider-payload password=hidden");
+    });
     const sink = createEvlogSink({
       runtime,
       request: new Request("https://darkfactory.localhost/"),
-    })
-    const event = rawEvent("request_failure")
+    });
+    const event = rawEvent("request_failure");
 
     await expect(sink.emit(event)).rejects.toThrow(
       "Structured event emission failed"
-    )
-    await expect(sink.emit(event)).resolves.toBeUndefined()
-    return expect(workers.emit).toHaveBeenCalledTimes(2)
-  })
+    );
+    await expect(sink.emit(event)).resolves.toBeUndefined();
+    return expect(workers.emit).toHaveBeenCalledTimes(2);
+  });
 
-  it("trims service configuration, defaults to non-silent, and rejects blank names", async function() {
-    const { initializeEvlog } = await import("./evlog.ts")
+  it("trims service configuration, defaults to non-silent, and rejects blank names", async function () {
+    const { initializeEvlog } = await import("./evlog.ts");
     for (const serviceName of ["", "   "]) {
       expect(() => initializeEvlog({ serviceName })).toThrow(
         "evlog Worker runtime configuration is invalid"
-      )
+      );
     }
-    expect(workers.initWorkersLogger).not.toHaveBeenCalled()
+    expect(workers.initWorkersLogger).not.toHaveBeenCalled();
 
     const runtime = initializeEvlog({
       serviceName: "  darkfactory-worker  ",
-    })
+    });
     expect(
       initializeEvlog({
         serviceName: "darkfactory-worker",
         silent: false,
       })
-    ).toBe(runtime)
-    expect(Object.isFrozen(runtime)).toBe(true)
-    expect(workers.initWorkersLogger).toHaveBeenCalledOnce()
+    ).toBe(runtime);
+    expect(Object.isFrozen(runtime)).toBe(true);
+    expect(workers.initWorkersLogger).toHaveBeenCalledOnce();
     return expect(workers.initWorkersLogger).toHaveBeenCalledWith({
       env: { service: "darkfactory-worker" },
       pretty: false,
       redact: true,
       silent: false,
       stringify: false,
-    })
-  })
+    });
+  });
 
-  it("rejects runtimes that were not created by the active module", async function() {
-    const { createEvlogSink, initializeEvlog } = await import("./evlog.ts")
-    const invalidRuntime = Object.freeze(
-      {}
-    ) as ReturnType<typeof initializeEvlog>
+  it("rejects runtimes that were not created by the active module", async function () {
+    const { createEvlogSink, initializeEvlog } = await import("./evlog.ts");
+    const invalidRuntime = Object.freeze({}) as ReturnType<
+      typeof initializeEvlog
+    >;
 
     expect(() => {
       return createEvlogSink({
         runtime: invalidRuntime,
         request: new Request("https://darkfactory.localhost/"),
-      })
-    }
-    ).toThrow("evlog Worker runtime is invalid")
-    return expect(workers.createWorkersLogger).not.toHaveBeenCalled()
-  })
+      });
+    }).toThrow("evlog Worker runtime is invalid");
+    return expect(workers.createWorkersLogger).not.toHaveBeenCalled();
+  });
 
-  it("converts full and minimal semantic events into stable logger payloads", async function() {
-    const { createEvlogSink, initializeEvlog } = await import("./evlog.ts")
+  it("converts full and minimal semantic events into stable logger payloads", async function () {
+    const { createEvlogSink, initializeEvlog } = await import("./evlog.ts");
     const runtime = initializeEvlog({
       serviceName: "darkfactory-test",
       silent: true,
-    })
-    const request = new Request("https://darkfactory.localhost/events")
-    const sink = createEvlogSink({ runtime, request })
+    });
+    const request = new Request("https://darkfactory.localhost/events");
+    const sink = createEvlogSink({ runtime, request });
     const fullEvent: SemanticEvent = {
       ...rawEvent("request_full"),
       action: "archive",
@@ -223,21 +227,21 @@ describe("evlog Worker runtime", function() {
         password: "private-marker",
         safe: "kept",
       },
-    }
+    };
     const minimalEvent: SemanticEvent = {
       eventId: "event_minimal",
       name: "feature-item.archived",
       occurredAt: "2026-07-23T12:01:00.000Z",
       correlation: { requestId: "request_minimal" },
-    }
+    };
 
-    await sink.emit(fullEvent)
-    await sink.emit(minimalEvent)
+    await sink.emit(fullEvent);
+    await sink.emit(minimalEvent);
 
-    expect(workers.setLevel).toHaveBeenCalledExactlyOnceWith("error")
+    expect(workers.setLevel).toHaveBeenCalledExactlyOnceWith("error");
     expect(workers.setLevel.mock.invocationCallOrder[0]).toBeLessThan(
-      workers.emit.mock.invocationCallOrder[0] ?? 0,
-    )
+      workers.emit.mock.invocationCallOrder[0] ?? 0
+    );
 
     expect(workers.emit).toHaveBeenNthCalledWith(1, {
       event: {
@@ -257,7 +261,7 @@ describe("evlog Worker runtime", function() {
         password: "[REDACTED]",
         safe: "kept",
       },
-    })
+    });
     return expect(workers.emit).toHaveBeenNthCalledWith(2, {
       event: {
         id: "event_minimal",
@@ -265,90 +269,103 @@ describe("evlog Worker runtime", function() {
         occurredAt: "2026-07-23T12:01:00.000Z",
       },
       correlation: { requestId: "request_minimal" },
-    })
-  })
+    });
+  });
 
-  it("normalizes asynchronous transport failures to the stable sink error", async function() {
-    const { createEvlogSink, initializeEvlog } = await import("./evlog.ts")
+  it("normalizes asynchronous transport failures to the stable sink error", async function () {
+    const { createEvlogSink, initializeEvlog } = await import("./evlog.ts");
     const runtime = initializeEvlog({
       serviceName: "darkfactory-test",
       silent: true,
-    })
+    });
     workers.emit.mockRejectedValueOnce(
       new Error("asynchronous transport unavailable")
-    )
+    );
     const sink = createEvlogSink({
       runtime,
       request: new Request("https://darkfactory.localhost/"),
-    })
+    });
 
     await expect(sink.emit(rawEvent("request_async_failure"))).rejects.toThrow(
       "Structured event emission failed"
-    )
+    );
     return await expect(
       sink.emit(rawEvent("request_async_recovery"))
-    ).resolves.toBeUndefined()
-  })
+    ).resolves.toBeUndefined();
+  });
 
-  it("normalizes level-setting failures without emitting private provider details", async function() {
-    const { createEvlogSink, initializeEvlog } = await import("./evlog.ts")
-    const runtime = initializeEvlog({ serviceName: "darkfactory-test", silent: true })
+  it("normalizes level-setting failures without emitting private provider details", async function () {
+    const { createEvlogSink, initializeEvlog } = await import("./evlog.ts");
+    const runtime = initializeEvlog({
+      serviceName: "darkfactory-test",
+      silent: true,
+    });
     const sink = createEvlogSink({
       runtime,
       request: new Request("https://darkfactory.localhost/dashboard"),
-    })
+    });
     workers.setLevel.mockImplementationOnce(() => {
-      throw new Error("private-provider-payload password=hidden")
-    }
-    )
+      throw new Error("private-provider-payload password=hidden");
+    });
 
-    await expect(sink.emit({
-      ...rawEvent("request_level_failure"),
-      outcome: "failure",
-    })).rejects.toEqual(new Error("Structured event emission failed"))
-    return expect(workers.emit).not.toHaveBeenCalled()
-  })
+    await expect(
+      sink.emit({
+        ...rawEvent("request_level_failure"),
+        outcome: "failure",
+      })
+    ).rejects.toEqual(new Error("Structured event emission failed"));
+    return expect(workers.emit).not.toHaveBeenCalled();
+  });
 
-  return it("emits semantic failures through the real evlog error console transport", async function() {
-    const errorOutput = vi.spyOn(console, "error").mockImplementation(() => undefined)
-    const infoOutput = vi.spyOn(console, "info").mockImplementation(() => undefined)
-    const logOutput = vi.spyOn(console, "log").mockImplementation(() => undefined)
-    vi.doUnmock("evlog/workers")
-    vi.resetModules()
+  return it("emits semantic failures through the real evlog error console transport", async function () {
+    const errorOutput = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => undefined);
+    const infoOutput = vi
+      .spyOn(console, "info")
+      .mockImplementation(() => undefined);
+    const logOutput = vi
+      .spyOn(console, "log")
+      .mockImplementation(() => undefined);
+    vi.doUnmock("evlog/workers");
+    vi.resetModules();
     try {
-      const { createEvlogSink, initializeEvlog } = await import("./evlog.ts")
+      const { createEvlogSink, initializeEvlog } = await import("./evlog.ts");
       const sink = createEvlogSink({
         runtime: initializeEvlog({ serviceName: "darkfactory-test" }),
         request: new Request("https://darkfactory.localhost/dashboard"),
-      })
+      });
       await sink.emit({
         ...rawEvent("request_real_failure"),
         name: "dashboard.summary-failed",
         outcome: "failure",
         errorCategory: "timeout",
-      })
+      });
 
-      expect(errorOutput).toHaveBeenCalledOnce()
-      expect(errorOutput).toHaveBeenCalledWith(expect.objectContaining({
-        level: "error",
-        outcome: "failure",
-        errorCategory: "timeout",
-        event: expect.objectContaining({ name: "dashboard.summary-failed" }),
-        attributes: { password: "[REDACTED]", safe: "kept" },
-      }))
-      expect(JSON.stringify(errorOutput.mock.calls)).not.toContain("raw-password")
-      expect(infoOutput).not.toHaveBeenCalled()
-      return expect(logOutput).not.toHaveBeenCalled()
-    }
-    finally {
+      expect(errorOutput).toHaveBeenCalledOnce();
+      expect(errorOutput).toHaveBeenCalledWith(
+        expect.objectContaining({
+          level: "error",
+          outcome: "failure",
+          errorCategory: "timeout",
+          event: expect.objectContaining({ name: "dashboard.summary-failed" }),
+          attributes: { password: "[REDACTED]", safe: "kept" },
+        })
+      );
+      expect(JSON.stringify(errorOutput.mock.calls)).not.toContain(
+        "raw-password"
+      );
+      expect(infoOutput).not.toHaveBeenCalled();
+      return expect(logOutput).not.toHaveBeenCalled();
+    } finally {
       vi.doMock("evlog/workers", () => ({
         initWorkersLogger: workers.initWorkersLogger,
         createWorkersLogger: workers.createWorkersLogger,
-      }))
-      vi.resetModules()
-      errorOutput.mockRestore()
-      infoOutput.mockRestore()
-      logOutput.mockRestore()
+      }));
+      vi.resetModules();
+      errorOutput.mockRestore();
+      infoOutput.mockRestore();
+      logOutput.mockRestore();
     }
-  })
-})
+  });
+});

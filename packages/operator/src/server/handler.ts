@@ -1,35 +1,35 @@
-import { OpenAPIHandler } from "@orpc/openapi/fetch"
-import { RPCHandler } from "@orpc/server/fetch"
+import { OpenAPIHandler } from "@orpc/openapi/fetch";
+import { RPCHandler } from "@orpc/server/fetch";
 
-import type { OperatorContext } from "./context.ts"
-import { operatorRouter } from "./router.ts"
+import type { OperatorContext } from "./context.ts";
+import { operatorRouter } from "./router.ts";
 
-export const OPERATOR_ORPC_RPC_PREFIX = "/api/orpc"
-export const OPERATOR_ORPC_OPENAPI_PREFIX = "/api/openapi"
+export const OPERATOR_ORPC_RPC_PREFIX = "/api/orpc";
+export const OPERATOR_ORPC_OPENAPI_PREFIX = "/api/openapi";
 
-const rpcHandler = new RPCHandler(operatorRouter)
-const openApiHandler = new OpenAPIHandler(operatorRouter)
+const rpcHandler = new RPCHandler(operatorRouter);
+const openApiHandler = new OpenAPIHandler(operatorRouter);
 
-const notFound = (): Response => new Response("Not Found", { status: 404 })
+const notFound = (): Response => new Response("Not Found", { status: 404 });
 
 export const handleOperatorRequest = async (
   request: Request,
-  context: OperatorContext,
+  context: OperatorContext
 ): Promise<Response> => {
   const result = await rpcHandler.handle(request, {
     prefix: OPERATOR_ORPC_RPC_PREFIX,
     context,
-  })
-  return result.matched ? result.response : notFound()
-}
+  });
+  return result.matched ? result.response : notFound();
+};
 
 export const handleOperatorOpenApiRequest = async (
   request: Request,
-  context: OperatorContext,
+  context: OperatorContext
 ): Promise<Response> => {
   const result = await openApiHandler.handle(request, {
     prefix: OPERATOR_ORPC_OPENAPI_PREFIX,
     context,
-  })
-  return result.matched ? result.response : notFound()
-}
+  });
+  return result.matched ? result.response : notFound();
+};

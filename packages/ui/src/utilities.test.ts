@@ -1,25 +1,30 @@
-import { describe, expect, it } from "vitest"
+import { describe, expect, it } from "vitest";
 
-import { buttonVariants } from "./button.tsx"
-import { cn } from "./utilities.ts"
+import { buttonVariants } from "./button.tsx";
+import { cn } from "./utilities.ts";
 
-describe("cn", function() {
-  it("merges conditional classes and resolves Tailwind conflicts", function() {
-    return expect(cn("px-2 text-sm", false && "hidden", ["px-4", "font-medium"])).toBe(
-      "text-sm px-4 font-medium",
-    )
-  })
+describe("cn", function () {
+  it("merges conditional classes and resolves Tailwind conflicts", function () {
+    return expect(
+      cn("px-2 text-sm", false && "hidden", ["px-4", "font-medium"])
+    ).toBe("text-sm px-4 font-medium");
+  });
 
-  it("lets callers extend component variants without duplicate conflicts", function() {
-    const classes = cn(buttonVariants({ variant: "primary", size: "default" }), "h-12")
+  it("lets callers extend component variants without duplicate conflicts", function () {
+    const classes = cn(
+      buttonVariants({ variant: "primary", size: "default" }),
+      "h-12"
+    );
 
-    expect(classes).toContain("bg-primary")
-    expect(classes).toContain("h-12")
-    return expect(classes.split(" ")).not.toContain("h-11")
-  })
+    expect(classes).toContain("bg-primary");
+    expect(classes).toContain("h-12");
+    return expect(classes.split(" ")).not.toContain("h-11");
+  });
 
-  return it("provides named ghost and link action variants", function() {
-    expect(buttonVariants({ variant: "ghost" })).toContain("hover:bg-accent")
-    return expect(buttonVariants({ variant: "link" })).toContain("underline-offset-4")
-  })
-})
+  return it("provides named ghost and link action variants", function () {
+    expect(buttonVariants({ variant: "ghost" })).toContain("hover:bg-accent");
+    return expect(buttonVariants({ variant: "link" })).toContain(
+      "underline-offset-4"
+    );
+  });
+});

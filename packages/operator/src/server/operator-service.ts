@@ -2,9 +2,9 @@ import {
   WorkflowPlanEvidenceError,
   parseWorkflowPlanEvidenceV1,
   type WorkflowPlanEvidenceV1,
-} from "@darkfactory/jobs/server/plan-evidence"
+} from "@darkfactory/jobs/server/plan-evidence";
 
-import type { SafePrincipal } from "@darkfactory/auth/types"
+import type { SafePrincipal } from "@darkfactory/auth/types";
 import {
   OPERATOR_ERRORS,
   type OperatorApprovalBindingInput,
@@ -14,7 +14,7 @@ import {
   type OperatorRunSummaryOutput,
   type OperatorSubmit,
   type OperatorWorkflowState,
-} from "../contract.ts"
+} from "../contract.ts";
 
 export type OperatorServiceErrorCode =
   | "FORBIDDEN"
@@ -24,206 +24,224 @@ export type OperatorServiceErrorCode =
   | "PROJECTION_INVALID"
   | "VALIDATION_ERROR"
   | "STORAGE_ERROR"
-  | "SERVICE_UNAVAILABLE"
-
+  | "SERVICE_UNAVAILABLE";
 
 export const operatorServiceErrorMessage = (
-  code: OperatorServiceErrorCode,
-): string => OPERATOR_ERRORS[code].message
+  code: OperatorServiceErrorCode
+): string => OPERATOR_ERRORS[code].message;
 export class OperatorServiceError extends Error {
-  readonly code: OperatorServiceErrorCode
+  readonly code: OperatorServiceErrorCode;
 
   constructor(code: OperatorServiceErrorCode, message: string) {
-    super(message)
-    this.name = "OperatorServiceError"
-    this.code = code
+    super(message);
+    this.name = "OperatorServiceError";
+    this.code = code;
   }
 }
 
 export class OperatorWorkflowPortError extends Error {
-  readonly code: OperatorServiceErrorCode
+  readonly code: OperatorServiceErrorCode;
 
-  constructor(code: OperatorServiceErrorCode, message: string = code, options?: ErrorOptions) {
-    super(message, options)
-    this.name = "OperatorWorkflowPortError"
-    this.code = code
+  constructor(
+    code: OperatorServiceErrorCode,
+    message: string = code,
+    options?: ErrorOptions
+  ) {
+    super(message, options);
+    this.name = "OperatorWorkflowPortError";
+    this.code = code;
   }
 }
 
 export type WorkflowOperatorRunSummary = Readonly<{
-  id: string
-  ownerId: string
-  title?: string
-  state: OperatorWorkflowState
-  sequence: number
-  updatedAt: Date
-  headHash: string
-  blockedReason?: string
-  machineId: string
-  machineVersion: number
-}>
+  id: string;
+  ownerId: string;
+  title?: string;
+  state: OperatorWorkflowState;
+  sequence: number;
+  updatedAt: Date;
+  headHash: string;
+  blockedReason?: string;
+  machineId: string;
+  machineVersion: number;
+}>;
 
 export type WorkflowOperatorTimelineEntry = Readonly<{
-  sequence: number
-  eventType: string
-  summary: string
-  hash: string
-  createdAt: Date
-}>
+  sequence: number;
+  eventType: string;
+  summary: string;
+  hash: string;
+  createdAt: Date;
+}>;
 
 export type WorkflowOperatorEvidence = Readonly<{
-  id: string
-  kind: string
-  label: string
-  content: string
-  redacted: boolean
-  createdAt: Date
-}>
+  id: string;
+  kind: string;
+  label: string;
+  content: string;
+  redacted: boolean;
+  createdAt: Date;
+}>;
 
 export type WorkflowOperatorMessage = Readonly<{
-  id: string
-  authorLabel: string
-  body: string
-  createdAt: Date
-}>
+  id: string;
+  authorLabel: string;
+  body: string;
+  createdAt: Date;
+}>;
 
 export type WorkflowOperatorPlanRevision = Readonly<{
-  message: string
-  createdAt: Date
-}>
+  message: string;
+  createdAt: Date;
+}>;
 
 export type WorkflowOperatorDetail = Readonly<{
-  ownerId: string
-  integrity: "verified" | "invalid"
-  canRequestPlanRevision: boolean
-  originalRequest: string
-  planRevisions: readonly WorkflowOperatorPlanRevision[]
-  run: WorkflowOperatorRunSummary
-  timeline: readonly WorkflowOperatorTimelineEntry[]
-  approval: OperatorRunDetailOutput["approval"]
-  implementationPlan: WorkflowPlanEvidenceV1 | null
-  evidence: readonly WorkflowOperatorEvidence[]
-  messages: readonly WorkflowOperatorMessage[]
-}>
+  ownerId: string;
+  integrity: "verified" | "invalid";
+  canRequestPlanRevision: boolean;
+  originalRequest: string;
+  planRevisions: readonly WorkflowOperatorPlanRevision[];
+  run: WorkflowOperatorRunSummary;
+  timeline: readonly WorkflowOperatorTimelineEntry[];
+  approval: OperatorRunDetailOutput["approval"];
+  implementationPlan: WorkflowPlanEvidenceV1 | null;
+  evidence: readonly WorkflowOperatorEvidence[];
+  messages: readonly WorkflowOperatorMessage[];
+}>;
 
 export type OperatorActionContext = Readonly<{
-  runId: string
-  ownerId: string
-  actorUserId: string
-  requestId: string
-}>
+  runId: string;
+  ownerId: string;
+  actorUserId: string;
+  requestId: string;
+}>;
 
 export type OperatorSubmitContext = Readonly<{
-  ownerId: string
-  actorUserId: string
-}> & OperatorSubmit
+  ownerId: string;
+  actorUserId: string;
+}> &
+  OperatorSubmit;
 
 export type OperatorWorkflowPort = Readonly<{
-  submit: (input: OperatorSubmitContext) => Promise<WorkflowOperatorDetail>
+  submit: (input: OperatorSubmitContext) => Promise<WorkflowOperatorDetail>;
   workspace: (
     ownerId: string,
-    input: Readonly<{ limit: number }>,
-  ) => Promise<readonly WorkflowOperatorRunSummary[]>
+    input: Readonly<{ limit: number }>
+  ) => Promise<readonly WorkflowOperatorRunSummary[]>;
   list: (
     ownerId: string,
-    input: OperatorListInput,
-  ) => Promise<Readonly<{
-    runs: readonly WorkflowOperatorRunSummary[]
-    nextCursor: string | null
-  }>>
-  detail: (ownerId: string, runId: string) => Promise<WorkflowOperatorDetail | null>
+    input: OperatorListInput
+  ) => Promise<
+    Readonly<{
+      runs: readonly WorkflowOperatorRunSummary[];
+      nextCursor: string | null;
+    }>
+  >;
+  detail: (
+    ownerId: string,
+    runId: string
+  ) => Promise<WorkflowOperatorDetail | null>;
   approve: (
-    input: OperatorActionContext & Readonly<{
-      approval: OperatorApprovalBindingInput
-    }>,
-  ) => Promise<WorkflowOperatorDetail>
+    input: OperatorActionContext &
+      Readonly<{
+        approval: OperatorApprovalBindingInput;
+      }>
+  ) => Promise<WorkflowOperatorDetail>;
   reject: (
-    input: OperatorActionContext & Readonly<{ reason?: string }>,
-  ) => Promise<WorkflowOperatorDetail>
-  cancel: (input: OperatorActionContext) => Promise<WorkflowOperatorDetail>
-  retry: (input: OperatorActionContext) => Promise<WorkflowOperatorDetail>
+    input: OperatorActionContext & Readonly<{ reason?: string }>
+  ) => Promise<WorkflowOperatorDetail>;
+  cancel: (input: OperatorActionContext) => Promise<WorkflowOperatorDetail>;
+  retry: (input: OperatorActionContext) => Promise<WorkflowOperatorDetail>;
   revise: (
     input: OperatorActionContext &
-      Readonly<{ clarification: string; idempotencyKey: string }>,
-  ) => Promise<WorkflowOperatorDetail>
+      Readonly<{ clarification: string; idempotencyKey: string }>
+  ) => Promise<WorkflowOperatorDetail>;
   message: (
     input: OperatorActionContext &
-      Readonly<{ body: string; idempotencyKey: string }>,
-  ) => Promise<WorkflowOperatorDetail>
-}>
+      Readonly<{ body: string; idempotencyKey: string }>
+  ) => Promise<WorkflowOperatorDetail>;
+}>;
 
 export type OperatorService = Readonly<{
   submit: (
     principal: SafePrincipal,
-    input: OperatorSubmit,
-  ) => Promise<OperatorRunDetailOutput>
+    input: OperatorSubmit
+  ) => Promise<OperatorRunDetailOutput>;
   workspace: (
     principal: SafePrincipal,
-    input: Readonly<{ limit: number }>,
-  ) => Promise<Readonly<{ runs: OperatorRunSummaryOutput[] }>>
-  list: (principal: SafePrincipal, input: OperatorListInput) => Promise<OperatorListOutput>
-  detail: (principal: SafePrincipal, id: string) => Promise<OperatorRunDetailOutput>
+    input: Readonly<{ limit: number }>
+  ) => Promise<Readonly<{ runs: OperatorRunSummaryOutput[] }>>;
+  list: (
+    principal: SafePrincipal,
+    input: OperatorListInput
+  ) => Promise<OperatorListOutput>;
+  detail: (
+    principal: SafePrincipal,
+    id: string
+  ) => Promise<OperatorRunDetailOutput>;
   approve: (
     principal: SafePrincipal,
     id: string,
     approval: OperatorApprovalBindingInput,
-    requestId: string,
-  ) => Promise<OperatorRunDetailOutput>
+    requestId: string
+  ) => Promise<OperatorRunDetailOutput>;
   reject: (
     principal: SafePrincipal,
     id: string,
     reason: string | undefined,
-    requestId: string,
-  ) => Promise<OperatorRunDetailOutput>
+    requestId: string
+  ) => Promise<OperatorRunDetailOutput>;
   cancel: (
     principal: SafePrincipal,
     id: string,
-    requestId: string,
-  ) => Promise<OperatorRunDetailOutput>
+    requestId: string
+  ) => Promise<OperatorRunDetailOutput>;
   retry: (
     principal: SafePrincipal,
     id: string,
-    requestId: string,
-  ) => Promise<OperatorRunDetailOutput>
+    requestId: string
+  ) => Promise<OperatorRunDetailOutput>;
   revise: (
     principal: SafePrincipal,
     runId: string,
     message: string,
     idempotencyKey: string,
-    requestId: string,
-  ) => Promise<OperatorRunDetailOutput>
+    requestId: string
+  ) => Promise<OperatorRunDetailOutput>;
   message: (
     principal: SafePrincipal,
     id: string,
     body: string,
     idempotencyKey: string,
-    requestId: string,
-  ) => Promise<OperatorRunDetailOutput>
-}>
+    requestId: string
+  ) => Promise<OperatorRunDetailOutput>;
+}>;
 
-const utf8Encoder = new TextEncoder()
-const utf8Decoder = new TextDecoder()
+const utf8Encoder = new TextEncoder();
+const utf8Decoder = new TextDecoder();
 
 const capUtf8 = (value: string, maximumBytes: number): string => {
-  const encoded = utf8Encoder.encode(value)
-  if (encoded.byteLength <= maximumBytes) return value
-  return utf8Decoder.decode(encoded.slice(0, maximumBytes)).replace(/\uFFFD$/u, "")
-}
+  const encoded = utf8Encoder.encode(value);
+  if (encoded.byteLength <= maximumBytes) return value;
+  return utf8Decoder
+    .decode(encoded.slice(0, maximumBytes))
+    .replace(/\uFFFD$/u, "");
+};
 
 const capUtf16 = (value: string, maximumUnits: number): string => {
-  if (value.length <= maximumUnits) return value
-  const bounded = value.slice(0, maximumUnits)
-  const lastCodeUnit = bounded.charCodeAt(bounded.length - 1)
-  const nextCodeUnit = value.charCodeAt(maximumUnits)
+  if (value.length <= maximumUnits) return value;
+  const bounded = value.slice(0, maximumUnits);
+  const lastCodeUnit = bounded.charCodeAt(bounded.length - 1);
+  const nextCodeUnit = value.charCodeAt(maximumUnits);
   const splitsSurrogatePair =
-    lastCodeUnit >= 0xD800 &&
-    lastCodeUnit <= 0xDBFF &&
-    nextCodeUnit >= 0xDC00 &&
-    nextCodeUnit <= 0xDFFF
-  return splitsSurrogatePair ? bounded.slice(0, -1) : bounded
-}
+    lastCodeUnit >= 0xd800 &&
+    lastCodeUnit <= 0xdbff &&
+    nextCodeUnit >= 0xdc00 &&
+    nextCodeUnit <= 0xdfff;
+  return splitsSurrogatePair ? bounded.slice(0, -1) : bounded;
+};
 
-const maximumSensitiveKeyLength = 128
+const maximumSensitiveKeyLength = 128;
 const sensitiveKeys = new Set([
   "apikey",
   "accesstoken",
@@ -234,77 +252,80 @@ const sensitiveKeys = new Set([
   "privatekey",
   "authorization",
   "awssecretaccesskey",
-])
+]);
 
 const isSensitiveKey = (key: string): boolean => {
-  if (key.length > maximumSensitiveKeyLength) return false
+  if (key.length > maximumSensitiveKeyLength) return false;
   const normalized = key
     .normalize("NFKC")
     .replace(/[^A-Za-z0-9]/gu, "")
-    .toLowerCase()
-  return normalized.length <= maximumSensitiveKeyLength
-    && sensitiveKeys.has(normalized)
-}
+    .toLowerCase();
+  return (
+    normalized.length <= maximumSensitiveKeyLength &&
+    sensitiveKeys.has(normalized)
+  );
+};
 
 const redactJson = (
-  value: string,
+  value: string
 ): Readonly<{ value: string; redacted: boolean }> | undefined => {
   let ref;
-    try { ref = JSON.parse(value) }
-    catch { return undefined };const parsed: unknown =ref
-  if (parsed === null || typeof parsed !== "object") return undefined
+  try {
+    ref = JSON.parse(value);
+  } catch {
+    return undefined;
+  }
+  const parsed: unknown = ref;
+  if (parsed === null || typeof parsed !== "object") return undefined;
 
-  const pending: unknown[] = [parsed]
-  let redacted = false
+  const pending: unknown[] = [parsed];
+  let redacted = false;
   while (pending.length > 0) {
-    const current = pending.pop()
-    if (current === null || typeof current !== "object") continue
+    const current = pending.pop();
+    if (current === null || typeof current !== "object") continue;
     if (Array.isArray(current)) {
       for (const fieldValue of current) {
-        pending.push(fieldValue)
+        pending.push(fieldValue);
       }
-      continue
+      continue;
     }
-    const object = current as Record<string, unknown>
+    const object = current as Record<string, unknown>;
     for (const [key, fieldValue] of Object.entries(object)) {
       if (isSensitiveKey(key)) {
         if (fieldValue !== null && typeof fieldValue === "object") {
-          return Object.freeze({ value: "[REDACTED]", redacted: true })
+          return Object.freeze({ value: "[REDACTED]", redacted: true });
         }
         if (!(fieldValue === "[REDACTED]")) {
-          object[key] = "[REDACTED]"
-          redacted = true
+          object[key] = "[REDACTED]";
+          redacted = true;
         }
-      }
-      else if (fieldValue !== null && typeof fieldValue === "object") {
-        pending.push(fieldValue)
+      } else if (fieldValue !== null && typeof fieldValue === "object") {
+        pending.push(fieldValue);
       }
     }
   }
 
-  if (!redacted) return undefined
-  return Object.freeze({ value: JSON.stringify(parsed), redacted: true })
-}
+  if (!redacted) return undefined;
+  return Object.freeze({ value: JSON.stringify(parsed), redacted: true });
+};
 
 const decodeUnicodeEscape = (_match: string, digits: string): string => {
-  return String.fromCharCode(Number.parseInt(digits, 16))
-}
+  return String.fromCharCode(Number.parseInt(digits, 16));
+};
 
 const decodeKeyToken = (token: string): string => {
   if (token.startsWith("'")) {
-    return token.slice(1, -1).replace(/\\(['\\])/gu, "$1")
+    return token.slice(1, -1).replace(/\\(['\\])/gu, "$1");
   }
-  if (!token.startsWith('"')) return token
+  if (!token.startsWith('"')) return token;
   try {
-    return JSON.parse(token)
+    return JSON.parse(token);
+  } catch {
+    return token
+      .slice(1, -1)
+      .replace(/\\u([0-9A-Fa-f]{4})/gu, decodeUnicodeEscape);
   }
-  catch {
-    return token.slice(1, -1).replace(
-      /\\u([0-9A-Fa-f]{4})/gu,
-      decodeUnicodeEscape,
-    )
-  }
-}
+};
 
 const redactKeyValues = (value: string): string => {
   return value.replace(
@@ -314,97 +335,104 @@ const redactKeyValues = (value: string): string => {
       prefix: string,
       keyToken: string,
       separator: string,
-      fieldValue: string,
+      fieldValue: string
     ): string => {
-      const key = decodeKeyToken(keyToken)
-      if (!isSensitiveKey(key)) return match
-      const quote = fieldValue[0]
-      const replacement = quote === '"' || quote === "'"
-        ? `${quote}[REDACTED]${quote}`
-        : "[REDACTED]"
-      return `${prefix}${keyToken}${separator}${replacement}`
+      const key = decodeKeyToken(keyToken);
+      if (!isSensitiveKey(key)) return match;
+      const quote = fieldValue[0];
+      const replacement =
+        quote === '"' || quote === "'"
+          ? `${quote}[REDACTED]${quote}`
+          : "[REDACTED]";
+      return `${prefix}${keyToken}${separator}${replacement}`;
     }
-  )
-}
+  );
+};
 
-const redact = (value: string): Readonly<{ value: string; redacted: boolean }> => {
-  const json = redactJson(value)
-  const candidate = json?.value ?? value
+const redact = (
+  value: string
+): Readonly<{ value: string; redacted: boolean }> => {
+  const json = redactJson(value);
+  const candidate = json?.value ?? value;
   const sanitized = redactKeyValues(candidate)
     .replace(/\bBearer\s+[^\s"'`]+/giu, "Bearer [REDACTED]")
     .replace(/\bsk-[A-Za-z0-9_-]{8,}\b/gu, "[REDACTED]")
-    .replace(/op:\/\/[^\s"'`]+/giu, "[REDACTED]")
+    .replace(/op:\/\/[^\s"'`]+/giu, "[REDACTED]");
   return Object.freeze({
     value: sanitized,
     redacted: json?.redacted === true || sanitized !== value,
-  })
-}
+  });
+};
 
 const safeText = (
   value: string,
-  maximumBytes: number,
+  maximumBytes: number
 ): Readonly<{ value: string; redacted: boolean }> => {
-  const sanitized = redact(value)
-  const bounded = capUtf8(sanitized.value, maximumBytes)
+  const sanitized = redact(value);
+  const bounded = capUtf8(sanitized.value, maximumBytes);
   return Object.freeze({
     value: bounded,
     redacted: sanitized.redacted || bounded !== sanitized.value,
-  })
-}
+  });
+};
 
 const safeContractText = (
   value: string,
-  maximumUnits: number,
+  maximumUnits: number
 ): Readonly<{ value: string; redacted: boolean }> => {
-  const sanitized = redact(value)
-  const bounded = capUtf16(sanitized.value, maximumUnits)
+  const sanitized = redact(value);
+  const bounded = capUtf16(sanitized.value, maximumUnits);
   return Object.freeze({
     value: bounded,
     redacted: sanitized.redacted || bounded !== sanitized.value,
-  })
-}
+  });
+};
 
 const mapPortError = (error: unknown): never => {
   if (error instanceof OperatorServiceError) {
     throw new OperatorServiceError(
       error.code,
-      operatorServiceErrorMessage(error.code),
-    )
+      operatorServiceErrorMessage(error.code)
+    );
   }
   if (error instanceof OperatorWorkflowPortError) {
     throw new OperatorServiceError(
       error.code,
-      operatorServiceErrorMessage(error.code),
-    )
+      operatorServiceErrorMessage(error.code)
+    );
   }
   throw new OperatorServiceError(
     "STORAGE_ERROR",
-    operatorServiceErrorMessage("STORAGE_ERROR"),
-  )
-}
+    operatorServiceErrorMessage("STORAGE_ERROR")
+  );
+};
 
-const runPort = async <T,>(operation: () => Promise<T>): Promise<T> => {
+const runPort = async <T>(operation: () => Promise<T>): Promise<T> => {
   try {
-    return await operation()
+    return await operation();
+  } catch (error) {
+    return mapPortError(error);
   }
-  catch (error) {
-    return mapPortError(error)
-  }
-}
+};
 
 const summaryFor = (
   ownerId: string,
-  run: WorkflowOperatorRunSummary,
+  run: WorkflowOperatorRunSummary
 ): OperatorRunSummaryOutput => {
   if (run.ownerId !== ownerId) {
-    throw new OperatorServiceError("FORBIDDEN", "Workflow owner scope mismatch")
+    throw new OperatorServiceError(
+      "FORBIDDEN",
+      "Workflow owner scope mismatch"
+    );
   }
-  const title = run.title === undefined
-    ? undefined
-    : safeContractText(run.title, 200).value
-  const blockedReason = run.blockedReason === undefined
-    ? undefined
-    : safeText(run.blockedReason, 500).value
+  const title =
+    run.title === undefined
+      ? undefined
+      : safeContractText(run.title, 200).value;
+  const blockedReason =
+    run.blockedReason === undefined
+      ? undefined
+      : safeText(run.blockedReason, 500).value;
   return {
     id: run.id,
     ...(title === undefined ? {} : { title }),
@@ -413,42 +441,46 @@ const summaryFor = (
     updatedAt: run.updatedAt,
     headHash: run.headHash,
     ...(blockedReason === undefined ? {} : { blockedReason }),
-  }
-}
+  };
+};
 
 const detailFor = (
   ownerId: string,
-  detail: WorkflowOperatorDetail,
+  detail: WorkflowOperatorDetail
 ): OperatorRunDetailOutput => {
   if (detail.ownerId !== ownerId || detail.run.ownerId !== ownerId) {
-    throw new OperatorServiceError("FORBIDDEN", "Workflow owner scope mismatch")
+    throw new OperatorServiceError(
+      "FORBIDDEN",
+      "Workflow owner scope mismatch"
+    );
   }
   if (detail.integrity !== "verified") {
     throw new OperatorServiceError(
       "PROJECTION_INVALID",
-      "Workflow projection integrity verification failed",
-    )
+      "Workflow projection integrity verification failed"
+    );
   }
 
   let ref1;
-    if (detail.implementationPlan === null) { ref1 = null}
-    else {
-      try {
-        ref1 = parseWorkflowPlanEvidenceV1(
-          detail.implementationPlan,
-          detail.implementationPlan.digest,
-        )
+  if (detail.implementationPlan === null) {
+    ref1 = null;
+  } else {
+    try {
+      ref1 = parseWorkflowPlanEvidenceV1(
+        detail.implementationPlan,
+        detail.implementationPlan.digest
+      );
+    } catch (error) {
+      if (error instanceof WorkflowPlanEvidenceError) {
+        throw new OperatorServiceError(
+          "PROJECTION_INVALID",
+          operatorServiceErrorMessage("PROJECTION_INVALID")
+        );
       }
-      catch (error) {
-        if (error instanceof WorkflowPlanEvidenceError) {
-          throw new OperatorServiceError(
-            "PROJECTION_INVALID",
-            operatorServiceErrorMessage("PROJECTION_INVALID"),
-          )
-        }
-        throw error
-      }
-    };const implementationPlan =ref1
+      throw error;
+    }
+  }
+  const implementationPlan = ref1;
 
   return {
     run: {
@@ -458,13 +490,14 @@ const detailFor = (
     },
     canRequestPlanRevision: detail.canRequestPlanRevision,
     originalRequest: detail.originalRequest,
-    planRevisions: Object.freeze(detail.planRevisions.slice(0, 1_000).map((revision) => {
-      return Object.freeze({
-        message: revision.message,
-        createdAt: revision.createdAt,
+    planRevisions: Object.freeze(
+      detail.planRevisions.slice(0, 1_000).map((revision) => {
+        return Object.freeze({
+          message: revision.message,
+          createdAt: revision.createdAt,
+        });
       })
-    }
-    )),
+    ),
     timeline: detail.timeline.slice(0, 1_000).map((entry) => ({
       sequence: entry.sequence,
       eventType: entry.eventType,
@@ -473,14 +506,17 @@ const detailFor = (
       createdAt: entry.createdAt,
     })),
     approval: detail.approval,
-    implementationPlan: implementationPlan === null ? null : {
-      summary: implementationPlan.summary,
-      digest: implementationPlan.digest,
-      truncated: implementationPlan.truncated,
-      redacted: implementationPlan.redacted,
-    },
+    implementationPlan:
+      implementationPlan === null
+        ? null
+        : {
+            summary: implementationPlan.summary,
+            digest: implementationPlan.digest,
+            truncated: implementationPlan.truncated,
+            redacted: implementationPlan.redacted,
+          },
     evidence: detail.evidence.slice(0, 200).map((item) => {
-      const content = safeText(item.content, 4_096)
+      const content = safeText(item.content, 4_096);
       return {
         id: item.id,
         kind: safeText(item.kind, 100).value,
@@ -488,122 +524,133 @@ const detailFor = (
         redactedContent: content.value,
         redacted: item.redacted || content.redacted,
         createdAt: item.createdAt,
-      }
-    }
-    ),
+      };
+    }),
     messages: detail.messages.slice(0, 500).map((message) => ({
       id: message.id,
       authorLabel: safeContractText(message.authorLabel, 200).value,
       body: safeContractText(message.body, 2_000).value,
       createdAt: message.createdAt,
     })),
-  }
-}
+  };
+};
 
 const actionContext = (
   principal: SafePrincipal,
   runId: string,
-  requestId: string,
+  requestId: string
 ): OperatorActionContext => ({
   runId,
   ownerId: principal.userId,
   actorUserId: principal.userId,
   requestId,
-})
+});
 
 export const createOperatorService = (
-  port: OperatorWorkflowPort | undefined,
+  port: OperatorWorkflowPort | undefined
 ): OperatorService => {
   const requirePort = (): OperatorWorkflowPort => {
     if (port === undefined) {
       throw new OperatorServiceError(
         "SERVICE_UNAVAILABLE",
-        "Workflow operator service is unavailable",
-      )
+        "Workflow operator service is unavailable"
+      );
     }
-    return port
-  }
+    return port;
+  };
 
   const projectAction = async (
     principal: SafePrincipal,
-    operation: (workflow: OperatorWorkflowPort) => Promise<WorkflowOperatorDetail>,
+    operation: (
+      workflow: OperatorWorkflowPort
+    ) => Promise<WorkflowOperatorDetail>
   ): Promise<OperatorRunDetailOutput> => {
-    const result = await runPort(() => operation(requirePort()))
-    return detailFor(principal.userId, result)
-  }
+    const result = await runPort(() => operation(requirePort()));
+    return detailFor(principal.userId, result);
+  };
 
   return Object.freeze({
-    submit: (principal, input) => projectAction(
-      principal,
-      (workflow) => workflow.submit({
-        ownerId: principal.userId,
-        actorUserId: principal.userId,
-        ...input,
-      }),
-    ),
+    submit: (principal, input) =>
+      projectAction(principal, (workflow) =>
+        workflow.submit({
+          ownerId: principal.userId,
+          actorUserId: principal.userId,
+          ...input,
+        })
+      ),
 
     workspace: async (principal, input) => {
-      const runs = await runPort(() => requirePort().workspace(principal.userId, input))
-      return Object.freeze({ runs: runs.map((run) => summaryFor(principal.userId, run)) })
+      const runs = await runPort(() =>
+        requirePort().workspace(principal.userId, input)
+      );
+      return Object.freeze({
+        runs: runs.map((run) => summaryFor(principal.userId, run)),
+      });
     },
 
     list: async (principal, input) => {
-      const result = await runPort(() => requirePort().list(principal.userId, input))
+      const result = await runPort(() =>
+        requirePort().list(principal.userId, input)
+      );
       return {
         runs: result.runs.map((run) => summaryFor(principal.userId, run)),
         nextCursor: result.nextCursor,
-      }
+      };
     },
 
     detail: async (principal, id) => {
-      const found = await runPort(() => requirePort().detail(principal.userId, id))
+      const found = await runPort(() =>
+        requirePort().detail(principal.userId, id)
+      );
       if (found === null) {
-        throw new OperatorServiceError("NOT_FOUND", "Workflow run not found")
+        throw new OperatorServiceError("NOT_FOUND", "Workflow run not found");
       }
-      return detailFor(principal.userId, found)
+      return detailFor(principal.userId, found);
     },
 
     approve: async (principal, id, approval, requestId) => {
-      return projectAction(principal, (workflow) => workflow.approve({
-        ...actionContext(principal, id, requestId),
-        approval,
-      }))
+      return projectAction(principal, (workflow) =>
+        workflow.approve({
+          ...actionContext(principal, id, requestId),
+          approval,
+        })
+      );
     },
 
-    reject: (principal, id, reason, requestId) => projectAction(
-      principal,
-      (workflow) => workflow.reject({
-        ...actionContext(principal, id, requestId),
-        ...(reason === undefined ? {} : { reason }),
-      }),
-    ),
+    reject: (principal, id, reason, requestId) =>
+      projectAction(principal, (workflow) =>
+        workflow.reject({
+          ...actionContext(principal, id, requestId),
+          ...(reason === undefined ? {} : { reason }),
+        })
+      ),
 
-    cancel: (principal, id, requestId) => projectAction(
-      principal,
-      (workflow) => workflow.cancel(actionContext(principal, id, requestId)),
-    ),
+    cancel: (principal, id, requestId) =>
+      projectAction(principal, (workflow) =>
+        workflow.cancel(actionContext(principal, id, requestId))
+      ),
 
-    retry: (principal, id, requestId) => projectAction(
-      principal,
-      (workflow) => workflow.retry(actionContext(principal, id, requestId)),
-    ),
+    retry: (principal, id, requestId) =>
+      projectAction(principal, (workflow) =>
+        workflow.retry(actionContext(principal, id, requestId))
+      ),
 
-    revise: (principal, runId, message, idempotencyKey, requestId) => projectAction(
-      principal,
-      (workflow) => workflow.revise({
-        ...actionContext(principal, runId, requestId),
-        idempotencyKey,
-        clarification: message,
-      }),
-    ),
+    revise: (principal, runId, message, idempotencyKey, requestId) =>
+      projectAction(principal, (workflow) =>
+        workflow.revise({
+          ...actionContext(principal, runId, requestId),
+          idempotencyKey,
+          clarification: message,
+        })
+      ),
 
-    message: (principal, id, body, idempotencyKey, requestId) => projectAction(
-      principal,
-      (workflow) => workflow.message({
-        ...actionContext(principal, id, requestId),
-        idempotencyKey,
-        body: safeContractText(body, 2_000).value,
-      }),
-    )
-  })
-}
+    message: (principal, id, body, idempotencyKey, requestId) =>
+      projectAction(principal, (workflow) =>
+        workflow.message({
+          ...actionContext(principal, id, requestId),
+          idempotencyKey,
+          body: safeContractText(body, 2_000).value,
+        })
+      ),
+  });
+};

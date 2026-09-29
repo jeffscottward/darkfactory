@@ -1,4 +1,4 @@
-import { constants } from "node:fs"
+import { constants } from "node:fs";
 import {
   mkdir,
   mkdtemp,
@@ -7,13 +7,13 @@ import {
   symlink,
   truncate,
   writeFile,
-} from "node:fs/promises"
-import { tmpdir } from "node:os"
-import { join } from "node:path"
+} from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
-import { afterEach, describe, expect, it, vi } from "vitest"
+import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { sanitizePlaywrightJsonReport } from "./playwright-report.ts"
+import { sanitizePlaywrightJsonReport } from "./playwright-report.ts";
 
 const report = (environment: Record<string, string>) => ({
   config: {
@@ -26,7 +26,7 @@ const report = (environment: Record<string, string>) => ({
   },
   suites: [{ title: "account journey" }],
   stats: { expected: 1 },
-})
+});
 
 const unicodeSeparators = Object.freeze([
   "\u0020",
@@ -48,151 +48,154 @@ const unicodeSeparators = Object.freeze([
   "\u202f",
   "\u205f",
   "\u3000",
-])
+]);
 
 const decodeNumericEntityForAssertion = (
   source: string,
   hexadecimal: string | undefined,
-  decimal: string | undefined,
+  decimal: string | undefined
 ): string => {
-  const code = Number.parseInt(hexadecimal ?? decimal ?? "", hexadecimal ? 16 : 10)
+  const code = Number.parseInt(
+    hexadecimal ?? decimal ?? "",
+    hexadecimal ? 16 : 10
+  );
   return Number.isSafeInteger(code) && code >= 0 && code <= 0x10ffff
     ? String.fromCodePoint(code)
-    : source
-}
+    : source;
+};
 
 const decodeUnicodeEscapeForAssertion = (
   source: string,
-  hexadecimal: string,
+  hexadecimal: string
 ): string => {
-  const code = Number.parseInt(hexadecimal, 16)
-  return Number.isSafeInteger(code)
-    ? String.fromCharCode(code)
-    : source
-}
+  const code = Number.parseInt(hexadecimal, 16);
+  return Number.isSafeInteger(code) ? String.fromCharCode(code) : source;
+};
 
 const reconstructSensitiveText = (value: string): string => {
   return value
-    .replace(
-      /&#(?:x([0-9a-f]+)|([0-9]+));/giu,
-      decodeNumericEntityForAssertion,
-    )
+    .replace(/&#(?:x([0-9a-f]+)|([0-9]+));/giu, decodeNumericEntityForAssertion)
     .replace(/\\u00([0-9a-f]{2})/giu, decodeUnicodeEscapeForAssertion)
-    .replace(/[\n\p{Z}]/gu, "")
-}
+    .replace(/[\n\p{Z}]/gu, "");
+};
 
 const collectJsonScalars = (root: unknown): readonly string[] => {
-  const pending: unknown[] = [root]
-  const scalars: string[] = []
+  const pending: unknown[] = [root];
+  const scalars: string[] = [];
   while (pending.length > 0) {
-    const value = pending.pop()
+    const value = pending.pop();
     if (Array.isArray(value)) {
-      pending.push(...value)
-      continue
+      pending.push(...value);
+      continue;
     }
     if (value !== null && typeof value === "object") {
-      pending.push(...Object.values(value as Record<string, unknown>))
-      continue
+      pending.push(...Object.values(value as Record<string, unknown>));
+      continue;
     }
-    scalars.push(String(value))
+    scalars.push(String(value));
   }
-  return scalars
-}
+  return scalars;
+};
 const fileStats = (dev = 1, ino = 2) => ({
   dev,
   ino,
   size: 128,
   isFile: () => true,
   isSymbolicLink: () => false,
-})
+});
 
-const mockedFileHandle = (
-  overrides: Record<string, unknown> = {},
-) => ({
+const mockedFileHandle = (overrides: Record<string, unknown> = {}) => ({
   stat: vi.fn(async () => fileStats()),
-  readFile: vi.fn(async () => JSON.stringify({
-    config: { webServer: {} },
+  readFile: vi.fn(async () =>
+    JSON.stringify({
+      config: { webServer: {} },
+    })
+  ),
+  write: vi.fn(async (_buffer: Buffer, _offset: number, length: number) => ({
+    bytesWritten: length,
   })),
-  write: vi.fn(async (
-    _buffer: Buffer,
-    _offset: number,
-    length: number,
-  ) => ({ bytesWritten: length })),
   truncate: vi.fn(async () => undefined),
   sync: vi.fn(async () => undefined),
   close: vi.fn(async () => undefined),
   ...overrides,
-})
+});
 
-const temporaryDirectories = new Set<string>()
+const temporaryDirectories = new Set<string>();
 
 afterEach(async () => {
   await Promise.all(
     [...temporaryDirectories].map((directory) => {
-      return rm(directory, { force: true, recursive: true })
-    }
-    ),
-  )
-  return temporaryDirectories.clear()
-}
-)
+      return rm(directory, { force: true, recursive: true });
+    })
+  );
+  return temporaryDirectories.clear();
+});
 
 afterEach(() => {
-  vi.doUnmock("node:fs/promises")
-  vi.doUnmock("node:fs")
-  vi.resetModules()
-  return vi.restoreAllMocks()
-}
-)
+  vi.doUnmock("node:fs/promises");
+  vi.doUnmock("node:fs");
+  vi.resetModules();
+  return vi.restoreAllMocks();
+});
 
-describe("Playwright JSON report redaction", function() {
-  it("removes configuration secrets and redacts known values recursively", async function() {
-    const directory = await mkdtemp(join(tmpdir(), "darkfactory-report-"))
-    temporaryDirectories.add(directory)
-    const path = join(directory, "playwright-report.json")
-    const databaseUrl = "postgresql://runner:private-value@127.0.0.1/test"
-    const hmacKey = "private-hmac-value-that-must-not-survive"
+describe("Playwright JSON report redaction", function () {
+  it("removes configuration secrets and redacts known values recursively", async function () {
+    const directory = await mkdtemp(join(tmpdir(), "darkfactory-report-"));
+    temporaryDirectories.add(directory);
+    const path = join(directory, "playwright-report.json");
+    const databaseUrl = "postgresql://runner:private-value@127.0.0.1/test";
+    const hmacKey = "private-hmac-value-that-must-not-survive";
     const fixture: Record<string, unknown> = report({
       DATABASE_URL: databaseUrl,
       E2E_EMAIL_PREVIEW_HMAC_KEY: hmacKey,
-    })
-    fixture["errors"] = [{ message: `failure: ${hmacKey}` }]
-    fixture["suites"] = [{
-      title: "account journey",
-      specs: [{
-        tests: [{
-          results: [{
-            status: "failed",
-            errors: [{ message: `expected ${databaseUrl}` }],
-            stdout: [`prefix-${hmacKey}-suffix`],
-            stderr: [databaseUrl],
-          }],
-        }],
-      }],
-    }]
-    await writeFile(path, JSON.stringify(fixture))
+    });
+    fixture["errors"] = [{ message: `failure: ${hmacKey}` }];
+    fixture["suites"] = [
+      {
+        title: "account journey",
+        specs: [
+          {
+            tests: [
+              {
+                results: [
+                  {
+                    status: "failed",
+                    errors: [{ message: `expected ${databaseUrl}` }],
+                    stdout: [`prefix-${hmacKey}-suffix`],
+                    stderr: [databaseUrl],
+                  },
+                ],
+              },
+            ],
+          },
+        ],
+      },
+    ];
+    await writeFile(path, JSON.stringify(fixture));
 
-    await sanitizePlaywrightJsonReport(path, [databaseUrl, hmacKey])
+    await sanitizePlaywrightJsonReport(path, [databaseUrl, hmacKey]);
 
-    const content = await readFile(path, "utf8")
+    const content = await readFile(path, "utf8");
     const sanitized = JSON.parse(content) as {
-      config: { webServer: Record<string, unknown> }
-    }
+      config: { webServer: Record<string, unknown> };
+    };
     expect(sanitized.config.webServer).toEqual({
       command: "pnpm dev",
       url: "https://darkfactory.localhost/sign-in",
-    })
-    expect(content).toContain("[REDACTED]")
-    expect(content).toContain("account journey")
-    expect(content).not.toContain(databaseUrl)
-    return expect(content).not.toContain(hmacKey)
-  })
+    });
+    expect(content).toContain("[REDACTED]");
+    expect(content).toContain("account journey");
+    expect(content).not.toContain(databaseUrl);
+    return expect(content).not.toContain(hmacKey);
+  });
 
-  it("redacts encoded and separator-fragmented secrets from values and attachments", async function() {
-    const directory = await mkdtemp(join(tmpdir(), "darkfactory-report-encoded-"))
-    temporaryDirectories.add(directory)
-    const path = join(directory, "playwright-report.json")
-    const secret = "pRiv4teToken"
+  it("redacts encoded and separator-fragmented secrets from values and attachments", async function () {
+    const directory = await mkdtemp(
+      join(tmpdir(), "darkfactory-report-encoded-")
+    );
+    temporaryDirectories.add(directory);
+    const path = join(directory, "playwright-report.json");
+    const secret = "pRiv4teToken";
     const variants = [
       secret,
       "pRiv4te&#84;oken",
@@ -200,65 +203,77 @@ describe("Playwright JSON report redaction", function() {
       String.raw`pRiv4te\u0054oken`,
       "pRiv4te\nToken",
       ...unicodeSeparators.map((separator) => `pRiv4te${separator}Token`),
-    ]
-    await writeFile(path, JSON.stringify({
-      config: { webServer: {} },
-      ordinary: "account journey completed normally",
-      values: variants,
-      attachments: variants.map((body, index) => ({
-        name: `artifact-${index}`,
-        contentType: "text/plain",
-        body,
-      })),
-    }))
+    ];
+    await writeFile(
+      path,
+      JSON.stringify({
+        config: { webServer: {} },
+        ordinary: "account journey completed normally",
+        values: variants,
+        attachments: variants.map((body, index) => ({
+          name: `artifact-${index}`,
+          contentType: "text/plain",
+          body,
+        })),
+      })
+    );
 
-    await sanitizePlaywrightJsonReport(path, [secret])
+    await sanitizePlaywrightJsonReport(path, [secret]);
 
-    const content = await readFile(path, "utf8")
+    const content = await readFile(path, "utf8");
     const sanitized = JSON.parse(content) as {
-      ordinary: string
-      values: string[]
+      ordinary: string;
+      values: string[];
       attachments: Array<{
-        name: string
-        contentType: string
-        body: string
-      }>
-    }
-    expect(sanitized.ordinary).toBe("account journey completed normally")
-    expect(sanitized.values).toEqual(variants.map(() => "[REDACTED]"))
+        name: string;
+        contentType: string;
+        body: string;
+      }>;
+    };
+    expect(sanitized.ordinary).toBe("account journey completed normally");
+    expect(sanitized.values).toEqual(variants.map(() => "[REDACTED]"));
     expect(sanitized.attachments.map(({ body }) => body)).toEqual(
-      variants.map(() => "[REDACTED]"),
-    )
+      variants.map(() => "[REDACTED]")
+    );
     expect(sanitized.attachments.map(({ name }) => name)).toEqual(
-      variants.map((_, index) => `artifact-${index}`),
-    )
-    expect(content).not.toContain(secret)
-    const results1=[];for (const scalar of collectJsonScalars(sanitized)) {
-      results1.push(expect(reconstructSensitiveText(scalar)).not.toContain(secret))
-    };return results1;
-  })
+      variants.map((_, index) => `artifact-${index}`)
+    );
+    expect(content).not.toContain(secret);
+    const results1 = [];
+    for (const scalar of collectJsonScalars(sanitized)) {
+      results1.push(
+        expect(reconstructSensitiveText(scalar)).not.toContain(secret)
+      );
+    }
+    return results1;
+  });
 
-  it("fails closed for short values and preserves overlapping literal redaction", async function() {
-    const directory = await mkdtemp(join(tmpdir(), "darkfactory-report-ambiguous-"))
-    temporaryDirectories.add(directory)
-    const path = join(directory, "playwright-report.json")
-    const shortSecret = "xy"
-    const prefixSecret = "private"
-    const longerSecret = "private-token"
-    await writeFile(path, JSON.stringify({
-      config: { webServer: {} },
-      ordinary: "account journey completed normally",
-      shortExact: shortSecret,
-      shortEmbedded: `before-${shortSecret}-after`,
-      overlap: `failure:${longerSecret}:ordinary-tail`,
-      countValue: 7319,
-      flagValue: true,
-      missingValue: null,
-      attachments: [
-        { name: "short", body: `before-${shortSecret}-after` },
-        { name: "overlap", body: longerSecret },
-      ],
-    }))
+  it("fails closed for short values and preserves overlapping literal redaction", async function () {
+    const directory = await mkdtemp(
+      join(tmpdir(), "darkfactory-report-ambiguous-")
+    );
+    temporaryDirectories.add(directory);
+    const path = join(directory, "playwright-report.json");
+    const shortSecret = "xy";
+    const prefixSecret = "private";
+    const longerSecret = "private-token";
+    await writeFile(
+      path,
+      JSON.stringify({
+        config: { webServer: {} },
+        ordinary: "account journey completed normally",
+        shortExact: shortSecret,
+        shortEmbedded: `before-${shortSecret}-after`,
+        overlap: `failure:${longerSecret}:ordinary-tail`,
+        countValue: 7319,
+        flagValue: true,
+        missingValue: null,
+        attachments: [
+          { name: "short", body: `before-${shortSecret}-after` },
+          { name: "overlap", body: longerSecret },
+        ],
+      })
+    );
 
     await sanitizePlaywrightJsonReport(path, [
       shortSecret,
@@ -267,52 +282,58 @@ describe("Playwright JSON report redaction", function() {
       "7319",
       "true",
       "null",
-    ])
+    ]);
 
-    const content = await readFile(path, "utf8")
+    const content = await readFile(path, "utf8");
     const sanitized = JSON.parse(content) as {
-      ordinary: string
-      shortExact: string
-      shortEmbedded: string
-      overlap: string
-      countValue: string
-      flagValue: string
-      missingValue: string
-      attachments: Array<{ name: string, body: string }>
-    }
-    expect(sanitized.ordinary).toBe("account journey completed normally")
-    expect(sanitized.shortExact).toBe("[REDACTED]")
-    expect(sanitized.shortEmbedded).toBe("[REDACTED]")
-    expect(sanitized.overlap).toBe("failure:[REDACTED]:ordinary-tail")
-    expect(sanitized.overlap).not.toContain("-token")
-    expect(sanitized.countValue).toBe("[REDACTED]")
-    expect(sanitized.flagValue).toBe("[REDACTED]")
-    expect(sanitized.missingValue).toBe("[REDACTED]")
+      ordinary: string;
+      shortExact: string;
+      shortEmbedded: string;
+      overlap: string;
+      countValue: string;
+      flagValue: string;
+      missingValue: string;
+      attachments: Array<{ name: string; body: string }>;
+    };
+    expect(sanitized.ordinary).toBe("account journey completed normally");
+    expect(sanitized.shortExact).toBe("[REDACTED]");
+    expect(sanitized.shortEmbedded).toBe("[REDACTED]");
+    expect(sanitized.overlap).toBe("failure:[REDACTED]:ordinary-tail");
+    expect(sanitized.overlap).not.toContain("-token");
+    expect(sanitized.countValue).toBe("[REDACTED]");
+    expect(sanitized.flagValue).toBe("[REDACTED]");
+    expect(sanitized.missingValue).toBe("[REDACTED]");
     expect(sanitized.attachments).toEqual([
       { name: "short", body: "[REDACTED]" },
       { name: "overlap", body: "[REDACTED]" },
-    ])
-    const results2=[];for (const knownValue of [
+    ]);
+    const results2 = [];
+    for (const knownValue of [
       shortSecret,
       longerSecret,
       "7319",
       "true",
       "null",
     ]) {
-      const results3=[];for (const scalar of collectJsonScalars(sanitized)) {
-        results3.push(expect(reconstructSensitiveText(scalar)).not.toContain(knownValue))
-      }results2.push(results3)
-    };return results2;
-  })
+      const results3 = [];
+      for (const scalar of collectJsonScalars(sanitized)) {
+        results3.push(
+          expect(reconstructSensitiveText(scalar)).not.toContain(knownValue)
+        );
+      }
+      results2.push(results3);
+    }
+    return results2;
+  });
 
-  it("renames sensitive member names deterministically without key collisions", async function() {
-    const directory = await mkdtemp(join(tmpdir(), "darkfactory-report-keys-"))
-    temporaryDirectories.add(directory)
-    const path = join(directory, "playwright-report.json")
-    const secret = "pRiv4teToken"
-    const shortSecret = "xy"
-    const prefixSecret = "private"
-    const longerSecret = "private-token"
+  it("renames sensitive member names deterministically without key collisions", async function () {
+    const directory = await mkdtemp(join(tmpdir(), "darkfactory-report-keys-"));
+    temporaryDirectories.add(directory);
+    const path = join(directory, "playwright-report.json");
+    const secret = "pRiv4teToken";
+    const shortSecret = "xy";
+    const prefixSecret = "private";
+    const longerSecret = "private-token";
     const sensitiveKeys = [
       secret,
       "pRiv4te&#84;oken",
@@ -322,115 +343,122 @@ describe("Playwright JSON report redaction", function() {
       "pRiv4te\u2003Token",
       `before-${shortSecret}-after`,
       longerSecret,
-    ]
-    await writeFile(path, JSON.stringify({
-      config: { webServer: {} },
-      labels: Object.fromEntries([
-        ["ordinary-first", "preserved-first"],
-        ["__proto__", "preserved-prototype-name"],
-        ["[REDACTED KEY]", "preexisting-base"],
-        ["[REDACTED KEY 2]", "preexisting-suffix"],
-        ...sensitiveKeys.map((key, index) => {
-          return [key, `sensitive-${index}`] as const
-        }
-        ),
-        ["ordinary-last", "preserved-last"],
-      ]),
-    }))
+    ];
+    await writeFile(
+      path,
+      JSON.stringify({
+        config: { webServer: {} },
+        labels: Object.fromEntries([
+          ["ordinary-first", "preserved-first"],
+          ["__proto__", "preserved-prototype-name"],
+          ["[REDACTED KEY]", "preexisting-base"],
+          ["[REDACTED KEY 2]", "preexisting-suffix"],
+          ...sensitiveKeys.map((key, index) => {
+            return [key, `sensitive-${index}`] as const;
+          }),
+          ["ordinary-last", "preserved-last"],
+        ]),
+      })
+    );
 
-    const knownValues = [
-      secret,
-      shortSecret,
-      prefixSecret,
-      longerSecret,
-    ]
-    await sanitizePlaywrightJsonReport(path, knownValues)
+    const knownValues = [secret, shortSecret, prefixSecret, longerSecret];
+    await sanitizePlaywrightJsonReport(path, knownValues);
 
-    const content = await readFile(path, "utf8")
+    const content = await readFile(path, "utf8");
     const sanitized = JSON.parse(content) as {
-      labels: Record<string, string>
-    }
+      labels: Record<string, string>;
+    };
     expect(Object.entries(sanitized.labels)).toEqual([
       ["ordinary-first", "preserved-first"],
       ["__proto__", "preserved-prototype-name"],
       ["[REDACTED KEY]", "preexisting-base"],
       ["[REDACTED KEY 2]", "preexisting-suffix"],
       ...sensitiveKeys.map((_, index) => {
-        return [`[REDACTED KEY ${index + 3}]`, `sensitive-${index}`]
-      }
-      ),
+        return [`[REDACTED KEY ${index + 3}]`, `sensitive-${index}`];
+      }),
       ["ordinary-last", "preserved-last"],
-    ])
+    ]);
     for (const key of Object.keys(sanitized.labels)) {
       for (const knownValue of knownValues) {
-        expect(reconstructSensitiveText(key)).not.toContain(knownValue)
+        expect(reconstructSensitiveText(key)).not.toContain(knownValue);
       }
     }
 
-    await sanitizePlaywrightJsonReport(path, knownValues)
-    return await expect(readFile(path, "utf8")).resolves.toBe(content)
-  })
+    await sanitizePlaywrightJsonReport(path, knownValues);
+    return await expect(readFile(path, "utf8")).resolves.toBe(content);
+  });
 
-  it("fails before writing when every bounded redacted-key candidate is sensitive", async function() {
-    const directory = await mkdtemp(join(tmpdir(), "darkfactory-report-key-exhaustion-"))
-    temporaryDirectories.add(directory)
-    const path = join(directory, "playwright-report.json")
+  it("fails before writing when every bounded redacted-key candidate is sensitive", async function () {
+    const directory = await mkdtemp(
+      join(tmpdir(), "darkfactory-report-key-exhaustion-")
+    );
+    temporaryDirectories.add(directory);
+    const path = join(directory, "playwright-report.json");
     const original = JSON.stringify({
       config: { webServer: {} },
       labels: { "REDACTED-secret": "preserved-value" },
-    })
-    await writeFile(path, original)
+    });
+    await writeFile(path, original);
 
     await expect(
       sanitizePlaywrightJsonReport(path, ["REDACTED"])
-    ).rejects.toThrow("Playwright report key redaction failed safely")
-    return await expect(readFile(path, "utf8")).resolves.toBe(original)
-  })
+    ).rejects.toThrow("Playwright report key redaction failed safely");
+    return await expect(readFile(path, "utf8")).resolves.toBe(original);
+  });
 
-  it("never reconstructs a short secret through the scalar redaction marker", async function() {
-    const directory = await mkdtemp(join(tmpdir(), "darkfactory-report-marker-"))
-    temporaryDirectories.add(directory)
-    const path = join(directory, "playwright-report.json")
-    await writeFile(path, JSON.stringify({
-      config: { webServer: {} },
-      ordinary: "account journey completed normally",
-      sensitive: "before-RED-after",
-    }))
+  it("never reconstructs a short secret through the scalar redaction marker", async function () {
+    const directory = await mkdtemp(
+      join(tmpdir(), "darkfactory-report-marker-")
+    );
+    temporaryDirectories.add(directory);
+    const path = join(directory, "playwright-report.json");
+    await writeFile(
+      path,
+      JSON.stringify({
+        config: { webServer: {} },
+        ordinary: "account journey completed normally",
+        sensitive: "before-RED-after",
+      })
+    );
 
-    await sanitizePlaywrightJsonReport(path, ["RED"])
+    await sanitizePlaywrightJsonReport(path, ["RED"]);
 
-    const content = await readFile(path, "utf8")
+    const content = await readFile(path, "utf8");
     const sanitized = JSON.parse(content) as {
-      ordinary: string
-      sensitive: string
-    }
+      ordinary: string;
+      sensitive: string;
+    };
     expect(sanitized).toMatchObject({
       ordinary: "account journey completed normally",
       sensitive: "",
-    })
-    return expect(content).not.toContain("RED")
-  })
-  it("fails closed for malformed reports and symbolic links", async function() {
-    const directory = await mkdtemp(join(tmpdir(), "darkfactory-report-invalid-"))
-    temporaryDirectories.add(directory)
-    const malformed = join(directory, "malformed.json")
-    await writeFile(malformed, "not-json")
+    });
+    return expect(content).not.toContain("RED");
+  });
+  it("fails closed for malformed reports and symbolic links", async function () {
+    const directory = await mkdtemp(
+      join(tmpdir(), "darkfactory-report-invalid-")
+    );
+    temporaryDirectories.add(directory);
+    const malformed = join(directory, "malformed.json");
+    await writeFile(malformed, "not-json");
     await expect(sanitizePlaywrightJsonReport(malformed, [])).rejects.toThrow(
-      "Playwright report is malformed",
-    )
+      "Playwright report is malformed"
+    );
 
-    const target = join(directory, "target.json")
-    const linked = join(directory, "linked.json")
-    await writeFile(target, JSON.stringify(report({})))
-    await symlink(target, linked)
-    return await expect(sanitizePlaywrightJsonReport(linked, [])).rejects.toThrow(
-      "Playwright report file is invalid",
-    )
-  })
-  it("supports web server arrays and canonicalizes overlapping secrets", async function() {
-    const directory = await mkdtemp(join(tmpdir(), "darkfactory-report-array-"))
-    temporaryDirectories.add(directory)
-    const path = join(directory, "playwright-report.json")
+    const target = join(directory, "target.json");
+    const linked = join(directory, "linked.json");
+    await writeFile(target, JSON.stringify(report({})));
+    await symlink(target, linked);
+    return await expect(
+      sanitizePlaywrightJsonReport(linked, [])
+    ).rejects.toThrow("Playwright report file is invalid");
+  });
+  it("supports web server arrays and canonicalizes overlapping secrets", async function () {
+    const directory = await mkdtemp(
+      join(tmpdir(), "darkfactory-report-array-")
+    );
+    temporaryDirectories.add(directory);
+    const path = join(directory, "playwright-report.json");
     const fixture: Record<string, unknown> = {
       config: {
         webServer: [
@@ -445,59 +473,62 @@ describe("Playwright JSON report redaction", function() {
         false,
         null,
       ],
-    }
-    await writeFile(path, JSON.stringify(fixture))
+    };
+    await writeFile(path, JSON.stringify(fixture));
 
     await sanitizePlaywrightJsonReport(path, [
       "",
       "private",
       "private-token",
       "private-token",
-    ])
+    ]);
 
-    const content = await readFile(path, "utf8")
+    const content = await readFile(path, "utf8");
     const sanitized = JSON.parse(content) as {
-      config: { webServer: Record<string, unknown>[] }
-      details: unknown[]
-    }
+      config: { webServer: Record<string, unknown>[] };
+      details: unknown[];
+    };
     expect(sanitized.config.webServer).toEqual([
       { command: "start-api" },
       { command: "start-web" },
-    ])
+    ]);
     expect(sanitized.details).toEqual([
       "[REDACTED]/[REDACTED]",
       { nested: "[REDACTED]" },
       42,
       false,
       null,
-    ])
-    return expect(content.endsWith("\n")).toBe(true)
-  })
+    ]);
+    return expect(content.endsWith("\n")).toBe(true);
+  });
 
-  it("rejects empty, oversized, non-file, and malformed configurations", async function() {
-    const directory = await mkdtemp(join(tmpdir(), "darkfactory-report-bounds-"))
-    temporaryDirectories.add(directory)
+  it("rejects empty, oversized, non-file, and malformed configurations", async function () {
+    const directory = await mkdtemp(
+      join(tmpdir(), "darkfactory-report-bounds-")
+    );
+    temporaryDirectories.add(directory);
 
-    const empty = join(directory, "empty.json")
-    await writeFile(empty, "")
+    const empty = join(directory, "empty.json");
+    await writeFile(empty, "");
     await expect(sanitizePlaywrightJsonReport(empty, [])).rejects.toThrow(
-      "Playwright report file is invalid",
-    )
+      "Playwright report file is invalid"
+    );
 
-    const oversized = join(directory, "oversized.json")
-    await writeFile(oversized, "{}")
-    await truncate(oversized, (16 * 1024 * 1024) + 1)
+    const oversized = join(directory, "oversized.json");
+    await writeFile(oversized, "{}");
+    await truncate(oversized, 16 * 1024 * 1024 + 1);
     await expect(sanitizePlaywrightJsonReport(oversized, [])).rejects.toThrow(
-      "Playwright report file is invalid",
-    )
+      "Playwright report file is invalid"
+    );
 
-    const nestedDirectory = join(directory, "report-directory")
-    await mkdir(nestedDirectory)
+    const nestedDirectory = join(directory, "report-directory");
+    await mkdir(nestedDirectory);
     await expect(
-      sanitizePlaywrightJsonReport(nestedDirectory, []),
-    ).rejects.toThrow("Playwright report file is invalid")
+      sanitizePlaywrightJsonReport(nestedDirectory, [])
+    ).rejects.toThrow("Playwright report file is invalid");
 
-    const results4=[];for (const [name, fixture, message] of [
+    const results4 = [];
+    for (const [name, fixture, message] of [
       ["primitive", "null", "Playwright report configuration is malformed"],
       ["missing-config", "{}", "Playwright report configuration is malformed"],
       [
@@ -516,188 +547,199 @@ describe("Playwright JSON report redaction", function() {
         "Playwright report web server configuration is invalid",
       ],
     ] as const) {
-      const path = join(directory, `${name}.json`)
-      await writeFile(path, fixture)
-      await expect(sanitizePlaywrightJsonReport(path, [])).rejects.toThrow(message)
-      results4.push(await rm(path))
-    };return results4;
-  })
+      const path = join(directory, `${name}.json`);
+      await writeFile(path, fixture);
+      await expect(sanitizePlaywrightJsonReport(path, [])).rejects.toThrow(
+        message
+      );
+      results4.push(await rm(path));
+    }
+    return results4;
+  });
 
-  it("fails closed when redaction would expand the report beyond its bound", async function() {
-    const directory = await mkdtemp(join(tmpdir(), "darkfactory-report-rendered-bound-"))
-    temporaryDirectories.add(directory)
-    const path = join(directory, "playwright-report.json")
-    await writeFile(path, JSON.stringify({
-      config: { webServer: {} },
-      output: "secret".repeat(2 * 1024 * 1024),
-    }))
+  it("fails closed when redaction would expand the report beyond its bound", async function () {
+    const directory = await mkdtemp(
+      join(tmpdir(), "darkfactory-report-rendered-bound-")
+    );
+    temporaryDirectories.add(directory);
+    const path = join(directory, "playwright-report.json");
+    await writeFile(
+      path,
+      JSON.stringify({
+        config: { webServer: {} },
+        output: "secret".repeat(2 * 1024 * 1024),
+      })
+    );
 
-    return await expect(sanitizePlaywrightJsonReport(path, ["secret"])).rejects.toThrow(
-      "Redacted Playwright report exceeds its bound",
-    )
-  })
+    return await expect(
+      sanitizePlaywrightJsonReport(path, ["secret"])
+    ).rejects.toThrow("Redacted Playwright report exceeds its bound");
+  });
 
-  it("rejects aggregate replacement growth before mutating the report", async function() {
-    const directory = await mkdtemp(join(tmpdir(), "darkfactory-report-aggregate-bound-"))
-    temporaryDirectories.add(directory)
-    const path = join(directory, "playwright-report.json")
-    const repeated = "secret".repeat(900_000)
+  it("rejects aggregate replacement growth before mutating the report", async function () {
+    const directory = await mkdtemp(
+      join(tmpdir(), "darkfactory-report-aggregate-bound-")
+    );
+    temporaryDirectories.add(directory);
+    const path = join(directory, "playwright-report.json");
+    const repeated = "secret".repeat(900_000);
     const original = JSON.stringify({
       config: { webServer: {} },
       output: [repeated, repeated],
-    })
-    await writeFile(path, original)
+    });
+    await writeFile(path, original);
 
-    await expect(sanitizePlaywrightJsonReport(path, ["secret"])).rejects.toThrow(
-      "Redacted Playwright report exceeds its bound",
-    )
-    return await expect(readFile(path, "utf8")).resolves.toBe(original)
-  })
+    await expect(
+      sanitizePlaywrightJsonReport(path, ["secret"])
+    ).rejects.toThrow("Redacted Playwright report exceeds its bound");
+    return await expect(readFile(path, "utf8")).resolves.toBe(original);
+  });
 
-  it("rejects a file-reported symbolic link before opening it", async function() {
-    const open = vi.fn()
+  it("rejects a file-reported symbolic link before opening it", async function () {
+    const open = vi.fn();
     vi.doMock("node:fs/promises", () => ({
       lstat: vi.fn(async () => ({
         ...fileStats(),
         isSymbolicLink: () => true,
       })),
       open,
-    }))
+    }));
     const { sanitizePlaywrightJsonReport: sanitize } = await import(
       "./playwright-report.ts"
-    )
+    );
 
     await expect(sanitize("/report.json", [])).rejects.toThrow(
-      "Playwright report file is invalid",
-    )
-    return expect(open).not.toHaveBeenCalled()
-  })
+      "Playwright report file is invalid"
+    );
+    return expect(open).not.toHaveBeenCalled();
+  });
 
-  it("uses the portable open flags when no no-follow flag is available", async function() {
-    const handle = mockedFileHandle()
-    const open = vi.fn(async () => handle)
+  it("uses the portable open flags when no no-follow flag is available", async function () {
+    const handle = mockedFileHandle();
+    const open = vi.fn(async () => handle);
     vi.doMock("node:fs", () => ({
       constants: {
         ...constants,
         O_NOFOLLOW: undefined,
       },
-    }))
+    }));
     vi.doMock("node:fs/promises", () => ({
       lstat: vi.fn(async () => fileStats()),
       open,
-    }))
+    }));
 
     const { sanitizePlaywrightJsonReport: sanitize } = await import(
       "./playwright-report.ts"
-    )
+    );
 
-    await expect(sanitize("/report.json", [])).resolves.toBeUndefined()
-    expect(open).toHaveBeenCalledWith("/report.json", constants.O_RDWR)
-    return expect(handle.close).toHaveBeenCalledOnce()
-  })
+    await expect(sanitize("/report.json", [])).resolves.toBeUndefined();
+    expect(open).toHaveBeenCalledWith("/report.json", constants.O_RDWR);
+    return expect(handle.close).toHaveBeenCalledOnce();
+  });
 
-  it("closes the report when the opened descriptor is not a file", async function() {
+  it("closes the report when the opened descriptor is not a file", async function () {
     const handle = mockedFileHandle({
       stat: vi.fn(async () => ({
         ...fileStats(),
         isFile: () => false,
       })),
-    })
+    });
     vi.doMock("node:fs/promises", () => ({
       lstat: vi.fn(async () => fileStats()),
       open: vi.fn(async () => handle),
-    }))
+    }));
     const { sanitizePlaywrightJsonReport: sanitize } = await import(
       "./playwright-report.ts"
-    )
+    );
 
     await expect(sanitize("/report.json", [])).rejects.toThrow(
-      "Playwright report identity changed before redaction",
-    )
-    expect(handle.close).toHaveBeenCalledOnce()
-    return expect(handle.readFile).not.toHaveBeenCalled()
-  })
+      "Playwright report identity changed before redaction"
+    );
+    expect(handle.close).toHaveBeenCalledOnce();
+    return expect(handle.readFile).not.toHaveBeenCalled();
+  });
 
-  it("closes the report when its identity changes before redaction", async function() {
+  it("closes the report when its identity changes before redaction", async function () {
     const handle = mockedFileHandle({
       stat: vi.fn(async () => fileStats(1, 99)),
-    })
+    });
     vi.doMock("node:fs/promises", () => ({
       lstat: vi.fn(async () => fileStats()),
       open: vi.fn(async () => handle),
-    }))
+    }));
     const { sanitizePlaywrightJsonReport: sanitize } = await import(
       "./playwright-report.ts"
-    )
+    );
 
     await expect(sanitize("/report.json", [])).rejects.toThrow(
-      "Playwright report identity changed before redaction",
-    )
-    expect(handle.close).toHaveBeenCalledOnce()
-    return expect(handle.readFile).not.toHaveBeenCalled()
-  })
+      "Playwright report identity changed before redaction"
+    );
+    expect(handle.close).toHaveBeenCalledOnce();
+    return expect(handle.readFile).not.toHaveBeenCalled();
+  });
 
-  it("closes the report when its opened content exceeds the read bound", async function() {
+  it("closes the report when its opened content exceeds the read bound", async function () {
     const handle = mockedFileHandle({
-      readFile: vi.fn(async () => "x".repeat((16 * 1024 * 1024) + 1)),
-    })
+      readFile: vi.fn(async () => "x".repeat(16 * 1024 * 1024 + 1)),
+    });
     vi.doMock("node:fs/promises", () => ({
       lstat: vi.fn(async () => fileStats()),
       open: vi.fn(async () => handle),
-    }))
+    }));
     const { sanitizePlaywrightJsonReport: sanitize } = await import(
       "./playwright-report.ts"
-    )
+    );
 
     await expect(sanitize("/report.json", [])).rejects.toThrow(
-      "Playwright report exceeds its redaction bound",
-    )
-    expect(handle.close).toHaveBeenCalledOnce()
-    return expect(handle.write).not.toHaveBeenCalled()
-  })
+      "Playwright report exceeds its redaction bound"
+    );
+    expect(handle.close).toHaveBeenCalledOnce();
+    return expect(handle.write).not.toHaveBeenCalled();
+  });
 
-  it("fails and closes the report when a redaction write makes no progress", async function() {
+  it("fails and closes the report when a redaction write makes no progress", async function () {
     const handle = mockedFileHandle({
       write: vi.fn(async () => ({ bytesWritten: 0 })),
-    })
+    });
     vi.doMock("node:fs/promises", () => ({
       lstat: vi.fn(async () => fileStats()),
       open: vi.fn(async () => handle),
-    }))
+    }));
     const { sanitizePlaywrightJsonReport: sanitize } = await import(
       "./playwright-report.ts"
-    )
+    );
 
     await expect(sanitize("/report.json", [])).rejects.toThrow(
-      "Playwright report redaction made no progress",
-    )
-    expect(handle.close).toHaveBeenCalledOnce()
-    return expect(handle.truncate).not.toHaveBeenCalled()
-  })
+      "Playwright report redaction made no progress"
+    );
+    expect(handle.close).toHaveBeenCalledOnce();
+    return expect(handle.truncate).not.toHaveBeenCalled();
+  });
 
-  it("detects replacement after a complete redaction and cleanup", async function() {
-    const handle = mockedFileHandle()
-    const lstat = vi.fn()
+  it("detects replacement after a complete redaction and cleanup", async function () {
+    const handle = mockedFileHandle();
+    const lstat = vi
+      .fn()
       .mockResolvedValueOnce(fileStats())
-      .mockResolvedValueOnce(fileStats(1, 99))
+      .mockResolvedValueOnce(fileStats(1, 99));
     vi.doMock("node:fs/promises", () => ({
       lstat,
       open: vi.fn(async () => handle),
-    }))
+    }));
     const { sanitizePlaywrightJsonReport: sanitize } = await import(
       "./playwright-report.ts"
-    )
+    );
 
     await expect(sanitize("/report.json", [])).rejects.toThrow(
-      "Playwright report identity changed during redaction",
-    )
-    expect(handle.truncate).toHaveBeenCalledOnce()
-    expect(handle.sync).toHaveBeenCalledOnce()
-    return expect(handle.close).toHaveBeenCalledOnce()
-  })
+      "Playwright report identity changed during redaction"
+    );
+    expect(handle.truncate).toHaveBeenCalledOnce();
+    expect(handle.sync).toHaveBeenCalledOnce();
+    return expect(handle.close).toHaveBeenCalledOnce();
+  });
 
-  return it("rejects non-file and symbolic-link identities after redaction", async function() {
-    const handle = mockedFileHandle()
+  return it("rejects non-file and symbolic-link identities after redaction", async function () {
+    const handle = mockedFileHandle();
     const afterStats = [
       {
         ...fileStats(),
@@ -707,28 +749,27 @@ describe("Playwright JSON report redaction", function() {
         ...fileStats(),
         isSymbolicLink: () => true,
       },
-    ]
-    let lstatCalls = 0
+    ];
+    let lstatCalls = 0;
     const lstat = vi.fn(async () => {
-      const isBefore = lstatCalls % 2 === 0
-      const result = isBefore ? fileStats() : afterStats.shift()!
-      lstatCalls += 1
-      return result
-    }
-    )
+      const isBefore = lstatCalls % 2 === 0;
+      const result = isBefore ? fileStats() : afterStats.shift()!;
+      lstatCalls += 1;
+      return result;
+    });
     vi.doMock("node:fs/promises", () => ({
       lstat,
       open: vi.fn(async () => handle),
-    }))
+    }));
     const { sanitizePlaywrightJsonReport: sanitize } = await import(
       "./playwright-report.ts"
-    )
+    );
 
     for (const path of ["/not-file.json", "/symbolic-link.json"]) {
       await expect(sanitize(path, [])).rejects.toThrow(
-        "Playwright report identity changed during redaction",
-      )
+        "Playwright report identity changed during redaction"
+      );
     }
-    return expect(handle.close).toHaveBeenCalledTimes(2)
-  })
-})
+    return expect(handle.close).toHaveBeenCalledTimes(2);
+  });
+});

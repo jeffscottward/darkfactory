@@ -1,14 +1,14 @@
 import type {
   SpanHandle,
   TelemetryRuntime,
-} from "@darkfactory/observability/port"
-import { describe, expect, it, vi } from "vitest"
+} from "@darkfactory/observability/port";
+import { describe, expect, it, vi } from "vitest";
 
 import {
   configuredOtlpAllowedHosts,
   resolveAnalyticsConsent,
   runWithRequestTelemetry,
-} from "./runtime.ts"
+} from "./runtime.ts";
 
 const span: SpanHandle = {
   correlation: {
@@ -18,19 +18,19 @@ const span: SpanHandle = {
   },
   addEvent: vi.fn(),
   recordMetric: vi.fn(),
-}
+};
 
 const runtime = (
   withSpan: TelemetryRuntime["withSpan"],
-  forceFlush = vi.fn(async () => undefined),
+  forceFlush = vi.fn(async () => undefined)
 ): TelemetryRuntime => ({
   state: { status: "in-memory" },
   withSpan,
   forceFlush,
   dispose: vi.fn(async () => undefined),
-})
+});
 
-describe("Worker oRPC runtime composition", function() {
+describe("Worker oRPC runtime composition", function () {
   it.each([
     [undefined, undefined, "unknown"],
     ["", undefined, "unknown"],
@@ -43,30 +43,34 @@ describe("Worker oRPC runtime composition", function() {
     [undefined, "analytics_consent=denied", "denied"],
     ["granted", "analytics_consent=granted", "granted"],
     ["granted", "analytics_consent=denied", "unknown"],
-    ["granted", "analytics_consent=granted; analytics_consent=granted", "unknown"],
+    [
+      "granted",
+      "analytics_consent=granted; analytics_consent=granted",
+      "unknown",
+    ],
     ["granted", "analytics_consent=granted; other=value", "granted"],
     ["granted", "analytics_consent=malformed", "unknown"],
-  ] as const)(
-    "resolves header %s and cookie %s to fail-closed consent %s",
-    function(header, cookie, expected) {
-      const headers = new Headers()
-      if (header !== undefined) headers.set("x-analytics-consent", header)
-      if (cookie !== undefined) headers.set("cookie", cookie)
-      const request = new Request("https://darkfactory.localhost/api/orpc", { headers })
+  ] as const)("resolves header %s and cookie %s to fail-closed consent %s", function (header, cookie, expected) {
+    const headers = new Headers();
+    if (header !== undefined) headers.set("x-analytics-consent", header);
+    if (cookie !== undefined) headers.set("cookie", cookie);
+    const request = new Request("https://darkfactory.localhost/api/orpc", {
+      headers,
+    });
 
-      return expect(resolveAnalyticsConsent(request)).toBe(expected)
-    }
-  )
+    return expect(resolveAnalyticsConsent(request)).toBe(expected);
+  });
 
-  it("returns the completed response without replay when telemetry fails afterward", async function() {
-    const operation = vi.fn(async () => new Response("created", { status: 201 }))
-    const forceFlush = vi.fn(async () => undefined)
+  it("returns the completed response without replay when telemetry fails afterward", async function () {
+    const operation = vi.fn(
+      async () => new Response("created", { status: 201 })
+    );
+    const forceFlush = vi.fn(async () => undefined);
     const telemetry = runtime(async (_input, run) => {
-      await run(span)
-      throw new Error("telemetry completion failed")
-    }
-    , forceFlush)
-    const waitUntil = vi.fn((promise: Promise<unknown>) => void promise)
+      await run(span);
+      throw new Error("telemetry completion failed");
+    }, forceFlush);
+    const waitUntil = vi.fn((promise: Promise<unknown>) => void promise);
 
     const response = await runWithRequestTelemetry(
       telemetry,
@@ -75,47 +79,44 @@ describe("Worker oRPC runtime composition", function() {
         correlation: { requestId: "request-1", route: "/api/orpc" },
       },
       waitUntil,
-      operation,
-    )
+      operation
+    );
 
-    expect(await response.text()).toBe("created")
-    expect(operation).toHaveBeenCalledOnce()
-    expect(forceFlush).toHaveBeenCalledOnce()
-    return expect(waitUntil).toHaveBeenCalledOnce()
-  })
-  
-  it("runs the request once when telemetry invokes its callback more than once", async function() {
-    const operation = vi.fn(async () => "created")
+    expect(await response.text()).toBe("created");
+    expect(operation).toHaveBeenCalledOnce();
+    expect(forceFlush).toHaveBeenCalledOnce();
+    return expect(waitUntil).toHaveBeenCalledOnce();
+  });
+
+  it("runs the request once when telemetry invokes its callback more than once", async function () {
+    const operation = vi.fn(async () => "created");
     const telemetry = runtime(async (_input, run) => {
-      const results = await Promise.all([run(span), run(span)])
-      return results[1]!
-    }
-    )
+      const results = await Promise.all([run(span), run(span)]);
+      return results[1]!;
+    });
 
     await expect(
       runWithRequestTelemetry(
         telemetry,
         { name: "orpc.request", correlation: { requestId: "request-1" } },
         vi.fn(),
-        operation,
-      ),
-    ).resolves.toBe("created")
-    return expect(operation).toHaveBeenCalledOnce()
-  })
-  
-  it("runs once with a provider-neutral span when telemetry fails before callback", async function() {
+        operation
+      )
+    ).resolves.toBe("created");
+    return expect(operation).toHaveBeenCalledOnce();
+  });
+
+  it("runs once with a provider-neutral span when telemetry fails before callback", async function () {
     const operation = vi.fn(async (fallbackSpan: SpanHandle) => {
       expect(fallbackSpan.correlation).toEqual({
         requestId: "request-1",
         route: "/api/orpc",
-      })
-      return "handled"
-    }
-    )
+      });
+      return "handled";
+    });
     const telemetry = runtime(async () => {
-      throw new Error("telemetry unavailable")
-    }
-    )
+      throw new Error("telemetry unavailable");
+    });
 
     await expect(
       runWithRequestTelemetry(
@@ -125,127 +126,127 @@ describe("Worker oRPC runtime composition", function() {
           correlation: { requestId: "request-1", route: "/api/orpc" },
         },
         vi.fn(),
-        operation,
-      ),
-    ).resolves.toBe("handled")
-    return expect(operation).toHaveBeenCalledOnce()
-  })
-  
-  it("propagates an application failure without replaying it", async function() {
-    const failure = new Error("application failed")
+        operation
+      )
+    ).resolves.toBe("handled");
+    return expect(operation).toHaveBeenCalledOnce();
+  });
+
+  it("propagates an application failure without replaying it", async function () {
+    const failure = new Error("application failed");
     const operation = vi.fn(async () => {
-      throw failure
-    }
-    )
-    const telemetry = runtime(async (_input, run) => run(span))
+      throw failure;
+    });
+    const telemetry = runtime(async (_input, run) => run(span));
 
     await expect(
       runWithRequestTelemetry(
         telemetry,
         { name: "orpc.request", correlation: { requestId: "request-1" } },
         vi.fn(),
-        operation,
-      ),
-    ).rejects.toBe(failure)
-    return expect(operation).toHaveBeenCalledOnce()
-  })
-  
-  it("derives the telemetry allowlist only from the configured endpoint hostname", function() {
-    expect(
-      configuredOtlpAllowedHosts("https://Collector.Example.test:4318/custom"),
-    ).toEqual(["collector.example.test"])
-    expect(configuredOtlpAllowedHosts(undefined)).toEqual([])
-    return expect(configuredOtlpAllowedHosts("not a url")).toEqual([])
-  })
+        operation
+      )
+    ).rejects.toBe(failure);
+    return expect(operation).toHaveBeenCalledOnce();
+  });
 
-  it("ignores unrelated and separator-free cookie segments", function() {
+  it("derives the telemetry allowlist only from the configured endpoint hostname", function () {
+    expect(
+      configuredOtlpAllowedHosts("https://Collector.Example.test:4318/custom")
+    ).toEqual(["collector.example.test"]);
+    expect(configuredOtlpAllowedHosts(undefined)).toEqual([]);
+    return expect(configuredOtlpAllowedHosts("not a url")).toEqual([]);
+  });
+
+  it("ignores unrelated and separator-free cookie segments", function () {
     const request = new Request("https://darkfactory.localhost/api/orpc", {
       headers: { cookie: "flag; other=value" },
-    })
+    });
 
-    return expect(resolveAnalyticsConsent(request)).toBe("unknown")
-  })
+    return expect(resolveAnalyticsConsent(request)).toBe("unknown");
+  });
 
-  it("falls back when telemetry omits its callback and isolates rejected flushing", async function() {
+  it("falls back when telemetry omits its callback and isolates rejected flushing", async function () {
     const forceFlush = vi.fn(async () => {
-      throw new Error("provider flush unavailable")
-    }
-    )
+      throw new Error("provider flush unavailable");
+    });
     const telemetry = runtime(
       (async () => undefined) as TelemetryRuntime["withSpan"],
-      forceFlush,
-    )
+      forceFlush
+    );
     const waitUntil = vi.fn(() => {
-      throw new Error("execution context closed")
-    }
-    )
+      throw new Error("execution context closed");
+    });
     const operation = vi.fn((fallbackSpan: SpanHandle) => {
       fallbackSpan.addEvent({
         eventId: "event-1",
         name: "fallback",
         occurredAt: "2026-07-25T00:00:00.000Z",
         correlation: fallbackSpan.correlation,
-      })
-      fallbackSpan.recordMetric({ name: "fallback.metric", value: 1 })
-      return "handled"
-    }
-    )
+      });
+      fallbackSpan.recordMetric({ name: "fallback.metric", value: 1 });
+      return "handled";
+    });
 
-    await expect(runWithRequestTelemetry(
-      telemetry,
-      {
-        name: "orpc.request",
-        correlation: { requestId: "request-1", route: "/api/orpc" },
-      },
-      waitUntil,
-      operation,
-    )).resolves.toBe("handled")
-    expect(operation).toHaveBeenCalledOnce()
-    expect(forceFlush).toHaveBeenCalledOnce()
-    return expect(waitUntil).toHaveBeenCalledOnce()
-  })
+    await expect(
+      runWithRequestTelemetry(
+        telemetry,
+        {
+          name: "orpc.request",
+          correlation: { requestId: "request-1", route: "/api/orpc" },
+        },
+        waitUntil,
+        operation
+      )
+    ).resolves.toBe("handled");
+    expect(operation).toHaveBeenCalledOnce();
+    expect(forceFlush).toHaveBeenCalledOnce();
+    return expect(waitUntil).toHaveBeenCalledOnce();
+  });
 
-  it("rethrows primitive telemetry failures instead of treating them as provider outages", async function() {
-    const failure = "telemetry primitive failure"
-    const forceFlush = vi.fn(async () => undefined)
+  it("rethrows primitive telemetry failures instead of treating them as provider outages", async function () {
+    const failure = "telemetry primitive failure";
+    const forceFlush = vi.fn(async () => undefined);
     const telemetry = runtime(async () => {
-      throw failure
-    }
-    , forceFlush)
-    const waitUntil = vi.fn((promise: Promise<unknown>) => void promise)
-    const operation = vi.fn(async () => "not reached")
+      throw failure;
+    }, forceFlush);
+    const waitUntil = vi.fn((promise: Promise<unknown>) => void promise);
+    const operation = vi.fn(async () => "not reached");
 
-    await expect(runWithRequestTelemetry(
-      telemetry,
-      { name: "orpc.request", correlation: { requestId: "request-1" } },
-      waitUntil,
-      operation,
-    )).rejects.toBe(failure)
-    expect(operation).not.toHaveBeenCalled()
-    expect(forceFlush).toHaveBeenCalledOnce()
-    return expect(waitUntil).toHaveBeenCalledOnce()
-  })
+    await expect(
+      runWithRequestTelemetry(
+        telemetry,
+        { name: "orpc.request", correlation: { requestId: "request-1" } },
+        waitUntil,
+        operation
+      )
+    ).rejects.toBe(failure);
+    expect(operation).not.toHaveBeenCalled();
+    expect(forceFlush).toHaveBeenCalledOnce();
+    return expect(waitUntil).toHaveBeenCalledOnce();
+  });
 
-  it("rethrows primitive execution-context failures during flush scheduling", async function() {
-    const failure = "execution context primitive failure"
-    const telemetry = runtime(async (_input, run) => run(span))
+  it("rethrows primitive execution-context failures during flush scheduling", async function () {
+    const failure = "execution context primitive failure";
+    const telemetry = runtime(async (_input, run) => run(span));
     const waitUntil = vi.fn(() => {
-      throw failure
-    }
-    )
-    const operation = vi.fn(async () => "handled")
+      throw failure;
+    });
+    const operation = vi.fn(async () => "handled");
 
-    await expect(runWithRequestTelemetry(
-      telemetry,
-      { name: "orpc.request", correlation: { requestId: "request-1" } },
-      waitUntil,
-      operation,
-    )).rejects.toBe(failure)
-    expect(operation).toHaveBeenCalledOnce()
-    return expect(waitUntil).toHaveBeenCalledOnce()
-  })
+    await expect(
+      runWithRequestTelemetry(
+        telemetry,
+        { name: "orpc.request", correlation: { requestId: "request-1" } },
+        waitUntil,
+        operation
+      )
+    ).rejects.toBe(failure);
+    expect(operation).toHaveBeenCalledOnce();
+    return expect(waitUntil).toHaveBeenCalledOnce();
+  });
 
-  return it("does not derive an allowlist entry from a hostname-free URL", function() {
-    return expect(configuredOtlpAllowedHosts("file:///tmp/traces")).toEqual([])
-  })
-})
+  return it("does not derive an allowlist entry from a hostname-free URL", function () {
+    return expect(configuredOtlpAllowedHosts("file:///tmp/traces")).toEqual([]);
+  });
+});

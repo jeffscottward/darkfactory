@@ -1,14 +1,24 @@
-import { createHash, randomUUID } from "node:crypto"
-import { lstat, mkdir, mkdtemp, readFile, readlink, realpath, rm, symlink, writeFile } from "node:fs/promises"
-import { tmpdir } from "node:os"
-import { join } from "node:path"
+import { createHash, randomUUID } from "node:crypto";
+import {
+  lstat,
+  mkdir,
+  mkdtemp,
+  readFile,
+  readlink,
+  realpath,
+  rm,
+  symlink,
+  writeFile,
+} from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
-import { afterEach, describe, expect, it, vi } from "vitest"
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type {
   WorkflowRepository,
   WorkflowRetainedResourceClaim,
-} from "@darkfactory/db/server/workflow"
-import { canonicalJsonV1 } from "@darkfactory/state/workflow"
+} from "@darkfactory/db/server/workflow";
+import { canonicalJsonV1 } from "@darkfactory/state/workflow";
 
 import {
   OMP_IMPLEMENTATION_ARTIFACT_IDENTITY,
@@ -19,37 +29,36 @@ import {
   type OmpCliAdapter,
   type OmpImplementationArtifact,
   type OmpImplementationArtifactEntry,
-} from "./omp.ts"
+} from "./omp.ts";
 import {
   createWorkflowRuntime,
   createWorkflowTerminalReconciler,
   type WorkflowRetainedResourcePort,
-} from "./workflow-runtime.ts"
+} from "./workflow-runtime.ts";
 
-const roots: string[] = []
-const SOURCE_HEAD = "a".repeat(40)
-const WORKSPACE_KEY = "b".repeat(64)
-const CHANGE_HASH = "c".repeat(64)
+const roots: string[] = [];
+const SOURCE_HEAD = "a".repeat(40);
+const WORKSPACE_KEY = "b".repeat(64);
+const CHANGE_HASH = "c".repeat(64);
 
 const artifactFor = (
-  entries: readonly OmpImplementationArtifactEntry[],
+  entries: readonly OmpImplementationArtifactEntry[]
 ): OmpImplementationArtifact => {
-  const ownerNonce = randomUUID()
+  const ownerNonce = randomUUID();
   const exactEntries = entries.map((entry) => {
     if (entry.kind === "symlink") {
-      return { path: entry.path, kind: entry.kind, target: entry.target }
+      return { path: entry.path, kind: entry.kind, target: entry.target };
     }
     if (entry.kind === "file") {
       return {
         path: entry.path,
         kind: entry.kind,
         mode: entry.mode,
-        contentBase64: entry.contentBase64
-      }
+        contentBase64: entry.contentBase64,
+      };
     }
-    return { path: entry.path, kind: entry.kind }
-  }
-  )
+    return { path: entry.path, kind: entry.kind };
+  });
   const content = JSON.stringify({
     version: 1,
     sourceHead: SOURCE_HEAD,
@@ -57,7 +66,7 @@ const artifactFor = (
     ownerNonce,
     changeHash: CHANGE_HASH,
     entries: exactEntries,
-  })
+  });
   return {
     identity: OMP_IMPLEMENTATION_ARTIFACT_IDENTITY,
     bytes: Buffer.byteLength(content),
@@ -67,68 +76,95 @@ const artifactFor = (
     workspaceKey: WORKSPACE_KEY,
     ownerNonce,
     changeHash: CHANGE_HASH,
-  }
-}
+  };
+};
 
 afterEach(async () => {
-  return await Promise.all(roots.splice(0).map((root) => {
-    return rm(root, { recursive: true, force: true })
-  }
-  ))
-}
-)
+  return await Promise.all(
+    roots.splice(0).map((root) => {
+      return rm(root, { recursive: true, force: true });
+    })
+  );
+});
 
 describe("OMP implementation artifact recovery", () => {
   it("rehydrates the exact digest-validated file, directory, deletion, and symlink operations", async () => {
     const root = await realpath(
-      await mkdtemp(join(tmpdir(), "darkfactory-recovery-test-")),
-    )
-    roots.push(root)
-    await mkdir(join(root, "src", "removed"), { recursive: true })
-    await writeFile(join(root, "src", "removed", "old.txt"), "old")
+      await mkdtemp(join(tmpdir(), "darkfactory-recovery-test-"))
+    );
+    roots.push(root);
+    await mkdir(join(root, "src", "removed"), { recursive: true });
+    await writeFile(join(root, "src", "removed", "old.txt"), "old");
     const artifact = artifactFor([
       { path: "src/config", kind: "directory" },
-      { path: "src/config/value.txt", kind: "file", mode: 0o640, contentBase64: Buffer.from("recovered").toString("base64") },
+      {
+        path: "src/config/value.txt",
+        kind: "file",
+        mode: 0o640,
+        contentBase64: Buffer.from("recovered").toString("base64"),
+      },
       { path: "src/current", kind: "symlink", target: "config/value.txt" },
       { path: "src/removed", kind: "deleted" },
-    ])
+    ]);
 
-    const decoded = decodeOmpImplementationArtifact(artifact, CHANGE_HASH)
-    await applyOmpImplementationArtifact(root, decoded)
+    const decoded = decodeOmpImplementationArtifact(artifact, CHANGE_HASH);
+    await applyOmpImplementationArtifact(root, decoded);
 
-    expect(await readFile(join(root, "src", "config", "value.txt"), "utf8")).toBe("recovered")
-    expect((await lstat(join(root, "src", "config", "value.txt"))).mode & 0o777).toBe(0o640)
-    expect(await readlink(join(root, "src", "current"))).toBe("config/value.txt")
-    return await expect(lstat(join(root, "src", "removed"))).rejects.toMatchObject({ code: "ENOENT" })
-  }
-  )
+    expect(
+      await readFile(join(root, "src", "config", "value.txt"), "utf8")
+    ).toBe("recovered");
+    expect(
+      (await lstat(join(root, "src", "config", "value.txt"))).mode & 0o777
+    ).toBe(0o640);
+    expect(await readlink(join(root, "src", "current"))).toBe(
+      "config/value.txt"
+    );
+    return await expect(
+      lstat(join(root, "src", "removed"))
+    ).rejects.toMatchObject({ code: "ENOENT" });
+  });
 
   it("fails closed when persisted artifact content is tampered", () => {
     const artifact = artifactFor([
-      { path: "src/value.txt", kind: "file", mode: 0o600, contentBase64: Buffer.from("safe").toString("base64") },
-    ])
-    const tampered = { ...artifact, content: `${artifact.content} ` }
+      {
+        path: "src/value.txt",
+        kind: "file",
+        mode: 0o600,
+        contentBase64: Buffer.from("safe").toString("base64"),
+      },
+    ]);
+    const tampered = { ...artifact, content: `${artifact.content} ` };
 
-    return expect(() => decodeOmpImplementationArtifact(tampered, CHANGE_HASH)).toThrow(OmpRequestError)
-  }
-  )
+    return expect(() =>
+      decodeOmpImplementationArtifact(tampered, CHANGE_HASH)
+    ).toThrow(OmpRequestError);
+  });
 
   it("rejects traversal, absolute, and multi-level escaping symlink operations", () => {
     const traversal = artifactFor([
       { path: "../outside", kind: "file", mode: 0o600, contentBase64: "" },
-    ])
+    ]);
     const absoluteSymlink = artifactFor([
       { path: "src/absolute", kind: "symlink", target: "/etc/passwd" },
-    ])
+    ]);
     const escapingSymlink = artifactFor([
-      { path: "src/nested/escape", kind: "symlink", target: "../../../outside" },
-    ])
+      {
+        path: "src/nested/escape",
+        kind: "symlink",
+        target: "../../../outside",
+      },
+    ]);
 
-    expect(() => decodeOmpImplementationArtifact(traversal, CHANGE_HASH)).toThrow(OmpRequestError)
-    expect(() => decodeOmpImplementationArtifact(absoluteSymlink, CHANGE_HASH)).toThrow(OmpRequestError)
-    return expect(() => decodeOmpImplementationArtifact(escapingSymlink, CHANGE_HASH)).toThrow(OmpRequestError)
-  }
-  )
+    expect(() =>
+      decodeOmpImplementationArtifact(traversal, CHANGE_HASH)
+    ).toThrow(OmpRequestError);
+    expect(() =>
+      decodeOmpImplementationArtifact(absoluteSymlink, CHANGE_HASH)
+    ).toThrow(OmpRequestError);
+    return expect(() =>
+      decodeOmpImplementationArtifact(escapingSymlink, CHANGE_HASH)
+    ).toThrow(OmpRequestError);
+  });
 
   it("rejects package-local node_modules dependency shadows", () => {
     const shadow = artifactFor([
@@ -138,59 +174,64 @@ describe("OMP implementation artifact recovery", () => {
         mode: 0o600,
         contentBase64: Buffer.from("{}").toString("base64"),
       },
-    ])
+    ]);
 
-    return expect(() => decodeOmpImplementationArtifact(shadow, CHANGE_HASH)).toThrow(OmpRequestError)
-  }
-  )
+    return expect(() =>
+      decodeOmpImplementationArtifact(shadow, CHANGE_HASH)
+    ).toThrow(OmpRequestError);
+  });
 
   it("rejects writes through a pre-existing parent symlink", async () => {
     const root = await realpath(
-      await mkdtemp(join(tmpdir(), "darkfactory-recovery-test-")),
-    )
+      await mkdtemp(join(tmpdir(), "darkfactory-recovery-test-"))
+    );
     const outside = await realpath(
-      await mkdtemp(join(tmpdir(), "darkfactory-recovery-outside-")),
-    )
-    roots.push(root, outside)
-    await symlink(outside, join(root, "src"))
+      await mkdtemp(join(tmpdir(), "darkfactory-recovery-outside-"))
+    );
+    roots.push(root, outside);
+    await symlink(outside, join(root, "src"));
     const artifact = artifactFor([
-      { path: "src/value.txt", kind: "file", mode: 0o600, contentBase64: Buffer.from("attack").toString("base64") },
-    ])
+      {
+        path: "src/value.txt",
+        kind: "file",
+        mode: 0o600,
+        contentBase64: Buffer.from("attack").toString("base64"),
+      },
+    ]);
 
     await expect(
       applyOmpImplementationArtifact(
         root,
-        decodeOmpImplementationArtifact(artifact, CHANGE_HASH),
-      ),
-    ).rejects.toThrow(OmpRequestError)
-    return await expect(lstat(join(outside, "value.txt"))).rejects.toMatchObject({ code: "ENOENT" })
-  }
-  )
+        decodeOmpImplementationArtifact(artifact, CHANGE_HASH)
+      )
+    ).rejects.toThrow(OmpRequestError);
+    return await expect(
+      lstat(join(outside, "value.txt"))
+    ).rejects.toMatchObject({ code: "ENOENT" });
+  });
 
   return it("rejects symlink targets that traverse an existing symlink chain", async () => {
     const root = await realpath(
-      await mkdtemp(join(tmpdir(), "darkfactory-recovery-test-")),
-    )
+      await mkdtemp(join(tmpdir(), "darkfactory-recovery-test-"))
+    );
     const outside = await realpath(
-      await mkdtemp(join(tmpdir(), "darkfactory-recovery-outside-")),
-    )
-    roots.push(root, outside)
-    await mkdir(join(root, "src"), { recursive: true })
-    await symlink(outside, join(root, "src", "chain"))
+      await mkdtemp(join(tmpdir(), "darkfactory-recovery-outside-"))
+    );
+    roots.push(root, outside);
+    await mkdir(join(root, "src"), { recursive: true });
+    await symlink(outside, join(root, "src", "chain"));
     const artifact = artifactFor([
       { path: "src/alias", kind: "symlink", target: "chain/value.txt" },
-    ])
+    ]);
 
     return await expect(
       applyOmpImplementationArtifact(
         root,
-        decodeOmpImplementationArtifact(artifact, CHANGE_HASH),
-      ),
-    ).rejects.toThrow(OmpRequestError)
-  }
-  )
-}
-)
+        decodeOmpImplementationArtifact(artifact, CHANGE_HASH)
+      )
+    ).rejects.toThrow(OmpRequestError);
+  });
+});
 
 const CLEANUP_ARTIFACT = artifactFor([
   {
@@ -199,11 +240,11 @@ const CLEANUP_ARTIFACT = artifactFor([
     mode: 0o600,
     contentBase64: Buffer.from("value").toString("base64"),
   },
-])
+]);
 const CLEANUP_SCOPE = Object.freeze({
   repositoryId: "repository-1",
   paths: Object.freeze(["src"]),
-})
+});
 const cleanupClaim = Object.freeze({
   runId: "run-1",
   ownerId: "owner-1",
@@ -220,10 +261,10 @@ const cleanupClaim = Object.freeze({
   }),
   leaseOwner: "worker-1",
   fence: 2,
-})
+});
 
 const retainedPort = (
-  overrides: Partial<WorkflowRetainedResourcePort> = {},
+  overrides: Partial<WorkflowRetainedResourcePort> = {}
 ): WorkflowRetainedResourcePort => ({
   claimRetainedResources: vi.fn(async () => [cleanupClaim]),
   heartbeatRetainedResource: vi.fn(async () => true),
@@ -231,310 +272,330 @@ const retainedPort = (
   completeRetainedResource: vi.fn(async () => true),
   failRetainedResource: vi.fn(async () => true),
   ...overrides,
-})
+});
 
 describe("terminal OMP resource reconciliation", () => {
   it("rejects every invalid reconciler bound", () => {
-    const results=[];for (const overrides of [
+    const results = [];
+    for (const overrides of [
       { limit: 0 },
       { limit: 33 },
       { leaseMilliseconds: 1 },
       { leaseMilliseconds: 300_001 },
       { heartbeatMilliseconds: 0 },
-      { leaseMilliseconds: 10, heartbeatMilliseconds: 10 }
+      { leaseMilliseconds: 10, heartbeatMilliseconds: 10 },
     ]) {
-      results.push(expect(() => createWorkflowTerminalReconciler({
-        repository: retainedPort(),
-        leaseOwner: "worker-1",
-        cleanup: vi.fn(async () => undefined),
-        ...overrides
-      })).toThrow(TypeError))
-    };return results;
-  }
-  )
+      results.push(
+        expect(() =>
+          createWorkflowTerminalReconciler({
+            repository: retainedPort(),
+            leaseOwner: "worker-1",
+            cleanup: vi.fn(async () => undefined),
+            ...overrides,
+          })
+        ).toThrow(TypeError)
+      );
+    }
+    return results;
+  });
   it("returns an empty live batch without invoking cleanup or persistence", async () => {
-    const cleanup = vi.fn(async () => undefined)
+    const cleanup = vi.fn(async () => undefined);
     const repository = retainedPort({
-      claimRetainedResources: vi.fn(async () => [])
-    })
-    await expect(createWorkflowTerminalReconciler({
-      repository,
-      leaseOwner: "worker-1",
-      cleanup
-    }).runOnce()).resolves.toEqual([])
-    expect(cleanup).not.toHaveBeenCalled()
-    expect(repository.heartbeatRetainedResource).not.toHaveBeenCalled()
-    expect(repository.completeRetainedResource).not.toHaveBeenCalled()
-    expect(repository.releaseRetainedResource).not.toHaveBeenCalled()
-    expect(repository.failRetainedResource).not.toHaveBeenCalled()
-
-    const execute = vi.fn()
-    const cleanupRetainedWorkspace = vi.fn(async () => undefined)
-    const runtimeRepository = Object.freeze({
-      ...retainedPort({
-        claimRetainedResources: vi.fn(async () => [])
-      }),
-      claimDueEffects: vi.fn(async () => [])
-    }) as unknown as WorkflowRepository
-    await expect(createWorkflowRuntime({
-      repository: runtimeRepository,
-      adapter: { execute, cleanupRetainedWorkspace },
-      leaseOwner: "worker-1",
-      authorizeRepository: () => true
-    }).runOnce()).resolves.toEqual([])
-    expect(execute).not.toHaveBeenCalled()
-    return expect(cleanupRetainedWorkspace).not.toHaveBeenCalled()
-  }
-  )
-
-
-  it("fails closed before cleanup when the initial heartbeat loses ownership or throws", async () => {
-    const results1=[];for (const heartbeat of [false, new Error("heartbeat unavailable")]) {
-      const cleanup = vi.fn(async () => undefined)
-      const repository = retainedPort({
-        heartbeatRetainedResource: vi.fn(async () => {
-          if (heartbeat instanceof Error) throw heartbeat
-          return heartbeat
-        }
-        )
-      })
-      await expect(createWorkflowTerminalReconciler({
+      claimRetainedResources: vi.fn(async () => []),
+    });
+    await expect(
+      createWorkflowTerminalReconciler({
         repository,
         leaseOwner: "worker-1",
-        cleanup
-      }).runOnce()).resolves.toEqual([])
-      expect(cleanup).not.toHaveBeenCalled()
-      results1.push(expect(repository.completeRetainedResource).not.toHaveBeenCalled())
-    };return results1;
-  }
-  )
+        cleanup,
+      }).runOnce()
+    ).resolves.toEqual([]);
+    expect(cleanup).not.toHaveBeenCalled();
+    expect(repository.heartbeatRetainedResource).not.toHaveBeenCalled();
+    expect(repository.completeRetainedResource).not.toHaveBeenCalled();
+    expect(repository.releaseRetainedResource).not.toHaveBeenCalled();
+    expect(repository.failRetainedResource).not.toHaveBeenCalled();
+
+    const execute = vi.fn();
+    const cleanupRetainedWorkspace = vi.fn(async () => undefined);
+    const runtimeRepository = Object.freeze({
+      ...retainedPort({
+        claimRetainedResources: vi.fn(async () => []),
+      }),
+      claimDueEffects: vi.fn(async () => []),
+    }) as unknown as WorkflowRepository;
+    await expect(
+      createWorkflowRuntime({
+        repository: runtimeRepository,
+        adapter: { execute, cleanupRetainedWorkspace },
+        leaseOwner: "worker-1",
+        authorizeRepository: () => true,
+      }).runOnce()
+    ).resolves.toEqual([]);
+    expect(execute).not.toHaveBeenCalled();
+    return expect(cleanupRetainedWorkspace).not.toHaveBeenCalled();
+  });
+
+  it("fails closed before cleanup when the initial heartbeat loses ownership or throws", async () => {
+    const results1 = [];
+    for (const heartbeat of [false, new Error("heartbeat unavailable")]) {
+      const cleanup = vi.fn(async () => undefined);
+      const repository = retainedPort({
+        heartbeatRetainedResource: vi.fn(async () => {
+          if (heartbeat instanceof Error) throw heartbeat;
+          return heartbeat;
+        }),
+      });
+      await expect(
+        createWorkflowTerminalReconciler({
+          repository,
+          leaseOwner: "worker-1",
+          cleanup,
+        }).runOnce()
+      ).resolves.toEqual([]);
+      expect(cleanup).not.toHaveBeenCalled();
+      results1.push(
+        expect(repository.completeRetainedResource).not.toHaveBeenCalled()
+      );
+    }
+    return results1;
+  });
 
   it("drops completion when a live heartbeat loses ownership across cleanup outcomes", async () => {
-    const results2=[];for (const cleanupRejects of [false, true]) {
-      const heartbeatRetainedResource = vi.fn()
+    const results2 = [];
+    for (const cleanupRejects of [false, true]) {
+      const heartbeatRetainedResource = vi
+        .fn()
         .mockResolvedValueOnce(true)
-        .mockResolvedValueOnce(false)
-      const once = Object.freeze({ once: true })
-      const cleanup = vi.fn((
-        _claim: WorkflowRetainedResourceClaim,
-        signal: AbortSignal,
-      ) => new Promise<void>((resolve, reject) => {
-        return signal.addEventListener(
-          "abort",
-          () => {
-            if (cleanupRejects) {
-              return reject(new Error("cleanup aborted"))
-            }
-            else {
-              return resolve()
-            }
-          },
-          once
-        )
-      }
-      ))
-      results2.push(await expect(createWorkflowTerminalReconciler({
-        repository: retainedPort({ heartbeatRetainedResource }),
-        leaseOwner: "worker-1",
-        cleanup,
-        leaseMilliseconds: 20,
-        heartbeatMilliseconds: 1
-      }).runOnce()).resolves.toEqual([]))
-    };return results2;
-  }
-  )
+        .mockResolvedValueOnce(false);
+      const once = Object.freeze({ once: true });
+      const cleanup = vi.fn(
+        (_claim: WorkflowRetainedResourceClaim, signal: AbortSignal) =>
+          new Promise<void>((resolve, reject) => {
+            return signal.addEventListener(
+              "abort",
+              () => {
+                if (cleanupRejects) {
+                  return reject(new Error("cleanup aborted"));
+                } else {
+                  return resolve();
+                }
+              },
+              once
+            );
+          })
+      );
+      results2.push(
+        await expect(
+          createWorkflowTerminalReconciler({
+            repository: retainedPort({ heartbeatRetainedResource }),
+            leaseOwner: "worker-1",
+            cleanup,
+            leaseMilliseconds: 20,
+            heartbeatMilliseconds: 1,
+          }).runOnce()
+        ).resolves.toEqual([])
+      );
+    }
+    return results2;
+  });
 
   it("does not issue queued renewals after a heartbeat reports lost ownership", async () => {
-    vi.useFakeTimers()
+    vi.useFakeTimers();
     try {
-      let loseOwnership: (() => void) | undefined
-      const heartbeatRetainedResource = vi.fn()
+      let loseOwnership: (() => void) | undefined;
+      const heartbeatRetainedResource = vi
+        .fn()
         .mockResolvedValueOnce(true)
-        .mockImplementationOnce(() => new Promise<boolean>((resolve) => {
-          return loseOwnership = () => resolve(false)
-        }
-        ))
-      const cleanup = vi.fn((
-        _claim: WorkflowRetainedResourceClaim,
-        signal: AbortSignal,
-      ) => new Promise<void>((resolve) => {
-        return signal.addEventListener("abort", () => resolve(), { once: true })
-      }
-      ))
+        .mockImplementationOnce(
+          () =>
+            new Promise<boolean>((resolve) => {
+              return (loseOwnership = () => resolve(false));
+            })
+        );
+      const cleanup = vi.fn(
+        (_claim: WorkflowRetainedResourceClaim, signal: AbortSignal) =>
+          new Promise<void>((resolve) => {
+            return signal.addEventListener("abort", () => resolve(), {
+              once: true,
+            });
+          })
+      );
       const running = createWorkflowTerminalReconciler({
         repository: retainedPort({ heartbeatRetainedResource }),
         leaseOwner: "worker-1",
         cleanup,
         leaseMilliseconds: 20,
-        heartbeatMilliseconds: 1
-      }).runOnce()
-      await vi.advanceTimersByTimeAsync(0)
-      expect(heartbeatRetainedResource).toHaveBeenCalledOnce()
-      await vi.advanceTimersByTimeAsync(1)
-      expect(heartbeatRetainedResource).toHaveBeenCalledTimes(2)
-      await vi.advanceTimersByTimeAsync(5)
-      loseOwnership?.()
-      await vi.advanceTimersByTimeAsync(0)
-      await expect(running).resolves.toEqual([])
-      return expect(heartbeatRetainedResource).toHaveBeenCalledTimes(2)
+        heartbeatMilliseconds: 1,
+      }).runOnce();
+      await vi.advanceTimersByTimeAsync(0);
+      expect(heartbeatRetainedResource).toHaveBeenCalledOnce();
+      await vi.advanceTimersByTimeAsync(1);
+      expect(heartbeatRetainedResource).toHaveBeenCalledTimes(2);
+      await vi.advanceTimersByTimeAsync(5);
+      loseOwnership?.();
+      await vi.advanceTimersByTimeAsync(0);
+      await expect(running).resolves.toEqual([]);
+      return expect(heartbeatRetainedResource).toHaveBeenCalledTimes(2);
+    } finally {
+      vi.clearAllTimers();
+      vi.useRealTimers();
     }
-    finally {
-      vi.clearAllTimers()
-      vi.useRealTimers()
-    }
-  }
-  )
+  });
 
   it("ignores a queued interval callback after heartbeats stop", async () => {
-    vi.useFakeTimers()
-    const clearInterval = vi.spyOn(globalThis, "clearInterval")
-      .mockImplementation(() => undefined)
+    vi.useFakeTimers();
+    const clearInterval = vi
+      .spyOn(globalThis, "clearInterval")
+      .mockImplementation(() => undefined);
     try {
-      const heartbeatRetainedResource = vi.fn(async () => true)
+      const heartbeatRetainedResource = vi.fn(async () => true);
       await createWorkflowTerminalReconciler({
         repository: retainedPort({ heartbeatRetainedResource }),
         leaseOwner: "worker-1",
         cleanup: vi.fn(async () => undefined),
         leaseMilliseconds: 20,
-        heartbeatMilliseconds: 1
-      }).runOnce()
-      await vi.advanceTimersByTimeAsync(1)
-      return expect(heartbeatRetainedResource).toHaveBeenCalledOnce()
+        heartbeatMilliseconds: 1,
+      }).runOnce();
+      await vi.advanceTimersByTimeAsync(1);
+      return expect(heartbeatRetainedResource).toHaveBeenCalledOnce();
+    } finally {
+      vi.clearAllTimers();
+      clearInterval.mockRestore();
+      vi.useRealTimers();
     }
-    finally {
-      vi.clearAllTimers()
-      clearInterval.mockRestore()
-      vi.useRealTimers()
-    }
-  }
-  )
+  });
 
   it("coalesces active runs and stops before or immediately after claiming", async () => {
     const alreadyStopped = createWorkflowTerminalReconciler({
       repository: retainedPort(),
       leaseOwner: "worker-1",
-      cleanup: vi.fn(async () => undefined)
-    })
-    await alreadyStopped.stop()
-    await expect(alreadyStopped.runOnce()).resolves.toEqual([])
+      cleanup: vi.fn(async () => undefined),
+    });
+    await alreadyStopped.stop();
+    await expect(alreadyStopped.runOnce()).resolves.toEqual([]);
 
-    let releaseClaims: (() => void) | undefined
-    const cleanup = vi.fn(async () => undefined)
+    let releaseClaims: (() => void) | undefined;
+    const cleanup = vi.fn(async () => undefined);
     const pending = createWorkflowTerminalReconciler({
       repository: retainedPort({
         claimRetainedResources: vi.fn(() => {
-          return new Promise<readonly WorkflowRetainedResourceClaim[]>((resolve) => {
-            return releaseClaims = () => resolve([cleanupClaim])
-          }
-          )
-        }
-        )
+          return new Promise<readonly WorkflowRetainedResourceClaim[]>(
+            (resolve) => {
+              return (releaseClaims = () => resolve([cleanupClaim]));
+            }
+          );
+        }),
       }),
       leaseOwner: "worker-1",
-      cleanup
-    })
-    const first = pending.runOnce()
-    expect(pending.runOnce()).toBe(first)
-    const stopping = pending.stop()
-    releaseClaims?.()
-    await expect(Promise.all([first, stopping])).resolves.toEqual([[], undefined])
-    return expect(cleanup).not.toHaveBeenCalled()
-  }
-  )
+      cleanup,
+    });
+    const first = pending.runOnce();
+    expect(pending.runOnce()).toBe(first);
+    const stopping = pending.stop();
+    releaseClaims?.();
+    await expect(Promise.all([first, stopping])).resolves.toEqual([
+      [],
+      undefined,
+    ]);
+    return expect(cleanup).not.toHaveBeenCalled();
+  });
 
   it("reports completion, release, and terminal persistence ownership failures", async () => {
-    await expect(createWorkflowTerminalReconciler({
-      repository: retainedPort({
-        completeRetainedResource: vi.fn(async () => false)
-      }),
-      leaseOwner: "worker-1",
-      cleanup: vi.fn(async () => undefined)
-    }).runOnce()).resolves.toEqual([])
+    await expect(
+      createWorkflowTerminalReconciler({
+        repository: retainedPort({
+          completeRetainedResource: vi.fn(async () => false),
+        }),
+        leaseOwner: "worker-1",
+        cleanup: vi.fn(async () => undefined),
+      }).runOnce()
+    ).resolves.toEqual([]);
 
-    const releaseError = new Error("release unavailable")
-    await expect(createWorkflowTerminalReconciler({
-      repository: retainedPort({
-        releaseRetainedResource: vi.fn(async () => {
-          throw releaseError
-        }
-        )
-      }),
-      leaseOwner: "worker-1",
-      cleanup: vi.fn(async () => {
-        throw new OmpWorkspaceBusyError()
-      }
-      )
-    }).runOnce()).rejects.toBe(releaseError)
+    const releaseError = new Error("release unavailable");
+    await expect(
+      createWorkflowTerminalReconciler({
+        repository: retainedPort({
+          releaseRetainedResource: vi.fn(async () => {
+            throw releaseError;
+          }),
+        }),
+        leaseOwner: "worker-1",
+        cleanup: vi.fn(async () => {
+          throw new OmpWorkspaceBusyError();
+        }),
+      }).runOnce()
+    ).rejects.toBe(releaseError);
 
-    const failError = new Error("failure persistence unavailable")
-    await expect(createWorkflowTerminalReconciler({
-      repository: retainedPort({
-        failRetainedResource: vi.fn(async () => {
-          throw failError
-        }
-        )
-      }),
-      leaseOwner: "worker-1",
-      cleanup: vi.fn(async () => {
-        throw new Error("cleanup failed")
-      }
-      )
-    }).runOnce()).rejects.toBe(failError)
+    const failError = new Error("failure persistence unavailable");
+    await expect(
+      createWorkflowTerminalReconciler({
+        repository: retainedPort({
+          failRetainedResource: vi.fn(async () => {
+            throw failError;
+          }),
+        }),
+        leaseOwner: "worker-1",
+        cleanup: vi.fn(async () => {
+          throw new Error("cleanup failed");
+        }),
+      }).runOnce()
+    ).rejects.toBe(failError);
 
-    const nonErrorRepository = retainedPort()
-    await expect(createWorkflowTerminalReconciler({
-      repository: nonErrorRepository,
-      leaseOwner: "worker-1",
-      cleanup: vi.fn(async () => {
-        throw "cleanup failed"
-      }
-      )
-    }).runOnce()).resolves.toEqual([])
+    const nonErrorRepository = retainedPort();
+    await expect(
+      createWorkflowTerminalReconciler({
+        repository: nonErrorRepository,
+        leaseOwner: "worker-1",
+        cleanup: vi.fn(async () => {
+          throw "cleanup failed";
+        }),
+      }).runOnce()
+    ).resolves.toEqual([]);
     return expect(nonErrorRepository.failRetainedResource).toHaveBeenCalledWith(
       expect.objectContaining({
-        error: "OMP retained resource cleanup failed"
-      }),
-    )
-  }
-  )
+        error: "OMP retained resource cleanup failed",
+      })
+    );
+  });
 
   it("cleans cancel-before-verify resources after terminal persistence", async () => {
-    const repository = retainedPort()
-    const cleanup = vi.fn(async () => undefined)
+    const repository = retainedPort();
+    const cleanup = vi.fn(async () => undefined);
     const reconciler = createWorkflowTerminalReconciler({
       repository,
       leaseOwner: "worker-1",
       cleanup,
-    })
+    });
 
-    await expect(reconciler.runOnce()).resolves.toEqual([{ runId: "run-1", status: "completed" }])
-    expect(cleanup).toHaveBeenCalledWith(cleanupClaim, expect.any(AbortSignal))
+    await expect(reconciler.runOnce()).resolves.toEqual([
+      { runId: "run-1", status: "completed" },
+    ]);
+    expect(cleanup).toHaveBeenCalledWith(cleanupClaim, expect.any(AbortSignal));
     return expect(repository.completeRetainedResource).toHaveBeenCalledWith({
       runId: "run-1",
       leaseOwner: "worker-1",
       fence: 2,
-    })
-  }
-  )
+    });
+  });
 
   it("reclaims terminal resources on a fresh worker after restart", async () => {
-    const repository = retainedPort()
-    const cleanup = vi.fn(async () => undefined)
+    const repository = retainedPort();
+    const cleanup = vi.fn(async () => undefined);
 
     await createWorkflowTerminalReconciler({
       repository,
       leaseOwner: "worker-after-restart",
       cleanup,
-    }).runOnce()
+    }).runOnce();
 
     expect(repository.claimRetainedResources).toHaveBeenCalledWith({
       leaseOwner: "worker-after-restart",
       limit: 8,
       leaseMilliseconds: 30_000,
-    })
-    return expect(cleanup).toHaveBeenCalledTimes(1)
-  }
-  )
+    });
+    return expect(cleanup).toHaveBeenCalledTimes(1);
+  });
 
   it("composes durable cleanup beside effect polling and maps evidence to the adapter", async () => {
     const repository = Object.freeze({
@@ -542,8 +603,8 @@ describe("terminal OMP resource reconciliation", () => {
         claimRetainedResources: vi.fn(async () => [cleanupClaim]),
       }),
       claimDueEffects: vi.fn(async () => []),
-    }) as unknown as WorkflowRepository
-    const cleanupRetainedWorkspace = vi.fn(async () => undefined)
+    }) as unknown as WorkflowRepository;
+    const cleanupRetainedWorkspace = vi.fn(async () => undefined);
     const runtime = createWorkflowRuntime({
       repository,
       adapter: {
@@ -552,58 +613,56 @@ describe("terminal OMP resource reconciliation", () => {
       },
       leaseOwner: "worker-1",
       authorizeRepository: () => true,
-    })
+    });
 
-    await expect(runtime.runOnce()).resolves.toEqual([])
+    await expect(runtime.runOnce()).resolves.toEqual([]);
 
-    expect(cleanupRetainedWorkspace).toHaveBeenCalledWith(expect.objectContaining({
-      cwd: "repository-1",
-      recovery: {
-        artifact: CLEANUP_ARTIFACT,
-        changeHash: CHANGE_HASH,
-      },
-      signal: expect.any(AbortSignal),
-    }))
+    expect(cleanupRetainedWorkspace).toHaveBeenCalledWith(
+      expect.objectContaining({
+        cwd: "repository-1",
+        recovery: {
+          artifact: CLEANUP_ARTIFACT,
+          changeHash: CHANGE_HASH,
+        },
+        signal: expect.any(AbortSignal),
+      })
+    );
     expect(repository.heartbeatRetainedResource).toHaveBeenCalledWith({
       runId: "run-1",
       leaseOwner: "worker-1",
       fence: 2,
       leaseMilliseconds: 30_000,
-    })
+    });
     return expect(repository.completeRetainedResource).toHaveBeenCalledWith({
       runId: "run-1",
       leaseOwner: "worker-1",
       fence: 2,
-    })
-  }
-  )
+    });
+  });
 
   it("starts cleanup beside a slow effect batch and aborts it during stop", async () => {
-    let releaseEffects: (() => void) | undefined
-    let cleanupSignal: AbortSignal | undefined
+    let releaseEffects: (() => void) | undefined;
+    let cleanupSignal: AbortSignal | undefined;
     const repository = Object.freeze({
       ...retainedPort({
         claimRetainedResources: vi.fn(async () => [cleanupClaim]),
       }),
       claimDueEffects: vi.fn(() => {
-        return new Promise((resolve) => releaseEffects = () => resolve([]))
+        return new Promise((resolve) => (releaseEffects = () => resolve([])));
+      }),
+    }) as unknown as WorkflowRepository;
+    const cleanupRetainedWorkspace = vi.fn(
+      (request: Parameters<OmpCliAdapter["cleanupRetainedWorkspace"]>[0]) => {
+        return new Promise<void>((_resolve, reject) => {
+          cleanupSignal = request.signal;
+          return request.signal?.addEventListener(
+            "abort",
+            () => reject(new Error("cleanup aborted")),
+            { once: true }
+          );
+        });
       }
-      ),
-    }) as unknown as WorkflowRepository
-    const cleanupRetainedWorkspace = vi.fn((
-      request: Parameters<OmpCliAdapter["cleanupRetainedWorkspace"]>[0],
-    ) => {
-      return new Promise<void>((_resolve, reject) => {
-        cleanupSignal = request.signal
-        return request.signal?.addEventListener(
-          "abort",
-          () => reject(new Error("cleanup aborted")),
-          { once: true },
-        )
-      }
-      )
-    }
-    )
+    );
     const runtime = createWorkflowRuntime({
       repository,
       adapter: {
@@ -612,22 +671,26 @@ describe("terminal OMP resource reconciliation", () => {
       },
       leaseOwner: "worker-1",
       authorizeRepository: () => true,
-    })
+    });
 
-    const running = runtime.runOnce()
-    await vi.waitFor(() => expect(cleanupRetainedWorkspace).toHaveBeenCalledOnce())
-    const stopping = runtime.stop()
-    releaseEffects?.()
-    await vi.waitFor(() => expect(cleanupSignal?.aborted).toBe(true))
-    await expect(Promise.all([running, stopping])).resolves.toEqual([[], undefined])
+    const running = runtime.runOnce();
+    await vi.waitFor(() =>
+      expect(cleanupRetainedWorkspace).toHaveBeenCalledOnce()
+    );
+    const stopping = runtime.stop();
+    releaseEffects?.();
+    await vi.waitFor(() => expect(cleanupSignal?.aborted).toBe(true));
+    await expect(Promise.all([running, stopping])).resolves.toEqual([
+      [],
+      undefined,
+    ]);
     expect(repository.releaseRetainedResource).toHaveBeenCalledWith({
       runId: "run-1",
       leaseOwner: "worker-1",
       fence: 2,
-    })
-    return expect(repository.failRetainedResource).not.toHaveBeenCalled()
-  }
-  )
+    });
+    return expect(repository.failRetainedResource).not.toHaveBeenCalled();
+  });
 
   it("settles concurrent poison and healthy cleanup claims independently", async () => {
     const healthy = Object.freeze({
@@ -635,117 +698,115 @@ describe("terminal OMP resource reconciliation", () => {
       runId: "run-2",
       evidenceId: "evidence-2",
       fence: 3,
-    })
+    });
     const repository = retainedPort({
       claimRetainedResources: vi.fn(async () => [cleanupClaim, healthy]),
-    })
+    });
     const cleanup = vi.fn(async (claim: typeof cleanupClaim) => {
-      if (claim.runId === "run-1") throw new Error("temporary cleanup failure");return
-    }
-    )
+      if (claim.runId === "run-1") throw new Error("temporary cleanup failure");
+      return;
+    });
 
-    await expect(createWorkflowTerminalReconciler({
-      repository,
-      leaseOwner: "worker-1",
-      cleanup: cleanup as never,
-      limit: 2,
-    }).runOnce()).resolves.toEqual([{ runId: "run-2", status: "completed" }])
+    await expect(
+      createWorkflowTerminalReconciler({
+        repository,
+        leaseOwner: "worker-1",
+        cleanup: cleanup as never,
+        limit: 2,
+      }).runOnce()
+    ).resolves.toEqual([{ runId: "run-2", status: "completed" }]);
     expect(repository.failRetainedResource).toHaveBeenCalledWith({
       runId: "run-1",
       leaseOwner: "worker-1",
       fence: 2,
       error: "temporary cleanup failure",
-    })
+    });
     return expect(repository.completeRetainedResource).toHaveBeenCalledWith({
       runId: "run-2",
       leaseOwner: "worker-1",
       fence: 3,
-    })
-  }
-  )
+    });
+  });
   it("releases five shutdown-interrupted leases without consuming cleanup attempts", async () => {
-    const repository = retainedPort()
+    const repository = retainedPort();
     for (const iteration of [1, 2, 3, 4, 5]) {
-      let markStarted: (() => void) | undefined
-      const started = new Promise<void>((resolve) => markStarted = resolve)
-      const cleanup = vi.fn((_claim: WorkflowRetainedResourceClaim, signal: AbortSignal) => {
-        return new Promise<void>((_resolve, reject) => {
-          markStarted?.()
-          return signal.addEventListener(
-            "abort",
-            () => reject(new Error("shutdown")),
-            { once: true },
-          )
+      let markStarted: (() => void) | undefined;
+      const started = new Promise<void>((resolve) => (markStarted = resolve));
+      const cleanup = vi.fn(
+        (_claim: WorkflowRetainedResourceClaim, signal: AbortSignal) => {
+          return new Promise<void>((_resolve, reject) => {
+            markStarted?.();
+            return signal.addEventListener(
+              "abort",
+              () => reject(new Error("shutdown")),
+              { once: true }
+            );
+          });
         }
-        )
-      }
-      )
+      );
       const reconciler = createWorkflowTerminalReconciler({
         repository,
         leaseOwner: `worker-${iteration}`,
         cleanup,
-      })
-      const running = reconciler.runOnce()
-      await started
-      await reconciler.stop()
-      await running
+      });
+      const running = reconciler.runOnce();
+      await started;
+      await reconciler.stop();
+      await running;
     }
 
-    expect(repository.releaseRetainedResource).toHaveBeenCalledTimes(5)
-    return expect(repository.failRetainedResource).not.toHaveBeenCalled()
-  }
-  )
+    expect(repository.releaseRetainedResource).toHaveBeenCalledTimes(5);
+    return expect(repository.failRetainedResource).not.toHaveBeenCalled();
+  });
 
   it("reschedules live workspace contention beyond the failure budget and later cleans", async () => {
-    const repository = retainedPort()
-    const cleanup = vi.fn()
+    const repository = retainedPort();
+    const cleanup = vi.fn();
     for (const _attempt of [1, 2, 3, 4, 5, 6]) {
-      cleanup.mockRejectedValueOnce(new OmpWorkspaceBusyError())
+      cleanup.mockRejectedValueOnce(new OmpWorkspaceBusyError());
     }
-    cleanup.mockResolvedValueOnce(undefined)
+    cleanup.mockResolvedValueOnce(undefined);
     const reconciler = createWorkflowTerminalReconciler({
       repository,
       leaseOwner: "worker-1",
       cleanup,
       now: () => new Date("2026-07-29T12:00:00.000Z"),
-    })
+    });
 
     for (const _attempt of [1, 2, 3, 4, 5, 6]) {
-      await expect(reconciler.runOnce()).resolves.toEqual([])
+      await expect(reconciler.runOnce()).resolves.toEqual([]);
     }
     await expect(reconciler.runOnce()).resolves.toEqual([
       { runId: "run-1", status: "completed" },
-    ])
+    ]);
 
-    expect(repository.releaseRetainedResource).toHaveBeenCalledTimes(6)
+    expect(repository.releaseRetainedResource).toHaveBeenCalledTimes(6);
     expect(repository.releaseRetainedResource).toHaveBeenLastCalledWith({
       runId: "run-1",
       leaseOwner: "worker-1",
       fence: 2,
       retryAt: new Date("2026-07-29T12:00:10.000Z"),
-    })
-    return expect(repository.failRetainedResource).not.toHaveBeenCalled()
-  }
-  )
-
+    });
+    return expect(repository.failRetainedResource).not.toHaveBeenCalled();
+  });
 
   return it("persists ownership failures for bounded retry without stopping the poller", async () => {
-    const repository = retainedPort()
-    const ownershipError = new OmpRequestError("OMP workspace cleanup ownership changed")
+    const repository = retainedPort();
+    const ownershipError = new OmpRequestError(
+      "OMP workspace cleanup ownership changed"
+    );
     const reconciler = createWorkflowTerminalReconciler({
       repository,
       leaseOwner: "worker-1",
       cleanup: vi.fn(async () => Promise.reject(ownershipError)),
-    })
+    });
 
-    await expect(reconciler.runOnce()).resolves.toEqual([])
+    await expect(reconciler.runOnce()).resolves.toEqual([]);
     return expect(repository.failRetainedResource).toHaveBeenCalledWith({
       runId: "run-1",
       leaseOwner: "worker-1",
       fence: 2,
       error: "OMP workspace cleanup ownership changed",
-    })
-  }
-  )
-}
-)
+    });
+  });
+});

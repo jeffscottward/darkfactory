@@ -1,10 +1,10 @@
-import { createElement, type ReactElement } from "react"
-import { renderToStaticMarkup } from "react-dom/server"
-import { describe, expect, it } from "vitest"
+import { createElement, type ReactElement } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
+import { describe, expect, it } from "vitest";
 
-import { Avatar } from "./avatar.tsx"
-import { Badge } from "./badge.tsx"
-import { Button } from "./button.tsx"
+import { Avatar } from "./avatar.tsx";
+import { Badge } from "./badge.tsx";
+import { Button } from "./button.tsx";
 import {
   Card,
   CardContent,
@@ -12,22 +12,18 @@ import {
   CardFooter,
   CardHeader,
   CardTitle,
-} from "./card.tsx"
-import { EmptyState } from "./empty-state.tsx"
-import { PageHeader, SectionHeader } from "./headings.tsx"
-import { IconButton } from "./icon-button.tsx"
-import { Label } from "./label.tsx"
-import { Input } from "./input.tsx"
-import { Separator } from "./separator.tsx"
-import { Skeleton, SkeletonGroup } from "./skeleton.tsx"
-import { StatCard } from "./stat-card.tsx"
-import { StatusBadge } from "./status-badge.tsx"
-import { Textarea } from "./textarea.tsx"
-import {
-  DialogBody,
-  DialogContent,
-  DialogFooter,
-} from "./client/dialog.ts"
+} from "./card.tsx";
+import { EmptyState } from "./empty-state.tsx";
+import { PageHeader, SectionHeader } from "./headings.tsx";
+import { IconButton } from "./icon-button.tsx";
+import { Label } from "./label.tsx";
+import { Input } from "./input.tsx";
+import { Separator } from "./separator.tsx";
+import { Skeleton, SkeletonGroup } from "./skeleton.tsx";
+import { StatCard } from "./stat-card.tsx";
+import { StatusBadge } from "./status-badge.tsx";
+import { Textarea } from "./textarea.tsx";
+import { DialogBody, DialogContent, DialogFooter } from "./client/dialog.ts";
 import {
   DropdownMenuCheckboxItem,
   DropdownMenuContent,
@@ -37,137 +33,146 @@ import {
   DropdownMenuSeparator,
   DropdownMenuSubContent,
   DropdownMenuSubTrigger,
-} from "./client/dropdown-menu.ts"
-import {
-  Tabs,
-  TabsContent,
-  TabsList,
-  TabsTrigger,
-} from "./client/tabs.ts"
-import { Toaster } from "./client/toaster.ts"
+} from "./client/dropdown-menu.ts";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "./client/tabs.ts";
+import { Toaster } from "./client/toaster.ts";
 
-const markup = (component: Parameters<typeof renderToStaticMarkup>[0]): string => {
-  return renderToStaticMarkup(component)
-}
+const markup = (
+  component: Parameters<typeof renderToStaticMarkup>[0]
+): string => {
+  return renderToStaticMarkup(component);
+};
 
 const elementProps = (element: ReactElement): Record<string, unknown> => {
-  return (element as ReactElement<Record<string, unknown>>).props
-}
+  return (element as ReactElement<Record<string, unknown>>).props;
+};
 
-describe("semantic server-safe primitives", function() {
-  it("renders safe button defaults, stable loading states, and accessible icon labels", function() {
-    const button = markup(createElement(Button, { disabled: true }, "Save changes"))
+describe("semantic server-safe primitives", function () {
+  it("renders safe button defaults, stable loading states, and accessible icon labels", function () {
+    const button = markup(
+      createElement(Button, { disabled: true }, "Save changes")
+    );
     const loadingButton = markup(
-      createElement(Button, { loading: true, loadingLabel: "Saving changes" }, "Save changes"),
-    )
+      createElement(
+        Button,
+        { loading: true, loadingLabel: "Saving changes" },
+        "Save changes"
+      )
+    );
     const iconButton = markup(
       createElement(
         IconButton,
         { "aria-label": "Open navigation", loading: true },
-        "menu",
-      ),
-    )
+        "menu"
+      )
+    );
 
-    expect(button).toContain('type="button"')
-    expect(button).toContain("disabled")
-    expect(button).toContain("Save changes")
-    expect(loadingButton).toContain('aria-busy="true"')
-    expect(loadingButton).toContain("Saving changes")
-    expect(loadingButton).toContain("invisible")
-    expect(iconButton).toContain('aria-label="Loading: Open navigation"')
-    expect(iconButton).toContain('aria-busy="true"')
-    return expect(iconButton).toContain('type="button"')
-  })
+    expect(button).toContain('type="button"');
+    expect(button).toContain("disabled");
+    expect(button).toContain("Save changes");
+    expect(loadingButton).toContain('aria-busy="true"');
+    expect(loadingButton).toContain("Saving changes");
+    expect(loadingButton).toContain("invisible");
+    expect(iconButton).toContain('aria-label="Loading: Open navigation"');
+    expect(iconButton).toContain('aria-busy="true"');
+    return expect(iconButton).toContain('type="button"');
+  });
 
-  it("preserves form relationships and invalid state", function() {
+  it("preserves form relationships and invalid state", function () {
     const input = markup(
       createElement(Input, {
         id: "email",
         invalid: true,
         "aria-describedby": "email-error",
-      }),
-    )
+      })
+    );
     const textarea = markup(
-      createElement(Textarea, { id: "notes", invalid: true }),
-    )
+      createElement(Textarea, { id: "notes", invalid: true })
+    );
 
-    expect(input).toContain('id="email"')
-    expect(input).toContain('aria-invalid="true"')
-    expect(input).toContain('aria-describedby="email-error"')
-    return expect(textarea).toContain('aria-invalid="true"')
-  })
+    expect(input).toContain('id="email"');
+    expect(input).toContain('aria-invalid="true"');
+    expect(input).toContain('aria-describedby="email-error"');
+    return expect(textarea).toContain('aria-invalid="true"');
+  });
 
-  it("renders regions and configurable headings with explicit accessible names", function() {
+  it("renders regions and configurable headings with explicit accessible names", function () {
     const empty = markup(
       createElement(EmptyState, {
         title: "No feature items",
         description: "Create an item to exercise the vertical slice.",
         headingLevel: 3,
-      }),
-    )
+      })
+    );
     const portalHeader = markup(
       createElement(PageHeader, {
         title: "Feature items",
         description: "Inspect a complete request path.",
-      }),
-    )
+      })
+    );
     const publicHeader = markup(
       createElement(PageHeader, {
         title: "Architecture",
         variant: "public",
-      }),
-    )
+      })
+    );
     const sectionHeader = markup(
-      createElement(SectionHeader, { title: "Recent items", headingLevel: 3 }),
-    )
+      createElement(SectionHeader, { title: "Recent items", headingLevel: 3 })
+    );
     const cardTitle = markup(
-      createElement(CardTitle, { headingLevel: 2 }, "Account settings"),
-    )
+      createElement(CardTitle, { headingLevel: 2 }, "Account settings")
+    );
 
-    expect(empty).toContain('role="region"')
-    expect(empty).toMatch(/aria-labelledby="[^"]+"/)
-    expect(empty).toContain("<h3")
-    expect(portalHeader).toContain("<header")
-    expect(portalHeader).toContain("<h1")
-    expect(portalHeader).toContain("text-2xl")
-    expect(publicHeader).toContain("text-4xl")
-    expect(sectionHeader).toContain("<h3")
-    return expect(cardTitle).toContain("<h2")
-  })
+    expect(empty).toContain('role="region"');
+    expect(empty).toMatch(/aria-labelledby="[^"]+"/);
+    expect(empty).toContain("<h3");
+    expect(portalHeader).toContain("<header");
+    expect(portalHeader).toContain("<h1");
+    expect(portalHeader).toContain("text-2xl");
+    expect(publicHeader).toContain("text-4xl");
+    expect(sectionHeader).toContain("<h3");
+    return expect(cardTitle).toContain("<h2");
+  });
 
-  it("announces one loading region while keeping skeleton shapes decorative", function() {
-    const status = markup(createElement(StatusBadge, { status: "success" }, "Ready"))
+  it("announces one loading region while keeping skeleton shapes decorative", function () {
+    const status = markup(
+      createElement(StatusBadge, { status: "success" }, "Ready")
+    );
     const skeletons = markup(
       createElement(
         SkeletonGroup,
         { label: "Loading feature items" },
         createElement(Skeleton, {}),
-        createElement(Skeleton, {}),
-      ),
-    )
+        createElement(Skeleton, {})
+      )
+    );
 
-    expect(status).toContain('data-status="success"')
-    expect(status).toContain("Status:")
-    expect(status).toContain("Ready")
-    expect(skeletons.match(/role="status"/g)).toHaveLength(1)
-    expect(skeletons).toContain('aria-label="Loading feature items"')
-    return expect(skeletons.match(/aria-hidden="true"/g)).toHaveLength(2)
-  })
+    expect(status).toContain('data-status="success"');
+    expect(status).toContain("Status:");
+    expect(status).toContain("Ready");
+    expect(skeletons.match(/role="status"/g)).toHaveLength(1);
+    expect(skeletons).toContain('aria-label="Loading feature items"');
+    return expect(skeletons.match(/aria-hidden="true"/g)).toHaveLength(2);
+  });
 
-  it("uses semantic data markup and image alternatives", function() {
-    const stat = markup(createElement(StatCard, { label: "Open items", value: "12" }))
-    const avatar = markup(createElement(Avatar, { fallback: "JS", name: "Jeff Scott" }))
-    const separator = markup(createElement(Separator, {}))
+  it("uses semantic data markup and image alternatives", function () {
+    const stat = markup(
+      createElement(StatCard, { label: "Open items", value: "12" })
+    );
+    const avatar = markup(
+      createElement(Avatar, { fallback: "JS", name: "Jeff Scott" })
+    );
+    const separator = markup(createElement(Separator, {}));
 
-    expect(stat).toContain("<dl")
-    expect(stat).toContain("<dt")
-    expect(stat).toContain("<dd")
-    expect(avatar).toContain('role="img"')
-    expect(avatar).toContain('aria-label="Jeff Scott"')
-    return expect(separator).toContain("<hr")
-  })
+    expect(stat).toContain("<dl");
+    expect(stat).toContain("<dt");
+    expect(stat).toContain("<dd");
+    expect(avatar).toContain('role="img"');
+    expect(avatar).toContain('aria-label="Jeff Scott"');
+    return expect(separator).toContain("<hr");
+  });
 
-  it("renders every card region and optional semantic primitive branch", function() {
+  it("renders every card region and optional semantic primitive branch", function () {
     const rendered = markup(
       createElement(
         "div",
@@ -179,7 +184,7 @@ describe("semantic server-safe primitives", function() {
           createElement(CardTitle, {}, "Default title"),
           createElement(CardDescription, {}, "Description"),
           createElement(CardContent, {}, "Content"),
-          createElement(CardFooter, {}, "Footer"),
+          createElement(CardFooter, {}, "Footer")
         ),
         createElement(Badge, { variant: "outline" }, "Outlined"),
         createElement(Avatar, {
@@ -188,31 +193,35 @@ describe("semantic server-safe primitives", function() {
           name: "Jeff Scott",
           src: "https://assets.example.test/avatar.png",
         }),
-        createElement(Label, { optional: true, optionalLabel: "Not required" }, "Alias"),
+        createElement(
+          Label,
+          { optional: true, optionalLabel: "Not required" },
+          "Alias"
+        ),
         createElement(Separator, { orientation: "vertical" }),
         createElement(StatCard, {
           description: "Compared with yesterday",
           label: "Open items",
           value: "12",
-        }),
-      ),
-    )
+        })
+      )
+    );
 
-    expect(rendered).toContain("custom-card")
-    expect(rendered).toContain("Header")
-    expect(rendered).toContain("<h3")
-    expect(rendered).toContain("Description")
-    expect(rendered).toContain("Content")
-    expect(rendered).toContain("Footer")
-    expect(rendered).toContain("Outlined")
-    expect(rendered).toContain('alt="Jeff Scott"')
-    expect(rendered).toContain('loading="lazy"')
-    expect(rendered).toContain("Not required")
-    expect(rendered).toContain('aria-orientation="vertical"')
-    return expect(rendered).toContain("Compared with yesterday")
-  })
+    expect(rendered).toContain("custom-card");
+    expect(rendered).toContain("Header");
+    expect(rendered).toContain("<h3");
+    expect(rendered).toContain("Description");
+    expect(rendered).toContain("Content");
+    expect(rendered).toContain("Footer");
+    expect(rendered).toContain("Outlined");
+    expect(rendered).toContain('alt="Jeff Scott"');
+    expect(rendered).toContain('loading="lazy"');
+    expect(rendered).toContain("Not required");
+    expect(rendered).toContain('aria-orientation="vertical"');
+    return expect(rendered).toContain("Compared with yesterday");
+  });
 
-  return it("renders all optional page and section header regions", function() {
+  return it("renders all optional page and section header regions", function () {
     const rendered = markup(
       createElement(
         "div",
@@ -228,11 +237,12 @@ describe("semantic server-safe primitives", function() {
           actions: createElement("button", { type: "button" }, "Refresh"),
           description: "Section description",
           title: "Recent activity",
-        }),
-      ),
-    )
+        })
+      )
+    );
 
-    const results=[];for (const text of [
+    const results = [];
+    for (const text of [
       "Platform",
       "Public architecture",
       "Public description",
@@ -241,147 +251,188 @@ describe("semantic server-safe primitives", function() {
       "Section description",
       "Refresh",
     ]) {
-      results.push(expect(rendered).toContain(text))
-    };return results;
-  })
-})
+      results.push(expect(rendered).toContain(text));
+    }
+    return results;
+  });
+});
 
-describe("client primitive wrappers", function() {
-  it("forwards dropdown props, defaults, indicators, and inset styling", function() {
-    const defaultContent = DropdownMenuContent({ children: "Default content" })
+describe("client primitive wrappers", function () {
+  it("forwards dropdown props, defaults, indicators, and inset styling", function () {
+    const defaultContent = DropdownMenuContent({ children: "Default content" });
     const customContent = DropdownMenuContent({
       children: "Custom content",
       className: "custom-content",
       sideOffset: 12,
-    })
-    const defaultContentChild = elementProps(defaultContent)["children"] as ReactElement
-    const customContentChild = elementProps(customContent)["children"] as ReactElement
+    });
+    const defaultContentChild = elementProps(defaultContent)[
+      "children"
+    ] as ReactElement;
+    const customContentChild = elementProps(customContent)[
+      "children"
+    ] as ReactElement;
 
-    expect(elementProps(defaultContentChild)["sideOffset"]).toBe(8)
-    expect(elementProps(customContentChild)["sideOffset"]).toBe(12)
-    expect(String(elementProps(customContentChild)["className"])).toContain("custom-content")
+    expect(elementProps(defaultContentChild)["sideOffset"]).toBe(8);
+    expect(elementProps(customContentChild)["sideOffset"]).toBe(12);
+    expect(String(elementProps(customContentChild)["className"])).toContain(
+      "custom-content"
+    );
 
-    const item = DropdownMenuItem({ children: "Item" })
-    const insetItem = DropdownMenuItem({ children: "Inset item", inset: true })
+    const item = DropdownMenuItem({ children: "Item" });
+    const insetItem = DropdownMenuItem({ children: "Inset item", inset: true });
     const checkbox = DropdownMenuCheckboxItem({
       checked: true,
       children: "Checked item",
-    })
+    });
     const radio = DropdownMenuRadioItem({
       children: "Radio item",
       value: "one",
-    })
-    const label = DropdownMenuLabel({ children: "Label" })
-    const insetLabel = DropdownMenuLabel({ children: "Inset label", inset: true })
-    const separator = DropdownMenuSeparator({})
-    const subTrigger = DropdownMenuSubTrigger({ children: "Submenu" })
+    });
+    const label = DropdownMenuLabel({ children: "Label" });
+    const insetLabel = DropdownMenuLabel({
+      children: "Inset label",
+      inset: true,
+    });
+    const separator = DropdownMenuSeparator({});
+    const subTrigger = DropdownMenuSubTrigger({ children: "Submenu" });
     const insetSubTrigger = DropdownMenuSubTrigger({
       children: "Inset submenu",
       inset: true,
-    })
-    const subContent = DropdownMenuSubContent({ children: "Submenu content" })
+    });
+    const subContent = DropdownMenuSubContent({ children: "Submenu content" });
 
-    expect(String(elementProps(item)["className"])).not.toContain("pl-9")
-    expect(String(elementProps(insetItem)["className"])).toContain("pl-9")
-    expect(elementProps(checkbox)["children"]).toBeDefined()
-    expect(elementProps(radio)["children"]).toBeDefined()
-    expect(String(elementProps(label)["className"])).not.toContain("pl-9")
-    expect(String(elementProps(insetLabel)["className"])).toContain("pl-9")
-    expect(String(elementProps(separator)["className"])).toContain("bg-border")
-    expect(String(elementProps(subTrigger)["className"])).not.toContain("pl-9")
-    expect(String(elementProps(insetSubTrigger)["className"])).toContain("pl-9")
-    return expect(String(elementProps(subContent)["className"])).toContain("z-popover")
-  })
+    expect(String(elementProps(item)["className"])).not.toContain("pl-9");
+    expect(String(elementProps(insetItem)["className"])).toContain("pl-9");
+    expect(elementProps(checkbox)["children"]).toBeDefined();
+    expect(elementProps(radio)["children"]).toBeDefined();
+    expect(String(elementProps(label)["className"])).not.toContain("pl-9");
+    expect(String(elementProps(insetLabel)["className"])).toContain("pl-9");
+    expect(String(elementProps(separator)["className"])).toContain("bg-border");
+    expect(String(elementProps(subTrigger)["className"])).not.toContain("pl-9");
+    expect(String(elementProps(insetSubTrigger)["className"])).toContain(
+      "pl-9"
+    );
+    return expect(String(elementProps(subContent)["className"])).toContain(
+      "z-popover"
+    );
+  });
 
-  it("builds both dialog description states and forwards body and footer props", function() {
+  it("builds both dialog description states and forwards body and footer props", function () {
     const described = DialogContent({
       children: "Dialog body",
       className: "custom-dialog",
       closeLabel: "Dismiss settings",
       description: "Dialog description",
       title: "Dialog title",
-    })
+    });
     const undescribed = DialogContent({
       children: "Dialog body",
       title: "Dialog title",
-    })
-    const describedPortalChildren = elementProps(described)["children"] as ReactElement[]
-    const undescribedPortalChildren = elementProps(undescribed)["children"] as ReactElement[]
-    const describedContent = describedPortalChildren[1]!
-    const undescribedContent = undescribedPortalChildren[1]!
-    const describedChildren = elementProps(describedContent)["children"] as unknown[]
-    const undescribedChildren = elementProps(undescribedContent)["children"] as unknown[]
-    const describedHeader = describedChildren[0] as ReactElement
-    const undescribedHeader = undescribedChildren[0] as ReactElement
-    const describedHeaderChildren = elementProps(describedHeader)["children"] as unknown[]
-    const undescribedHeaderChildren = elementProps(undescribedHeader)["children"] as unknown[]
-    const close = describedChildren[2] as ReactElement
-    const body = DialogBody({ children: "Body", className: "custom-body" })
-    const footer = DialogFooter({ children: "Footer", className: "custom-footer" })
+    });
+    const describedPortalChildren = elementProps(described)[
+      "children"
+    ] as ReactElement[];
+    const undescribedPortalChildren = elementProps(undescribed)[
+      "children"
+    ] as ReactElement[];
+    const describedContent = describedPortalChildren[1]!;
+    const undescribedContent = undescribedPortalChildren[1]!;
+    const describedChildren = elementProps(describedContent)[
+      "children"
+    ] as unknown[];
+    const undescribedChildren = elementProps(undescribedContent)[
+      "children"
+    ] as unknown[];
+    const describedHeader = describedChildren[0] as ReactElement;
+    const undescribedHeader = undescribedChildren[0] as ReactElement;
+    const describedHeaderChildren = elementProps(describedHeader)[
+      "children"
+    ] as unknown[];
+    const undescribedHeaderChildren = elementProps(undescribedHeader)[
+      "children"
+    ] as unknown[];
+    const close = describedChildren[2] as ReactElement;
+    const body = DialogBody({ children: "Body", className: "custom-body" });
+    const footer = DialogFooter({
+      children: "Footer",
+      className: "custom-footer",
+    });
 
-    expect(describedHeaderChildren[1]).not.toBeNull()
-    expect(undescribedHeaderChildren[1]).toBeNull()
-    expect(elementProps(close)["aria-label"]).toBe("Dismiss settings")
-    expect(String(elementProps(describedContent)["className"])).toContain("custom-dialog")
-    expect(String(elementProps(body)["className"])).toContain("custom-body")
-    return expect(String(elementProps(footer)["className"])).toContain("custom-footer")
-  })
+    expect(describedHeaderChildren[1]).not.toBeNull();
+    expect(undescribedHeaderChildren[1]).toBeNull();
+    expect(elementProps(close)["aria-label"]).toBe("Dismiss settings");
+    expect(String(elementProps(describedContent)["className"])).toContain(
+      "custom-dialog"
+    );
+    expect(String(elementProps(body)["className"])).toContain("custom-body");
+    return expect(String(elementProps(footer)["className"])).toContain(
+      "custom-footer"
+    );
+  });
 
-  return it("forwards every tabs wrapper and merges toaster defaults with caller options", function() {
-    const tabs = Tabs({ className: "custom-tabs", defaultValue: "one" })
-    const list = TabsList({ className: "custom-list", children: "List" })
+  return it("forwards every tabs wrapper and merges toaster defaults with caller options", function () {
+    const tabs = Tabs({ className: "custom-tabs", defaultValue: "one" });
+    const list = TabsList({ className: "custom-list", children: "List" });
     const trigger = TabsTrigger({
       className: "custom-trigger",
       children: "One",
       value: "one",
-    })
+    });
     const content = TabsContent({
       className: "custom-tab-content",
       children: "Panel",
       value: "one",
-    })
-    const defaults = elementProps(Toaster({}))
-    const customized = elementProps(Toaster({
-      closeButton: false,
-      containerAriaLabel: "Application notices",
-      position: "top-center",
-      theme: "dark",
-      toastOptions: {
-        duration: 1_234,
-        unstyled: false,
-        classNames: {
-          loader: "caller-loader",
-          toast: "caller-toast",
+    });
+    const defaults = elementProps(Toaster({}));
+    const customized = elementProps(
+      Toaster({
+        closeButton: false,
+        containerAriaLabel: "Application notices",
+        position: "top-center",
+        theme: "dark",
+        toastOptions: {
+          duration: 1_234,
+          unstyled: false,
+          classNames: {
+            loader: "caller-loader",
+            toast: "caller-toast",
+          },
         },
-      },
-    }))
+      })
+    );
     const customizedOptions = customized["toastOptions"] as {
-      duration: number
-      unstyled: boolean
-      classNames: Record<string, string>
-    }
+      duration: number;
+      unstyled: boolean;
+      classNames: Record<string, string>;
+    };
 
-    expect(String(elementProps(tabs)["className"])).toContain("custom-tabs")
-    expect(String(elementProps(list)["className"])).toContain("custom-list")
-    expect(String(elementProps(trigger)["className"])).toContain("custom-trigger")
-    expect(String(elementProps(content)["className"])).toContain("custom-tab-content")
+    expect(String(elementProps(tabs)["className"])).toContain("custom-tabs");
+    expect(String(elementProps(list)["className"])).toContain("custom-list");
+    expect(String(elementProps(trigger)["className"])).toContain(
+      "custom-trigger"
+    );
+    expect(String(elementProps(content)["className"])).toContain(
+      "custom-tab-content"
+    );
     expect(defaults).toMatchObject({
       closeButton: true,
       containerAriaLabel: "Notifications",
       position: "bottom-right",
       richColors: false,
       theme: "system",
-    })
+    });
     expect(customized).toMatchObject({
       closeButton: false,
       containerAriaLabel: "Application notices",
       position: "top-center",
       richColors: false,
       theme: "dark",
-    })
-    expect(customizedOptions.duration).toBe(1_234)
-    expect(customizedOptions.unstyled).toBe(true)
-    expect(customizedOptions.classNames["toast"]).toContain("caller-toast")
-    return expect(customizedOptions.classNames["loader"]).toContain("caller-loader")
-  })
-})
+    });
+    expect(customizedOptions.duration).toBe(1_234);
+    expect(customizedOptions.unstyled).toBe(true);
+    expect(customizedOptions.classNames["toast"]).toContain("caller-toast");
+    return expect(customizedOptions.classNames["loader"]).toContain(
+      "caller-loader"
+    );
+  });
+});

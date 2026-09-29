@@ -1,16 +1,16 @@
-import { describe, expect, it } from "vitest"
-import { toClientEnv } from "./client.ts"
-import { parseServerEnv } from "./server.ts"
+import { describe, expect, it } from "vitest";
+import { toClientEnv } from "./client.ts";
+import { parseServerEnv } from "./server.ts";
 import {
   DatabaseConfigurationError,
   RequestDatabaseEndpointError,
   composeDatabaseProfile,
   validateRequestDatabaseEndpoint,
-} from "./database.ts"
+} from "./database.ts";
 
-const DATABASE_URL = "postgresql://localhost/darkfactory_test"
-const BETTER_AUTH_SECRET = "a".repeat(32)
-const CONTACT_THROTTLE_SECRET = "c".repeat(32)
+const DATABASE_URL = "postgresql://localhost/darkfactory_test";
+const BETTER_AUTH_SECRET = "a".repeat(32);
+const CONTACT_THROTTLE_SECRET = "c".repeat(32);
 
 const serverEnvFor = (provider: "planetscale" | "postgres" = "planetscale") => {
   return parseServerEnv({
@@ -18,37 +18,39 @@ const serverEnvFor = (provider: "planetscale" | "postgres" = "planetscale") => {
     DATABASE_URL,
     BETTER_AUTH_SECRET,
     CONTACT_THROTTLE_SECRET,
-  })
-}
+  });
+};
 
 const PRODUCTION_PLANETSCALE_POOLED_URL =
-  "postgresql://private-user:private-password@aws.pg.psdb.cloud:6432/darkfactory?sslmode=verify-full"
+  "postgresql://private-user:private-password@aws.pg.psdb.cloud:6432/darkfactory?sslmode=verify-full";
 
-describe("validateRequestDatabaseEndpoint", function() {
-  it("accepts only the current PlanetScale provider-managed PgBouncer endpoint in production", function() {
-    expect(validateRequestDatabaseEndpoint({
-      appEnvironment: "production",
-      provider: "planetscale",
-      connectionString: PRODUCTION_PLANETSCALE_POOLED_URL,
-    })).toBeUndefined()
+describe("validateRequestDatabaseEndpoint", function () {
+  it("accepts only the current PlanetScale provider-managed PgBouncer endpoint in production", function () {
+    expect(
+      validateRequestDatabaseEndpoint({
+        appEnvironment: "production",
+        provider: "planetscale",
+        connectionString: PRODUCTION_PLANETSCALE_POOLED_URL,
+      })
+    ).toBeUndefined();
 
     const directUrl =
-      "postgresql://private-user:private-password@aws.pg.psdb.cloud:5432/darkfactory?sslmode=verify-full"
-    const validateDirect = () => validateRequestDatabaseEndpoint({
-      appEnvironment: "production",
-      provider: "planetscale",
-      connectionString: directUrl,
-    })
-    expect(validateDirect).toThrow(RequestDatabaseEndpointError)
-    expect(validateDirect).toThrow(/PgBouncer endpoint on port 6432/)
+      "postgresql://private-user:private-password@aws.pg.psdb.cloud:5432/darkfactory?sslmode=verify-full";
+    const validateDirect = () =>
+      validateRequestDatabaseEndpoint({
+        appEnvironment: "production",
+        provider: "planetscale",
+        connectionString: directUrl,
+      });
+    expect(validateDirect).toThrow(RequestDatabaseEndpointError);
+    expect(validateDirect).toThrow(/PgBouncer endpoint on port 6432/);
     try {
-      return validateDirect()
+      return validateDirect();
+    } catch (error) {
+      expect(String(error)).not.toContain(directUrl);
+      return expect(String(error)).not.toContain("private-password");
     }
-    catch (error) {
-      expect(String(error)).not.toContain(directUrl)
-      return expect(String(error)).not.toContain("private-password")
-    }
-  })
+  });
 
   it.each([
     [
@@ -69,95 +71,91 @@ describe("validateRequestDatabaseEndpoint", function() {
       "postgresql://private-user:private-password@pool.example:6432/darkfactory?sslmode=verify-full",
       /explicitly supported provider-managed pooled endpoint/,
     ],
-  ] as const)("rejects production endpoint with $0 without reflecting credentials", function(
-    _label,
-    provider,
-    connectionString,
-    expectedMessage,
-  ) {
-    const validate = () => validateRequestDatabaseEndpoint({
-      appEnvironment: "production",
-      provider,
-      connectionString,
-    })
+  ] as const)("rejects production endpoint with $0 without reflecting credentials", function (_label, provider, connectionString, expectedMessage) {
+    const validate = () =>
+      validateRequestDatabaseEndpoint({
+        appEnvironment: "production",
+        provider,
+        connectionString,
+      });
 
-    expect(validate).toThrow(expectedMessage)
+    expect(validate).toThrow(expectedMessage);
     try {
-      return validate()
+      return validate();
+    } catch (error) {
+      expect(String(error)).not.toContain(connectionString);
+      return expect(String(error)).not.toContain("private-password");
     }
-    catch (error) {
-      expect(String(error)).not.toContain(connectionString)
-      return expect(String(error)).not.toContain("private-password")
-    }
-  }
-  )
+  });
 
-  return it.each(["development", "test"] as const)(
-    "keeps direct PostgreSQL endpoints available in %s",
-    function(appEnvironment) {
-      return expect(validateRequestDatabaseEndpoint({
+  return it.each([
+    "development",
+    "test",
+  ] as const)("keeps direct PostgreSQL endpoints available in %s", function (appEnvironment) {
+    return expect(
+      validateRequestDatabaseEndpoint({
         appEnvironment,
         provider: "postgres",
         connectionString: DATABASE_URL,
-      })).toBeUndefined()
-    }
-  )
-})
+      })
+    ).toBeUndefined();
+  });
+});
 
-describe("composeDatabaseProfile", function() {
-  it("changes composition metadata but preserves one PostgreSQL connection contract", function() {
-    const planetscaleProfile = composeDatabaseProfile(serverEnvFor("planetscale"))
-    const postgresProfile = composeDatabaseProfile(serverEnvFor("postgres"))
+describe("composeDatabaseProfile", function () {
+  it("changes composition metadata but preserves one PostgreSQL connection contract", function () {
+    const planetscaleProfile = composeDatabaseProfile(
+      serverEnvFor("planetscale")
+    );
+    const postgresProfile = composeDatabaseProfile(serverEnvFor("postgres"));
 
     expect(planetscaleProfile.composition).toEqual({
       provider: "planetscale",
       deployment: "managed",
-    })
+    });
     expect(postgresProfile.composition).toEqual({
       provider: "postgres",
       deployment: "standard",
-    })
-    expect(planetscaleProfile.connection).toEqual(postgresProfile.connection)
+    });
+    expect(planetscaleProfile.connection).toEqual(postgresProfile.connection);
     return expect(planetscaleProfile.connection).toEqual({
       protocol: "postgresql",
       connectionString: DATABASE_URL,
-    })
-  })
+    });
+  });
 
-  it("uses DATABASE_URL when the optional request binding is absent", function() {
-    const profile = composeDatabaseProfile(serverEnvFor())
+  it("uses DATABASE_URL when the optional request binding is absent", function () {
+    const profile = composeDatabaseProfile(serverEnvFor());
 
-    return expect(profile.connection.connectionString).toBe(DATABASE_URL)
-  })
+    return expect(profile.connection.connectionString).toBe(DATABASE_URL);
+  });
 
-  it("uses a request-scoped PostgreSQL connectionString when supplied", function() {
+  it("uses a request-scoped PostgreSQL connectionString when supplied", function () {
     const requestConnectionString =
-      "postgresql://hyperdrive.internal/darkfactory_test"
+      "postgresql://hyperdrive.internal/darkfactory_test";
     const profile = composeDatabaseProfile(serverEnvFor(), {
       connectionString: requestConnectionString,
       trustedPlatform: "cloudflare-hyperdrive",
-    })
+    });
 
     return expect(profile.connection).toEqual({
       protocol: "postgresql",
       connectionString: requestConnectionString,
-    })
-  })
+    });
+  });
 
-  it("rejects request bindings without an explicit trusted platform", function() {
-    const compose = () => composeDatabaseProfile(
-      serverEnvFor(),
-      {
+  it("rejects request bindings without an explicit trusted platform", function () {
+    const compose = () =>
+      composeDatabaseProfile(serverEnvFor(), {
         connectionString: "postgresql://untrusted.internal/darkfactory_test",
-      } as never,
-    )
+      } as never);
 
     return expect(compose).toThrow(
-      "request binding must declare the trusted Cloudflare Hyperdrive platform",
-    )
-  })
+      "request binding must declare the trusted Cloudflare Hyperdrive platform"
+    );
+  });
 
-  it("keeps DATABASE_URL mandatory even when a request binding is available", function() {
+  it("keeps DATABASE_URL mandatory even when a request binding is available", function () {
     const composeWithoutDatabaseUrl = () => {
       return composeDatabaseProfile(
         parseServerEnv({
@@ -168,15 +166,15 @@ describe("composeDatabaseProfile", function() {
         {
           connectionString: "postgresql://hyperdrive.internal/darkfactory_test",
           trustedPlatform: "cloudflare-hyperdrive",
-        },
-      )
-    }
+        }
+      );
+    };
 
-    return expect(composeWithoutDatabaseUrl).toThrow("DATABASE_URL")
-  })
+    return expect(composeWithoutDatabaseUrl).toThrow("DATABASE_URL");
+  });
 
-  it("rejects invalid DATABASE_URL and unsupported provider values", function() {
-    const invalidDatabaseUrl = "https://database.internal/darkfactory"
+  it("rejects invalid DATABASE_URL and unsupported provider values", function () {
+    const invalidDatabaseUrl = "https://database.internal/darkfactory";
 
     const parseInvalidDatabaseUrl = () => {
       return parseServerEnv({
@@ -184,76 +182,74 @@ describe("composeDatabaseProfile", function() {
         DATABASE_URL: invalidDatabaseUrl,
         BETTER_AUTH_SECRET,
         CONTACT_THROTTLE_SECRET,
-      })
-    }
+      });
+    };
     const parseUnsupportedProvider = () => {
       return parseServerEnv({
         DATABASE_PROVIDER: "unsupported",
         DATABASE_URL,
         BETTER_AUTH_SECRET,
         CONTACT_THROTTLE_SECRET,
-      })
-    }
+      });
+    };
 
     expect(parseInvalidDatabaseUrl).toThrow(
-      "DATABASE_URL must be a PostgreSQL URL",
-    )
-    return expect(parseUnsupportedProvider).toThrow("DATABASE_PROVIDER")
-  })
+      "DATABASE_URL must be a PostgreSQL URL"
+    );
+    return expect(parseUnsupportedProvider).toThrow("DATABASE_PROVIDER");
+  });
 
-  it("rejects invalid request connection strings without echoing secrets", function() {
+  it("rejects invalid request connection strings without echoing secrets", function () {
     const invalidConnectionString =
-      "https://database-user:database-password@database.internal/darkfactory"
+      "https://database-user:database-password@database.internal/darkfactory";
 
     const composeWithInvalidBinding = () => {
       return composeDatabaseProfile(serverEnvFor(), {
         connectionString: invalidConnectionString,
         trustedPlatform: "cloudflare-hyperdrive",
-      })
-    }
+      });
+    };
 
-    expect(composeWithInvalidBinding).toThrow(DatabaseConfigurationError)
+    expect(composeWithInvalidBinding).toThrow(DatabaseConfigurationError);
     expect(composeWithInvalidBinding).toThrow(
-      "request binding connectionString must be a PostgreSQL URL",
-    )
+      "request binding connectionString must be a PostgreSQL URL"
+    );
 
     try {
       return composeDatabaseProfile(serverEnvFor(), {
         connectionString: invalidConnectionString,
         trustedPlatform: "cloudflare-hyperdrive",
-      })
+      });
+    } catch (error) {
+      return expect(String(error)).not.toContain(invalidConnectionString);
     }
-    catch (error) {
-      return expect(String(error)).not.toContain(invalidConnectionString)
-    }
-  })
+  });
 
+  it("rejects a syntactically malformed request binding without reflecting it", function () {
+    const malformedConnectionString = "not a database URL";
+    const compose = () =>
+      composeDatabaseProfile(serverEnvFor(), {
+        connectionString: malformedConnectionString,
+        trustedPlatform: "cloudflare-hyperdrive",
+      });
 
-  it("rejects a syntactically malformed request binding without reflecting it", function() {
-    const malformedConnectionString = "not a database URL"
-    const compose = () => composeDatabaseProfile(serverEnvFor(), {
-      connectionString: malformedConnectionString,
-      trustedPlatform: "cloudflare-hyperdrive",
-    })
-
-    expect(compose).toThrow(DatabaseConfigurationError)
+    expect(compose).toThrow(DatabaseConfigurationError);
     expect(compose).toThrow(
-      "request binding connectionString must be a PostgreSQL URL",
-    )
+      "request binding connectionString must be a PostgreSQL URL"
+    );
     try {
-      return compose()
+      return compose();
+    } catch (error) {
+      return expect(String(error)).not.toContain(malformedConnectionString);
     }
-    catch (error) {
-      return expect(String(error)).not.toContain(malformedConnectionString)
-    }
-  })
-  return it("does not add database configuration or secrets to client config", function() {
-    const env = serverEnvFor("planetscale")
-    const clientEnv = toClientEnv(env)
-    const serializedClientEnv = JSON.stringify(clientEnv)
+  });
+  return it("does not add database configuration or secrets to client config", function () {
+    const env = serverEnvFor("planetscale");
+    const clientEnv = toClientEnv(env);
+    const serializedClientEnv = JSON.stringify(clientEnv);
 
-    expect(clientEnv).not.toHaveProperty("DATABASE_PROVIDER")
-    expect(clientEnv).not.toHaveProperty("DATABASE_URL")
-    return expect(serializedClientEnv).not.toContain(DATABASE_URL)
-  })
-})
+    expect(clientEnv).not.toHaveProperty("DATABASE_PROVIDER");
+    expect(clientEnv).not.toHaveProperty("DATABASE_URL");
+    return expect(serializedClientEnv).not.toContain(DATABASE_URL);
+  });
+});

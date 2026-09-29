@@ -1,12 +1,12 @@
-import type { ReactNode } from "react"
+import type { ReactNode } from "react";
 
 export type AuthPanelProps = Readonly<{
-  eyebrow: string
-  title: string
-  description: string
-  children: ReactNode
-  footer?: ReactNode
-}>
+  eyebrow: string;
+  title: string;
+  description: string;
+  children: ReactNode;
+  footer?: ReactNode;
+}>;
 
 export const AuthPanel = ({
   eyebrow,
@@ -15,7 +15,10 @@ export const AuthPanel = ({
   children,
   footer,
 }: AuthPanelProps) => (
-  <section aria-labelledby="auth-title" className="border-y border-border py-8 sm:py-10">
+  <section
+    aria-labelledby="auth-title"
+    className="border-y border-border py-8 sm:py-10"
+  >
     <header className="mb-8 grid gap-3">
       <p className="text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">
         {eyebrow}
@@ -34,7 +37,7 @@ export const AuthPanel = ({
     {footer ? (
       <footer className="mt-8 border-t border-border pt-6 text-sm leading-6 text-muted-foreground">
         {footer}
-    </footer>
+      </footer>
     ) : null}
-</section>
-)
+  </section>
+);

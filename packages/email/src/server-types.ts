@@ -1,17 +1,17 @@
 export type PasswordResetEmailInput = Readonly<{
-  to: string
-  resetUrl: string
-  expiresInMinutes: number
-  recipientName?: string
-}>
+  to: string;
+  resetUrl: string;
+  expiresInMinutes: number;
+  recipientName?: string;
+}>;
 export type EmailVerificationEmailInput = Readonly<{
-  to: string
-  verificationUrl: string
-  expiresInMinutes: number
-  recipientName?: string
-}>
+  to: string;
+  verificationUrl: string;
+  expiresInMinutes: number;
+  recipientName?: string;
+}>;
 
-export type EmailProvider = "preview" | "resend" | "disabled"
+export type EmailProvider = "preview" | "resend" | "disabled";
 export type EmailDeliveryFailureCode =
   | "EMAIL_DELIVERY_DISABLED"
   | "EMAIL_PROVIDER_NOT_CONFIGURED"
@@ -20,121 +20,120 @@ export type EmailDeliveryFailureCode =
   | "EMAIL_PREVIEW_WRITE_FAILED"
   | "EMAIL_PROVIDER_REJECTED"
   | "EMAIL_PROVIDER_INVALID_RESPONSE"
-  | "EMAIL_PROVIDER_UNAVAILABLE"
+  | "EMAIL_PROVIDER_UNAVAILABLE";
 export type EmailDeliveryResult =
   | Readonly<{ status: "sent"; provider: "resend"; messageId: string }>
   | Readonly<{ status: "previewed"; provider: "preview"; artifactPath: string }>
   | Readonly<{
-      status: "failed"
-      provider: EmailProvider
-      code: EmailDeliveryFailureCode
-      retryable: boolean
-    }>
+      status: "failed";
+      provider: EmailProvider;
+      code: EmailDeliveryFailureCode;
+      retryable: boolean;
+    }>;
 export interface EmailPort {
-  sendPasswordReset(input: PasswordResetEmailInput): Promise<EmailDeliveryResult>
+  sendPasswordReset(
+    input: PasswordResetEmailInput
+  ): Promise<EmailDeliveryResult>;
   sendEmailVerification(
-    input: EmailVerificationEmailInput,
-  ): Promise<EmailDeliveryResult>
+    input: EmailVerificationEmailInput
+  ): Promise<EmailDeliveryResult>;
 }
 export type RenderedPasswordResetEmail = Readonly<{
-  subject: string
-  html: string
-  text: string
-}>
+  subject: string;
+  html: string;
+  text: string;
+}>;
 export type RenderPasswordResetEmailOptions = Readonly<{
-  trustedAppOrigin?: string | undefined
-}>
+  trustedAppOrigin?: string | undefined;
+}>;
 export type RenderedEmailVerificationEmail = Readonly<{
-  subject: string
-  html: string
-  text: string
-}>
+  subject: string;
+  html: string;
+  text: string;
+}>;
 export type RenderEmailVerificationEmailOptions = Readonly<{
-  trustedAppOrigin?: string | undefined
-}>
+  trustedAppOrigin?: string | undefined;
+}>;
 export type PreviewEmailBinding = Readonly<{
-  runId: string
-  hmacKey: string
-}>
+  runId: string;
+  hmacKey: string;
+}>;
 
 export type PreviewEmailPortOptions = Readonly<{
-  environment: "development" | "test" | "production"
-  directory?: string | undefined
-  maxBytes?: number | undefined
-  binding?: PreviewEmailBinding | undefined
-  maxArtifacts?: number | undefined
-  trustedAppOrigin?: string | undefined
-}>
+  environment: "development" | "test" | "production";
+  directory?: string | undefined;
+  maxBytes?: number | undefined;
+  binding?: PreviewEmailBinding | undefined;
+  maxArtifacts?: number | undefined;
+  trustedAppOrigin?: string | undefined;
+}>;
 export type ResendMessage = Readonly<{
-  from: string
-  to: readonly string[]
-  subject: string
-  html: string
-  text: string
-}>
+  from: string;
+  to: readonly string[];
+  subject: string;
+  html: string;
+  text: string;
+}>;
 export type ResendProviderError = Readonly<{
-  name?: string | undefined
-  statusCode?: number | null | undefined
-}>
+  name?: string | undefined;
+  statusCode?: number | null | undefined;
+}>;
 export type ResendClient = Readonly<{
   emails: Readonly<{
     send: (message: ResendMessage) => Promise<
       Readonly<{
-        data: Readonly<{ id: string }> | null
-        error: ResendProviderError | null
+        data: Readonly<{ id: string }> | null;
+        error: ResendProviderError | null;
       }>
-    >
-  }>
-}>
+    >;
+  }>;
+}>;
 export type ResendEmailPortOptions = Readonly<{
-  enabled: boolean
-  apiKey?: string | undefined
-  from?: string | undefined
-  trustedAppOrigin?: string | undefined
-  client?: ResendClient | undefined
-}>
+  enabled: boolean;
+  apiKey?: string | undefined;
+  from?: string | undefined;
+  trustedAppOrigin?: string | undefined;
+  client?: ResendClient | undefined;
+}>;
 export type SelectEmailPortOptions = Readonly<{
-  environment: "development" | "test" | "production"
-  transport?: "preview" | "resend" | "disabled" | undefined
-  previewDirectory?: string | undefined
-  previewMaxArtifacts?: number | undefined
-  previewMaxBytes?: number | undefined
-  previewBinding?: PreviewEmailBinding | undefined
-  previewCaptureEndpoint?: string | undefined
-  resendApiKey?: string | undefined
-  from?: string | undefined
-  trustedAppOrigin?: string | undefined
-  resendClient?: ResendClient | undefined
-}>
-export declare const normalizeRecipient: (
-  recipient: string,
-) => string | null
+  environment: "development" | "test" | "production";
+  transport?: "preview" | "resend" | "disabled" | undefined;
+  previewDirectory?: string | undefined;
+  previewMaxArtifacts?: number | undefined;
+  previewMaxBytes?: number | undefined;
+  previewBinding?: PreviewEmailBinding | undefined;
+  previewCaptureEndpoint?: string | undefined;
+  resendApiKey?: string | undefined;
+  from?: string | undefined;
+  trustedAppOrigin?: string | undefined;
+  resendClient?: ResendClient | undefined;
+}>;
+export declare const normalizeRecipient: (recipient: string) => string | null;
 export declare const renderPasswordResetEmail: (
   input: PasswordResetEmailInput,
-  options?: RenderPasswordResetEmailOptions,
-) => Promise<RenderedPasswordResetEmail>
+  options?: RenderPasswordResetEmailOptions
+) => Promise<RenderedPasswordResetEmail>;
 export declare const renderEmailVerificationEmail: (
   input: EmailVerificationEmailInput,
-  options?: RenderEmailVerificationEmailOptions,
-) => Promise<RenderedEmailVerificationEmail>
+  options?: RenderEmailVerificationEmailOptions
+) => Promise<RenderedEmailVerificationEmail>;
 export declare const createPreviewEmailPort: (
-  options: PreviewEmailPortOptions,
-) => EmailPort
+  options: PreviewEmailPortOptions
+) => EmailPort;
 export declare const createResendEmailPort: (
-  options: ResendEmailPortOptions,
-) => EmailPort
+  options: ResendEmailPortOptions
+) => EmailPort;
 export declare const selectEmailPort: (
-  options: SelectEmailPortOptions,
-) => EmailPort
-
+  options: SelectEmailPortOptions
+) => EmailPort;
 
 export type ContactEmailInput = Readonly<{
-  name: string
-  email: string
-  subject: string
-  message: string
-}>
-export type ContactEmailProvider = "preview" | "resend" | "disabled"
+  name: string;
+  email: string;
+  subject: string;
+  message: string;
+}>;
+export type ContactEmailProvider = "preview" | "resend" | "disabled";
 export type ContactEmailFailureCode =
   | "CONTACT_DELIVERY_DISABLED"
   | "CONTACT_PROVIDER_NOT_CONFIGURED"
@@ -144,81 +143,81 @@ export type ContactEmailFailureCode =
   | "CONTACT_PREVIEW_WRITE_FAILED"
   | "CONTACT_PROVIDER_REJECTED"
   | "CONTACT_PROVIDER_INVALID_RESPONSE"
-  | "CONTACT_PROVIDER_UNAVAILABLE"
+  | "CONTACT_PROVIDER_UNAVAILABLE";
 export type ContactEmailDeliveryResult =
   | Readonly<{ status: "sent"; provider: "resend"; messageId: string }>
   | Readonly<{ status: "previewed"; provider: "preview"; artifactPath: string }>
   | Readonly<{
-      status: "not-delivered"
-      provider: ContactEmailProvider
-      code: ContactEmailFailureCode
-      retryable: boolean
-    }>
+      status: "not-delivered";
+      provider: ContactEmailProvider;
+      code: ContactEmailFailureCode;
+      retryable: boolean;
+    }>;
 export interface ContactEmailPort {
-  sendContact(input: ContactEmailInput): Promise<ContactEmailDeliveryResult>
+  sendContact(input: ContactEmailInput): Promise<ContactEmailDeliveryResult>;
 }
 export type RenderedContactEmail = Readonly<{
-  subject: string
-  html: string
-  text: string
-}>
+  subject: string;
+  html: string;
+  text: string;
+}>;
 export type PreviewContactEmailPortOptions = Readonly<{
-  environment: "development" | "test" | "production"
-  directory?: string | undefined
-  maxArtifacts?: number | undefined
-}>
+  environment: "development" | "test" | "production";
+  directory?: string | undefined;
+  maxArtifacts?: number | undefined;
+}>;
 export type ContactResendMessage = Readonly<{
-  from: string
-  to: readonly string[]
-  replyTo: string
-  subject: string
-  html: string
-  text: string
-}>
+  from: string;
+  to: readonly string[];
+  replyTo: string;
+  subject: string;
+  html: string;
+  text: string;
+}>;
 export type ContactResendProviderError = Readonly<{
-  name?: string | undefined
-  statusCode?: number | null | undefined
-}>
+  name?: string | undefined;
+  statusCode?: number | null | undefined;
+}>;
 export type ContactResendClient = Readonly<{
   emails: Readonly<{
     send: (message: ContactResendMessage) => Promise<
       Readonly<{
-        data: Readonly<{ id: string }> | null
-        error: ContactResendProviderError | null
+        data: Readonly<{ id: string }> | null;
+        error: ContactResendProviderError | null;
       }>
-    >
-  }>
-}>
+    >;
+  }>;
+}>;
 export type ContactResendClientFactory = (
-  apiKey: string,
-) => ContactResendClient
+  apiKey: string
+) => ContactResendClient;
 export type ResendContactEmailPortOptions = Readonly<{
-  recipient: string
-  apiKey?: string | undefined
-  from?: string | undefined
-  clientFactory?: ContactResendClientFactory | undefined
-}>
+  recipient: string;
+  apiKey?: string | undefined;
+  from?: string | undefined;
+  clientFactory?: ContactResendClientFactory | undefined;
+}>;
 export type SelectContactEmailPortOptions = Readonly<{
-  environment: "development" | "test" | "production"
-  transport?: "preview" | "resend" | "disabled" | undefined
-  recipient?: string | undefined
-  previewDirectory?: string | undefined
-  previewMaxArtifacts?: number | undefined
-  previewCaptureEndpoint?: string | undefined
-  previewBinding?: PreviewEmailBinding | undefined
-  resendApiKey?: string | undefined
-  from?: string | undefined
-  resendClientFactory?: ContactResendClientFactory | undefined
-}>
+  environment: "development" | "test" | "production";
+  transport?: "preview" | "resend" | "disabled" | undefined;
+  recipient?: string | undefined;
+  previewDirectory?: string | undefined;
+  previewMaxArtifacts?: number | undefined;
+  previewCaptureEndpoint?: string | undefined;
+  previewBinding?: PreviewEmailBinding | undefined;
+  resendApiKey?: string | undefined;
+  from?: string | undefined;
+  resendClientFactory?: ContactResendClientFactory | undefined;
+}>;
 export declare const renderContactEmail: (
-  input: ContactEmailInput,
-) => Promise<RenderedContactEmail>
+  input: ContactEmailInput
+) => Promise<RenderedContactEmail>;
 export declare const createPreviewContactEmailPort: (
-  options: PreviewContactEmailPortOptions,
-) => ContactEmailPort
+  options: PreviewContactEmailPortOptions
+) => ContactEmailPort;
 export declare const createResendContactEmailPort: (
-  options: ResendContactEmailPortOptions,
-) => ContactEmailPort
+  options: ResendContactEmailPortOptions
+) => ContactEmailPort;
 export declare const selectContactEmailPort: (
-  options: SelectContactEmailPortOptions,
-) => ContactEmailPort
+  options: SelectContactEmailPortOptions
+) => ContactEmailPort;

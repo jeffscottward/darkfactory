@@ -3,22 +3,22 @@ import type {
   AnalyticsPort,
   AnalyticsResult,
   FailedAnalyticsResult,
-} from "../index.ts"
+} from "../index.ts";
 import {
   consentSkipReason,
   invalidCaptureResult,
   snapshotAnalyticsCapture,
-} from "../validation.ts"
+} from "../validation.ts";
 
-const defaultTimeoutMs = 3_000
-const maximumTimeoutMs = 10_000
+const defaultTimeoutMs = 3_000;
+const maximumTimeoutMs = 10_000;
 
 export type PostHogAnalyticsOptions = Readonly<{
-  apiKey?: string
-  host?: string
-  timeoutMs?: number
-  fetch?: typeof globalThis.fetch
-}>
+  apiKey?: string;
+  host?: string;
+  timeoutMs?: number;
+  fetch?: typeof globalThis.fetch;
+}>;
 
 const validateTimeout = (timeoutMs: number): void => {
   if (
@@ -27,18 +27,17 @@ const validateTimeout = (timeoutMs: number): void => {
     timeoutMs > maximumTimeoutMs
   ) {
     throw new TypeError(
-      "Analytics timeout must be an integer from 1 to 10000 milliseconds",
-    )
+      "Analytics timeout must be an integer from 1 to 10000 milliseconds"
+    );
   }
-}
+};
 
 const captureEndpoint = (host: string): string => {
-  let origin: URL
+  let origin: URL;
   try {
-    origin = new URL(host)
-  }
-  catch {
-    throw new TypeError("Analytics host must be a valid HTTPS origin")
+    origin = new URL(host);
+  } catch {
+    throw new TypeError("Analytics host must be a valid HTTPS origin");
   }
 
   if (
@@ -49,25 +48,26 @@ const captureEndpoint = (host: string): string => {
     origin.hash !== "" ||
     (origin.pathname !== "" && origin.pathname !== "/")
   ) {
-    throw new TypeError("Analytics host must be a valid HTTPS origin")
+    throw new TypeError("Analytics host must be a valid HTTPS origin");
   }
 
-  origin.pathname = "/i/v0/e/"
-  return origin.toString()
-}
+  origin.pathname = "/i/v0/e/";
+  return origin.toString();
+};
 
 const providerFailure = (status: number): FailedAnalyticsResult => ({
   status: "failed",
   category: "provider-rejected",
-  retryable: status === 408 || status === 425 || status === 429 || status >= 500,
+  retryable:
+    status === 408 || status === 425 || status === 429 || status >= 500,
   statusCode: status,
-})
+});
 
 const invalidProviderResponse = (): FailedAnalyticsResult => ({
   status: "failed",
   category: "provider-rejected",
   retryable: false,
-})
+});
 
 const requestPayload = (input: AnalyticsCapture) => ({
   api_key: undefined as string | undefined,
@@ -79,51 +79,50 @@ const requestPayload = (input: AnalyticsCapture) => ({
     $process_person_profile: false,
   },
   ...(input.timestamp === undefined ? {} : { timestamp: input.timestamp }),
-})
+});
 
 export const createPostHogAnalyticsPort = (
-  options: PostHogAnalyticsOptions,
+  options: PostHogAnalyticsOptions
 ): AnalyticsPort => {
-  const timeoutMs = options.timeoutMs ?? defaultTimeoutMs
-  validateTimeout(timeoutMs)
+  const timeoutMs = options.timeoutMs ?? defaultTimeoutMs;
+  validateTimeout(timeoutMs);
 
-  const apiKey = options.apiKey?.trim()
-  const host = options.host?.trim()
+  const apiKey = options.apiKey?.trim();
+  const host = options.host?.trim();
   if (!apiKey || !host) {
     return {
       capture: async (input): Promise<AnalyticsResult> => {
-        const snapshot = snapshotAnalyticsCapture(input)
-        if (!snapshot) return invalidCaptureResult()
+        const snapshot = snapshotAnalyticsCapture(input);
+        if (!snapshot) return invalidCaptureResult();
 
-        const consentReason = consentSkipReason(snapshot)
-        if (consentReason) return { status: "skipped", reason: consentReason }
-        return { status: "skipped", reason: "unconfigured" }
-      }
-    }
+        const consentReason = consentSkipReason(snapshot);
+        if (consentReason) return { status: "skipped", reason: consentReason };
+        return { status: "skipped", reason: "unconfigured" };
+      },
+    };
   }
 
-  const endpoint = captureEndpoint(host)
-  const transport = options.fetch ?? globalThis.fetch
+  const endpoint = captureEndpoint(host);
+  const transport = options.fetch ?? globalThis.fetch;
 
   return {
     capture: async (input): Promise<AnalyticsResult> => {
-      const snapshot = snapshotAnalyticsCapture(input)
-      if (!snapshot) return invalidCaptureResult()
+      const snapshot = snapshotAnalyticsCapture(input);
+      if (!snapshot) return invalidCaptureResult();
 
-      const consentReason = consentSkipReason(snapshot)
-      if (consentReason) return { status: "skipped", reason: consentReason }
+      const consentReason = consentSkipReason(snapshot);
+      if (consentReason) return { status: "skipped", reason: consentReason };
 
-      const controller = new AbortController()
-      let reachedDeadline = false
+      const controller = new AbortController();
+      let reachedDeadline = false;
       const timer = setTimeout(() => {
-        reachedDeadline = true
-        return controller.abort()
-      }
-      , timeoutMs)
+        reachedDeadline = true;
+        return controller.abort();
+      }, timeoutMs);
 
       try {
-        const payload = requestPayload(snapshot)
-        payload.api_key = apiKey
+        const payload = requestPayload(snapshot);
+        payload.api_key = apiKey;
         const response = await transport(endpoint, {
           method: "POST",
           credentials: "omit",
@@ -132,23 +131,22 @@ export const createPostHogAnalyticsPort = (
           headers: { "content-type": "application/json" },
           body: JSON.stringify(payload),
           signal: controller.signal,
-        })
+        });
 
         if (response.status >= 200 && response.status < 300) {
-          return { status: "captured", eventId: snapshot.eventId }
+          return { status: "captured", eventId: snapshot.eventId };
         }
-        if (!Number.isInteger(response.status)) return invalidProviderResponse()
-        return providerFailure(response.status)
-      }
-      catch {
+        if (!Number.isInteger(response.status))
+          return invalidProviderResponse();
+        return providerFailure(response.status);
+      } catch {
         if (reachedDeadline) {
-          return { status: "failed", category: "timeout", retryable: true }
+          return { status: "failed", category: "timeout", retryable: true };
         }
-        return { status: "failed", category: "network", retryable: true }
+        return { status: "failed", category: "network", retryable: true };
+      } finally {
+        clearTimeout(timer);
       }
-      finally {
-        clearTimeout(timer)
-      }
-    }
-  }
-}
+    },
+  };
+};

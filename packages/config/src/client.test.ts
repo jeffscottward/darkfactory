@@ -1,31 +1,35 @@
-import { describe, expect, it } from "vitest"
+import { describe, expect, it } from "vitest";
 import {
   CANONICAL_APP_URL,
   toClientEnv,
   type ClientEnv,
   type ClientEnvironmentSource,
-} from "./client.ts"
+} from "./client.ts";
 
-describe("client environment contract", function() {
-  it("returns only the public environment allowlist", function() {
+describe("client environment contract", function () {
+  it("returns only the public environment allowlist", function () {
     const source: ClientEnvironmentSource = {
       APP_ENV: "test",
       APP_URL: CANONICAL_APP_URL,
       APP_NAME: "DarkFactory",
-    }
-    const clientEnv: ClientEnv = toClientEnv(source)
+    };
+    const clientEnv: ClientEnv = toClientEnv(source);
 
-    expect(clientEnv).toEqual(source)
-    return expect(Object.keys(clientEnv)).toEqual(["APP_ENV", "APP_URL", "APP_NAME"])
-  })
+    expect(clientEnv).toEqual(source);
+    return expect(Object.keys(clientEnv)).toEqual([
+      "APP_ENV",
+      "APP_URL",
+      "APP_NAME",
+    ]);
+  });
 
-  return it("returns a new immutable-shaped value instead of the source object", function() {
+  return it("returns a new immutable-shaped value instead of the source object", function () {
     const source: ClientEnvironmentSource = {
       APP_ENV: "development",
       APP_URL: CANONICAL_APP_URL,
       APP_NAME: "DarkFactory",
-    }
+    };
 
-    return expect(toClientEnv(source)).not.toBe(source)
-  })
-})
+    return expect(toClientEnv(source)).not.toBe(source);
+  });
+});

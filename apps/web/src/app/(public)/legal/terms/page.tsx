@@ -1,10 +1,11 @@
-import { LegalPage } from "../../_components/legal-page.tsx"
+import { LegalPage } from "../../_components/legal-page.tsx";
 
 export const metadata = {
   title: "Terms of service starter",
-  description: "A starter terms outline that requires qualified legal review before production use.",
-}
+  description:
+    "A starter terms outline that requires qualified legal review before production use.",
+};
 
 export default function LegalTermsPage() {
-  return <LegalPage kind="terms" />
+  return <LegalPage kind="terms" />;
 }

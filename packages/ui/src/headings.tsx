@@ -1,14 +1,14 @@
-import type { ComponentPropsWithRef, JSX, ReactNode } from "react"
+import type { ComponentPropsWithRef, JSX, ReactNode } from "react";
 
-import { cn } from "./utilities.ts"
+import { cn } from "./utilities.ts";
 
 export interface PageHeaderProps
   extends Omit<ComponentPropsWithRef<"header">, "title"> {
-  title: ReactNode
-  description?: ReactNode
-  eyebrow?: ReactNode
-  actions?: ReactNode
-  variant?: "portal" | "public"
+  title: ReactNode;
+  description?: ReactNode;
+  eyebrow?: ReactNode;
+  actions?: ReactNode;
+  variant?: "portal" | "public";
 }
 
 export const PageHeader = ({
@@ -26,18 +26,19 @@ export const PageHeader = ({
     className={cn(
       "grid gap-6 border-b border-border md:grid-cols-[minmax(0,1fr)_auto] md:items-end",
       variant === "public" ? "pb-10" : "pb-6",
-      className,
+      className
     )}
   >
     <div className="min-w-0 space-y-3">
       {eyebrow === undefined ? null : (
-        <p className="font-body text-xs font-semibold uppercase tracking-wide text-primary">{eyebrow}
-      </p>
+        <p className="font-body text-xs font-semibold uppercase tracking-wide text-primary">
+          {eyebrow}
+        </p>
       )}
       <h1
         className={cn(
           "font-heading font-semibold tracking-tight text-foreground",
-          variant === "public" ? "text-4xl" : "text-2xl",
+          variant === "public" ? "text-4xl" : "text-2xl"
         )}
       >
         {title}
@@ -46,27 +47,29 @@ export const PageHeader = ({
         <p
           className={cn(
             "max-w-reading text-muted-foreground",
-            variant === "public" ? "text-lg leading-7" : "text-base leading-6",
+            variant === "public" ? "text-lg leading-7" : "text-base leading-6"
           )}
         >
           {description}
-      </p>
+        </p>
       )}
     </div>
     {actions === undefined ? null : (
-      <div className="flex flex-wrap items-center gap-3 md:justify-end">{actions}
-    </div>
+      <div className="flex flex-wrap items-center gap-3 md:justify-end">
+        {actions}
+      </div>
     )}
-</header>
-)
+  </header>
+);
 
-export type SectionHeadingLevel = 2 | 3 | 4 | 5 | 6
+export type SectionHeadingLevel = 2 | 3 | 4 | 5 | 6;
 
-export interface SectionHeaderProps extends Omit<ComponentPropsWithRef<"div">, "title"> {
-  title: ReactNode
-  description?: ReactNode
-  actions?: ReactNode
-  headingLevel?: SectionHeadingLevel
+export interface SectionHeaderProps
+  extends Omit<ComponentPropsWithRef<"div">, "title"> {
+  title: ReactNode;
+  description?: ReactNode;
+  actions?: ReactNode;
+  headingLevel?: SectionHeadingLevel;
 }
 
 export const SectionHeader = ({
@@ -77,13 +80,16 @@ export const SectionHeader = ({
   title,
   ...props
 }: SectionHeaderProps) => {
-  const Heading = `h${headingLevel}` as keyof Pick<JSX.IntrinsicElements, "h2" | "h3" | "h4" | "h5" | "h6">
+  const Heading = `h${headingLevel}` as keyof Pick<
+    JSX.IntrinsicElements,
+    "h2" | "h3" | "h4" | "h5" | "h6"
+  >;
 
   return (
     <div
       className={cn(
         "flex flex-col gap-4 border-b border-border pb-4 sm:flex-row sm:items-end sm:justify-between",
-        className,
+        className
       )}
       {...props}
     >
@@ -92,14 +98,14 @@ export const SectionHeader = ({
           {title}
         </Heading>
         {description === undefined ? null : (
-          <p className="max-w-reading text-sm leading-5 text-muted-foreground">{description}
-        </p>
+          <p className="max-w-reading text-sm leading-5 text-muted-foreground">
+            {description}
+          </p>
         )}
       </div>
       {actions === undefined ? null : (
-        <div className="flex shrink-0 flex-wrap gap-3">{actions}
-      </div>
+        <div className="flex shrink-0 flex-wrap gap-3">{actions}</div>
       )}
-  </div>
-  )
-}
+    </div>
+  );
+};

@@ -1,12 +1,30 @@
-import { PageHeader } from "@darkfactory/ui"
-import { ArrowRight } from "lucide-react"
+import { PageHeader } from "@darkfactory/ui";
+import { ArrowRight } from "lucide-react";
 
 const accountTasks = [
-  { href: "/account/profile", title: "Profile", description: "Maintain identity, contact, organization, locale, and timezone fields." },
-  { href: "/account/address", title: "Addresses", description: "Create, edit, select a primary address, or confirm removal." },
-  { href: "/account/preferences", title: "Preferences", description: "Manage notifications, consent, profile visibility, and appearance." },
-  { href: "/account/security", title: "Security", description: "Review active sessions or change your password." },
-] as const
+  {
+    href: "/account/profile",
+    title: "Profile",
+    description:
+      "Maintain identity, contact, organization, locale, and timezone fields.",
+  },
+  {
+    href: "/account/address",
+    title: "Addresses",
+    description: "Create, edit, select a primary address, or confirm removal.",
+  },
+  {
+    href: "/account/preferences",
+    title: "Preferences",
+    description:
+      "Manage notifications, consent, profile visibility, and appearance.",
+  },
+  {
+    href: "/account/security",
+    title: "Security",
+    description: "Review active sessions or change your password.",
+  },
+] as const;
 
 export default function AccountPage() {
   return (
@@ -24,17 +42,19 @@ export default function AccountPage() {
             key={task.href}
           >
             <span>
-              <span className="block font-heading text-lg font-semibold text-foreground">{task.title}
+              <span className="block font-heading text-lg font-semibold text-foreground">
+                {task.title}
               </span>
-              <span className="mt-1 block max-w-reading text-sm leading-6 text-muted-foreground">{task.description}
+              <span className="mt-1 block max-w-reading text-sm leading-6 text-muted-foreground">
+                {task.description}
               </span>
             </span>
             <span className="inline-flex items-center gap-2 text-sm font-medium text-primary">
               Open <ArrowRight aria-hidden="true" className="size-4" />
             </span>
-        </a>
+          </a>
         ))}
       </div>
-  </div>
-  )
+    </div>
+  );
 }

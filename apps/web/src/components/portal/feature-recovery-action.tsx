@@ -1,17 +1,19 @@
-import { Button, buttonVariants } from "@darkfactory/ui"
-import { ArrowLeft, LogIn, RotateCcw } from "lucide-react"
+import { Button, buttonVariants } from "@darkfactory/ui";
+import { ArrowLeft, LogIn, RotateCcw } from "lucide-react";
 
-import type { FeatureFailureKind } from "./feature-items-client.ts"
+import type { FeatureFailureKind } from "./feature-items-client.ts";
 
 export interface FeatureRecoveryActionProps {
-  readonly kind: FeatureFailureKind
-  readonly onRetry?: (() => void) | undefined
-  readonly returnHref: "/dashboard" | "/feature-items"
+  readonly kind: FeatureFailureKind;
+  readonly onRetry?: (() => void) | undefined;
+  readonly returnHref: "/dashboard" | "/feature-items";
 }
 
 const returnLabel = (href: "/dashboard" | "/feature-items"): string => {
-  return href === "/dashboard" ? "Return to dashboard" : "Return to feature items"
-}
+  return href === "/dashboard"
+    ? "Return to dashboard"
+    : "Return to feature items";
+};
 
 export const FeatureRecoveryAction = ({
   kind,
@@ -26,8 +28,8 @@ export const FeatureRecoveryAction = ({
       >
         <LogIn aria-hidden="true" className="size-4" />
         Sign in again
-    </a>
-    )
+      </a>
+    );
   }
 
   if (kind === "forbidden" || kind === "not-found") {
@@ -35,14 +37,14 @@ export const FeatureRecoveryAction = ({
       <a className={buttonVariants({ variant: "secondary" })} href={returnHref}>
         <ArrowLeft aria-hidden="true" className="size-4" />
         {returnLabel(returnHref)}
-    </a>
-    )
+      </a>
+    );
   }
 
   return (
     <Button onClick={onRetry} variant="secondary">
       <RotateCcw aria-hidden="true" className="size-4" />
       Try again
-  </Button>
-  )
-}
+    </Button>
+  );
+};

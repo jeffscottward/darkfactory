@@ -1,60 +1,62 @@
-"use client"
+"use client";
 
-import { useEffect, useState, type ReactNode } from "react"
-import { useRouter } from "next/navigation"
+import { useEffect, useState, type ReactNode } from "react";
+import { useRouter } from "next/navigation";
 
 import {
   browserAuthClient,
   normalizeAuthDestination,
   type AuthError,
   type AuthFlowClient,
-} from "./auth-flow.ts"
+} from "./auth-flow.ts";
 
 export const destinationForSession = (
   response: Readonly<{ data: unknown; error: AuthError }>,
-  callbackURL: unknown,
+  callbackURL: unknown
 ): string | null => {
-  if (response.error || typeof response.data !== "object" || response.data === null) {
-    return null
+  if (
+    response.error ||
+    typeof response.data !== "object" ||
+    response.data === null
+  ) {
+    return null;
   }
-  const session = (response.data as { session?: unknown }).session
-  if (typeof session !== "object" || session === null) return null
-  return normalizeAuthDestination(callbackURL)
-}
+  const session = (response.data as { session?: unknown }).session;
+  if (typeof session !== "object" || session === null) return null;
+  return normalizeAuthDestination(callbackURL);
+};
 
 export const SessionRedirect = ({
   callbackURL,
   children,
   auth = browserAuthClient,
 }: Readonly<{
-  callbackURL: unknown
-  children?: ReactNode
-  auth?: AuthFlowClient
+  callbackURL: unknown;
+  children?: ReactNode;
+  auth?: AuthFlowClient;
 }>) => {
-  const [isChecking, setIsChecking] = useState(true)
-  const router = useRouter()
+  const [isChecking, setIsChecking] = useState(true);
+  const router = useRouter();
 
   useEffect(() => {
-    let isActive = true
+    let isActive = true;
     void auth
       .getSession()
       .then((response) => {
-        if (!isActive) return
-        const destination = destinationForSession(response, callbackURL)
+        if (!isActive) return;
+        const destination = destinationForSession(response, callbackURL);
         if (destination) {
-          router.replace(destination)
-          return
+          router.replace(destination);
+          return;
         }
-        return setIsChecking(false)
-      }
-      )
-      .catch(() => void (isActive && setIsChecking(false)))
+        return setIsChecking(false);
+      })
+      .catch(() => void (isActive && setIsChecking(false)));
     return () => {
-      isActive = false
-      return undefined
-    }
-  }
-  , [auth, callbackURL, router])
+      isActive = false;
+      return undefined;
+    };
+  }, [auth, callbackURL, router]);
 
   if (isChecking) {
     return (
@@ -64,8 +66,8 @@ export const SessionRedirect = ({
         role="status"
       >
         Checking your session…
-    </div>
-    )
+      </div>
+    );
   }
-  return children ?? null
-}
+  return children ?? null;
+};

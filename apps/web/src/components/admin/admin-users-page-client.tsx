@@ -1,7 +1,7 @@
-"use client"
+"use client";
 
-import type { AdminUserSummaryOutput } from "@darkfactory/api"
-import { useCallback, useEffect, useState } from "react"
+import type { AdminUserSummaryOutput } from "@darkfactory/api";
+import { useCallback, useEffect, useState } from "react";
 
 import {
   adminFailureKind,
@@ -9,97 +9,113 @@ import {
   createBrowserAdminUsersGateway,
   normalizeAdminQuery,
   safeAdminFeedback,
-} from "./admin-users-client.ts"
+} from "./admin-users-client.ts";
 import {
   AdminUsersDirectory,
   type AdminUsersDirectoryState,
-} from "./admin-users-directory.tsx"
+} from "./admin-users-directory.tsx";
 
 const mergeUsers = (
   current: readonly AdminUserSummaryOutput[],
-  next: readonly AdminUserSummaryOutput[],
+  next: readonly AdminUserSummaryOutput[]
 ): AdminUserSummaryOutput[] => {
-  const merged = new Map(current.map((user) => [user.id, user]))
-  for (const user of next) merged.set(user.id, user)
-  return [...merged.values()]
-}
+  const merged = new Map(current.map((user) => [user.id, user]));
+  for (const user of next) merged.set(user.id, user);
+  return [...merged.values()];
+};
 
 export const AdminUsersPageClient = () => {
-  const [gateway] = useState(createBrowserAdminUsersGateway)
-  const [requests] = useState(createAdminRequestGuard)
-  const [query, setQuery] = useState("")
-  const [state, setState] = useState<AdminUsersDirectoryState>({ type: "loading" })
-  const [isLoadingMore, setIsLoadingMore] = useState(false)
-  const [paginationError, setPaginationError] = useState<string | null>(null)
+  const [gateway] = useState(createBrowserAdminUsersGateway);
+  const [requests] = useState(createAdminRequestGuard);
+  const [query, setQuery] = useState("");
+  const [state, setState] = useState<AdminUsersDirectoryState>({
+    type: "loading",
+  });
+  const [isLoadingMore, setIsLoadingMore] = useState(false);
+  const [paginationError, setPaginationError] = useState<string | null>(null);
 
-  const load = useCallback(async (nextQuery: string) => {
-    const request = requests.next()
-    setState({ type: "loading" })
-    setIsLoadingMore(false)
-    setPaginationError(null)
-    try {
-      const result = await gateway.list({
-        ...(nextQuery.length === 0 ? {} : { query: nextQuery }),
-        limit: 20,
-      })
-      if (requests.isLatest(request)) {
-        return setState({ type: "ready", items: result.items, nextCursor: result.nextCursor })
-      };return
-    }
-    catch (error) {
-      if (requests.isLatest(request)) {
-        return setState({ type: "error", kind: adminFailureKind(error), message: safeAdminFeedback(error) })
-      };return
-    }
-  }
-  , [gateway, requests])
+  const load = useCallback(
+    async (nextQuery: string) => {
+      const request = requests.next();
+      setState({ type: "loading" });
+      setIsLoadingMore(false);
+      setPaginationError(null);
+      try {
+        const result = await gateway.list({
+          ...(nextQuery.length === 0 ? {} : { query: nextQuery }),
+          limit: 20,
+        });
+        if (requests.isLatest(request)) {
+          return setState({
+            type: "ready",
+            items: result.items,
+            nextCursor: result.nextCursor,
+          });
+        }
+        return;
+      } catch (error) {
+        if (requests.isLatest(request)) {
+          return setState({
+            type: "error",
+            kind: adminFailureKind(error),
+            message: safeAdminFeedback(error),
+          });
+        }
+        return;
+      }
+    },
+    [gateway, requests]
+  );
 
   useEffect(() => {
-    void load("")
-    return undefined
-  }
-  , [load])
+    void load("");
+    return undefined;
+  }, [load]);
 
   const search = (rawQuery: string): void => {
-    const nextQuery = normalizeAdminQuery(rawQuery)
-    setQuery(nextQuery)
-    void load(nextQuery)
-  }
+    const nextQuery = normalizeAdminQuery(rawQuery);
+    setQuery(nextQuery);
+    void load(nextQuery);
+  };
 
   const loadMore = async (): Promise<void> => {
-    if (state.type !== "ready" || state.nextCursor === null || isLoadingMore) return
-    const request = requests.next()
-    setIsLoadingMore(true)
-    setPaginationError(null)
+    if (state.type !== "ready" || state.nextCursor === null || isLoadingMore)
+      return;
+    const request = requests.next();
+    setIsLoadingMore(true);
+    setPaginationError(null);
     try {
       const result = await gateway.list({
         ...(query.length === 0 ? {} : { query }),
         cursor: state.nextCursor,
         limit: 20,
-      })
+      });
       if (requests.isLatest(request)) {
         setState({
           type: "ready",
           items: mergeUsers(state.items, result.items),
           nextCursor: result.nextCursor,
-        })
+        });
       }
+    } catch (error) {
+      if (requests.isLatest(request))
+        setPaginationError(safeAdminFeedback(error));
+    } finally {
+      if (requests.isLatest(request)) setIsLoadingMore(false);
     }
-    catch (error) {
-      if (requests.isLatest(request)) setPaginationError(safeAdminFeedback(error))
-    }
-    finally {
-      if (requests.isLatest(request)) setIsLoadingMore(false)
-    }
-  }
+  };
 
   return (
     <div className="space-y-4">
-      {paginationError === null
-        ? null
-        : <p aria-live="assertive" className="border-l-2 border-destructive py-2 pl-3 text-sm text-destructive" role="alert">{paginationError}
+      {paginationError === null ? null : (
+        <p
+          aria-live="assertive"
+          className="border-l-2 border-destructive py-2 pl-3 text-sm text-destructive"
+          role="alert"
+        >
+          {paginationError}
         </p>
-      }
+      )}
       <AdminUsersDirectory
         isLoadingMore={isLoadingMore}
         onClearSearch={() => search("")}
@@ -109,6 +125,6 @@ export const AdminUsersPageClient = () => {
         query={query}
         state={state}
       />
-  </div>
-  )
-}
+    </div>
+  );
+};

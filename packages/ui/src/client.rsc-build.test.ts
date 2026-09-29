@@ -1,9 +1,11 @@
-import { spawnSync } from "node:child_process"
-import { fileURLToPath } from "node:url"
-import { describe, expect, it } from "vitest"
+import { spawnSync } from "node:child_process";
+import { fileURLToPath } from "node:url";
+import { describe, expect, it } from "vitest";
 
-const workspaceRoot = fileURLToPath(new URL("../../..", import.meta.url))
-const webPackageRoot = fileURLToPath(new URL("../../../apps/web", import.meta.url))
+const workspaceRoot = fileURLToPath(new URL("../../..", import.meta.url));
+const webPackageRoot = fileURLToPath(
+  new URL("../../../apps/web", import.meta.url)
+);
 
 const clientBoundarySource = [
   '"use client";',
@@ -13,7 +15,7 @@ const clientBoundarySource = [
   'import { Toaster, toast } from "@darkfactory/ui/client/toaster";',
   'import { ThemePicker, ThemeProvider, useTheme } from "@darkfactory/ui/client/theme";',
   "export const clientReferences = [Dialog, DialogBody, DialogClose, DialogContent, DialogFooter, DialogTrigger, DropdownMenu, DropdownMenuCheckboxItem, DropdownMenuContent, DropdownMenuGroup, DropdownMenuItem, DropdownMenuLabel, DropdownMenuRadioGroup, DropdownMenuRadioItem, DropdownMenuSeparator, DropdownMenuSub, DropdownMenuSubContent, DropdownMenuSubTrigger, DropdownMenuTrigger, Tabs, TabsContent, TabsList, TabsTrigger, ThemePicker, ThemeProvider, Toaster, toast, useTheme];",
-].join("\n")
+].join("\n");
 
 const runRscScanBuild = () => {
   const script = `
@@ -70,26 +72,30 @@ const runRscScanBuild = () => {
       },
     })
     process.stdout.write(JSON.stringify([...scannedClientFiles].sort()))
-  `
+  `;
 
-  return spawnSync(process.execPath, ["--input-type=module", "--eval", script], {
-    cwd: webPackageRoot,
-    encoding: "utf8",
-  })
-}
+  return spawnSync(
+    process.execPath,
+    ["--input-type=module", "--eval", script],
+    {
+      cwd: webPackageRoot,
+      encoding: "utf8",
+    }
+  );
+};
 
-describe("UI client Vinext compatibility", function() {
-  return it("imports every client export through the actual Vite RSC scan-strip path", function() {
-    const result = runRscScanBuild()
-    const output = `${result.stdout}\n${result.stderr}`
+describe("UI client Vinext compatibility", function () {
+  return it("imports every client export through the actual Vite RSC scan-strip path", function () {
+    const result = runRscScanBuild();
+    const output = `${result.stdout}\n${result.stderr}`;
 
-    expect(result.status, output).toBe(0)
+    expect(result.status, output).toBe(0);
     return expect(JSON.parse(result.stdout)).toEqual([
       "dialog.ts",
       "dropdown-menu.ts",
       "tabs.ts",
       "theme.ts",
       "toaster.ts",
-    ])
-  })
-})
+    ]);
+  });
+});

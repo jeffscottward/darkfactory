@@ -1,10 +1,10 @@
-import type { ReactNode } from "react"
-import { headers } from "next/headers"
-import { redirect } from "next/navigation"
+import type { ReactNode } from "react";
+import { headers } from "next/headers";
+import { redirect } from "next/navigation";
 
-import { PortalShell } from "../../components/portal-shell.tsx"
-import { getRequestPortalSession } from "../../lib/request-portal-session.ts"
-import { portalSignInHref } from "../../lib/server-session.ts"
+import { PortalShell } from "../../components/portal-shell.tsx";
+import { getRequestPortalSession } from "../../lib/request-portal-session.ts";
+import { portalSignInHref } from "../../lib/server-session.ts";
 
 const MEMBER_PORTAL_ROUTES = Object.freeze([
   "/dashboard",
@@ -14,33 +14,33 @@ const MEMBER_PORTAL_ROUTES = Object.freeze([
   "/account/address",
   "/account/preferences",
   "/account/security",
-] as const)
+] as const);
 
 const ADMIN_PORTAL_ROUTES = Object.freeze([
   ...MEMBER_PORTAL_ROUTES,
   "/admin/users",
-] as const)
+] as const);
 
 export default async function PortalLayout({
   children,
 }: {
-  readonly children: ReactNode
+  readonly children: ReactNode;
 }) {
-  const requestHeaders = await headers()
+  const requestHeaders = await headers();
   const session = await getRequestPortalSession(
     requestHeaders.get("cookie"),
-    requestHeaders.get("cf-connecting-ip"),
-  )
+    requestHeaders.get("cf-connecting-ip")
+  );
 
-  if (session === null) redirect(portalSignInHref(requestHeaders))
+  if (session === null) redirect(portalSignInHref(requestHeaders));
 
-  const isAdmin = session.role === "admin"
+  const isAdmin = session.role === "admin";
   return (
     <PortalShell
       availableRoutes={isAdmin ? ADMIN_PORTAL_ROUTES : MEMBER_PORTAL_ROUTES}
       isAdmin={isAdmin}
     >
       {children}
-  </PortalShell>
-  )
+    </PortalShell>
+  );
 }

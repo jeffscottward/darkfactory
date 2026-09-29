@@ -7,11 +7,11 @@ var range: (start: number, end: number) => number[] = (start, end) => {
   }
   return arr;
 };
-import type { SafePrincipal } from "@darkfactory/auth/types"
-import { createWorkflowPlanEvidenceV1 } from "@darkfactory/jobs/server/plan-evidence"
-import { describe, expect, it, vi } from "vitest"
+import type { SafePrincipal } from "@darkfactory/auth/types";
+import { createWorkflowPlanEvidenceV1 } from "@darkfactory/jobs/server/plan-evidence";
+import { describe, expect, it, vi } from "vitest";
 
-import { OperatorRunDetailSchema } from "../contract.ts"
+import { OperatorRunDetailSchema } from "../contract.ts";
 import {
   OperatorServiceError,
   OperatorWorkflowPortError,
@@ -20,10 +20,10 @@ import {
   type OperatorWorkflowPort,
   type WorkflowOperatorDetail,
   type WorkflowOperatorRunSummary,
-} from "./operator-service.ts"
+} from "./operator-service.ts";
 
-const NOW = new Date("2026-07-29T12:00:00.000Z")
-const HASH = "a".repeat(64)
+const NOW = new Date("2026-07-29T12:00:00.000Z");
+const HASH = "a".repeat(64);
 const PLAN = createWorkflowPlanEvidenceV1({
   stdout: "Review and implement the exact bounded plan",
   stderr: "",
@@ -31,12 +31,12 @@ const PLAN = createWorkflowPlanEvidenceV1({
   stderrBytes: 0,
   truncated: false,
   redacted: false,
-})
+});
 const principal: SafePrincipal = {
   userId: "owner-1",
   role: "member",
-  status: "active"
-}
+  status: "active",
+};
 const summary = (
   overrides: Partial<WorkflowOperatorRunSummary> = {}
 ): WorkflowOperatorRunSummary => ({
@@ -50,8 +50,8 @@ const summary = (
   blockedReason: "adapter failed",
   machineId: "darkfactory-pilot",
   machineVersion: 1,
-  ...overrides
-})
+  ...overrides,
+});
 const detail = (
   overrides: Partial<WorkflowOperatorDetail> = {}
 ): WorkflowOperatorDetail => ({
@@ -61,19 +61,21 @@ const detail = (
   originalRequest: "Plan the bounded operator change",
   planRevisions: [],
   run: summary(),
-  timeline: [{
-    sequence: 1,
-    eventType: "RUN_SUBMITTED",
-    summary: "run submitted",
-    hash: HASH,
-    createdAt: NOW
-  }],
+  timeline: [
+    {
+      sequence: 1,
+      eventType: "RUN_SUBMITTED",
+      summary: "run submitted",
+      hash: HASH,
+      createdAt: NOW,
+    },
+  ],
   approval: null,
   implementationPlan: null,
   evidence: [],
   messages: [],
-  ...overrides
-})
+  ...overrides,
+});
 
 const portFor = (
   overrides: Partial<OperatorWorkflowPort> = {}
@@ -88,198 +90,248 @@ const portFor = (
   retry: vi.fn(async () => detail()),
   revise: vi.fn(async () => detail()),
   message: vi.fn(async () => detail()),
-  ...overrides
-})
+  ...overrides,
+});
 
 const expectServiceError = async (
   operation: Promise<unknown>,
   code: ConstructorParameters<typeof OperatorServiceError>[0]
 ): Promise<void> => {
-  const failure = await operation.catch((error: unknown) => error)
-  expect(failure).toEqual(new OperatorServiceError(
-    code,
-    operatorServiceErrorMessage(code)
-  ))
-}
+  const failure = await operation.catch((error: unknown) => error);
+  expect(failure).toEqual(
+    new OperatorServiceError(code, operatorServiceErrorMessage(code))
+  );
+};
 
-describe("operator service projection boundary", function() {
-  it("fails closed when the workflow port is unavailable", async function() {
-    const service = createOperatorService(undefined)
+describe("operator service projection boundary", function () {
+  it("fails closed when the workflow port is unavailable", async function () {
+    const service = createOperatorService(undefined);
     return await expectServiceError(
       service.workspace(principal, { limit: 1 }),
       "SERVICE_UNAVAILABLE"
-    )
-  })
+    );
+  });
 
   it.each([
     [new OperatorServiceError("CONFLICT", "private detail"), "CONFLICT"],
-    [new OperatorWorkflowPortError("STALE_APPROVAL", "private detail"), "STALE_APPROVAL"],
-    [new Error("password=private"), "STORAGE_ERROR"]
+    [
+      new OperatorWorkflowPortError("STALE_APPROVAL", "private detail"),
+      "STALE_APPROVAL",
+    ],
+    [new Error("password=private"), "STORAGE_ERROR"],
   ] as const)("normalizes port failures to %s", async (failure, code) => {
-    const service = createOperatorService(portFor({
-      workspace: vi.fn(async () => { throw failure })
-    }))
-    return await expectServiceError(service.workspace(principal, { limit: 1 }), code)
-  }
-  )
+    const service = createOperatorService(
+      portFor({
+        workspace: vi.fn(async () => {
+          throw failure;
+        }),
+      })
+    );
+    return await expectServiceError(
+      service.workspace(principal, { limit: 1 }),
+      code
+    );
+  });
 
-  it("enforces owner scope for workspace, list, and both detail owner fields", async function() {
-    const results=[];for (const operation of [
-      createOperatorService(portFor({
-        workspace: vi.fn(async () => [summary({ ownerId: "owner-2" })])
-      })).workspace(principal, { limit: 1 }),
-      createOperatorService(portFor({
-        list: vi.fn(async () => ({
-          runs: [summary({ ownerId: "owner-2" })],
-          nextCursor: null
-        }))
-      })).list(principal, {}),
-      createOperatorService(portFor({
-        detail: vi.fn(async () => detail({ ownerId: "owner-2" }))
-      })).detail(principal, "run-1"),
-      createOperatorService(portFor({
-        detail: vi.fn(async () => detail({
-          run: summary({ ownerId: "owner-2" })
-        }))
-      })).detail(principal, "run-1")
+  it("enforces owner scope for workspace, list, and both detail owner fields", async function () {
+    const results = [];
+    for (const operation of [
+      createOperatorService(
+        portFor({
+          workspace: vi.fn(async () => [summary({ ownerId: "owner-2" })]),
+        })
+      ).workspace(principal, { limit: 1 }),
+      createOperatorService(
+        portFor({
+          list: vi.fn(async () => ({
+            runs: [summary({ ownerId: "owner-2" })],
+            nextCursor: null,
+          })),
+        })
+      ).list(principal, {}),
+      createOperatorService(
+        portFor({
+          detail: vi.fn(async () => detail({ ownerId: "owner-2" })),
+        })
+      ).detail(principal, "run-1"),
+      createOperatorService(
+        portFor({
+          detail: vi.fn(async () =>
+            detail({
+              run: summary({ ownerId: "owner-2" }),
+            })
+          ),
+        })
+      ).detail(principal, "run-1"),
     ]) {
-      const failure = await operation.catch((error: unknown) => error)
-      results.push(expect(failure).toMatchObject({ code: "FORBIDDEN" }))
-    };return results;
-  })
+      const failure = await operation.catch((error: unknown) => error);
+      results.push(expect(failure).toMatchObject({ code: "FORBIDDEN" }));
+    }
+    return results;
+  });
 
-  it("rejects missing and unverified details", async function() {
-    const missing = createOperatorService(portFor({
-      detail: vi.fn(async () => null)
-    }))
+  it("rejects missing and unverified details", async function () {
+    const missing = createOperatorService(
+      portFor({
+        detail: vi.fn(async () => null),
+      })
+    );
     await expect(missing.detail(principal, "missing")).rejects.toMatchObject({
-      code: "NOT_FOUND"
-    })
-    const invalid = createOperatorService(portFor({
-      detail: vi.fn(async () => detail({ integrity: "invalid" }))
-    }))
-    return await expect(invalid.detail(principal, "run-1")).rejects.toMatchObject({
-      code: "PROJECTION_INVALID"
-    })
-  })
+      code: "NOT_FOUND",
+    });
+    const invalid = createOperatorService(
+      portFor({
+        detail: vi.fn(async () => detail({ integrity: "invalid" })),
+      })
+    );
+    return await expect(
+      invalid.detail(principal, "run-1")
+    ).rejects.toMatchObject({
+      code: "PROJECTION_INVALID",
+    });
+  });
 
-  it("round-trips exact multibyte title, author, and note contract boundaries", async function() {
-    const title = "😀".repeat(100)
-    const authorLabel = "界".repeat(200)
-    const body = "😀".repeat(1_000)
-    const service = createOperatorService(portFor({
-      detail: vi.fn(async () => detail({
-        run: summary({ title }),
-        messages: [{
-          id: "message-boundary",
-          authorLabel,
-          body,
-          createdAt: NOW
-        }]
-      }))
-    }))
+  it("round-trips exact multibyte title, author, and note contract boundaries", async function () {
+    const title = "😀".repeat(100);
+    const authorLabel = "界".repeat(200);
+    const body = "😀".repeat(1_000);
+    const service = createOperatorService(
+      portFor({
+        detail: vi.fn(async () =>
+          detail({
+            run: summary({ title }),
+            messages: [
+              {
+                id: "message-boundary",
+                authorLabel,
+                body,
+                createdAt: NOW,
+              },
+            ],
+          })
+        ),
+      })
+    );
 
-    const projected = await service.detail(principal, "run-1")
-    expect(title).toHaveLength(200)
-    expect(authorLabel).toHaveLength(200)
-    expect(body).toHaveLength(2_000)
-    expect(projected.run.title).toBe(title)
-    expect(projected.messages[0]?.authorLabel).toBe(authorLabel)
-    expect(projected.messages[0]?.body).toBe(body)
-    return expect(OperatorRunDetailSchema.safeParse(projected).success).toBe(true)
-  })
+    const projected = await service.detail(principal, "run-1");
+    expect(title).toHaveLength(200);
+    expect(authorLabel).toHaveLength(200);
+    expect(body).toHaveLength(2_000);
+    expect(projected.run.title).toBe(title);
+    expect(projected.messages[0]?.authorLabel).toBe(authorLabel);
+    expect(projected.messages[0]?.body).toBe(body);
+    return expect(OperatorRunDetailSchema.safeParse(projected).success).toBe(
+      true
+    );
+  });
 
-  it("bounds oversized legacy text without splitting surrogate pairs", async function() {
-    const service = createOperatorService(portFor({
-      detail: vi.fn(async () => detail({
-        run: summary({ title: `${"😀".repeat(100)}x` }),
-        messages: [{
-          id: "message-legacy",
-          authorLabel: `${"a".repeat(199)}😀legacy`,
-          body: `${"b".repeat(1_999)}😀legacy`,
-          createdAt: NOW
-        }]
-      }))
-    }))
+  it("bounds oversized legacy text without splitting surrogate pairs", async function () {
+    const service = createOperatorService(
+      portFor({
+        detail: vi.fn(async () =>
+          detail({
+            run: summary({ title: `${"😀".repeat(100)}x` }),
+            messages: [
+              {
+                id: "message-legacy",
+                authorLabel: `${"a".repeat(199)}😀legacy`,
+                body: `${"b".repeat(1_999)}😀legacy`,
+                createdAt: NOW,
+              },
+            ],
+          })
+        ),
+      })
+    );
 
-    const projected = await service.detail(principal, "run-1")
-    expect(projected.run.title).toBe("😀".repeat(100))
-    expect(projected.messages[0]?.authorLabel).toBe("a".repeat(199))
-    expect(projected.messages[0]?.body).toBe("b".repeat(1_999))
-    return expect(OperatorRunDetailSchema.safeParse(projected).success).toBe(true)
-  })
+    const projected = await service.detail(principal, "run-1");
+    expect(projected.run.title).toBe("😀".repeat(100));
+    expect(projected.messages[0]?.authorLabel).toBe("a".repeat(199));
+    expect(projected.messages[0]?.body).toBe("b".repeat(1_999));
+    return expect(OperatorRunDetailSchema.safeParse(projected).success).toBe(
+      true
+    );
+  });
 
-  it("redacts secrets, caps UTF-8 safely, and bounds projected collections", async function() {
+  it("redacts secrets, caps UTF-8 safely, and bounds projected collections", async function () {
     const longTimeline = Array.from({ length: 1_001 }, (_, index) => ({
       sequence: index + 1,
       eventType: "EVENT",
       summary: `Bearer token-${index} password=private`,
       hash: HASH,
-      createdAt: NOW
-    }))
+      createdAt: NOW,
+    }));
     const longEvidence = Array.from({ length: 201 }, (_, index) => ({
       id: `evidence-${index}`,
       kind: `kind-${index}`,
       label: `label-${index}`,
-      content: index === 0
-        ? "sk-abcdefgh api_key=private op://vault/item/field"
-        : index === 1
-          ? '{"password":"ci-secret"}'
-          : "safe",
+      content:
+        index === 0
+          ? "sk-abcdefgh api_key=private op://vault/item/field"
+          : index === 1
+            ? '{"password":"ci-secret"}'
+            : "safe",
       redacted: false,
-      createdAt: NOW
-    }))
+      createdAt: NOW,
+    }));
     const longMessages = Array.from({ length: 501 }, (_, index) => ({
       id: `message-${index}`,
       authorLabel: "Operator",
       body: index === 0 ? `${"a".repeat(1_999)}😀` : "safe",
-      createdAt: NOW
-    }))
-    const exactRevision = "Keep password=literal in the exact clarification text."
+      createdAt: NOW,
+    }));
+    const exactRevision =
+      "Keep password=literal in the exact clarification text.";
     const longPlanRevisions = Array.from({ length: 1_001 }, (_, index) => ({
       message: index === 0 ? exactRevision : `Revision ${index}`,
-      createdAt: NOW
-    }))
-    const service = createOperatorService(portFor({
-      detail: vi.fn(async () => detail({
-        run: summary({
-          title: `${"t".repeat(201)}`,
-          blockedReason: `${"b".repeat(501)}`
-        }),
-        timeline: longTimeline,
-        evidence: longEvidence,
-        messages: longMessages,
-        planRevisions: longPlanRevisions
-      }))
-    }))
+      createdAt: NOW,
+    }));
+    const service = createOperatorService(
+      portFor({
+        detail: vi.fn(async () =>
+          detail({
+            run: summary({
+              title: `${"t".repeat(201)}`,
+              blockedReason: `${"b".repeat(501)}`,
+            }),
+            timeline: longTimeline,
+            evidence: longEvidence,
+            messages: longMessages,
+            planRevisions: longPlanRevisions,
+          })
+        ),
+      })
+    );
 
-    const projected = await service.detail(principal, "run-1")
-    expect(projected.run.title).toHaveLength(200)
-    expect(projected.run.blockedReason).toHaveLength(500)
-    expect(projected.timeline).toHaveLength(1_000)
-    expect(projected.timeline[0]?.summary).toBe("Bearer [REDACTED] password=[REDACTED]")
-    expect(projected.evidence).toHaveLength(200)
+    const projected = await service.detail(principal, "run-1");
+    expect(projected.run.title).toHaveLength(200);
+    expect(projected.run.blockedReason).toHaveLength(500);
+    expect(projected.timeline).toHaveLength(1_000);
+    expect(projected.timeline[0]?.summary).toBe(
+      "Bearer [REDACTED] password=[REDACTED]"
+    );
+    expect(projected.evidence).toHaveLength(200);
     expect(projected.evidence[0]).toMatchObject({
       redacted: true,
-      redactedContent: "[REDACTED] api_key=[REDACTED]"
-    })
+      redactedContent: "[REDACTED] api_key=[REDACTED]",
+    });
     expect(projected.evidence[1]).toMatchObject({
       redacted: true,
-      redactedContent: '{"password":"[REDACTED]"}'
-    })
-    expect(projected.messages).toHaveLength(500)
-    expect(projected.messages[0]?.body).toBe("a".repeat(1_999))
-    expect(projected.originalRequest).toBe("Plan the bounded operator change")
-    expect(projected.planRevisions).toHaveLength(1_000)
+      redactedContent: '{"password":"[REDACTED]"}',
+    });
+    expect(projected.messages).toHaveLength(500);
+    expect(projected.messages[0]?.body).toBe("a".repeat(1_999));
+    expect(projected.originalRequest).toBe("Plan the bounded operator change");
+    expect(projected.planRevisions).toHaveLength(1_000);
     expect(projected.planRevisions[0]).toEqual({
       message: exactRevision,
-      createdAt: NOW
-    })
-    expect(Object.isFrozen(projected.planRevisions)).toBe(true)
-    return expect(Object.isFrozen(projected.planRevisions[0])).toBe(true)
-  })
+      createdAt: NOW,
+    });
+    expect(Object.isFrozen(projected.planRevisions)).toBe(true);
+    return expect(Object.isFrozen(projected.planRevisions[0])).toBe(true);
+  });
 
-  it("redacts exact normalized sensitive keys across JSON and plain evidence", async function() {
+  it("redacts exact normalized sensitive keys across JSON and plain evidence", async function () {
     const nestedJson = JSON.stringify({
       outer: {
         client_secret: "fixture-one",
@@ -287,7 +339,7 @@ describe("operator service projection boundary", function() {
         private_key: true,
         authorization: null,
         aws_secret_access_key: "fixture-five",
-        log: "sk-abcdefgh"
+        log: "sk-abcdefgh",
       },
       safe: {
         secretary: "office",
@@ -295,10 +347,11 @@ describe("operator service projection boundary", function() {
         passwordPolicy: "strict",
         privateKeyId: "key-id",
         authorizationStatus: "ready",
-        aws_secret_access_key_hint: "masked"
-      }
-    })
-    const escapedJson = '{"client\\u005fsecret":"fixture-six","ｐｒｉｖａｔｅ＿ｋｅｙ":"fixture-seven"}'
+        aws_secret_access_key_hint: "masked",
+      },
+    });
+    const escapedJson =
+      '{"client\\u005fsecret":"fixture-six","ｐｒｉｖａｔｅ＿ｋｅｙ":"fixture-seven"}';
     const plainText = [
       "client_secret=fixture-eight",
       "clientSecret:fixture-nine",
@@ -310,8 +363,8 @@ describe("operator service projection boundary", function() {
       "authorization=Bearer fixture-seventeen",
       "'client_secret'='fixture-eighteen'",
       "credentials(api_key=fixture-nineteen)",
-      "[authorization=Basic fixture-twenty]"
-    ].join("; ")
+      "[authorization=Basic fixture-twenty]",
+    ].join("; ");
     const falsePositives = [
       "Ordinary prose stays unchanged.",
       "secretary=office",
@@ -320,48 +373,52 @@ describe("operator service projection boundary", function() {
       "privateKeyId=key-id",
       "authorizationStatus=ready",
       "aws_secret_access_key_hint=masked",
-      `client${"_".repeat(129)}secret=bounded`
-    ].join(" ")
-    const service = createOperatorService(portFor({
-      detail: vi.fn(async () => detail({
-        evidence: [
-          {
-            id: "nested",
-            kind: "verification",
-            label: "Nested JSON",
-            content: nestedJson,
-            redacted: false,
-            createdAt: NOW
-          },
-          {
-            id: "escaped",
-            kind: "verification",
-            label: "Escaped JSON keys",
-            content: escapedJson,
-            redacted: false,
-            createdAt: NOW
-          },
-          {
-            id: "plain",
-            kind: "verification",
-            label: "Plain key value",
-            content: plainText,
-            redacted: false,
-            createdAt: NOW
-          },
-          {
-            id: "false-positives",
-            kind: "verification",
-            label: "False positives",
-            content: falsePositives,
-            redacted: false,
-            createdAt: NOW
-          }
-        ]
-      }))
-    }))
+      `client${"_".repeat(129)}secret=bounded`,
+    ].join(" ");
+    const service = createOperatorService(
+      portFor({
+        detail: vi.fn(async () =>
+          detail({
+            evidence: [
+              {
+                id: "nested",
+                kind: "verification",
+                label: "Nested JSON",
+                content: nestedJson,
+                redacted: false,
+                createdAt: NOW,
+              },
+              {
+                id: "escaped",
+                kind: "verification",
+                label: "Escaped JSON keys",
+                content: escapedJson,
+                redacted: false,
+                createdAt: NOW,
+              },
+              {
+                id: "plain",
+                kind: "verification",
+                label: "Plain key value",
+                content: plainText,
+                redacted: false,
+                createdAt: NOW,
+              },
+              {
+                id: "false-positives",
+                kind: "verification",
+                label: "False positives",
+                content: falsePositives,
+                redacted: false,
+                createdAt: NOW,
+              },
+            ],
+          })
+        ),
+      })
+    );
 
-    const projected = await service.detail(principal, "run-1")
+    const projected = await service.detail(principal, "run-1");
     expect(JSON.parse(projected.evidence[0]?.redactedContent ?? "")).toEqual({
       outer: {
         client_secret: "[REDACTED]",
@@ -369,7 +426,7 @@ describe("operator service projection boundary", function() {
         private_key: "[REDACTED]",
         authorization: "[REDACTED]",
         aws_secret_access_key: "[REDACTED]",
-        log: "[REDACTED]"
+        log: "[REDACTED]",
       },
       safe: {
         secretary: "office",
@@ -377,14 +434,15 @@ describe("operator service projection boundary", function() {
         passwordPolicy: "strict",
         privateKeyId: "key-id",
         authorizationStatus: "ready",
-        aws_secret_access_key_hint: "masked"
-      }
-    })
-    expect(projected.evidence[0]?.redacted).toBe(true)
+        aws_secret_access_key_hint: "masked",
+      },
+    });
+    expect(projected.evidence[0]?.redacted).toBe(true);
     expect(projected.evidence[1]).toMatchObject({
       redacted: true,
-      redactedContent: '{"client_secret":"[REDACTED]","ｐｒｉｖａｔｅ＿ｋｅｙ":"[REDACTED]"}'
-    })
+      redactedContent:
+        '{"client_secret":"[REDACTED]","ｐｒｉｖａｔｅ＿ｋｅｙ":"[REDACTED]"}',
+    });
     expect(projected.evidence[2]).toMatchObject({
       redacted: true,
       redactedContent: [
@@ -398,222 +456,257 @@ describe("operator service projection boundary", function() {
         "authorization=[REDACTED]",
         "'client_secret'='[REDACTED]'",
         "credentials(api_key=[REDACTED])",
-        "[authorization=[REDACTED]]"
-      ].join("; ")
-    })
+        "[authorization=[REDACTED]]",
+      ].join("; "),
+    });
     return expect(projected.evidence[3]).toMatchObject({
       redacted: false,
-      redactedContent: falsePositives
-    })
-  })
+      redactedContent: falsePositives,
+    });
+  });
 
-  it("covers bounded JSON traversal and decoder fallbacks", async function() {
-    const sentinel = "fixture-secret-sentinel"
-    const invalidQuotedKey = `"client\\_secret"=${sentinel}`
-    const malformedUnicodeKey = `"client\\u005fsecret\\_"=${sentinel}`
-    const nonExactMalformedUnicodeKey = `"client\\u005fsecret\\q"=${sentinel}`
-    const escapedSingleQuotedKey = `'client\\'secret'=${sentinel}`
+  it("covers bounded JSON traversal and decoder fallbacks", async function () {
+    const sentinel = "fixture-secret-sentinel";
+    const invalidQuotedKey = `"client\\_secret"=${sentinel}`;
+    const malformedUnicodeKey = `"client\\u005fsecret\\_"=${sentinel}`;
+    const nonExactMalformedUnicodeKey = `"client\\u005fsecret\\q"=${sentinel}`;
+    const escapedSingleQuotedKey = `'client\\'secret'=${sentinel}`;
     const cases = [
       {
         id: "null",
         content: "null",
         expected: "null",
         redacted: false,
-        sensitive: false
+        sensitive: false,
       },
       {
         id: "string",
         content: '"safe"',
         expected: '"safe"',
         redacted: false,
-        sensitive: false
+        sensitive: false,
       },
       {
         id: "number",
         content: "17",
         expected: "17",
         redacted: false,
-        sensitive: false
+        sensitive: false,
       },
       {
         id: "boolean",
         content: "true",
         expected: "true",
         redacted: false,
-        sensitive: false
+        sensitive: false,
       },
       {
         id: "array",
         content: JSON.stringify(["safe", null, { password: sentinel }]),
         expected: '["safe",null,{"password":"[REDACTED]"}]',
         redacted: true,
-        sensitive: true
+        sensitive: true,
       },
       {
         id: "already-redacted",
         content: '{"password":"[REDACTED]"}',
         expected: '{"password":"[REDACTED]"}',
         redacted: false,
-        sensitive: true
+        sensitive: true,
       },
       {
         id: "no-sensitive-keys",
         content: '{"nested":{"status":"safe"}}',
         expected: '{"nested":{"status":"safe"}}',
         redacted: false,
-        sensitive: false
+        sensitive: false,
       },
       {
         id: "overlong-raw-key",
         content: JSON.stringify({ ["x".repeat(129)]: sentinel }),
         expected: JSON.stringify({ ["x".repeat(129)]: sentinel }),
         redacted: false,
-        sensitive: false
+        sensitive: false,
       },
       {
         id: "overlong-normalized-key",
         content: JSON.stringify({ ["\uFB03".repeat(43)]: sentinel }),
         expected: JSON.stringify({ ["\uFB03".repeat(43)]: sentinel }),
         redacted: false,
-        sensitive: false
+        sensitive: false,
       },
       {
         id: "invalid-double-quoted-key",
         content: invalidQuotedKey,
         expected: invalidQuotedKey.replace(sentinel, "[REDACTED]"),
         redacted: true,
-        sensitive: true
+        sensitive: true,
       },
       {
         id: "malformed-unicode-key",
         content: malformedUnicodeKey,
         expected: malformedUnicodeKey.replace(sentinel, "[REDACTED]"),
         redacted: true,
-        sensitive: true
+        sensitive: true,
       },
       {
         id: "non-exact-malformed-unicode-key",
         content: nonExactMalformedUnicodeKey,
         expected: nonExactMalformedUnicodeKey,
         redacted: false,
-        sensitive: false
+        sensitive: false,
       },
       {
         id: "escaped-single-quoted-key",
         content: escapedSingleQuotedKey,
         expected: escapedSingleQuotedKey.replace(sentinel, "[REDACTED]"),
         redacted: true,
-        sensitive: true
-      }
-    ]
-    const results1=[];for (const batchStart of [0, 8]) {
-      const batch = cases.slice(batchStart, batchStart + 8)
-      const service = createOperatorService(portFor({
-        detail: vi.fn(async () => detail({
-          evidence: batch.map(({ id, content }) => ({
-            id,
-            kind: "verification",
-            label: id,
-            content,
-            redacted: false,
-            createdAt: NOW
-          }))
-        }))
-      }))
+        sensitive: true,
+      },
+    ];
+    const results1 = [];
+    for (const batchStart of [0, 8]) {
+      const batch = cases.slice(batchStart, batchStart + 8);
+      const service = createOperatorService(
+        portFor({
+          detail: vi.fn(async () =>
+            detail({
+              evidence: batch.map(({ id, content }) => ({
+                id,
+                kind: "verification",
+                label: id,
+                content,
+                redacted: false,
+                createdAt: NOW,
+              })),
+            })
+          ),
+        })
+      );
 
-      const projected = await service.detail(principal, "run-1")
-      const results2=[];for (const index in range(0,batch.length)) {
-        const testCase = batch[index]!
-        const evidence = projected.evidence[index]
+      const projected = await service.detail(principal, "run-1");
+      const results2 = [];
+      for (const index in range(0, batch.length)) {
+        const testCase = batch[index]!;
+        const evidence = projected.evidence[index];
         expect(evidence).toMatchObject({
           redacted: testCase.redacted,
-          redactedContent: testCase.expected
-        })
+          redactedContent: testCase.expected,
+        });
         if (testCase.sensitive) {
-          results2.push(expect(evidence?.redactedContent).not.toContain(sentinel))
-        } else {results2.push(void 0)}
-      }results1.push(results2)
-    };return results1;
-  })
+          results2.push(
+            expect(evidence?.redactedContent).not.toContain(sentinel)
+          );
+        } else {
+          results2.push(void 0);
+        }
+      }
+      results1.push(results2);
+    }
+    return results1;
+  });
 
-  it("fails closed for sensitive structured JSON values", async function() {
-    const service = createOperatorService(portFor({
-      detail: vi.fn(async () => detail({
-        evidence: [
-          {
-            id: "object",
-            kind: "verification",
-            label: "Structured object",
-            content: '{"client_secret":{"value":"fixture-fourteen"}}',
-            redacted: false,
-            createdAt: NOW
-          },
-          {
-            id: "array",
-            kind: "verification",
-            label: "Structured array",
-            content: '{"outer":{"authorization":["fixture-fifteen"]}}',
-            redacted: false,
-            createdAt: NOW
-          }
-        ]
-      }))
-    }))
+  it("fails closed for sensitive structured JSON values", async function () {
+    const service = createOperatorService(
+      portFor({
+        detail: vi.fn(async () =>
+          detail({
+            evidence: [
+              {
+                id: "object",
+                kind: "verification",
+                label: "Structured object",
+                content: '{"client_secret":{"value":"fixture-fourteen"}}',
+                redacted: false,
+                createdAt: NOW,
+              },
+              {
+                id: "array",
+                kind: "verification",
+                label: "Structured array",
+                content: '{"outer":{"authorization":["fixture-fifteen"]}}',
+                redacted: false,
+                createdAt: NOW,
+              },
+            ],
+          })
+        ),
+      })
+    );
 
-    const projected = await service.detail(principal, "run-1")
+    const projected = await service.detail(principal, "run-1");
     return expect(projected.evidence).toMatchObject([
       { redacted: true, redactedContent: "[REDACTED]" },
-      { redacted: true, redactedContent: "[REDACTED]" }
-    ])
-  })
+      { redacted: true, redactedContent: "[REDACTED]" },
+    ]);
+  });
 
-  it("projects the authoritative plan-revision capability", async function() {
-    const service = createOperatorService(portFor({
-      detail: vi.fn(async () => detail({ canRequestPlanRevision: true }))
-    }))
+  it("projects the authoritative plan-revision capability", async function () {
+    const service = createOperatorService(
+      portFor({
+        detail: vi.fn(async () => detail({ canRequestPlanRevision: true })),
+      })
+    );
 
-    return await expect(service.detail(principal, "run-1")).resolves.toMatchObject({
-      canRequestPlanRevision: true
-    })
-  })
+    return await expect(
+      service.detail(principal, "run-1")
+    ).resolves.toMatchObject({
+      canRequestPlanRevision: true,
+    });
+  });
 
-  it("projects the exact digest-bound plan and rejects a tampered port value", async function() {
-    const service = createOperatorService(portFor({
-      detail: vi.fn(async () => detail({ implementationPlan: PLAN }))
-    }))
+  it("projects the exact digest-bound plan and rejects a tampered port value", async function () {
+    const service = createOperatorService(
+      portFor({
+        detail: vi.fn(async () => detail({ implementationPlan: PLAN })),
+      })
+    );
     await expect(service.detail(principal, "run-1")).resolves.toMatchObject({
       implementationPlan: {
         summary: PLAN.summary,
         digest: PLAN.digest,
         truncated: false,
-        redacted: false
-      }
-    })
+        redacted: false,
+      },
+    });
 
-    const tampered = createOperatorService(portFor({
-      detail: vi.fn(async () => detail({
-        implementationPlan: { ...PLAN, summary: `${PLAN.summary} tampered` }
-      }))
-    }))
+    const tampered = createOperatorService(
+      portFor({
+        detail: vi.fn(async () =>
+          detail({
+            implementationPlan: {
+              ...PLAN,
+              summary: `${PLAN.summary} tampered`,
+            },
+          })
+        ),
+      })
+    );
     return await expectServiceError(
       tampered.detail(principal, "run-1"),
       "PROJECTION_INVALID"
-    )
-  })
+    );
+  });
 
-  it("preserves an unexpected implementation-plan projection failure", async function() {
-    const failure = new Error("unexpected plan projection failure")
+  it("preserves an unexpected implementation-plan projection failure", async function () {
+    const failure = new Error("unexpected plan projection failure");
     const poisonedPlan = Object.defineProperty({ ...PLAN }, "digest", {
-      get: () => { throw failure }
-    })
-    const service = createOperatorService(portFor({
-      detail: vi.fn(async () => detail({ implementationPlan: poisonedPlan }))
-    }))
+      get: () => {
+        throw failure;
+      },
+    });
+    const service = createOperatorService(
+      portFor({
+        detail: vi.fn(async () => detail({ implementationPlan: poisonedPlan })),
+      })
+    );
 
-    return await expect(service.detail(principal, "run-1")).rejects.toBe(failure)
-  })
+    return await expect(service.detail(principal, "run-1")).rejects.toBe(
+      failure
+    );
+  });
 
-  return it("omits optional summary fields and preserves pagination", async function() {
+  return it("omits optional summary fields and preserves pagination", async function () {
     const withoutOptional: WorkflowOperatorRunSummary = {
       id: "run-1",
       ownerId: "owner-1",
@@ -622,32 +715,36 @@ describe("operator service projection boundary", function() {
       updatedAt: NOW,
       headHash: HASH,
       machineId: "darkfactory-pilot",
-      machineVersion: 1
-    }
-    const service = createOperatorService(portFor({
-      list: vi.fn(async () => ({
-        runs: [withoutOptional],
-        nextCursor: null
-      }))
-    }))
+      machineVersion: 1,
+    };
+    const service = createOperatorService(
+      portFor({
+        list: vi.fn(async () => ({
+          runs: [withoutOptional],
+          nextCursor: null,
+        })),
+      })
+    );
     return await expect(service.list(principal, {})).resolves.toEqual({
-      runs: [{
-        id: "run-1",
-        state: "blocked",
-        sequence: 4,
-        updatedAt: NOW,
-        headHash: HASH
-      }],
-      nextCursor: null
-    })
-  })
-})
+      runs: [
+        {
+          id: "run-1",
+          state: "blocked",
+          sequence: 4,
+          updatedAt: NOW,
+          headHash: HASH,
+        },
+      ],
+      nextCursor: null,
+    });
+  });
+});
 
-describe("operator service action forwarding", function() {
-  return it("forwards owner-scoped submit, approval, and action contexts", async function() {
-    const port = portFor()
-    const exactNote = "😀".repeat(1_000)
-    const service = createOperatorService(port)
+describe("operator service action forwarding", function () {
+  return it("forwards owner-scoped submit, approval, and action contexts", async function () {
+    const port = portFor();
+    const exactNote = "😀".repeat(1_000);
+    const service = createOperatorService(port);
     const approval = {
       machineId: "darkfactory-pilot",
       machineVersion: 1,
@@ -655,71 +752,85 @@ describe("operator service action forwarding", function() {
       snapshotSequence: 2,
       journalHeadHash: HASH,
       effectHash: HASH,
-      effectScope: '{"paths":["."],"repositoryId":"darkfactory"}'
-    }
+      effectScope: '{"paths":["."],"repositoryId":"darkfactory"}',
+    };
     await service.submit(principal, {
       idempotencyKey: "submit-1",
       title: "Pilot",
-      scope: { repositoryId: "darkfactory", paths: ["."] }
-    })
-    await service.approve(principal, "run-1", approval, "request-approve")
-    await service.reject(principal, "run-1", undefined, "request-reject-1")
-    await service.reject(principal, "run-1", "not ready", "request-reject-2")
-    await service.cancel(principal, "run-1", "request-cancel")
-    await service.retry(principal, "run-1", "request-retry")
+      scope: { repositoryId: "darkfactory", paths: ["."] },
+    });
+    await service.approve(principal, "run-1", approval, "request-approve");
+    await service.reject(principal, "run-1", undefined, "request-reject-1");
+    await service.reject(principal, "run-1", "not ready", "request-reject-2");
+    await service.cancel(principal, "run-1", "request-cancel");
+    await service.retry(principal, "run-1", "request-retry");
     await service.revise(
       principal,
       "run-1",
       "Keep the plan bounded",
       "revision-attempt-1",
       "request-revision"
-    )
+    );
     await service.message(
       principal,
       "run-1",
       exactNote,
       "message-1",
       "request-message"
-    )
+    );
 
-    expect(port.submit).toHaveBeenCalledWith(expect.objectContaining({
-      ownerId: "owner-1",
-      actorUserId: "owner-1",
-      title: "Pilot"
-    }))
+    expect(port.submit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        ownerId: "owner-1",
+        actorUserId: "owner-1",
+        title: "Pilot",
+      })
+    );
     expect(port.approve).toHaveBeenCalledWith({
       runId: "run-1",
       ownerId: "owner-1",
       actorUserId: "owner-1",
       requestId: "request-approve",
-      approval
-    })
+      approval,
+    });
     expect(port.reject).toHaveBeenNthCalledWith(1, {
       runId: "run-1",
       ownerId: "owner-1",
       actorUserId: "owner-1",
-      requestId: "request-reject-1"
-    })
-    expect(port.reject).toHaveBeenNthCalledWith(2, expect.objectContaining({
-      reason: "not ready"
-    }))
-    expect(port.cancel).toHaveBeenCalledWith(expect.objectContaining({
-      requestId: "request-cancel"
-    }))
-    expect(port.retry).toHaveBeenCalledWith(expect.objectContaining({
-      requestId: "request-retry"
-    }))
-    expect(port.revise).toHaveBeenCalledWith(expect.objectContaining({
-      idempotencyKey: "revision-attempt-1",
-      clarification: "Keep the plan bounded",
-      requestId: "request-revision"
-    }))
-    expect(port.message).toHaveBeenCalledWith(expect.objectContaining({
-      idempotencyKey: "message-1",
-      body: exactNote,
-      requestId: "request-message"
-    }))
-    return expect(new TextEncoder().encode(exactNote).byteLength)
-      .toBeLessThanOrEqual(8 * 1_024)
-  })
-})
+      requestId: "request-reject-1",
+    });
+    expect(port.reject).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({
+        reason: "not ready",
+      })
+    );
+    expect(port.cancel).toHaveBeenCalledWith(
+      expect.objectContaining({
+        requestId: "request-cancel",
+      })
+    );
+    expect(port.retry).toHaveBeenCalledWith(
+      expect.objectContaining({
+        requestId: "request-retry",
+      })
+    );
+    expect(port.revise).toHaveBeenCalledWith(
+      expect.objectContaining({
+        idempotencyKey: "revision-attempt-1",
+        clarification: "Keep the plan bounded",
+        requestId: "request-revision",
+      })
+    );
+    expect(port.message).toHaveBeenCalledWith(
+      expect.objectContaining({
+        idempotencyKey: "message-1",
+        body: exactNote,
+        requestId: "request-message",
+      })
+    );
+    return expect(
+      new TextEncoder().encode(exactNote).byteLength
+    ).toBeLessThanOrEqual(8 * 1_024);
+  });
+});

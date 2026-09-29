@@ -1,38 +1,38 @@
-import { Buffer } from "node:buffer"
-import { isAbsolute, win32 } from "node:path"
-import { GeneratorError } from "./errors.ts"
+import { Buffer } from "node:buffer";
+import { isAbsolute, win32 } from "node:path";
+import { GeneratorError } from "./errors.ts";
 
-import type { FeatureNames } from "./types.ts"
+import type { FeatureNames } from "./types.ts";
 
-const CANONICAL_NAME = /^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/
-const CONTROL_CHARACTER = /[\u0000-\u001f\u007f]/
-const MAX_NAME_LENGTH = 63
-const WINDOWS_DEVICE_NAME = /^(?:con|prn|aux|nul|com[1-9]|lpt[1-9])$/
+const CANONICAL_NAME = /^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/;
+const CONTROL_CHARACTER = /[\u0000-\u001f\u007f]/;
+const MAX_NAME_LENGTH = 63;
+const WINDOWS_DEVICE_NAME = /^(?:con|prn|aux|nul|com[1-9]|lpt[1-9])$/;
 
 const capitalize = (value: string): string => {
-  return `${value.charAt(0).toUpperCase()}${value.slice(1)}`
-}
+  return `${value.charAt(0).toUpperCase()}${value.slice(1)}`;
+};
 
 const pluralizeWord = (word: string): string => {
-  if (/[^aeiou]y$/.test(word)) return `${word.slice(0, -1)}ies`
-  if (/(?:s|x|z|ch|sh)$/.test(word)) return `${word}es`
-  return `${word}s`
-}
+  if (/[^aeiou]y$/.test(word)) return `${word.slice(0, -1)}ies`;
+  if (/(?:s|x|z|ch|sh)$/.test(word)) return `${word}es`;
+  return `${word}s`;
+};
 
 const formsFor = (words: readonly string[], plural: boolean) => {
-  const resolved = [...words]
-  if (plural) resolved[resolved.length - 1] = pluralizeWord(resolved.at(-1)!)
+  const resolved = [...words];
+  if (plural) resolved[resolved.length - 1] = pluralizeWord(resolved.at(-1)!);
   return Object.freeze({
     kebab: resolved.join("-"),
     camel: `${resolved[0]}${resolved.slice(1).map(capitalize).join("")}`,
     pascal: resolved.map(capitalize).join(""),
     snake: resolved.join("_"),
-  })
-}
+  });
+};
 
 export const validateFeatureName = (name: string): FeatureNames => {
   if (typeof name !== "string" || name.length === 0) {
-    throw new GeneratorError("NAME_INVALID", "Feature name is invalid")
+    throw new GeneratorError("NAME_INVALID", "Feature name is invalid");
   }
   if (
     CONTROL_CHARACTER.test(name) ||
@@ -44,26 +44,36 @@ export const validateFeatureName = (name: string): FeatureNames => {
     name === ".." ||
     name.includes("..")
   ) {
-    throw new GeneratorError("NAME_INVALID", "Feature name is invalid")
+    throw new GeneratorError("NAME_INVALID", "Feature name is invalid");
   }
   if (name.length > MAX_NAME_LENGTH || !CANONICAL_NAME.test(name)) {
-    throw new GeneratorError("NAME_INVALID", "Feature name must be lowercase kebab-case")
+    throw new GeneratorError(
+      "NAME_INVALID",
+      "Feature name must be lowercase kebab-case"
+    );
   }
 
-  const words = name.split("-")
+  const words = name.split("-");
   if (words.some((word) => WINDOWS_DEVICE_NAME.test(word))) {
-    throw new GeneratorError("NAME_INVALID", "Feature name is not portable")
+    throw new GeneratorError("NAME_INVALID", "Feature name is not portable");
   }
-  const singular = formsFor(words, false)
-  const plural = formsFor(words, true)
+  const singular = formsFor(words, false);
+  const plural = formsFor(words, true);
   const postgresIdentifiers = [
     plural.snake,
     `${plural.snake}_owner_id_idx`,
     `${plural.snake}_status_check`,
     `${plural.snake}_name_check`,
-  ]
-  if (postgresIdentifiers.some((identifier) => Buffer.byteLength(identifier, "utf8") > 63)) {
-    throw new GeneratorError("NAME_INVALID", "Feature name produces an unsafe database identifier")
+  ];
+  if (
+    postgresIdentifiers.some(
+      (identifier) => Buffer.byteLength(identifier, "utf8") > 63
+    )
+  ) {
+    throw new GeneratorError(
+      "NAME_INVALID",
+      "Feature name produces an unsafe database identifier"
+    );
   }
   return Object.freeze({
     kebab: singular.kebab,
@@ -74,5 +84,5 @@ export const validateFeatureName = (name: string): FeatureNames => {
     pluralPascal: plural.pascal,
     snake: singular.snake,
     pluralSnake: plural.snake,
-  })
-}
+  });
+};

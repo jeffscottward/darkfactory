@@ -1,4 +1,4 @@
-import { sql } from "drizzle-orm"
+import { sql } from "drizzle-orm";
 import {
   bigint,
   boolean,
@@ -13,19 +13,19 @@ import {
   text,
   timestamp,
   uniqueIndex,
-} from "drizzle-orm/pg-core"
+} from "drizzle-orm/pg-core";
 
-export const USER_ROLES = ["member", "admin"] as const
-export type UserRole = (typeof USER_ROLES)[number]
+export const USER_ROLES = ["member", "admin"] as const;
+export type UserRole = (typeof USER_ROLES)[number];
 
-export const USER_STATUSES = ["active", "suspended", "deactivated"] as const
-export type UserStatus = (typeof USER_STATUSES)[number]
+export const USER_STATUSES = ["active", "suspended", "deactivated"] as const;
+export type UserStatus = (typeof USER_STATUSES)[number];
 
-export const ADDRESS_TYPES = ["home", "work", "other"] as const
-export type AddressType = (typeof ADDRESS_TYPES)[number]
+export const ADDRESS_TYPES = ["home", "work", "other"] as const;
+export type AddressType = (typeof ADDRESS_TYPES)[number];
 
-export const PREFERENCE_MODES = ["light", "dark", "system"] as const
-export type PreferenceMode = (typeof PREFERENCE_MODES)[number]
+export const PREFERENCE_MODES = ["light", "dark", "system"] as const;
+export type PreferenceMode = (typeof PREFERENCE_MODES)[number];
 
 export const COLOR_SCHEMES = [
   "neutral",
@@ -38,27 +38,27 @@ export const COLOR_SCHEMES = [
   "red",
   "rose",
   "violet",
-] as const
-export type ColorScheme = (typeof COLOR_SCHEMES)[number]
+] as const;
+export type ColorScheme = (typeof COLOR_SCHEMES)[number];
 
-export const PROFILE_VISIBILITIES = ["private", "members", "public"] as const
-export type ProfileVisibility = (typeof PROFILE_VISIBILITIES)[number]
+export const PROFILE_VISIBILITIES = ["private", "members", "public"] as const;
+export type ProfileVisibility = (typeof PROFILE_VISIBILITIES)[number];
 
-export const FEATURE_ITEM_STATUSES = ["draft", "active", "archived"] as const
-export type FeatureItemStatus = (typeof FEATURE_ITEM_STATUSES)[number]
+export const FEATURE_ITEM_STATUSES = ["draft", "active", "archived"] as const;
+export type FeatureItemStatus = (typeof FEATURE_ITEM_STATUSES)[number];
 
-export type JsonPrimitive = string | number | boolean | null
+export type JsonPrimitive = string | number | boolean | null;
 export type JsonValue =
   | JsonPrimitive
   | ReadonlyArray<JsonValue>
-  | { readonly [key: string]: JsonValue }
-export type FeatureItemMetadata = Readonly<Record<string, JsonValue>>
-export type EventPayload = Readonly<Record<string, JsonValue>>
-export type AuditMetadata = Readonly<Record<string, JsonValue>>
+  | { readonly [key: string]: JsonValue };
+export type FeatureItemMetadata = Readonly<Record<string, JsonValue>>;
+export type EventPayload = Readonly<Record<string, JsonValue>>;
+export type AuditMetadata = Readonly<Record<string, JsonValue>>;
 
-export const WORKFLOW_MACHINE_ID = "darkfactory-pilot" as const
-export const WORKFLOW_MACHINE_VERSION = 1 as const
-export const WORKFLOW_EVENT_VERSION = 1 as const
+export const WORKFLOW_MACHINE_ID = "darkfactory-pilot" as const;
+export const WORKFLOW_MACHINE_VERSION = 1 as const;
+export const WORKFLOW_EVENT_VERSION = 1 as const;
 export const WORKFLOW_STATES = [
   "draft",
   "planning",
@@ -68,27 +68,27 @@ export const WORKFLOW_STATES = [
   "blocked",
   "completed",
   "cancelled",
-] as const
-export type WorkflowState = (typeof WORKFLOW_STATES)[number]
+] as const;
+export type WorkflowState = (typeof WORKFLOW_STATES)[number];
 export const WORKFLOW_APPROVAL_STATUSES = [
   "pending",
   "granted",
   "rejected",
-] as const
+] as const;
 export type WorkflowApprovalStatus =
-  (typeof WORKFLOW_APPROVAL_STATUSES)[number]
-export type WorkflowPersistedEvent = Readonly<Record<string, JsonValue>>
-export type WorkflowSnapshotContext = Readonly<Record<string, JsonValue>>
-export type WorkflowEvidenceData = Readonly<Record<string, JsonValue>>
-export type WorkflowEffectPayload = Readonly<Record<string, JsonValue>>
-export const GENESIS_WORKFLOW_JOURNAL_HASH = "0".repeat(64)
+  (typeof WORKFLOW_APPROVAL_STATUSES)[number];
+export type WorkflowPersistedEvent = Readonly<Record<string, JsonValue>>;
+export type WorkflowSnapshotContext = Readonly<Record<string, JsonValue>>;
+export type WorkflowEvidenceData = Readonly<Record<string, JsonValue>>;
+export type WorkflowEffectPayload = Readonly<Record<string, JsonValue>>;
+export const GENESIS_WORKFLOW_JOURNAL_HASH = "0".repeat(64);
 
 const utcTimestamp = (name: string) => {
-  return timestamp(name, { mode: "date", withTimezone: true })
-}
+  return timestamp(name, { mode: "date", withTimezone: true });
+};
 const utcTimestampMs = (name: string) => {
-  return timestamp(name, { mode: "date", withTimezone: true, precision: 3 })
-}
+  return timestamp(name, { mode: "date", withTimezone: true, precision: 3 });
+};
 
 export const users = pgTable(
   "user",
@@ -108,15 +108,19 @@ export const users = pgTable(
   },
   (table) => [
     index("user_created_at_id_idx").on(table.createdAt.desc(), table.id.desc()),
-    index("user_email_prefix_idx").on(sql`lower(${table.email}) text_pattern_ops`),
-    index("user_name_prefix_idx").on(sql`lower(${table.name}) text_pattern_ops`),
+    index("user_email_prefix_idx").on(
+      sql`lower(${table.email}) text_pattern_ops`
+    ),
+    index("user_name_prefix_idx").on(
+      sql`lower(${table.name}) text_pattern_ops`
+    ),
     check("user_role_check", sql`${table.role} in ('member', 'admin')`),
     check(
       "user_status_check",
-      sql`${table.status} in ('active', 'suspended', 'deactivated')`,
+      sql`${table.status} in ('active', 'suspended', 'deactivated')`
     ),
-  ],
-)
+  ]
+);
 
 export const sessions = pgTable(
   "session",
@@ -137,8 +141,8 @@ export const sessions = pgTable(
   (table) => [
     index("session_user_id_idx").on(table.userId),
     index("session_expires_at_idx").on(table.expiresAt),
-  ],
-)
+  ]
+);
 
 export const accounts = pgTable(
   "account",
@@ -166,10 +170,10 @@ export const accounts = pgTable(
     index("account_user_id_idx").on(table.userId),
     uniqueIndex("account_provider_account_unique_idx").on(
       table.providerId,
-      table.accountId,
+      table.accountId
     ),
-  ],
-)
+  ]
+);
 
 export const verifications = pgTable(
   "verification",
@@ -189,10 +193,10 @@ export const verifications = pgTable(
     index("verification_expires_at_idx").on(table.expiresAt),
     uniqueIndex("verification_identifier_value_unique_idx").on(
       table.identifier,
-      table.value,
+      table.value
     ),
-  ],
-)
+  ]
+);
 
 export const rateLimit = pgTable(
   "rate_limit",
@@ -202,10 +206,8 @@ export const rateLimit = pgTable(
     count: integer("count").notNull(),
     lastRequest: bigint("last_request", { mode: "number" }).notNull(),
   },
-  (table) => [
-    index("rate_limit_last_request_idx").on(table.lastRequest),
-  ],
-)
+  (table) => [index("rate_limit_last_request_idx").on(table.lastRequest)]
+);
 
 export const profiles = pgTable(
   "profiles",
@@ -229,16 +231,16 @@ export const profiles = pgTable(
   },
   (table) => [
     index("profiles_display_name_prefix_idx").on(
-      sql`lower(${table.displayName}) text_pattern_ops`,
+      sql`lower(${table.displayName}) text_pattern_ops`
     ),
     index("profiles_first_name_prefix_idx").on(
-      sql`lower(${table.firstName}) text_pattern_ops`,
+      sql`lower(${table.firstName}) text_pattern_ops`
     ),
     index("profiles_last_name_prefix_idx").on(
-      sql`lower(${table.lastName}) text_pattern_ops`,
+      sql`lower(${table.lastName}) text_pattern_ops`
     ),
-  ],
-)
+  ]
+);
 
 export const addresses = pgTable(
   "addresses",
@@ -263,19 +265,19 @@ export const addresses = pgTable(
       table.userId,
       table.isPrimary.desc(),
       table.createdAt,
-      table.id,
+      table.id
     ),
     uniqueIndex("addresses_one_primary_per_user_idx")
       .on(table.userId)
       .where(sql`${table.isPrimary} = true`),
     check(
       "addresses_type_check",
-      sql`${table.type} in ('home', 'work', 'other')`,
+      sql`${table.type} in ('home', 'work', 'other')`
     ),
     check("addresses_line_1_check", sql`length(trim(${table.line1})) > 0`),
     check("addresses_country_check", sql`length(${table.country}) = 2`),
-  ],
-)
+  ]
+);
 
 export const userPreferences = pgTable(
   "user_preferences",
@@ -304,21 +306,21 @@ export const userPreferences = pgTable(
   (table) => [
     check(
       "user_preferences_mode_check",
-      sql`${table.mode} in ('light', 'dark', 'system')`,
+      sql`${table.mode} in ('light', 'dark', 'system')`
     ),
     check(
       "user_preferences_color_scheme_check",
       sql`${table.colorScheme} in (
         'neutral', 'slate', 'blue', 'cyan', 'green',
         'amber', 'orange', 'red', 'rose', 'violet'
-      )`,
+      )`
     ),
     check(
       "user_preferences_profile_visibility_check",
-      sql`${table.profileVisibility} in ('private', 'members', 'public')`,
+      sql`${table.profileVisibility} in ('private', 'members', 'public')`
     ),
-  ],
-)
+  ]
+);
 
 export const featureItems = pgTable(
   "feature_items",
@@ -344,25 +346,25 @@ export const featureItems = pgTable(
     index("feature_items_owner_id_idx").on(
       table.ownerId,
       table.updatedAt.desc(),
-      table.id.desc(),
+      table.id.desc()
     ),
     index("feature_items_owner_status_order_idx").on(
       table.ownerId,
       table.status,
       table.updatedAt.desc(),
-      table.id.desc(),
+      table.id.desc()
     ),
     check(
       "feature_items_status_check",
-      sql`${table.status} in ('draft', 'active', 'archived')`,
+      sql`${table.status} in ('draft', 'active', 'archived')`
     ),
     check("feature_items_name_check", sql`length(trim(${table.name})) > 0`),
     check(
       "feature_items_metadata_check",
-      sql`jsonb_typeof(${table.metadata}) = 'object' and octet_length(${table.metadata}::text) <= 16384`,
+      sql`jsonb_typeof(${table.metadata}) = 'object' and octet_length(${table.metadata}::text) <= 16384`
     ),
-  ],
-)
+  ]
+);
 
 export const contactRateLimits = pgTable(
   "contact_rate_limits",
@@ -376,18 +378,18 @@ export const contactRateLimits = pgTable(
     index("contact_rate_limits_expires_at_idx").on(table.expiresAt),
     check(
       "contact_rate_limits_key_hash_check",
-      sql`${table.keyHash} ~ '^[0-9a-f]{64}$'`,
+      sql`${table.keyHash} ~ '^[0-9a-f]{64}$'`
     ),
     check(
       "contact_rate_limits_request_count_check",
-      sql`${table.requestCount} between 1 and 1000`,
+      sql`${table.requestCount} between 1 and 1000`
     ),
     check(
       "contact_rate_limits_window_check",
-      sql`${table.expiresAt} > ${table.windowStartedAt}`,
+      sql`${table.expiresAt} > ${table.windowStartedAt}`
     ),
-  ],
-)
+  ]
+);
 
 export const outboxEvents = pgTable(
   "outbox_events",
@@ -416,7 +418,7 @@ export const outboxEvents = pgTable(
       .where(sql`${table.publishedAt} is null`),
     index("outbox_events_aggregate_idx").on(
       table.aggregateType,
-      table.aggregateId,
+      table.aggregateId
     ),
     uniqueIndex("outbox_events_handler_idempotency_unique_idx")
       .on(table.handler, table.idempotencyKey)
@@ -427,36 +429,36 @@ export const outboxEvents = pgTable(
     index("outbox_events_lease_expiry_idx")
       .on(table.leaseExpiresAt)
       .where(
-        sql`${table.publishedAt} is null and ${table.deadAt} is null and ${table.leaseExpiresAt} is not null`,
+        sql`${table.publishedAt} is null and ${table.deadAt} is null and ${table.leaseExpiresAt} is not null`
       ),
     check(
       "outbox_events_payload_check",
-      sql`jsonb_typeof(${table.payload}) = 'object' and octet_length(${table.payload}::text) <= 65536`,
+      sql`jsonb_typeof(${table.payload}) = 'object' and octet_length(${table.payload}::text) <= 65536`
     ),
+    check("outbox_events_attempt_count_check", sql`${table.attemptCount} >= 0`),
     check(
-      "outbox_events_attempt_count_check",
-      sql`${table.attemptCount} >= 0`,
+      "outbox_events_handler_check",
+      sql`length(trim(${table.handler})) > 0`
     ),
-    check("outbox_events_handler_check", sql`length(trim(${table.handler})) > 0`),
     check(
       "outbox_events_idempotency_key_check",
-      sql`${table.idempotencyKey} is null or length(trim(${table.idempotencyKey})) > 0`,
+      sql`${table.idempotencyKey} is null or length(trim(${table.idempotencyKey})) > 0`
     ),
     check(
       "outbox_events_request_hash_check",
-      sql`(${table.idempotencyKey} is null) = (${table.requestHash} is null) and (${table.requestHash} is null or ${table.requestHash} ~ '^[0-9a-f]{64}$')`,
+      sql`(${table.idempotencyKey} is null) = (${table.requestHash} is null) and (${table.requestHash} is null or ${table.requestHash} ~ '^[0-9a-f]{64}$')`
     ),
     check("outbox_events_fence_check", sql`${table.fence} >= 0`),
     check(
       "outbox_events_lease_check",
-      sql`(${table.leaseOwner} is null) = (${table.leaseExpiresAt} is null)`,
+      sql`(${table.leaseOwner} is null) = (${table.leaseExpiresAt} is null)`
     ),
     check(
       "outbox_events_last_error_check",
-      sql`${table.lastError} is null or octet_length(${table.lastError}) <= 4096`,
+      sql`${table.lastError} is null or octet_length(${table.lastError}) <= 4096`
     ),
-  ],
-)
+  ]
+);
 
 export const auditRecords = pgTable(
   "audit_records",
@@ -478,14 +480,14 @@ export const auditRecords = pgTable(
     index("audit_records_request_id_idx").on(table.requestId),
     check(
       "audit_records_metadata_check",
-      sql`jsonb_typeof(${table.metadata}) = 'object'`,
+      sql`jsonb_typeof(${table.metadata}) = 'object'`
     ),
     check(
       "audit_records_request_id_check",
-      sql`length(trim(${table.requestId})) > 0`,
+      sql`length(trim(${table.requestId})) > 0`
     ),
-  ],
-)
+  ]
+);
 
 export const workflowRuns = pgTable(
   "workflow_runs",
@@ -506,42 +508,39 @@ export const workflowRuns = pgTable(
     index("workflow_runs_owner_updated_idx").on(
       table.ownerId,
       table.updatedAt.desc(),
-      table.id.desc(),
+      table.id.desc()
     ),
-    index("workflow_runs_owner_created_idx").on(
-      table.ownerId,
-      table.createdAt,
-    ),
+    index("workflow_runs_owner_created_idx").on(table.ownerId, table.createdAt),
     index("workflow_runs_owner_state_updated_idx").on(
       table.ownerId,
       table.state,
       table.updatedAt.desc(),
-      table.id.desc(),
+      table.id.desc()
     ),
     index("workflow_runs_nonterminal_capacity_idx")
       .on(table.ownerId)
       .where(sql`${table.state} not in ('completed', 'cancelled')`),
     check(
       "workflow_runs_machine_check",
-      sql`${table.machineId} = 'darkfactory-pilot' and ${table.machineVersion} = 1`,
+      sql`${table.machineId} = 'darkfactory-pilot' and ${table.machineVersion} = 1`
     ),
     check(
       "workflow_runs_state_check",
       sql`${table.state} in (
         'draft', 'planning', 'awaitingApproval', 'implementing',
         'verifying', 'blocked', 'completed', 'cancelled'
-      )`,
+      )`
     ),
     check(
       "workflow_runs_head_sequence_check",
-      sql`${table.headSequence} between 1 and 9007199254740991`,
+      sql`${table.headSequence} between 1 and 9007199254740991`
     ),
     check(
       "workflow_runs_head_hash_check",
-      sql`${table.headHash} ~ '^[0-9a-f]{64}$'`,
+      sql`${table.headHash} ~ '^[0-9a-f]{64}$'`
     ),
-  ],
-)
+  ]
+);
 
 export const workflowJournal = pgTable(
   "workflow_journal",
@@ -567,38 +566,35 @@ export const workflowJournal = pgTable(
     uniqueIndex("workflow_journal_event_id_unique_idx").on(table.eventId),
     index("workflow_journal_run_occurred_idx").on(
       table.runId,
-      table.occurredAt,
+      table.occurredAt
     ),
     check(
       "workflow_journal_sequence_check",
-      sql`${table.sequence} between 1 and 9007199254740991`,
+      sql`${table.sequence} between 1 and 9007199254740991`
     ),
     check(
       "workflow_journal_event_type_check",
-      sql`length(trim(${table.eventType})) > 0`,
+      sql`length(trim(${table.eventType})) > 0`
     ),
     check(
       "workflow_journal_event_version_check",
-      sql`${table.eventVersion} = 1`,
+      sql`${table.eventVersion} = 1`
     ),
     check(
       "workflow_journal_event_check",
-      sql`jsonb_typeof(${table.event}) = 'object' and octet_length(${table.event}::text) <= 65536`,
+      sql`jsonb_typeof(${table.event}) = 'object' and octet_length(${table.event}::text) <= 65536`
     ),
     check(
       "workflow_journal_previous_hash_check",
-      sql`${table.previousHash} ~ '^[0-9a-f]{64}$'`,
+      sql`${table.previousHash} ~ '^[0-9a-f]{64}$'`
     ),
-    check(
-      "workflow_journal_hash_check",
-      sql`${table.hash} ~ '^[0-9a-f]{64}$'`,
-    ),
+    check("workflow_journal_hash_check", sql`${table.hash} ~ '^[0-9a-f]{64}$'`),
     check(
       "workflow_journal_request_hash_check",
-      sql`${table.requestHash} is null or ${table.requestHash} ~ '^[0-9a-f]{64}$'`,
+      sql`${table.requestHash} is null or ${table.requestHash} ~ '^[0-9a-f]{64}$'`
     ),
-  ],
-)
+  ]
+);
 
 export const workflowSnapshots = pgTable(
   "workflow_snapshots",
@@ -624,37 +620,37 @@ export const workflowSnapshots = pgTable(
     }).onDelete("cascade"),
     check(
       "workflow_snapshots_sequence_check",
-      sql`${table.sequence} between 1 and 9007199254740991`,
+      sql`${table.sequence} between 1 and 9007199254740991`
     ),
     check(
       "workflow_snapshots_machine_check",
-      sql`${table.machineId} = 'darkfactory-pilot' and ${table.machineVersion} = 1`,
+      sql`${table.machineId} = 'darkfactory-pilot' and ${table.machineVersion} = 1`
     ),
     check(
       "workflow_snapshots_state_check",
       sql`${table.state} in (
         'draft', 'planning', 'awaitingApproval', 'implementing',
         'verifying', 'blocked', 'completed', 'cancelled'
-      )`,
+      )`
     ),
     check(
       "workflow_snapshots_context_check",
-      sql`jsonb_typeof(${table.context}) = 'object' and octet_length(${table.context}::text) <= 65536`,
+      sql`jsonb_typeof(${table.context}) = 'object' and octet_length(${table.context}::text) <= 65536`
     ),
     check(
       "workflow_snapshots_journal_head_hash_check",
-      sql`${table.journalHeadHash} ~ '^[0-9a-f]{64}$'`,
+      sql`${table.journalHeadHash} ~ '^[0-9a-f]{64}$'`
     ),
     check(
       "workflow_snapshots_effect_hash_check",
-      sql`${table.effectHash} is null or ${table.effectHash} ~ '^[0-9a-f]{64}$'`,
+      sql`${table.effectHash} is null or ${table.effectHash} ~ '^[0-9a-f]{64}$'`
     ),
     check(
       "workflow_snapshots_effect_binding_check",
-      sql`(${table.effectHash} is null) = (${table.effectScope} is null)`,
+      sql`(${table.effectHash} is null) = (${table.effectScope} is null)`
     ),
-  ],
-)
+  ]
+);
 
 export const workflowApprovals = pgTable(
   "workflow_approvals",
@@ -686,28 +682,28 @@ export const workflowApprovals = pgTable(
       .where(sql`${table.status} = 'pending'`),
     index("workflow_approvals_run_created_idx").on(
       table.runId,
-      table.createdAt.desc(),
+      table.createdAt.desc()
     ),
     index("workflow_approvals_decided_by_idx").on(table.decidedBy),
     check(
       "workflow_approvals_status_check",
-      sql`${table.status} in ('pending', 'granted', 'rejected')`,
+      sql`${table.status} in ('pending', 'granted', 'rejected')`
     ),
     check(
       "workflow_approvals_machine_check",
-      sql`${table.machineId} = 'darkfactory-pilot' and ${table.machineVersion} = 1 and ${table.eventVersion} = 1`,
+      sql`${table.machineId} = 'darkfactory-pilot' and ${table.machineVersion} = 1 and ${table.eventVersion} = 1`
     ),
     check(
       "workflow_approvals_snapshot_sequence_check",
-      sql`${table.snapshotSequence} between 1 and 9007199254740991`,
+      sql`${table.snapshotSequence} between 1 and 9007199254740991`
     ),
     check(
       "workflow_approvals_hashes_check",
-      sql`${table.journalHeadHash} ~ '^[0-9a-f]{64}$' and ${table.effectHash} ~ '^[0-9a-f]{64}$'`,
+      sql`${table.journalHeadHash} ~ '^[0-9a-f]{64}$' and ${table.effectHash} ~ '^[0-9a-f]{64}$'`
     ),
     check(
       "workflow_approvals_effect_scope_check",
-      sql`length(trim(${table.effectScope})) > 0`,
+      sql`length(trim(${table.effectScope})) > 0`
     ),
     check(
       "workflow_approvals_decision_check",
@@ -715,14 +711,14 @@ export const workflowApprovals = pgTable(
         (${table.status} = 'pending' and ${table.decidedAt} is null and ${table.decidedBy} is null and ${table.decisionRequestHash} is null)
         or
         (${table.status} in ('granted', 'rejected') and ${table.decidedAt} is not null and ${table.decidedBy} is not null and ${table.decisionRequestHash} ~ '^[0-9a-f]{64}$')
-      )`,
+      )`
     ),
     check(
       "workflow_approvals_decision_reason_check",
-      sql`${table.decisionReason} is null or octet_length(${table.decisionReason}) <= 4096`,
+      sql`${table.decisionReason} is null or octet_length(${table.decisionReason}) <= 4096`
     ),
-  ],
-)
+  ]
+);
 
 export const workflowEvidence = pgTable(
   "workflow_evidence",
@@ -741,26 +737,23 @@ export const workflowEvidence = pgTable(
     index("workflow_evidence_run_created_idx").on(
       table.runId,
       table.createdAt,
-      table.id,
+      table.id
     ),
-    check(
-      "workflow_evidence_kind_check",
-      sql`length(trim(${table.kind})) > 0`,
-    ),
+    check("workflow_evidence_kind_check", sql`length(trim(${table.kind})) > 0`),
     check(
       "workflow_evidence_summary_check",
-      sql`octet_length(${table.summary}) between 1 and 4096`,
+      sql`octet_length(${table.summary}) between 1 and 4096`
     ),
     check(
       "workflow_evidence_data_check",
-      sql`jsonb_typeof(${table.data}) = 'object' and octet_length(${table.data}::text) <= 65536`,
+      sql`jsonb_typeof(${table.data}) = 'object' and octet_length(${table.data}::text) <= 65536`
     ),
     check(
       "workflow_evidence_request_hash_check",
-      sql`${table.requestHash} ~ '^[0-9a-f]{64}$'`,
+      sql`${table.requestHash} ~ '^[0-9a-f]{64}$'`
     ),
-  ],
-)
+  ]
+);
 
 export const workflowOmpResources = pgTable(
   "workflow_omp_resources",
@@ -786,29 +779,31 @@ export const workflowOmpResources = pgTable(
   },
   (table) => [
     uniqueIndex("workflow_omp_resources_evidence_unique_idx").on(
-      table.evidenceId,
+      table.evidenceId
     ),
     index("workflow_omp_resources_cleanup_due_idx")
       .on(table.cleanupRequestedAt, table.leaseExpiresAt, table.runId)
-      .where(sql`${table.cleanupRequestedAt} is not null and ${table.deadAt} is null`),
+      .where(
+        sql`${table.cleanupRequestedAt} is not null and ${table.deadAt} is null`
+      ),
     check(
       "workflow_omp_resources_fence_check",
-      sql`${table.fence} between 0 and 9007199254740991`,
+      sql`${table.fence} between 0 and 9007199254740991`
     ),
     check(
       "workflow_omp_resources_attempt_check",
-      sql`${table.attemptCount} between 0 and 5`,
+      sql`${table.attemptCount} between 0 and 5`
     ),
     check(
       "workflow_omp_resources_lease_check",
-      sql`(${table.leaseOwner} is null) = (${table.leaseExpiresAt} is null)`,
+      sql`(${table.leaseOwner} is null) = (${table.leaseExpiresAt} is null)`
     ),
     check(
       "workflow_omp_resources_error_check",
-      sql`${table.lastError} is null or octet_length(${table.lastError}) <= 4096`,
+      sql`${table.lastError} is null or octet_length(${table.lastError}) <= 4096`
     ),
-  ],
-)
+  ]
+);
 
 export const workflowMessages = pgTable(
   "workflow_messages",
@@ -829,62 +824,62 @@ export const workflowMessages = pgTable(
     index("workflow_messages_run_created_idx").on(
       table.runId,
       table.createdAt,
-      table.id,
+      table.id
     ),
     uniqueIndex("workflow_messages_run_idempotency_idx").on(
       table.runId,
-      table.idempotencyKey,
+      table.idempotencyKey
     ),
     index("workflow_messages_author_id_idx").on(table.authorId),
     check(
       "workflow_messages_content_check",
-      sql`octet_length(${table.content}) between 1 and 8192`,
+      sql`octet_length(${table.content}) between 1 and 8192`
     ),
     check(
       "workflow_messages_idempotency_key_check",
-      sql`octet_length(${table.idempotencyKey}) between 1 and 128 and ${table.idempotencyKey} ~ '^[A-Za-z0-9][A-Za-z0-9._:-]*$'`,
+      sql`octet_length(${table.idempotencyKey}) between 1 and 128 and ${table.idempotencyKey} ~ '^[A-Za-z0-9][A-Za-z0-9._:-]*$'`
     ),
     check(
       "workflow_messages_request_hash_check",
-      sql`${table.requestHash} ~ '^[0-9a-f]{64}$'`,
+      sql`${table.requestHash} ~ '^[0-9a-f]{64}$'`
     ),
-  ],
-)
+  ]
+);
 
-export type User = typeof users.$inferSelect
-export type NewUser = typeof users.$inferInsert
-export type Session = typeof sessions.$inferSelect
-export type NewSession = typeof sessions.$inferInsert
-export type Account = typeof accounts.$inferSelect
-export type NewAccount = typeof accounts.$inferInsert
-export type Verification = typeof verifications.$inferSelect
-export type NewVerification = typeof verifications.$inferInsert
-export type Profile = typeof profiles.$inferSelect
-export type NewProfile = typeof profiles.$inferInsert
-export type Address = typeof addresses.$inferSelect
-export type NewAddress = typeof addresses.$inferInsert
-export type UserPreferences = typeof userPreferences.$inferSelect
-export type NewUserPreferences = typeof userPreferences.$inferInsert
-export type FeatureItem = typeof featureItems.$inferSelect
-export type NewFeatureItem = typeof featureItems.$inferInsert
-export type OutboxEvent = typeof outboxEvents.$inferSelect
-export type NewOutboxEvent = typeof outboxEvents.$inferInsert
-export type AuditRecord = typeof auditRecords.$inferSelect
-export type NewAuditRecord = typeof auditRecords.$inferInsert
-export type ContactRateLimit = typeof contactRateLimits.$inferSelect
-export type NewContactRateLimit = typeof contactRateLimits.$inferInsert
-export type WorkflowRun = typeof workflowRuns.$inferSelect
-export type NewWorkflowRun = typeof workflowRuns.$inferInsert
-export type WorkflowJournalEntry = typeof workflowJournal.$inferSelect
-export type NewWorkflowJournalEntry = typeof workflowJournal.$inferInsert
-export type WorkflowSnapshot = typeof workflowSnapshots.$inferSelect
-export type NewWorkflowSnapshot = typeof workflowSnapshots.$inferInsert
-export type WorkflowApproval = typeof workflowApprovals.$inferSelect
-export type NewWorkflowApproval = typeof workflowApprovals.$inferInsert
-export type WorkflowEvidence = typeof workflowEvidence.$inferSelect
-export type NewWorkflowEvidence = typeof workflowEvidence.$inferInsert
-export type WorkflowOmpResource = typeof workflowOmpResources.$inferSelect
-export type NewWorkflowOmpResource = typeof workflowOmpResources.$inferInsert
-export type WorkflowMessage = typeof workflowMessages.$inferSelect
-export type NewWorkflowMessage = typeof workflowMessages.$inferInsert
-export * from "../generated/schema-registry.ts"
+export type User = typeof users.$inferSelect;
+export type NewUser = typeof users.$inferInsert;
+export type Session = typeof sessions.$inferSelect;
+export type NewSession = typeof sessions.$inferInsert;
+export type Account = typeof accounts.$inferSelect;
+export type NewAccount = typeof accounts.$inferInsert;
+export type Verification = typeof verifications.$inferSelect;
+export type NewVerification = typeof verifications.$inferInsert;
+export type Profile = typeof profiles.$inferSelect;
+export type NewProfile = typeof profiles.$inferInsert;
+export type Address = typeof addresses.$inferSelect;
+export type NewAddress = typeof addresses.$inferInsert;
+export type UserPreferences = typeof userPreferences.$inferSelect;
+export type NewUserPreferences = typeof userPreferences.$inferInsert;
+export type FeatureItem = typeof featureItems.$inferSelect;
+export type NewFeatureItem = typeof featureItems.$inferInsert;
+export type OutboxEvent = typeof outboxEvents.$inferSelect;
+export type NewOutboxEvent = typeof outboxEvents.$inferInsert;
+export type AuditRecord = typeof auditRecords.$inferSelect;
+export type NewAuditRecord = typeof auditRecords.$inferInsert;
+export type ContactRateLimit = typeof contactRateLimits.$inferSelect;
+export type NewContactRateLimit = typeof contactRateLimits.$inferInsert;
+export type WorkflowRun = typeof workflowRuns.$inferSelect;
+export type NewWorkflowRun = typeof workflowRuns.$inferInsert;
+export type WorkflowJournalEntry = typeof workflowJournal.$inferSelect;
+export type NewWorkflowJournalEntry = typeof workflowJournal.$inferInsert;
+export type WorkflowSnapshot = typeof workflowSnapshots.$inferSelect;
+export type NewWorkflowSnapshot = typeof workflowSnapshots.$inferInsert;
+export type WorkflowApproval = typeof workflowApprovals.$inferSelect;
+export type NewWorkflowApproval = typeof workflowApprovals.$inferInsert;
+export type WorkflowEvidence = typeof workflowEvidence.$inferSelect;
+export type NewWorkflowEvidence = typeof workflowEvidence.$inferInsert;
+export type WorkflowOmpResource = typeof workflowOmpResources.$inferSelect;
+export type NewWorkflowOmpResource = typeof workflowOmpResources.$inferInsert;
+export type WorkflowMessage = typeof workflowMessages.$inferSelect;
+export type NewWorkflowMessage = typeof workflowMessages.$inferInsert;
+export * from "../generated/schema-registry.ts";

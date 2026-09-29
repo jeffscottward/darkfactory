@@ -1,9 +1,9 @@
-import type { ComponentPropsWithRef } from "react"
+import type { ComponentPropsWithRef } from "react";
 
-import { cn } from "./utilities.ts"
+import { cn } from "./utilities.ts";
 
 export interface InputProps extends ComponentPropsWithRef<"input"> {
-  invalid?: boolean
+  invalid?: boolean;
 }
 
 export const Input = ({
@@ -17,7 +17,7 @@ export const Input = ({
     aria-invalid={invalid || ariaInvalid || undefined}
     className={cn(
       "flex h-11 w-full rounded-sm border border-border-strong bg-surface px-3 font-body text-base text-foreground shadow-inner placeholder:text-muted-foreground transition-colors duration-base ease-out file:mr-3 file:border-0 file:bg-transparent file:font-semibold focus-visible:border-ring focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-background disabled:cursor-not-allowed disabled:border-disabled-border disabled:bg-disabled disabled:text-disabled-foreground disabled:opacity-100 disabled:placeholder:text-disabled-foreground aria-invalid:border-destructive aria-invalid:ring-destructive",
-      className,
+      className
     )}
   />
-)
+);

@@ -1,5 +1,5 @@
-import { constants } from "node:fs"
-import { delimiter, dirname, join, resolve } from "node:path"
+import { constants } from "node:fs";
+import { delimiter, dirname, join, resolve } from "node:path";
 import {
   chmod,
   readFile,
@@ -9,10 +9,10 @@ import {
   rm,
   symlink,
   writeFile,
-} from "node:fs/promises"
-import { tmpdir } from "node:os"
+} from "node:fs/promises";
+import { tmpdir } from "node:os";
 
-import { afterEach, describe, expect, it, vi } from "vitest"
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   collectProcessDiagnostics,
@@ -30,23 +30,20 @@ import {
   serializeJourneyFailureSummary,
   serializeJourneyProgress,
   type JourneyCliDependencies,
-} from "./cli.ts"
+} from "./cli.ts";
 import type {
   JourneyDependencies,
   JourneyResult,
   JourneySuiteReport,
-} from "./runner.ts"
-import {
-  encodeOwnedRunProof,
-  type OwnedRunProof,
-} from "./system.ts"
+} from "./runner.ts";
+import { encodeOwnedRunProof, type OwnedRunProof } from "./system.ts";
 
-const E2E_NODE_EXECUTABLE_KEY = "_DARKFACTORY_E2E_NODE_EXECUTABLE"
-const E2E_PNPM_SCRIPT_KEY = "_DARKFACTORY_E2E_PNPM_SCRIPT"
+const E2E_NODE_EXECUTABLE_KEY = "_DARKFACTORY_E2E_NODE_EXECUTABLE";
+const E2E_PNPM_SCRIPT_KEY = "_DARKFACTORY_E2E_PNPM_SCRIPT";
 
 const streams = () => {
-  const output: string[] = []
-  const errors: string[] = []
+  const output: string[] = [];
+  const errors: string[] = [];
   return {
     output,
     errors,
@@ -54,36 +51,33 @@ const streams = () => {
       writeOutput: (value: string) => output.push(value),
       writeError: (value: string) => errors.push(value),
     },
-  }
-}
+  };
+};
 
-const REPORT_NONCE = "r".repeat(43)
-const scannerEnvelope = (
-  report: unknown,
-  reportNonce = REPORT_NONCE,
-): string => JSON.stringify({
-  kind: "darkfactory-artifact-scanner-report",
-  version: 1,
-  reportNonce,
-  report,
-})
+const REPORT_NONCE = "r".repeat(43);
+const scannerEnvelope = (report: unknown, reportNonce = REPORT_NONCE): string =>
+  JSON.stringify({
+    kind: "darkfactory-artifact-scanner-report",
+    version: 1,
+    reportNonce,
+    report,
+  });
 
-const proofFixture = (
-  runId = "safe_run",
-): OwnedRunProof => Object.freeze({
-  version: 1,
-  runId,
-  nonce: "n".repeat(43),
-  artifactProfile: "no-binary",
-  e2e: Object.freeze({
-    root: Object.freeze({ dev: 1, ino: 2 }),
-    marker: Object.freeze({ dev: 3, ino: 4 }),
-  }),
-  evidence: Object.freeze({
-    root: Object.freeze({ dev: 5, ino: 6 }),
-    marker: Object.freeze({ dev: 7, ino: 8 }),
-  }),
-})
+const proofFixture = (runId = "safe_run"): OwnedRunProof =>
+  Object.freeze({
+    version: 1,
+    runId,
+    nonce: "n".repeat(43),
+    artifactProfile: "no-binary",
+    e2e: Object.freeze({
+      root: Object.freeze({ dev: 1, ino: 2 }),
+      marker: Object.freeze({ dev: 3, ino: 4 }),
+    }),
+    evidence: Object.freeze({
+      root: Object.freeze({ dev: 5, ino: 6 }),
+      marker: Object.freeze({ dev: 7, ino: 8 }),
+    }),
+  });
 
 const cleanScan = Object.freeze({
   ok: true,
@@ -91,7 +85,7 @@ const cleanScan = Object.freeze({
   findings: [],
   purged: false,
   reason: "clean",
-})
+});
 
 const stoppedProcess = Object.freeze({
   exitCode: 0,
@@ -101,64 +95,140 @@ const stoppedProcess = Object.freeze({
   lifecycleObservation: "state" as const,
   lifecycleObservationReason: "observed-state" as const,
   nestedServerTerminated: true,
-})
+});
 
-const journeyResult = (
-  overrides: Partial<JourneyResult> = {},
-): JourneyResult => Object.freeze({
-  spec: "tests/e2e/auth.spec.ts",
-  runId: "safe_run",
-  playwrightExitCode: 0,
-  diagnostics: [],
-  lifecycleStatus: "stopped",
-  lifecycleStage: "server-ready",
-  lifecycleObservation: "state",
-  lifecycleObservationReason: "observed-state",
-  processState: "terminated",
-  stage: "complete",
-  processTreeTerminated: true,
-  scan: cleanScan,
-  ...overrides,
-})
+const journeyResult = (overrides: Partial<JourneyResult> = {}): JourneyResult =>
+  Object.freeze({
+    spec: "tests/e2e/auth.spec.ts",
+    runId: "safe_run",
+    playwrightExitCode: 0,
+    diagnostics: [],
+    lifecycleStatus: "stopped",
+    lifecycleStage: "server-ready",
+    lifecycleObservation: "state",
+    lifecycleObservationReason: "observed-state",
+    processState: "terminated",
+    stage: "complete",
+    processTreeTerminated: true,
+    scan: cleanScan,
+    ...overrides,
+  });
 
 const journeyReport = (
   results: readonly JourneyResult[],
-  ok = false,
-): JourneySuiteReport => Object.freeze({
-  ok,
-  mode: "e2e",
-  completed: results.length,
-  results,
-  reason: "private suite reason",
-})
+  ok = false
+): JourneySuiteReport =>
+  Object.freeze({
+    ok,
+    mode: "e2e",
+    completed: results.length,
+    results,
+    reason: "private suite reason",
+  });
 
 describe("CLI invocation validation", () => {
   it.each([
     ["no arguments", []],
-    ["wrong run flag", ["--run", "safe_run", "--ownership", "proof", "--report-nonce", REPORT_NONCE]],
-    ["missing run value", ["--run-id", "--ownership", "proof", "--report-nonce", REPORT_NONCE]],
-    ["wrong ownership flag", ["--run-id", "safe_run", "--proof", "proof", "--report-nonce", REPORT_NONCE]],
-    ["wrong nonce flag", ["--run-id", "safe_run", "--ownership", "proof", "--nonce", REPORT_NONCE]],
-    ["short nonce", ["--run-id", "safe_run", "--ownership", "proof", "--report-nonce", "r".repeat(42)]],
-    ["long nonce", ["--run-id", "safe_run", "--ownership", "proof", "--report-nonce", "r".repeat(44)]],
-    ["non-url-safe nonce", ["--run-id", "safe_run", "--ownership", "proof", "--report-nonce", `${"r".repeat(42)}+`]],
-    ["unknown trailing flag", ["--run-id", "safe_run", "--ownership", "proof", "--report-nonce", REPORT_NONCE, "--unknown"]],
-    ["extra trailing value", ["--run-id", "safe_run", "--ownership", "proof", "--report-nonce", REPORT_NONCE, "--purge-owned", "extra"]],
+    [
+      "wrong run flag",
+      [
+        "--run",
+        "safe_run",
+        "--ownership",
+        "proof",
+        "--report-nonce",
+        REPORT_NONCE,
+      ],
+    ],
+    [
+      "missing run value",
+      ["--run-id", "--ownership", "proof", "--report-nonce", REPORT_NONCE],
+    ],
+    [
+      "wrong ownership flag",
+      [
+        "--run-id",
+        "safe_run",
+        "--proof",
+        "proof",
+        "--report-nonce",
+        REPORT_NONCE,
+      ],
+    ],
+    [
+      "wrong nonce flag",
+      ["--run-id", "safe_run", "--ownership", "proof", "--nonce", REPORT_NONCE],
+    ],
+    [
+      "short nonce",
+      [
+        "--run-id",
+        "safe_run",
+        "--ownership",
+        "proof",
+        "--report-nonce",
+        "r".repeat(42),
+      ],
+    ],
+    [
+      "long nonce",
+      [
+        "--run-id",
+        "safe_run",
+        "--ownership",
+        "proof",
+        "--report-nonce",
+        "r".repeat(44),
+      ],
+    ],
+    [
+      "non-url-safe nonce",
+      [
+        "--run-id",
+        "safe_run",
+        "--ownership",
+        "proof",
+        "--report-nonce",
+        `${"r".repeat(42)}+`,
+      ],
+    ],
+    [
+      "unknown trailing flag",
+      [
+        "--run-id",
+        "safe_run",
+        "--ownership",
+        "proof",
+        "--report-nonce",
+        REPORT_NONCE,
+        "--unknown",
+      ],
+    ],
+    [
+      "extra trailing value",
+      [
+        "--run-id",
+        "safe_run",
+        "--ownership",
+        "proof",
+        "--report-nonce",
+        REPORT_NONCE,
+        "--purge-owned",
+        "extra",
+      ],
+    ],
   ] as const)("maps scanner %s to usage without output", async (_case, arguments_) => {
-    const cli = streams()
+    const cli = streams();
 
-    await expect(runArtifactScannerCli(
-      arguments_,
-      "/unused",
-      cli.streams,
-    )).resolves.toBe(2)
-    expect(cli.output).toEqual([])
+    await expect(
+      runArtifactScannerCli(arguments_, "/unused", cli.streams)
+    ).resolves.toBe(2);
+    expect(cli.output).toEqual([]);
     return expect(cli.errors).toEqual([
       "Usage: scan-artifacts --run-id <safe-run-id> --ownership <proof> " +
         "--report-nonce <nonce> [--purge-owned]\n",
-    ])
-  }
-  )
+    ]);
+  });
 
   it.each([
     ["no mode", []],
@@ -166,33 +236,28 @@ describe("CLI invocation validation", () => {
     ["case-changed mode", ["E2E"]],
     ["an extra E2E argument", ["e2e", "extra"]],
     ["an extra accessibility argument", ["a11y", "extra"]],
-  ] as const)("maps runner %s to usage before dependencies", async (
-    _case,
-    arguments_,
-  ) => {
-    const cli = streams()
-    const listSpecs = vi.fn(async () => ["tests/e2e/auth.spec.ts"])
-    const runPlaywright = vi.fn(async () => stoppedProcess)
+  ] as const)("maps runner %s to usage before dependencies", async (_case, arguments_) => {
+    const cli = streams();
+    const listSpecs = vi.fn(async () => ["tests/e2e/auth.spec.ts"]);
+    const runPlaywright = vi.fn(async () => stoppedProcess);
 
-    await expect(runJourneyCli(arguments_, "/unused", cli.streams, {
-      listSpecs,
-      runPlaywright,
-    })).resolves.toBe(2)
-    expect(cli.output).toEqual([])
-    expect(cli.errors).toEqual(["Usage: e2e-run <e2e|a11y>\n"])
-    expect(listSpecs).not.toHaveBeenCalled()
-    return expect(runPlaywright).not.toHaveBeenCalled()
-  }
-  )
+    await expect(
+      runJourneyCli(arguments_, "/unused", cli.streams, {
+        listSpecs,
+        runPlaywright,
+      })
+    ).resolves.toBe(2);
+    expect(cli.output).toEqual([]);
+    expect(cli.errors).toEqual(["Usage: e2e-run <e2e|a11y>\n"]);
+    expect(listSpecs).not.toHaveBeenCalled();
+    return expect(runPlaywright).not.toHaveBeenCalled();
+  });
 
   it.each([
     ["without purge", false],
     ["with purge", true],
-  ] as const)("accepts a valid scanner shape %s and fails malformed ownership safely", async (
-    _case,
-    purgeOwned,
-  ) => {
-    const cli = streams()
+  ] as const)("accepts a valid scanner shape %s and fails malformed ownership safely", async (_case, purgeOwned) => {
+    const cli = streams();
     const arguments_ = [
       "--run-id",
       "safe_run",
@@ -201,50 +266,59 @@ describe("CLI invocation validation", () => {
       "--report-nonce",
       REPORT_NONCE,
       ...(purgeOwned ? ["--purge-owned"] : []),
-    ]
+    ];
 
-    await expect(runArtifactScannerCli(
-      arguments_,
-      "/unused",
-      cli.streams,
-    )).resolves.toBe(1)
-    expect(cli.output).toEqual([])
-    expect(cli.errors.join("")).not.toContain("Usage:")
-    expect(parseExternalScannerReport(
-      cli.output.join(""),
-      cli.errors.join(""),
-      REPORT_NONCE,
-    )).toEqual({
+    await expect(
+      runArtifactScannerCli(arguments_, "/unused", cli.streams)
+    ).resolves.toBe(1);
+    expect(cli.output).toEqual([]);
+    expect(cli.errors.join("")).not.toContain("Usage:");
+    expect(
+      parseExternalScannerReport(
+        cli.output.join(""),
+        cli.errors.join(""),
+        REPORT_NONCE
+      )
+    ).toEqual({
       ok: false,
       scannedEntries: 0,
       findings: [],
       purged: false,
       reason: "Owned E2E artifact scanner initialization failed safely",
       failureCategory: "ownership-path-safety",
-    })
-    return expect(cli.errors.join("")).not.toContain("invalid+proof")
-  }
-  )
+    });
+    return expect(cli.errors.join("")).not.toContain("invalid+proof");
+  });
 
   it("classifies a proof/run mismatch without exposing the capability", async () => {
-    const cli = streams()
-    const ownership = encodeOwnedRunProof(proofFixture("proof_run"))
+    const cli = streams();
+    const ownership = encodeOwnedRunProof(proofFixture("proof_run"));
 
-    await expect(runArtifactScannerCli([
-      "--run-id", "requested_run",
-      "--ownership", ownership,
-      "--report-nonce", REPORT_NONCE,
-    ], "/unused", cli.streams)).resolves.toBe(1)
-    expect(parseScannerReport(cli.errors.join(""), REPORT_NONCE)).toMatchObject({
-      ok: false,
-      failureCategory: "ownership-path-safety",
-    })
-    return expect(cli.errors.join("")).not.toContain(ownership)
-  }
-  )
+    await expect(
+      runArtifactScannerCli(
+        [
+          "--run-id",
+          "requested_run",
+          "--ownership",
+          ownership,
+          "--report-nonce",
+          REPORT_NONCE,
+        ],
+        "/unused",
+        cli.streams
+      )
+    ).resolves.toBe(1);
+    expect(parseScannerReport(cli.errors.join(""), REPORT_NONCE)).toMatchObject(
+      {
+        ok: false,
+        failureCategory: "ownership-path-safety",
+      }
+    );
+    return expect(cli.errors.join("")).not.toContain(ownership);
+  });
 
   return it("fails safely when a structurally complete invocation omits ownership", async () => {
-    const cli = streams()
+    const cli = streams();
     const arguments_ = [
       "--run-id",
       "safe_run",
@@ -252,24 +326,22 @@ describe("CLI invocation validation", () => {
       undefined,
       "--report-nonce",
       REPORT_NONCE,
-    ] as unknown as readonly string[]
+    ] as unknown as readonly string[];
 
-    await expect(runArtifactScannerCli(
-      arguments_,
-      "/unused",
-      cli.streams,
-    )).resolves.toBe(1)
-    expect(cli.output).toEqual([])
-    expect(parseScannerReport(cli.errors.join(""), REPORT_NONCE)).toMatchObject({
-      ok: false,
-      purged: false,
-      failureCategory: "ownership-path-safety",
-    })
-    return expect(cli.errors.join("")).not.toContain("undefined")
-  }
-  )
-}
-)
+    await expect(
+      runArtifactScannerCli(arguments_, "/unused", cli.streams)
+    ).resolves.toBe(1);
+    expect(cli.output).toEqual([]);
+    expect(parseScannerReport(cli.errors.join(""), REPORT_NONCE)).toMatchObject(
+      {
+        ok: false,
+        purged: false,
+        failureCategory: "ownership-path-safety",
+      }
+    );
+    return expect(cli.errors.join("")).not.toContain("undefined");
+  });
+});
 
 describe("CLI argument and environment forwarding", () => {
   it.each([
@@ -279,102 +351,88 @@ describe("CLI argument and environment forwarding", () => {
       "anonymous-public-visual",
       "--grep-invert",
     ],
-    [
-      "a11y",
-      "tests/e2e/contrast.a11y.spec.ts",
-      "no-binary",
-      "--grep",
-    ],
-  ] as const)("forwards the exact %s journey contract", async (
-    mode,
-    spec,
-    artifactProfile,
-    grepFlag,
-  ) => {
-    const cli = streams()
-    const runId = `${mode}_forwarding_run`
-    const runRoot = resolve(
-      "/workspace",
-      "test-results",
-      "e2e-runs",
-      runId,
-    )
+    ["a11y", "tests/e2e/contrast.a11y.spec.ts", "no-binary", "--grep"],
+  ] as const)("forwards the exact %s journey contract", async (mode, spec, artifactProfile, grepFlag) => {
+    const cli = streams();
+    const runId = `${mode}_forwarding_run`;
+    const runRoot = resolve("/workspace", "test-results", "e2e-runs", runId);
     const prepareRun = vi.fn(async () => ({
       adoption: "private-adoption-capability",
       ownership: "private-ownership-capability",
-    }))
-    const runPlaywright = vi.fn(async () => stoppedProcess)
-    const scanArtifacts = vi.fn(async () => cleanScan)
-    const persisted: unknown[] = []
+    }));
+    const runPlaywright = vi.fn(async () => stoppedProcess);
+    const scanArtifacts = vi.fn(async () => cleanScan);
+    const persisted: unknown[] = [];
 
-    const exitCode = await runJourneyCli(
-      [mode],
-      "/workspace",
-      cli.streams,
+    const exitCode = await runJourneyCli([mode], "/workspace", cli.streams, {
+      createHmacKey: () => "h".repeat(43),
+      createRunId: () => runId,
+      listSpecs: async () => [
+        "tests/e2e/public-visual.spec.ts",
+        "tests/e2e/contrast.a11y.spec.ts",
+      ],
+      persistState: (state) => persisted.push(state),
+      prepareRun,
+      runPlaywright,
+      scanArtifacts,
+    });
+
+    expect(exitCode).toBe(0);
+    expect(prepareRun).toHaveBeenCalledWith(runId, artifactProfile);
+    expect(runPlaywright).toHaveBeenCalledWith(
+      [
+        "pnpm",
+        "exec",
+        "playwright",
+        "test",
+        spec,
+        grepFlag,
+        "@a11y",
+        "--output",
+        `test-results/e2e-runs/${runId}/artifacts`,
+        "--reporter=list,json",
+      ],
       {
-        createHmacKey: () => "h".repeat(43),
-        createRunId: () => runId,
-        listSpecs: async () => [
-          "tests/e2e/public-visual.spec.ts",
-          "tests/e2e/contrast.a11y.spec.ts",
-        ],
-        persistState: (state) => persisted.push(state),
-        prepareRun,
-        runPlaywright,
-        scanArtifacts,
-      },
-    )
-
-    expect(exitCode).toBe(0)
-    expect(prepareRun).toHaveBeenCalledWith(runId, artifactProfile)
-    expect(runPlaywright).toHaveBeenCalledWith([
-      "pnpm",
-      "exec",
-      "playwright",
-      "test",
-      spec,
-      grepFlag,
-      "@a11y",
-      "--output",
-      `test-results/e2e-runs/${runId}/artifacts`,
-      "--reporter=list,json",
-    ], {
-      E2E_RUN_ID: runId,
-      E2E_EMAIL_PREVIEW_DIRECTORY: `${runRoot}/previews/auth`,
-      E2E_EMAIL_PREVIEW_HMAC_KEY: "h".repeat(43),
-      PLAYWRIGHT_JSON_OUTPUT_NAME: `${runRoot}/playwright-report.json`,
-      E2E_RUN_ADOPTION: "private-adoption-capability",
-    })
+        E2E_RUN_ID: runId,
+        E2E_EMAIL_PREVIEW_DIRECTORY: `${runRoot}/previews/auth`,
+        E2E_EMAIL_PREVIEW_HMAC_KEY: "h".repeat(43),
+        PLAYWRIGHT_JSON_OUTPUT_NAME: `${runRoot}/playwright-report.json`,
+        E2E_RUN_ADOPTION: "private-adoption-capability",
+      }
+    );
     expect(scanArtifacts).toHaveBeenCalledWith(
       runId,
       false,
-      "private-ownership-capability",
-    )
+      "private-ownership-capability"
+    );
     expect(persisted.at(-1)).toMatchObject({
       version: 1,
       phase: "result",
       report: { ok: true, mode },
-    })
+    });
     return expect(JSON.parse(cli.output.join(""))).toMatchObject({
       ok: true,
       mode,
       completed: 1,
-    })
-  }
-  )
+    });
+  });
 
   it.each([
     ["omits purge", false],
     ["forwards purge", true],
   ] as const)("builds a direct scanner invocation that %s", (_case, purgeOwned) => {
-    const invocation = createArtifactScannerInvocation("/workspace", "/trusted/node", {
-      runId: "safe_run",
-      ownership: "ownership-capability",
-      reportNonce: REPORT_NONCE,
-      purgeOwned,
-    })
+    const invocation = createArtifactScannerInvocation(
+      "/workspace",
+      "/trusted/node",
+      {
+        runId: "safe_run",
+        ownership: "ownership-capability",
+        reportNonce: REPORT_NONCE,
+        purgeOwned,
+      }
+    );
 
-    expect(invocation.command).toBe("/trusted/node")
+    expect(invocation.command).toBe("/trusted/node");
     expect(invocation.arguments).toEqual([
       "--experimental-strip-types",
       "./scripts/e2e/scan-artifacts.ts",
@@ -385,32 +443,34 @@ describe("CLI argument and environment forwarding", () => {
       "--report-nonce",
       REPORT_NONCE,
       ...(purgeOwned ? ["--purge-owned"] : []),
-    ])
+    ]);
     expect(invocation.options).toMatchObject({
       cwd: "/workspace",
       maxOutputBytes: 1_024 * 1_024,
       timeoutMillis: 45_000,
-    })
+    });
     return expect(invocation.options.env).toEqual({
       PATH: `${dirname(process.execPath)}:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin`,
       TMPDIR: process.env["TMPDIR"],
-    })
-  }
-  )
+    });
+  });
 
   it("constructs blank provider defaults and lets only isolated values override source", () => {
-    const environment = createPlaywrightEnvironment({
-      DATABASE_URL: "postgres://source",
-      PORTLESS_PORT: "43123",
-      HOME: "/safe-home",
-      PORTLESS_STATE_DIR: "/runner/private-portless-state",
-      _DARKFACTORY_E2E_WEB_SCRIPT: "start",
-      NODE_OPTIONS: "must-not-inherit",
-    }, {
-      DATABASE_URL: "postgres://isolated",
-      E2E_RUN_ID: "safe_run",
-      DEBUG: "must-not-win",
-    })
+    const environment = createPlaywrightEnvironment(
+      {
+        DATABASE_URL: "postgres://source",
+        PORTLESS_PORT: "43123",
+        HOME: "/safe-home",
+        PORTLESS_STATE_DIR: "/runner/private-portless-state",
+        _DARKFACTORY_E2E_WEB_SCRIPT: "start",
+        NODE_OPTIONS: "must-not-inherit",
+      },
+      {
+        DATABASE_URL: "postgres://isolated",
+        E2E_RUN_ID: "safe_run",
+        DEBUG: "must-not-win",
+      }
+    );
 
     expect(environment).toMatchObject({
       APP_ENV: "test",
@@ -423,23 +483,24 @@ describe("CLI argument and environment forwarding", () => {
       GROQ_API_KEY: "",
       RESEND_API_KEY: "",
       OTEL_ENABLED: "false",
-    })
-    expect(environment["NODE_OPTIONS"]).toBeUndefined()
-    expect(environment["DEBUG"]).toBeUndefined()
+    });
+    expect(environment["NODE_OPTIONS"]).toBeUndefined();
+    expect(environment["DEBUG"]).toBeUndefined();
 
-    const defaults = createPlaywrightEnvironment({}, {})
-    expect(defaults["DATABASE_URL"]).toBe("")
-    expect(defaults["PORTLESS_PORT"]).toBeUndefined()
-    expect(defaults["HOME"]).toBeUndefined()
-    expect(defaults["PORTLESS_STATE_DIR"]).toBeUndefined()
+    const defaults = createPlaywrightEnvironment({}, {});
+    expect(defaults["DATABASE_URL"]).toBe("");
+    expect(defaults["PORTLESS_PORT"]).toBeUndefined();
+    expect(defaults["HOME"]).toBeUndefined();
+    expect(defaults["PORTLESS_STATE_DIR"]).toBeUndefined();
     return expect(() => {
-      return createPlaywrightEnvironment({
-        _DARKFACTORY_E2E_WEB_SCRIPT: "preview",
-      }, {})
-    }
-    ).toThrow("E2E web server script is invalid")
-  }
-  )
+      return createPlaywrightEnvironment(
+        {
+          _DARKFACTORY_E2E_WEB_SCRIPT: "preview",
+        },
+        {}
+      );
+    }).toThrow("E2E web server script is invalid");
+  });
 
   it("rejects source and isolated child execution controls", () => {
     const restrictedPath = [
@@ -448,63 +509,67 @@ describe("CLI argument and environment forwarding", () => {
       "/usr/local/bin",
       "/usr/bin",
       "/bin",
-    ].join(delimiter)
+    ].join(delimiter);
     const source = {
       PATH: "/trusted-node/bin:/workspace/node_modules/.bin",
       NODE_OPTIONS: "--require=/source/private-hook.cjs",
       DEBUG: "source-private-debug",
-    }
+    };
 
-    const trusted = createPlaywrightEnvironment(
-      source,
-      {
-        PATH: "/isolated/bin",
-        NODE_OPTIONS: "--require=/isolated/private-hook.cjs",
-        DEBUG: "isolated-private-debug",
-      },
-    )
-    expect(trusted["PATH"]).toBe(restrictedPath)
+    const trusted = createPlaywrightEnvironment(source, {
+      PATH: "/isolated/bin",
+      NODE_OPTIONS: "--require=/isolated/private-hook.cjs",
+      DEBUG: "isolated-private-debug",
+    });
+    expect(trusted["PATH"]).toBe(restrictedPath);
 
-    expect(trusted["NODE_OPTIONS"]).toBeUndefined()
-    expect(trusted["DEBUG"]).toBeUndefined()
-    return expect(createPlaywrightEnvironment(source, {})["PATH"]).toBe(restrictedPath)
-  }
-  )
+    expect(trusted["NODE_OPTIONS"]).toBeUndefined();
+    expect(trusted["DEBUG"]).toBeUndefined();
+    return expect(createPlaywrightEnvironment(source, {})["PATH"]).toBe(
+      restrictedPath
+    );
+  });
 
   it("resolves trusted pnpm and parent-PATH Node while scanner Node stays fixed-only", async () => {
-    const repository = await mkdtemp(join(tmpdir(), "darkfactory-resolver-root-"))
-    const pnpmTools = await mkdtemp(join(tmpdir(), "darkfactory-resolver-pnpm-"))
-    const nodeTools = await mkdtemp(join(tmpdir(), "darkfactory-resolver-node-"))
-    const links = await mkdtemp(join(tmpdir(), "darkfactory-resolver-links-"))
-    const inside = join(repository, "bin")
-    const pnpmExecutable = join(pnpmTools, "pnpm")
-    const parentNodeExecutable = join(nodeTools, "node")
-    const pathFile = join(pnpmTools, "path-file")
-    const directoryTarget = join(pnpmTools, "directory-target")
-    const nonExecutableDirectory = join(pnpmTools, "non-executable")
-    const delimiterDirectory = join(pnpmTools, `delimiter${delimiter}target`)
-    const delimiterAlias = join(links, "candidate")
-    const insideAliasDirectory = join(links, "inside-alias")
-    const previousPath = process.env["PATH"]
+    const repository = await mkdtemp(
+      join(tmpdir(), "darkfactory-resolver-root-")
+    );
+    const pnpmTools = await mkdtemp(
+      join(tmpdir(), "darkfactory-resolver-pnpm-")
+    );
+    const nodeTools = await mkdtemp(
+      join(tmpdir(), "darkfactory-resolver-node-")
+    );
+    const links = await mkdtemp(join(tmpdir(), "darkfactory-resolver-links-"));
+    const inside = join(repository, "bin");
+    const pnpmExecutable = join(pnpmTools, "pnpm");
+    const parentNodeExecutable = join(nodeTools, "node");
+    const pathFile = join(pnpmTools, "path-file");
+    const directoryTarget = join(pnpmTools, "directory-target");
+    const nonExecutableDirectory = join(pnpmTools, "non-executable");
+    const delimiterDirectory = join(pnpmTools, `delimiter${delimiter}target`);
+    const delimiterAlias = join(links, "candidate");
+    const insideAliasDirectory = join(links, "inside-alias");
+    const previousPath = process.env["PATH"];
     try {
-      await mkdir(inside)
-      await writeFile(join(inside, "pnpm"), "#!/bin/sh\nexit 0\n")
-      await chmod(join(inside, "pnpm"), 0o700)
-      await writeFile(pnpmExecutable, "#!/bin/sh\nexit 0\n")
-      await chmod(pnpmExecutable, 0o700)
-      await writeFile(parentNodeExecutable, "#!/bin/sh\nexit 0\n")
-      await chmod(parentNodeExecutable, 0o700)
-      await writeFile(pathFile, "not a PATH directory\n")
-      await mkdir(join(directoryTarget, "pnpm"), { recursive: true })
-      await mkdir(nonExecutableDirectory)
-      await writeFile(join(nonExecutableDirectory, "pnpm"), "not executable\n")
-      await mkdir(delimiterDirectory)
-      const delimiterPnpm = join(delimiterDirectory, "pnpm")
-      await writeFile(delimiterPnpm, "#!/bin/sh\nexit 0\n")
-      await chmod(delimiterPnpm, 0o700)
-      await symlink(delimiterDirectory, delimiterAlias, "dir")
-      await mkdir(insideAliasDirectory)
-      await symlink(join(inside, "pnpm"), join(insideAliasDirectory, "pnpm"))
+      await mkdir(inside);
+      await writeFile(join(inside, "pnpm"), "#!/bin/sh\nexit 0\n");
+      await chmod(join(inside, "pnpm"), 0o700);
+      await writeFile(pnpmExecutable, "#!/bin/sh\nexit 0\n");
+      await chmod(pnpmExecutable, 0o700);
+      await writeFile(parentNodeExecutable, "#!/bin/sh\nexit 0\n");
+      await chmod(parentNodeExecutable, 0o700);
+      await writeFile(pathFile, "not a PATH directory\n");
+      await mkdir(join(directoryTarget, "pnpm"), { recursive: true });
+      await mkdir(nonExecutableDirectory);
+      await writeFile(join(nonExecutableDirectory, "pnpm"), "not executable\n");
+      await mkdir(delimiterDirectory);
+      const delimiterPnpm = join(delimiterDirectory, "pnpm");
+      await writeFile(delimiterPnpm, "#!/bin/sh\nexit 0\n");
+      await chmod(delimiterPnpm, 0o700);
+      await symlink(delimiterDirectory, delimiterAlias, "dir");
+      await mkdir(insideAliasDirectory);
+      await symlink(join(inside, "pnpm"), join(insideAliasDirectory, "pnpm"));
       process.env["PATH"] = [
         "relative",
         inside,
@@ -515,78 +580,77 @@ describe("CLI argument and environment forwarding", () => {
         nonExecutableDirectory,
         pnpmTools,
         nodeTools,
-      ].join(delimiter)
+      ].join(delimiter);
 
-      const canonicalPnpmTools = await realpath(pnpmTools)
-      const canonicalNodeTools = await realpath(nodeTools)
-      const canonicalPnpm = await realpath(pnpmExecutable)
-      const canonicalParentNode = await realpath(parentNodeExecutable)
-      await expect(
-        resolveTrustedPnpmExecutable(repository),
-      ).resolves.toEqual({
+      const canonicalPnpmTools = await realpath(pnpmTools);
+      const canonicalNodeTools = await realpath(nodeTools);
+      const canonicalPnpm = await realpath(pnpmExecutable);
+      const canonicalParentNode = await realpath(parentNodeExecutable);
+      await expect(resolveTrustedPnpmExecutable(repository)).resolves.toEqual({
         command: canonicalPnpm,
         pathDirectory: canonicalPnpmTools,
-      })
+      });
       await expect(
-        resolveTrustedParentNodeExecutable(repository),
+        resolveTrustedParentNodeExecutable(repository)
       ).resolves.toEqual({
         command: canonicalParentNode,
         pathDirectory: canonicalNodeTools,
-      })
-      delete process.env["PATH"]
+      });
+      delete process.env["PATH"];
+      await expect(resolveTrustedPnpmExecutable(repository)).rejects.toThrow(
+        "Trusted pnpm executable is unavailable"
+      );
       await expect(
-        resolveTrustedPnpmExecutable(repository),
-      ).rejects.toThrow("Trusted pnpm executable is unavailable")
-      await expect(
-        resolveTrustedParentNodeExecutable(repository),
-      ).rejects.toThrow("Trusted node executable is unavailable")
+        resolveTrustedParentNodeExecutable(repository)
+      ).rejects.toThrow("Trusted node executable is unavailable");
       return await expect(
-        resolveTrustedNodeExecutable(repository),
+        resolveTrustedNodeExecutable(repository)
       ).resolves.toEqual({
         command: await realpath(process.execPath),
-      })
-    }
-    finally {
-      if (previousPath === undefined) { delete process.env["PATH"]}
-      else process.env["PATH"] = previousPath
+      });
+    } finally {
+      if (previousPath === undefined) {
+        delete process.env["PATH"];
+      } else process.env["PATH"] = previousPath;
       await Promise.all([
         rm(repository, { recursive: true, force: true }),
         rm(pnpmTools, { recursive: true, force: true }),
         rm(nodeTools, { recursive: true, force: true }),
         rm(links, { recursive: true, force: true }),
-      ])
+      ]);
     }
-  }
-  )
+  });
 
   it("runs only the requested-version pnpm target from the private toolchain", async () => {
-    const repository = await mkdtemp(join(tmpdir(), "darkfactory-static-cli-root-"))
+    const repository = await mkdtemp(
+      join(tmpdir(), "darkfactory-static-cli-root-")
+    );
     const nodeInstallation = await mkdtemp(
-      join(tmpdir(), "darkfactory-node-installation-"),
-    )
+      join(tmpdir(), "darkfactory-node-installation-")
+    );
     const actionDest = await mkdtemp(
-      join(tmpdir(), "darkfactory-setup-pnpm-dest-"),
-    )
+      join(tmpdir(), "darkfactory-setup-pnpm-dest-")
+    );
     const privateToolchain = await mkdtemp(
-      join(tmpdir(), "darkfactory-browser-toolchain-"),
-    )
-    const nodeBin = join(nodeInstallation, "bin")
+      join(tmpdir(), "darkfactory-browser-toolchain-")
+    );
+    const nodeBin = join(nodeInstallation, "bin");
     const corepackProgram = join(
       nodeInstallation,
       "lib",
       "node_modules",
       "corepack",
       "dist",
-      "pnpm.js",
-    )
-    const actionBinDest = join(actionDest, "node_modules", ".bin", "bin")
+      "pnpm.js"
+    );
+    const actionBinDest = join(actionDest, "node_modules", ".bin", "bin");
     const bootstrapPnpmProgram = join(
       actionDest,
       "node_modules",
       "pnpm",
       "bin",
-      "pnpm.mjs",
-    )
+      "pnpm.mjs"
+    );
     const requestedPnpmProgram = join(
       actionDest,
       "node_modules",
@@ -597,8 +661,8 @@ describe("CLI argument and environment forwarding", () => {
       "node_modules",
       "pnpm",
       "bin",
-      "pnpm.mjs",
-    )
+      "pnpm.mjs"
+    );
     await Promise.all([
       mkdir(nodeBin, { recursive: true }),
       mkdir(dirname(corepackProgram), { recursive: true }),
@@ -606,16 +670,16 @@ describe("CLI argument and environment forwarding", () => {
       mkdir(dirname(bootstrapPnpmProgram), { recursive: true }),
       mkdir(dirname(requestedPnpmProgram), { recursive: true }),
       chmod(privateToolchain, 0o700),
-    ])
-    const canonicalPrivateToolchain = await realpath(privateToolchain)
-    const nodeExecutable = await realpath(process.execPath)
+    ]);
+    const canonicalPrivateToolchain = await realpath(privateToolchain);
+    const nodeExecutable = await realpath(process.execPath);
     const reportPath = join(
       repository,
       "test-results",
       "e2e-runs",
       "isolated_cli_run",
-      "playwright-report.json",
-    )
+      "playwright-report.json"
+    );
     const expectedArguments = [
       "exec",
       "playwright",
@@ -626,33 +690,46 @@ describe("CLI argument and environment forwarding", () => {
       "--output",
       "test-results/e2e-runs/isolated_cli_run/artifacts",
       "--reporter=list,json",
-    ]
-    const expectedChildPath = [...new Set([
-      canonicalPrivateToolchain,
-      dirname(process.execPath),
-      "/opt/homebrew/bin",
-      "/usr/local/bin",
-      "/usr/bin",
-      "/bin",
-    ])].join(delimiter)
-    const corepackMarker = join(nodeInstallation, "corepack-invoked")
-    const actionShimMarker = join(actionDest, "action-shim-invoked")
-    const bootstrapMarker = join(actionDest, "bootstrap-pnpm-invoked")
-    const previousPath = process.env["PATH"]
+    ];
+    const expectedChildPath = [
+      ...new Set([
+        canonicalPrivateToolchain,
+        dirname(process.execPath),
+        "/opt/homebrew/bin",
+        "/usr/local/bin",
+        "/usr/bin",
+        "/bin",
+      ]),
+    ].join(delimiter);
+    const corepackMarker = join(nodeInstallation, "corepack-invoked");
+    const actionShimMarker = join(actionDest, "action-shim-invoked");
+    const bootstrapMarker = join(actionDest, "bootstrap-pnpm-invoked");
+    const previousPath = process.env["PATH"];
     try {
-      await writeFile(corepackProgram, `const { writeFileSync } = require("node:fs")
+      await writeFile(
+        corepackProgram,
+        `const { writeFileSync } = require("node:fs")
 writeFileSync(${JSON.stringify(corepackMarker)}, "invoked\\n", "utf8")
 process.exit(91)
-`)
-      await writeFile(bootstrapPnpmProgram, `import { writeFileSync } from "node:fs"
+`
+      );
+      await writeFile(
+        bootstrapPnpmProgram,
+        `import { writeFileSync } from "node:fs"
 writeFileSync(${JSON.stringify(bootstrapMarker)}, "invoked\\n", "utf8")
 process.exit(93)
-`)
-      await writeFile(join(actionBinDest, "pnpm"), `#!/bin/sh
+`
+      );
+      await writeFile(
+        join(actionBinDest, "pnpm"),
+        `#!/bin/sh
 printf 'invoked\n' > ${JSON.stringify(actionShimMarker)}
 exit 92
-`)
-      await writeFile(requestedPnpmProgram, `import { mkdirSync, writeFileSync } from "node:fs"
+`
+      );
+      await writeFile(
+        requestedPnpmProgram,
+        `import { mkdirSync, writeFileSync } from "node:fs"
 import { dirname } from "node:path"
 const reportPath = process.env.PLAYWRIGHT_JSON_OUTPUT_NAME
 if (reportPath === undefined) process.exit(2)
@@ -669,141 +746,158 @@ const evidence = [
 ].join("\\n") + "\\n"
 writeFileSync(reportPath + ".launcher", evidence, "utf8")
 writeFileSync(reportPath, '{"config":{"webServer":{}}}\\n', "utf8")
-`)
+`
+      );
       await Promise.all([
         chmod(corepackProgram, 0o700),
         chmod(join(actionBinDest, "pnpm"), 0o700),
         chmod(bootstrapPnpmProgram, 0o700),
         chmod(requestedPnpmProgram, 0o700),
-      ])
-      const canonicalRequestedPnpmProgram = await realpath(requestedPnpmProgram)
+      ]);
+      const canonicalRequestedPnpmProgram =
+        await realpath(requestedPnpmProgram);
       await Promise.all([
         symlink(nodeExecutable, join(nodeBin, "node")),
         symlink(
           "../lib/node_modules/corepack/dist/pnpm.js",
-          join(nodeBin, "pnpm"),
+          join(nodeBin, "pnpm")
         ),
         symlink(nodeExecutable, join(privateToolchain, "node")),
         symlink(canonicalRequestedPnpmProgram, join(privateToolchain, "pnpm")),
-      ])
-      process.env["PATH"] = [
-        privateToolchain,
-        nodeBin,
-        actionBinDest,
-      ].join(delimiter)
-      const cli = streams()
+      ]);
+      process.env["PATH"] = [privateToolchain, nodeBin, actionBinDest].join(
+        delimiter
+      );
+      const cli = streams();
 
-      await expect(runJourneyCli(
-        ["e2e"],
-        repository,
-        cli.streams,
-        isolatedCliOverrides({}, "runPlaywright"),
-      )).resolves.toBe(1)
+      await expect(
+        runJourneyCli(
+          ["e2e"],
+          repository,
+          cli.streams,
+          isolatedCliOverrides({}, "runPlaywright")
+        )
+      ).resolves.toBe(1);
 
-      const executableEvidence = await readFile(`${reportPath}.launcher`, "utf8")
-      expect(executableEvidence).toBe([
-        `node=${nodeExecutable}`,
-        `node-node=${nodeExecutable}`,
-        `pnpm=${canonicalRequestedPnpmProgram}`,
-        `pnpm-script=${canonicalRequestedPnpmProgram}`,
-        `path=${expectedChildPath}`,
-        `argc=${expectedArguments.length}`,
-        ...expectedArguments.map((argument) => `arg=${argument}`),
-        "",
-      ].join("\n"))
+      const executableEvidence = await readFile(
+        `${reportPath}.launcher`,
+        "utf8"
+      );
+      expect(executableEvidence).toBe(
+        [
+          `node=${nodeExecutable}`,
+          `node-node=${nodeExecutable}`,
+          `pnpm=${canonicalRequestedPnpmProgram}`,
+          `pnpm-script=${canonicalRequestedPnpmProgram}`,
+          `path=${expectedChildPath}`,
+          `argc=${expectedArguments.length}`,
+          ...expectedArguments.map((argument) => `arg=${argument}`),
+          "",
+        ].join("\n")
+      );
       await expect(readFile(corepackMarker, "utf8")).rejects.toMatchObject({
         code: "ENOENT",
-      })
+      });
       await expect(readFile(actionShimMarker, "utf8")).rejects.toMatchObject({
         code: "ENOENT",
-      })
+      });
       await expect(readFile(bootstrapMarker, "utf8")).rejects.toMatchObject({
         code: "ENOENT",
-      })
+      });
       expect(cli.errors[0]).toBe(
         '{"spec":"tests/e2e/auth.spec.ts","runId":"isolated_cli_run",' +
-        '"stage":"created"}\n',
-      )
-      return expect(cli.errors.find((value) => {
-        return value.startsWith("Error: E2E runner failed ")
-      }
-      )).toBe(
+          '"stage":"created"}\n'
+      );
+      return expect(
+        cli.errors.find((value) => {
+          return value.startsWith("Error: E2E runner failed ");
+        })
+      ).toBe(
         "Error: E2E runner failed stage=execute process=unproven " +
-        "lifecycleStatus=unavailable lifecycleStage=unavailable " +
-        "lifecycleObservation=invalid lifecycleObservationReason=paths-failed " +
-        "playwrightOk=true treeTerminated=false scanOk=false purged=false " +
-        "scanFailureCategory=internal\n",
-      )
-    }
-    finally {
-      if (previousPath === undefined) { delete process.env["PATH"]}
-      else process.env["PATH"] = previousPath
+          "lifecycleStatus=unavailable lifecycleStage=unavailable " +
+          "lifecycleObservation=invalid lifecycleObservationReason=paths-failed " +
+          "playwrightOk=true treeTerminated=false scanOk=false purged=false " +
+          "scanFailureCategory=internal\n"
+      );
+    } finally {
+      if (previousPath === undefined) {
+        delete process.env["PATH"];
+      } else process.env["PATH"] = previousPath;
       await Promise.all([
         rm(repository, { recursive: true, force: true }),
         rm(nodeInstallation, { recursive: true, force: true }),
         rm(actionDest, { recursive: true, force: true }),
         rm(privateToolchain, { recursive: true, force: true }),
-      ])
+      ]);
     }
-  }
-  )
+  });
 
   it("fails with bounded output when pnpm is not a Node-executable script", async () => {
-    const repository = await mkdtemp(join(tmpdir(), "darkfactory-static-cli-root-"))
-    const tools = await mkdtemp(join(tmpdir(), "darkfactory-static-cli-tools-"))
-    const canonicalTools = await realpath(tools)
-    const nodeExecutable = await realpath(process.execPath)
-    const pnpmExecutable = join(canonicalTools, "pnpm")
-    const previousPath = process.env["PATH"]
+    const repository = await mkdtemp(
+      join(tmpdir(), "darkfactory-static-cli-root-")
+    );
+    const tools = await mkdtemp(
+      join(tmpdir(), "darkfactory-static-cli-tools-")
+    );
+    const canonicalTools = await realpath(tools);
+    const nodeExecutable = await realpath(process.execPath);
+    const pnpmExecutable = join(canonicalTools, "pnpm");
+    const previousPath = process.env["PATH"];
     try {
-      await writeFile(pnpmExecutable, "#!/bin/sh\nexit 0\n")
-      await chmod(pnpmExecutable, 0o700)
-      await symlink(nodeExecutable, join(canonicalTools, "node"))
-      process.env["PATH"] = tools
-      const cli = streams()
+      await writeFile(pnpmExecutable, "#!/bin/sh\nexit 0\n");
+      await chmod(pnpmExecutable, 0o700);
+      await symlink(nodeExecutable, join(canonicalTools, "node"));
+      process.env["PATH"] = tools;
+      const cli = streams();
 
-      await expect(runJourneyCli(
-        ["e2e"],
-        repository,
-        cli.streams,
-        isolatedCliOverrides({}, "runPlaywright"),
-      )).resolves.toBe(1)
+      await expect(
+        runJourneyCli(
+          ["e2e"],
+          repository,
+          cli.streams,
+          isolatedCliOverrides({}, "runPlaywright")
+        )
+      ).resolves.toBe(1);
 
-      expect(cli.output).toEqual([])
-      expect(cli.errors.join("")).toMatch(/SyntaxError/u)
+      expect(cli.output).toEqual([]);
+      expect(cli.errors.join("")).toMatch(/SyntaxError/u);
       expect(Buffer.byteLength(cli.errors.join(""), "utf8")).toBeLessThan(
-        20 * 1_024,
-      )
-      return expect(cli.errors.find((value) => {
-        return value.startsWith("Error: E2E runner failed ")
-      }
-      )).toBe(
+        20 * 1_024
+      );
+      return expect(
+        cli.errors.find((value) => {
+          return value.startsWith("Error: E2E runner failed ");
+        })
+      ).toBe(
         "Error: E2E runner failed stage=execute process=unproven " +
-        "lifecycleStatus=unavailable lifecycleStage=unavailable " +
-        "lifecycleObservation=invalid lifecycleObservationReason=paths-failed " +
-        "playwrightOk=false treeTerminated=false scanOk=false purged=false " +
-        "scanFailureCategory=internal\n",
-      )
-    }
-    finally {
-      if (previousPath === undefined) { delete process.env["PATH"]}
-      else process.env["PATH"] = previousPath
+          "lifecycleStatus=unavailable lifecycleStage=unavailable " +
+          "lifecycleObservation=invalid lifecycleObservationReason=paths-failed " +
+          "playwrightOk=false treeTerminated=false scanOk=false purged=false " +
+          "scanFailureCategory=internal\n"
+      );
+    } finally {
+      if (previousPath === undefined) {
+        delete process.env["PATH"];
+      } else process.env["PATH"] = previousPath;
       await Promise.all([
         rm(repository, { recursive: true, force: true }),
         rm(tools, { recursive: true, force: true }),
-      ])
+      ]);
     }
-  }
-  )
+  });
 
   it("accepts an authenticated default scanner result in the static CLI module", async () => {
-    const repository = await mkdtemp(join(tmpdir(), "darkfactory-static-scan-root-"))
+    const repository = await mkdtemp(
+      join(tmpdir(), "darkfactory-static-scan-root-")
+    );
     const scanner = join(
       await mkdtemp(join(tmpdir(), "darkfactory-static-scan-tool-")),
-      "node",
-    )
+      "node"
+    );
     try {
-      await writeFile(scanner, `#!/bin/sh
+      await writeFile(
+        scanner,
+        `#!/bin/sh
 nonce=""
 while [ "$#" -gt 0 ]; do
   if [ "$1" = "--report-nonce" ]; then
@@ -814,234 +908,217 @@ while [ "$#" -gt 0 ]; do
   shift
 done
 printf '{"kind":"darkfactory-artifact-scanner-report","version":1,"reportNonce":"%s","report":{"ok":true,"scannedEntries":3,"findings":[],"purged":false,"reason":"E2E artifacts passed external secret scanning"}}\\n' "$nonce"
-`)
-      await chmod(scanner, 0o700)
-      const cli = streams()
+`
+      );
+      await chmod(scanner, 0o700);
+      const cli = streams();
 
-      await expect(runJourneyCli(
-        ["e2e"],
-        repository,
-        cli.streams,
-        isolatedCliOverrides({
-          resolveNodeExecutable: async () => scanner,
-        }, "scanArtifacts"),
-      )).resolves.toBe(0)
+      await expect(
+        runJourneyCli(
+          ["e2e"],
+          repository,
+          cli.streams,
+          isolatedCliOverrides(
+            {
+              resolveNodeExecutable: async () => scanner,
+            },
+            "scanArtifacts"
+          )
+        )
+      ).resolves.toBe(0);
       return expect(JSON.parse(cli.output.join(""))).toMatchObject({
         ok: true,
         completed: 1,
-      })
-    }
-    finally {
+      });
+    } finally {
       await Promise.all([
         rm(repository, { recursive: true, force: true }),
         rm(dirname(scanner), { recursive: true, force: true }),
-      ])
+      ]);
     }
-  }
-  )
+  });
 
   return it("uses the default bounded identity, capability, and discovery providers", async () => {
-    const root = await mkdtemp(join(tmpdir(), "darkfactory-cli-defaults-"))
-    const cli = streams()
-    const persisted: unknown[] = []
+    const root = await mkdtemp(join(tmpdir(), "darkfactory-cli-defaults-"));
+    const cli = streams();
+    const persisted: unknown[] = [];
     try {
-      await mkdir(join(root, "tests", "e2e"), { recursive: true })
-      await writeFile(join(root, "tests", "e2e", "auth.spec.ts"), "export {}")
-      const runPlaywright = vi.fn(async (
-        _arguments: readonly string[],
-        environment: Readonly<Record<string, string>>,
-      ) => {
-        expect(environment["E2E_RUN_ID"]).toMatch(/^[A-Za-z0-9_-]{1,128}$/u)
-        expect(environment["E2E_EMAIL_PREVIEW_HMAC_KEY"]).toMatch(
-          /^[A-Za-z0-9_-]{43}$/u,
-        )
-        expect(environment["E2E_RUN_ADOPTION"]).toMatch(/^[A-Za-z0-9_-]+$/u)
-        return stoppedProcess
-      }
-      )
-      const scanArtifacts = vi.fn(async (
-        runId: string,
-        purgeOwned: boolean,
-        ownership: string,
-      ) => {
-        expect(runId).toMatch(/^[A-Za-z0-9_-]{1,128}$/u)
-        expect(purgeOwned).toBe(false)
-        expect(ownership).toMatch(/^[A-Za-z0-9_-]+$/u)
-        return cleanScan
-      }
-      )
+      await mkdir(join(root, "tests", "e2e"), { recursive: true });
+      await writeFile(join(root, "tests", "e2e", "auth.spec.ts"), "export {}");
+      const runPlaywright = vi.fn(
+        async (
+          _arguments: readonly string[],
+          environment: Readonly<Record<string, string>>
+        ) => {
+          expect(environment["E2E_RUN_ID"]).toMatch(/^[A-Za-z0-9_-]{1,128}$/u);
+          expect(environment["E2E_EMAIL_PREVIEW_HMAC_KEY"]).toMatch(
+            /^[A-Za-z0-9_-]{43}$/u
+          );
+          expect(environment["E2E_RUN_ADOPTION"]).toMatch(/^[A-Za-z0-9_-]+$/u);
+          return stoppedProcess;
+        }
+      );
+      const scanArtifacts = vi.fn(
+        async (runId: string, purgeOwned: boolean, ownership: string) => {
+          expect(runId).toMatch(/^[A-Za-z0-9_-]{1,128}$/u);
+          expect(purgeOwned).toBe(false);
+          expect(ownership).toMatch(/^[A-Za-z0-9_-]+$/u);
+          return cleanScan;
+        }
+      );
 
-      await expect(runJourneyCli(["e2e"], root, cli.streams, {
-        persistState: (state) => persisted.push(state),
-        runPlaywright,
-        scanArtifacts,
-      })).resolves.toBe(0)
-      expect(runPlaywright).toHaveBeenCalledOnce()
-      expect(scanArtifacts).toHaveBeenCalledOnce()
+      await expect(
+        runJourneyCli(["e2e"], root, cli.streams, {
+          persistState: (state) => persisted.push(state),
+          runPlaywright,
+          scanArtifacts,
+        })
+      ).resolves.toBe(0);
+      expect(runPlaywright).toHaveBeenCalledOnce();
+      expect(scanArtifacts).toHaveBeenCalledOnce();
       expect(persisted.at(-1)).toMatchObject({
         version: 1,
         phase: "result",
         report: { ok: true, completed: 1 },
-      })
+      });
       return expect(JSON.parse(cli.output.join(""))).toMatchObject({
         ok: true,
         completed: 1,
-      })
+      });
+    } finally {
+      await rm(root, { force: true, recursive: true });
     }
-    finally {
-      await rm(root, { force: true, recursive: true })
-    }
-  }
-  )
-}
-)
+  });
+});
 
 describe("CLI filesystem discovery", () => {
   it("returns an empty set, then sorted regular top-level specs only", async () => {
-    const root = await mkdtemp(join(tmpdir(), "darkfactory-cli-discovery-unit-"))
+    const root = await mkdtemp(
+      join(tmpdir(), "darkfactory-cli-discovery-unit-")
+    );
     try {
-      const directory = join(root, "tests", "e2e")
-      await mkdir(directory, { recursive: true })
-      await expect(discoverJourneySpecs(root)).resolves.toEqual([])
+      const directory = join(root, "tests", "e2e");
+      await mkdir(directory, { recursive: true });
+      await expect(discoverJourneySpecs(root)).resolves.toEqual([]);
 
-      await writeFile(join(directory, "zeta.spec.ts"), "export {}")
-      await writeFile(join(directory, "alpha.spec.ts"), "export {}")
-      await writeFile(join(directory, "ignored.test.ts"), "export {}")
-      await mkdir(join(directory, "fixtures"))
+      await writeFile(join(directory, "zeta.spec.ts"), "export {}");
+      await writeFile(join(directory, "alpha.spec.ts"), "export {}");
+      await writeFile(join(directory, "ignored.test.ts"), "export {}");
+      await mkdir(join(directory, "fixtures"));
 
       return await expect(discoverJourneySpecs(root)).resolves.toEqual([
         "tests/e2e/alpha.spec.ts",
         "tests/e2e/zeta.spec.ts",
-      ])
+      ]);
+    } finally {
+      await rm(root, { force: true, recursive: true });
     }
-    finally {
-      await rm(root, { force: true, recursive: true })
-    }
-  }
-  )
+  });
 
   return it("propagates a missing discovery directory", async () => {
-    const root = await mkdtemp(join(tmpdir(), "darkfactory-cli-discovery-missing-"))
+    const root = await mkdtemp(
+      join(tmpdir(), "darkfactory-cli-discovery-missing-")
+    );
     try {
       return await expect(discoverJourneySpecs(root)).rejects.toMatchObject({
         code: "ENOENT",
-      })
+      });
+    } finally {
+      await rm(root, { force: true, recursive: true });
     }
-    finally {
-      await rm(root, { force: true, recursive: true })
-    }
-  }
-  )
-}
-)
+  });
+});
 
 describe("process output redaction", () => {
   const renderChannels = (
     unsafe: string,
     knownSensitiveValues: readonly string[] = [],
-    trailingOrdinaryText = true,
+    trailingOrdinaryText = true
   ) => {
     const stdout = [
       "ordinary stdout before",
       unsafe,
       ...(trailingOrdinaryText ? ["ordinary stdout after", ""] : []),
-    ].join("\n")
+    ].join("\n");
     const stderr = [
       "ordinary stderr before",
       unsafe,
       ...(trailingOrdinaryText ? ["ordinary stderr after", ""] : []),
-    ].join("\n")
+    ].join("\n");
     return {
       stdout: redactProcessOutput(stdout, knownSensitiveValues),
       stderr: redactProcessOutput(stderr, knownSensitiveValues),
       diagnostics: collectProcessDiagnostics(
         stdout,
         stderr,
-        knownSensitiveValues,
+        knownSensitiveValues
       ).join("\n"),
-    }
-  }
+    };
+  };
 
   it("redacts a complete multiline PEM private-key block across every channel", () => {
-    const body = "T3BhcXVlRnVsbFBlbUJvZHkxMjM0NTY3ODkw"
-    const footer = "-----END PRIVATE KEY-----"
-    const rendered = renderChannels([
-      "-----BEGIN PRIVATE KEY-----",
-      body,
-      footer,
-    ].join("\n"))
+    const body = "T3BhcXVlRnVsbFBlbUJvZHkxMjM0NTY3ODkw";
+    const footer = "-----END PRIVATE KEY-----";
+    const rendered = renderChannels(
+      ["-----BEGIN PRIVATE KEY-----", body, footer].join("\n")
+    );
 
     for (const sensitiveValue of [
       "-----BEGIN PRIVATE KEY-----",
       body,
       footer,
     ]) {
-      expect(rendered.stdout).not.toContain(sensitiveValue)
-      expect(rendered.stderr).not.toContain(sensitiveValue)
-      expect(rendered.diagnostics).not.toContain(sensitiveValue)
+      expect(rendered.stdout).not.toContain(sensitiveValue);
+      expect(rendered.stderr).not.toContain(sensitiveValue);
+      expect(rendered.diagnostics).not.toContain(sensitiveValue);
     }
-    expect(rendered.stdout).toContain("ordinary stdout before\n")
-    expect(rendered.stdout).toContain("ordinary stdout after\n")
-    expect(rendered.stderr).toContain("ordinary stderr before\n")
-    return expect(rendered.stderr).toContain("ordinary stderr after\n")
-  }
-  )
+    expect(rendered.stdout).toContain("ordinary stdout before\n");
+    expect(rendered.stdout).toContain("ordinary stdout after\n");
+    expect(rendered.stderr).toContain("ordinary stderr before\n");
+    return expect(rendered.stderr).toContain("ordinary stderr after\n");
+  });
 
   it("redacts a truncated PEM BEGIN block through EOF across every channel", () => {
-    const body = "T3BhcXVlVHJ1bmNhdGVkUGVtQm9keTEyMzQ1Njc4OTA="
-    const tail = "T3BhcXVlVHJ1bmNhdGVkVGFpbDEyMzQ1Njc4OTA="
-    const rendered = renderChannels([
-      "-----BEGIN RSA PRIVATE KEY-----",
-      body,
-      tail,
-    ].join("\n"), [], false)
+    const body = "T3BhcXVlVHJ1bmNhdGVkUGVtQm9keTEyMzQ1Njc4OTA=";
+    const tail = "T3BhcXVlVHJ1bmNhdGVkVGFpbDEyMzQ1Njc4OTA=";
+    const rendered = renderChannels(
+      ["-----BEGIN RSA PRIVATE KEY-----", body, tail].join("\n"),
+      [],
+      false
+    );
 
     for (const sensitiveValue of [
       "-----BEGIN RSA PRIVATE KEY-----",
       body,
       tail,
     ]) {
-      expect(rendered.stdout).not.toContain(sensitiveValue)
-      expect(rendered.stderr).not.toContain(sensitiveValue)
-      expect(rendered.diagnostics).not.toContain(sensitiveValue)
+      expect(rendered.stdout).not.toContain(sensitiveValue);
+      expect(rendered.stderr).not.toContain(sensitiveValue);
+      expect(rendered.diagnostics).not.toContain(sensitiveValue);
     }
-    expect(rendered.stdout).toContain("ordinary stdout before\n")
-    return expect(rendered.stderr).toContain("ordinary stderr before\n")
-  }
-  )
+    expect(rendered.stdout).toContain("ordinary stdout before\n");
+    return expect(rendered.stderr).toContain("ordinary stderr before\n");
+  });
 
   it.each([
-    [
-      "NBSP",
-      "private\u00a0key",
-      "OpaqueNbspCredentialValue123456789",
-    ],
-    [
-      "em space",
-      "api\u2003key",
-      "OpaqueEmSpaceCredentialValue123456789",
-    ],
+    ["NBSP", "private\u00a0key", "OpaqueNbspCredentialValue123456789"],
+    ["em space", "api\u2003key", "OpaqueEmSpaceCredentialValue123456789"],
     [
       "line separator",
       "authori\u2028zation",
       "OpaqueLineSeparatorCredentialValue123456789",
     ],
-  ] as const)("redacts a credential whose %s splits its structural label", (
-    _case,
-    label,
-    credential,
-  ) => {
-    const rendered = renderChannels(`{"${label}":"${credential}"}`)
+  ] as const)("redacts a credential whose %s splits its structural label", (_case, label, credential) => {
+    const rendered = renderChannels(`{"${label}":"${credential}"}`);
 
-    expect(rendered.stdout).not.toContain(credential)
-    expect(rendered.stderr).not.toContain(credential)
-    expect(rendered.diagnostics).not.toContain(credential)
-    expect(rendered.stdout).toContain("ordinary stdout before\n")
-    expect(rendered.stdout).toContain("ordinary stdout after\n")
-    expect(rendered.stderr).toContain("ordinary stderr before\n")
-    return expect(rendered.stderr).toContain("ordinary stderr after\n")
-  }
-  )
+    expect(rendered.stdout).not.toContain(credential);
+    expect(rendered.stderr).not.toContain(credential);
+    expect(rendered.diagnostics).not.toContain(credential);
+    expect(rendered.stdout).toContain("ordinary stdout before\n");
+    expect(rendered.stdout).toContain("ordinary stdout after\n");
+    expect(rendered.stderr).toContain("ordinary stderr before\n");
+    return expect(rendered.stderr).toContain("ordinary stderr after\n");
+  });
 
   it.each([
     [
@@ -1074,143 +1151,149 @@ describe("process output redaction", () => {
       "OpaqueKnown\u00a0DatabasePassw&#111;rd123456789",
       ["OpaqueKnown\u00a0DatabasePassw&#111;rd123456789"],
     ],
-  ] as const)("redacts an unlabeled known value in %s form from every channel", (
-    _case,
-    unsafe,
-    exposedFragments,
-  ) => {
-    const secret = "OpaqueKnownDatabasePassword123456789"
-    const rendered = renderChannels(unsafe, [secret])
+  ] as const)("redacts an unlabeled known value in %s form from every channel", (_case, unsafe, exposedFragments) => {
+    const secret = "OpaqueKnownDatabasePassword123456789";
+    const rendered = renderChannels(unsafe, [secret]);
 
-    expect(rendered.stdout).toBe([
-      "ordinary stdout before",
-      "[REDACTED SENSITIVE PROCESS OUTPUT]",
-      "ordinary stdout after",
-      "",
-    ].join("\n"))
-    expect(rendered.stderr).toBe([
-      "ordinary stderr before",
-      "[REDACTED SENSITIVE PROCESS OUTPUT]",
-      "ordinary stderr after",
-      "",
-    ].join("\n"))
+    expect(rendered.stdout).toBe(
+      [
+        "ordinary stdout before",
+        "[REDACTED SENSITIVE PROCESS OUTPUT]",
+        "ordinary stdout after",
+        "",
+      ].join("\n")
+    );
+    expect(rendered.stderr).toBe(
+      [
+        "ordinary stderr before",
+        "[REDACTED SENSITIVE PROCESS OUTPUT]",
+        "ordinary stderr after",
+        "",
+      ].join("\n")
+    );
     for (const fragment of exposedFragments) {
-      expect(rendered.stdout).not.toContain(fragment)
-      expect(rendered.stderr).not.toContain(fragment)
-      expect(rendered.diagnostics).not.toContain(fragment)
+      expect(rendered.stdout).not.toContain(fragment);
+      expect(rendered.stderr).not.toContain(fragment);
+      expect(rendered.diagnostics).not.toContain(fragment);
     }
-    expect(rendered.diagnostics).toContain("stdout: ordinary stdout before")
-    expect(rendered.diagnostics).toContain("stdout: ordinary stdout after")
-    expect(rendered.diagnostics).toContain("stderr: ordinary stderr before")
-    return expect(rendered.diagnostics).toContain("stderr: ordinary stderr after")
-  }
-  )
+    expect(rendered.diagnostics).toContain("stdout: ordinary stdout before");
+    expect(rendered.diagnostics).toContain("stdout: ordinary stdout after");
+    expect(rendered.diagnostics).toContain("stderr: ordinary stderr before");
+    return expect(rendered.diagnostics).toContain(
+      "stderr: ordinary stderr after"
+    );
+  });
 
   it("redacts an unlabeled HMAC value after decoding and compaction", () => {
-    const secret = "OpaqueKnownHmacKey123456789"
-    const unsafe = "OpaqueKnown\u2028HmacK&#101;y123456789"
-    const rendered = renderChannels(unsafe, [secret])
+    const secret = "OpaqueKnownHmacKey123456789";
+    const unsafe = "OpaqueKnown\u2028HmacK&#101;y123456789";
+    const rendered = renderChannels(unsafe, [secret]);
 
-    expect(rendered.stdout).toBe([
-      "ordinary stdout before",
-      "[REDACTED SENSITIVE PROCESS OUTPUT]",
-      "ordinary stdout after",
-      "",
-    ].join("\n"))
-    expect(rendered.stderr).toBe([
-      "ordinary stderr before",
-      "[REDACTED SENSITIVE PROCESS OUTPUT]",
-      "ordinary stderr after",
-      "",
-    ].join("\n"))
-    expect(rendered.stdout).not.toContain(unsafe)
-    expect(rendered.stderr).not.toContain(unsafe)
-    expect(rendered.diagnostics).not.toContain(unsafe)
-    expect(rendered.diagnostics).toContain("stdout: ordinary stdout before")
-    expect(rendered.diagnostics).toContain("stdout: ordinary stdout after")
-    expect(rendered.diagnostics).toContain("stderr: ordinary stderr before")
-    return expect(rendered.diagnostics).toContain("stderr: ordinary stderr after")
-  }
-  )
+    expect(rendered.stdout).toBe(
+      [
+        "ordinary stdout before",
+        "[REDACTED SENSITIVE PROCESS OUTPUT]",
+        "ordinary stdout after",
+        "",
+      ].join("\n")
+    );
+    expect(rendered.stderr).toBe(
+      [
+        "ordinary stderr before",
+        "[REDACTED SENSITIVE PROCESS OUTPUT]",
+        "ordinary stderr after",
+        "",
+      ].join("\n")
+    );
+    expect(rendered.stdout).not.toContain(unsafe);
+    expect(rendered.stderr).not.toContain(unsafe);
+    expect(rendered.diagnostics).not.toContain(unsafe);
+    expect(rendered.diagnostics).toContain("stdout: ordinary stdout before");
+    expect(rendered.diagnostics).toContain("stdout: ordinary stdout after");
+    expect(rendered.diagnostics).toContain("stderr: ordinary stderr before");
+    return expect(rendered.diagnostics).toContain(
+      "stderr: ordinary stderr after"
+    );
+  });
 
   it("redacts a neutral encoded known value without heuristic labels", () => {
-    const secret = "OpaqueReferenceValue123456789"
-    const unsafe = "OpaqueReference\u2028Val&#117;e123456789"
+    const secret = "OpaqueReferenceValue123456789";
+    const unsafe = "OpaqueReference\u2028Val&#117;e123456789";
 
-    return expect(redactProcessOutput(
-      `ordinary before\n${unsafe}\nordinary after\n`,
-      [secret],
-    )).toBe([
-      "ordinary before",
-      "[REDACTED SENSITIVE PROCESS OUTPUT]",
-      "ordinary after",
-      "",
-    ].join("\n"))
-  }
-  )
+    return expect(
+      redactProcessOutput(`ordinary before\n${unsafe}\nordinary after\n`, [
+        secret,
+      ])
+    ).toBe(
+      [
+        "ordinary before",
+        "[REDACTED SENSITIVE PROCESS OUTPUT]",
+        "ordinary after",
+        "",
+      ].join("\n")
+    );
+  });
 
   it("redacts every visible short-form process value", () => {
-    expect(redactProcessOutput("BrowserAuthx")).toBe("[REDACTED]")
-    expect(redactProcessOutput(
-      "/api/auth/reset-password?token=x",
-    )).toBe("/api/auth/reset-password?token=[REDACTED]")
-    expect(redactProcessOutput(
-      "member@example.com",
-    )).toBe("[REDACTED EMAIL]")
-    return expect(redactProcessOutput(
-      "https://example.com/private",
-    )).toBe("[REDACTED URL]")
-  }
-  )
+    expect(redactProcessOutput("BrowserAuthx")).toBe("[REDACTED]");
+    expect(redactProcessOutput("/api/auth/reset-password?token=x")).toBe(
+      "/api/auth/reset-password?token=[REDACTED]"
+    );
+    expect(redactProcessOutput("member@example.com")).toBe("[REDACTED EMAIL]");
+    return expect(redactProcessOutput("https://example.com/private")).toBe(
+      "[REDACTED URL]"
+    );
+  });
 
   it("fails closed at an untrusted compacted sensitive-range boundary", () => {
-    return expect(redactProcessOutput(
-      "BrowserAuthTo\u00a0ken1234:tail",
-    )).toBe("[REDACTED SENSITIVE PROCESS OUTPUT]\n")
-  }
-  )
+    return expect(redactProcessOutput("BrowserAuthTo\u00a0ken1234:tail")).toBe(
+      "[REDACTED SENSITIVE PROCESS OUTPUT]\n"
+    );
+  });
 
   it("redacts overlapping literal known values longest-first across every channel", () => {
-    const username = "abcdef"
-    const password = "abcdefgh"
-    const rendered = renderChannels(password, [username, password])
+    const username = "abcdef";
+    const password = "abcdefgh";
+    const rendered = renderChannels(password, [username, password]);
 
-    expect(rendered.stdout).toBe([
-      "ordinary stdout before",
-      "[REDACTED]",
-      "ordinary stdout after",
-      "",
-    ].join("\n"))
-    expect(rendered.stderr).toBe([
-      "ordinary stderr before",
-      "[REDACTED]",
-      "ordinary stderr after",
-      "",
-    ].join("\n"))
-    expect(rendered.stdout).not.toContain("[REDACTED]gh")
-    expect(rendered.stderr).not.toContain("[REDACTED]gh")
-    expect(rendered.diagnostics).not.toContain("[REDACTED]gh")
-    return expect(rendered.diagnostics).not.toContain(password)
-  }
-  )
+    expect(rendered.stdout).toBe(
+      [
+        "ordinary stdout before",
+        "[REDACTED]",
+        "ordinary stdout after",
+        "",
+      ].join("\n")
+    );
+    expect(rendered.stderr).toBe(
+      [
+        "ordinary stderr before",
+        "[REDACTED]",
+        "ordinary stderr after",
+        "",
+      ].join("\n")
+    );
+    expect(rendered.stdout).not.toContain("[REDACTED]gh");
+    expect(rendered.stderr).not.toContain("[REDACTED]gh");
+    expect(rendered.diagnostics).not.toContain("[REDACTED]gh");
+    return expect(rendered.diagnostics).not.toContain(password);
+  });
 
   it("preserves ordinary inline text around an exact long known value", () => {
-    const secret = "OpaqueExactKnownValue123456789"
-    const stdout = `ordinary stdout ${secret} tail`
-    const stderr = `ordinary stderr ${secret} tail`
+    const secret = "OpaqueExactKnownValue123456789";
+    const stdout = `ordinary stdout ${secret} tail`;
+    const stderr = `ordinary stderr ${secret} tail`;
 
     expect(redactProcessOutput(stdout, [secret])).toBe(
-      "ordinary stdout [REDACTED] tail",
-    )
+      "ordinary stdout [REDACTED] tail"
+    );
     expect(redactProcessOutput(stderr, [secret])).toBe(
-      "ordinary stderr [REDACTED] tail",
-    )
+      "ordinary stderr [REDACTED] tail"
+    );
     return expect(collectProcessDiagnostics(stdout, stderr, [secret])).toEqual([
       "stdout: ordinary stdout [REDACTED] tail",
       "stderr: ordinary stderr [REDACTED] tail",
-    ])
-  }
-  )
+    ]);
+  });
 
   it.each([
     ["line feed", "a\nbc"],
@@ -1219,120 +1302,108 @@ describe("process output redaction", () => {
     ["HTML entity", "a&#98;c"],
     ["Unicode escape", String.raw`a\u0062c`],
     ["decoded and separator-compacted form", "a\u00a0&#98;c"],
-  ] as const)("fails closed for a short known value in %s form", (
-    _case,
-    unsafe,
-  ) => {
-    const secret = "abc"
-    const rendered = renderChannels(unsafe, [secret])
+  ] as const)("fails closed for a short known value in %s form", (_case, unsafe) => {
+    const secret = "abc";
+    const rendered = renderChannels(unsafe, [secret]);
 
-    expect(rendered.stdout).toBe("[REDACTED SENSITIVE PROCESS OUTPUT]\n")
-    expect(rendered.stderr).toBe("[REDACTED SENSITIVE PROCESS OUTPUT]\n")
-    expect(rendered.diagnostics).toBe([
-      "stdout: [REDACTED SENSITIVE PROCESS OUTPUT]",
-      "stderr: [REDACTED SENSITIVE PROCESS OUTPUT]",
-    ].join("\n"))
-    expect(rendered.stdout).not.toContain(unsafe)
-    expect(rendered.stderr).not.toContain(unsafe)
-    return expect(rendered.diagnostics).not.toContain(unsafe)
-  }
-  )
+    expect(rendered.stdout).toBe("[REDACTED SENSITIVE PROCESS OUTPUT]\n");
+    expect(rendered.stderr).toBe("[REDACTED SENSITIVE PROCESS OUTPUT]\n");
+    expect(rendered.diagnostics).toBe(
+      [
+        "stdout: [REDACTED SENSITIVE PROCESS OUTPUT]",
+        "stderr: [REDACTED SENSITIVE PROCESS OUTPUT]",
+      ].join("\n")
+    );
+    expect(rendered.stdout).not.toContain(unsafe);
+    expect(rendered.stderr).not.toContain(unsafe);
+    return expect(rendered.diagnostics).not.toContain(unsafe);
+  });
 
   it("fails closed for a present short known secret without substring replacement", () => {
-    const secret = "xy"
-    const rendered = renderChannels(`known-secret=${secret}`, [secret])
+    const secret = "xy";
+    const rendered = renderChannels(`known-secret=${secret}`, [secret]);
 
-    expect(rendered.stdout).toBe("[REDACTED SENSITIVE PROCESS OUTPUT]\n")
-    expect(rendered.stderr).toBe("[REDACTED SENSITIVE PROCESS OUTPUT]\n")
-    expect(rendered.diagnostics).not.toContain(secret)
-    expect(rendered.stdout).not.toContain(secret)
-    expect(rendered.stderr).not.toContain(secret)
-    return expect(redactProcessOutput(
-      "concatenate remains otherwise ordinary",
-      ["cat"],
-    )).toBe("[REDACTED SENSITIVE PROCESS OUTPUT]\n")
-  }
-  )
+    expect(rendered.stdout).toBe("[REDACTED SENSITIVE PROCESS OUTPUT]\n");
+    expect(rendered.stderr).toBe("[REDACTED SENSITIVE PROCESS OUTPUT]\n");
+    expect(rendered.diagnostics).not.toContain(secret);
+    expect(rendered.stdout).not.toContain(secret);
+    expect(rendered.stderr).not.toContain(secret);
+    return expect(
+      redactProcessOutput("concatenate remains otherwise ordinary", ["cat"])
+    ).toBe("[REDACTED SENSITIVE PROCESS OUTPUT]\n");
+  });
 
   it("fails closed when a nonempty known value compacts to empty", () => {
-    const rendered = renderChannels(
-      "ordinary output with a separator",
-      ["\u00a0\u2003"],
-    )
+    const rendered = renderChannels("ordinary output with a separator", [
+      "\u00a0\u2003",
+    ]);
 
-    expect(rendered.stdout).toBe("[REDACTED SENSITIVE PROCESS OUTPUT]\n")
-    expect(rendered.stderr).toBe("[REDACTED SENSITIVE PROCESS OUTPUT]\n")
-    return expect(rendered.diagnostics).toEqual([
-      "stdout: [REDACTED SENSITIVE PROCESS OUTPUT]",
-      "stderr: [REDACTED SENSITIVE PROCESS OUTPUT]",
-    ].join("\n"))
-  }
-  )
+    expect(rendered.stdout).toBe("[REDACTED SENSITIVE PROCESS OUTPUT]\n");
+    expect(rendered.stderr).toBe("[REDACTED SENSITIVE PROCESS OUTPUT]\n");
+    return expect(rendered.diagnostics).toEqual(
+      [
+        "stdout: [REDACTED SENSITIVE PROCESS OUTPUT]",
+        "stderr: [REDACTED SENSITIVE PROCESS OUTPUT]",
+      ].join("\n")
+    );
+  });
 
   it("fails closed when known-sensitive-value iteration throws", () => {
-    const secret = "OpaqueHostileKnownValue123456789"
+    const secret = "OpaqueHostileKnownValue123456789";
     const hostileKnownValues = new Proxy([secret], {
       get: (target, property, receiver) => {
         if (property === Symbol.iterator) {
-          throw new Error("hostile known-sensitive-values iterator")
+          throw new Error("hostile known-sensitive-values iterator");
         }
-        return Reflect.get(target, property, receiver)
-      }
-    })
+        return Reflect.get(target, property, receiver);
+      },
+    });
 
     const rendered = redactProcessOutput(
       `ordinary output containing ${secret}`,
-      hostileKnownValues,
-    )
+      hostileKnownValues
+    );
 
-    expect(rendered).toBe("[REDACTED SENSITIVE PROCESS OUTPUT]\n")
-    return expect(rendered).not.toContain(secret)
-  }
-  )
+    expect(rendered).toBe("[REDACTED SENSITIVE PROCESS OUTPUT]\n");
+    return expect(rendered).not.toContain(secret);
+  });
 
   return it("preserves ordinary text and keeps output bounds explicit", () => {
-    expect(redactProcessOutput(
-      "ordinary test output\n",
-      [""],
-    )).toBe("ordinary test output\n")
-    expect(collectProcessDiagnostics(
-      "ordinary stdout",
-      "ordinary stderr",
-      [""],
-    )).toEqual([
-      "stdout: ordinary stdout",
-      "stderr: ordinary stderr",
-    ])
+    expect(redactProcessOutput("ordinary test output\n", [""])).toBe(
+      "ordinary test output\n"
+    );
+    expect(
+      collectProcessDiagnostics("ordinary stdout", "ordinary stderr", [""])
+    ).toEqual(["stdout: ordinary stdout", "stderr: ordinary stderr"]);
     expect(redactProcessOutput("x".repeat(16 * 1024 + 1))).toBe(
-      "[REDACTED OVERSIZED PROCESS OUTPUT]\n",
-    )
+      "[REDACTED OVERSIZED PROCESS OUTPUT]\n"
+    );
     return expect(redactProcessOutput("\u00e9".repeat(8_193))).toBe(
-      "[REDACTED OVERSIZED PROCESS OUTPUT]\n",
-    )
-  }
-  )
-}
-)
+      "[REDACTED OVERSIZED PROCESS OUTPUT]\n"
+    );
+  });
+});
 
 describe("bounded CLI serialization", () => {
   it("rejects an oversized progress event", () => {
-    return expect(() => serializeJourneyProgress({
-      spec: `tests/e2e/${"a".repeat(1_100)}.spec.ts`,
-      runId: "safe_run",
-      stage: "created",
-    })).toThrow(/exceeded its fixed bound/i)
-  }
-  )
+    return expect(() =>
+      serializeJourneyProgress({
+        spec: `tests/e2e/${"a".repeat(1_100)}.spec.ts`,
+        runId: "safe_run",
+        stage: "created",
+      })
+    ).toThrow(/exceeded its fixed bound/i);
+  });
 
   it("summarizes pre-result failure and the most recent failed result", () => {
     expect(serializeJourneyFailureSummary(journeyReport([]))).toBe(
-      "Error: E2E runner failed before result\n",
-    )
+      "Error: E2E runner failed before result\n"
+    );
 
     const firstFailure = journeyResult({
       playwrightExitCode: 1,
       stage: "execute",
-    })
+    });
     const latestFailure = journeyResult({
       stage: "scan",
       scan: Object.freeze({
@@ -1340,34 +1411,33 @@ describe("bounded CLI serialization", () => {
         ok: false,
         purged: true,
       }),
-    })
+    });
     const summary = serializeJourneyFailureSummary(
       journeyReport([firstFailure, latestFailure]),
-      "archive-validation",
-    )
-    expect(summary).toContain("stage=scan")
-    expect(summary).toContain("playwrightOk=true")
-    expect(summary).toContain("scanOk=false purged=true")
-    expect(summary).toContain("scanFailureCategory=archive-validation")
+      "archive-validation"
+    );
+    expect(summary).toContain("stage=scan");
+    expect(summary).toContain("playwrightOk=true");
+    expect(summary).toContain("scanOk=false purged=true");
+    expect(summary).toContain("scanFailureCategory=archive-validation");
 
-    return expect(serializeJourneyFailureSummary(
-      journeyReport([latestFailure]),
-      "private/raw-category" as never,
-    )).not.toContain("scanFailureCategory")
-  }
-  )
+    return expect(
+      serializeJourneyFailureSummary(
+        journeyReport([latestFailure]),
+        "private/raw-category" as never
+      )
+    ).not.toContain("scanFailureCategory");
+  });
 
   return it("falls back to the last result when a failed report has no failed result", () => {
     const summary = serializeJourneyFailureSummary(
-      journeyReport([journeyResult()], false),
-    )
-    expect(summary).toContain("stage=complete")
-    expect(summary).toContain("playwrightOk=true")
-    return expect(summary).toContain("scanOk=true")
-  }
-  )
-}
-)
+      journeyReport([journeyResult()], false)
+    );
+    expect(summary).toContain("stage=complete");
+    expect(summary).toContain("playwrightOk=true");
+    return expect(summary).toContain("scanOk=true");
+  });
+});
 
 describe("scanner envelope parsing", () => {
   it.each([
@@ -1409,7 +1479,8 @@ describe("scanner envelope parsing", () => {
         scannedEntries: 0,
         findings: [],
         purged: false,
-        reason: "E2E artifact scanning failed and temporary scanner cleanup was incomplete",
+        reason:
+          "E2E artifact scanning failed and temporary scanner cleanup was incomplete",
         failureCategory: "cleanup",
       },
     ],
@@ -1445,7 +1516,8 @@ describe("scanner envelope parsing", () => {
           { category: "token-url", path: "artifact-0123456789abcdef" },
         ],
         purged: true,
-        reason: "Sensitive artifact patterns were detected; owned run evidence was purged",
+        reason:
+          "Sensitive artifact patterns were detected; owned run evidence was purged",
         failureCategory: "evidence-contamination",
       },
     ],
@@ -1459,17 +1531,16 @@ describe("scanner envelope parsing", () => {
           { category: "browser-password", path: "artifact-fedcba9876543210" },
         ],
         purged: true,
-        reason: "Sensitive artifact patterns were detected; owned run evidence was purged",
+        reason:
+          "Sensitive artifact patterns were detected; owned run evidence was purged",
         failureCategory: "evidence-contamination",
       },
     ],
   ] as const)("accepts %s", (_case, report) => {
-    return expect(parseScannerReport(
-      scannerEnvelope(report),
-      REPORT_NONCE,
-    )).toEqual(report)
-  }
-  )
+    return expect(
+      parseScannerReport(scannerEnvelope(report), REPORT_NONCE)
+    ).toEqual(report);
+  });
 
   it("rejects malformed transport and envelope boundaries", () => {
     const clean = {
@@ -1478,25 +1549,32 @@ describe("scanner envelope parsing", () => {
       findings: [],
       purged: false,
       reason: "E2E artifacts passed external secret scanning",
-    }
-    expect(parseScannerReport(scannerEnvelope(clean), "short")).toBeUndefined()
-    expect(parseScannerReport("x".repeat(1_024 * 1_024 + 1), REPORT_NONCE)).toBeUndefined()
-    expect(parseScannerReport("{", REPORT_NONCE)).toBeUndefined()
-    expect(parseScannerReport("[]", REPORT_NONCE)).toBeUndefined()
-    expect(parseScannerReport(JSON.stringify({
-      kind: "darkfactory-artifact-scanner-report",
-      version: 1,
-      reportNonce: REPORT_NONCE,
-      report: clean,
-      extra: true,
-    }), REPORT_NONCE)).toBeUndefined()
-    expect(parseScannerReport(scannerEnvelope(null), REPORT_NONCE)).toBeUndefined()
-    return expect(parseScannerReport(
-      scannerEnvelope(clean, "f".repeat(43)),
-      REPORT_NONCE,
-    )).toBeUndefined()
-  }
-  )
+    };
+    expect(parseScannerReport(scannerEnvelope(clean), "short")).toBeUndefined();
+    expect(
+      parseScannerReport("x".repeat(1_024 * 1_024 + 1), REPORT_NONCE)
+    ).toBeUndefined();
+    expect(parseScannerReport("{", REPORT_NONCE)).toBeUndefined();
+    expect(parseScannerReport("[]", REPORT_NONCE)).toBeUndefined();
+    expect(
+      parseScannerReport(
+        JSON.stringify({
+          kind: "darkfactory-artifact-scanner-report",
+          version: 1,
+          reportNonce: REPORT_NONCE,
+          report: clean,
+          extra: true,
+        }),
+        REPORT_NONCE
+      )
+    ).toBeUndefined();
+    expect(
+      parseScannerReport(scannerEnvelope(null), REPORT_NONCE)
+    ).toBeUndefined();
+    return expect(
+      parseScannerReport(scannerEnvelope(clean, "f".repeat(43)), REPORT_NONCE)
+    ).toBeUndefined();
+  });
 
   return it("rejects invalid primitive fields, findings, and status combinations", () => {
     const invalidReports = [
@@ -1540,29 +1618,36 @@ describe("scanner envelope parsing", () => {
         scannedEntries: 0,
         findings: [null],
         purged: true,
-        reason: "Sensitive artifact patterns were detected; owned run evidence was purged",
+        reason:
+          "Sensitive artifact patterns were detected; owned run evidence was purged",
         failureCategory: "evidence-contamination",
       },
       {
         ok: false,
         scannedEntries: 0,
-        findings: [{
-          category: 7,
-          path: "artifact-0123456789abcdef",
-        }],
+        findings: [
+          {
+            category: 7,
+            path: "artifact-0123456789abcdef",
+          },
+        ],
         purged: true,
-        reason: "Sensitive artifact patterns were detected; owned run evidence was purged",
+        reason:
+          "Sensitive artifact patterns were detected; owned run evidence was purged",
         failureCategory: "evidence-contamination",
       },
       {
         ok: false,
         scannedEntries: 0,
-        findings: [{
-          category: "token-url",
-          path: 7,
-        }],
+        findings: [
+          {
+            category: "token-url",
+            path: 7,
+          },
+        ],
         purged: true,
-        reason: "Sensitive artifact patterns were detected; owned run evidence was purged",
+        reason:
+          "Sensitive artifact patterns were detected; owned run evidence was purged",
         failureCategory: "evidence-contamination",
       },
       {
@@ -1573,21 +1658,22 @@ describe("scanner envelope parsing", () => {
         reason: "Owned E2E artifact scanner initialization failed safely",
         failureCategory: "archive-validation",
       },
-    ]
-    const results1=[];for (const report of invalidReports) {
-      results1.push(expect(parseScannerReport(
-        scannerEnvelope(report),
-        REPORT_NONCE,
-      )).toBeUndefined())
-    };return results1;
-  }
-  )
-}
-)
+    ];
+    const results1 = [];
+    for (const report of invalidReports) {
+      results1.push(
+        expect(
+          parseScannerReport(scannerEnvelope(report), REPORT_NONCE)
+        ).toBeUndefined()
+      );
+    }
+    return results1;
+  });
+});
 
 describe("CLI dependency failures", () => {
   const dependencies = (
-    overrides: JourneyCliDependencies = {},
+    overrides: JourneyCliDependencies = {}
   ): JourneyCliDependencies => ({
     createHmacKey: () => "h".repeat(43),
     createRunId: () => "failure_run",
@@ -1600,108 +1686,146 @@ describe("CLI dependency failures", () => {
     runPlaywright: async () => stoppedProcess,
     scanArtifacts: async () => cleanScan,
     ...overrides,
-  })
+  });
 
   it("withholds scanning and redacts a rejected process dependency", async () => {
-    const cli = streams()
-    const scanArtifacts = vi.fn(async () => cleanScan)
+    const cli = streams();
+    const scanArtifacts = vi.fn(async () => cleanScan);
 
-    await expect(runJourneyCli(["e2e"], "/workspace", cli.streams, dependencies({
-      runPlaywright: async () => {
-        throw new Error("private child process failure")
-      },
-      scanArtifacts,
-    }))).resolves.toBe(1)
-    expect(scanArtifacts).not.toHaveBeenCalled()
-    expect(cli.output).toEqual([])
-    expect(cli.errors.join("")).toContain("process=unproven")
-    return expect(cli.errors.join("")).not.toContain("private child process failure")
-  }
-  )
+    await expect(
+      runJourneyCli(
+        ["e2e"],
+        "/workspace",
+        cli.streams,
+        dependencies({
+          runPlaywright: async () => {
+            throw new Error("private child process failure");
+          },
+          scanArtifacts,
+        })
+      )
+    ).resolves.toBe(1);
+    expect(scanArtifacts).not.toHaveBeenCalled();
+    expect(cli.output).toEqual([]);
+    expect(cli.errors.join("")).toContain("process=unproven");
+    return expect(cli.errors.join("")).not.toContain(
+      "private child process failure"
+    );
+  });
 
   it("maps a rejected scanner dependency to a bounded failed result", async () => {
-    const cli = streams()
+    const cli = streams();
 
-    await expect(runJourneyCli(["e2e"], "/workspace", cli.streams, dependencies({
-      scanArtifacts: async () => {
-        throw new Error("private scanner provider failure")
-      }
-    }))).resolves.toBe(1)
-    expect(cli.output).toEqual([])
-    expect(cli.errors.join("")).toContain("stage=scan")
-    expect(cli.errors.join("")).toContain("scanOk=false")
-    return expect(cli.errors.join("")).not.toContain("private scanner provider failure")
-  }
-  )
+    await expect(
+      runJourneyCli(
+        ["e2e"],
+        "/workspace",
+        cli.streams,
+        dependencies({
+          scanArtifacts: async () => {
+            throw new Error("private scanner provider failure");
+          },
+        })
+      )
+    ).resolves.toBe(1);
+    expect(cli.output).toEqual([]);
+    expect(cli.errors.join("")).toContain("stage=scan");
+    expect(cli.errors.join("")).toContain("scanOk=false");
+    return expect(cli.errors.join("")).not.toContain(
+      "private scanner provider failure"
+    );
+  });
 
   it("fails once when only final state persistence fails", async () => {
-    const cli = streams()
-    const persistedPhases: string[] = []
+    const cli = streams();
+    const persistedPhases: string[] = [];
 
-    await expect(runJourneyCli(["e2e"], "/workspace", cli.streams, dependencies({
-      persistState: (state: { phase: string }) => {
-        persistedPhases.push(state.phase)
-        if (state.phase === "result") throw new Error("private final write failure");return
-      }
-    }))).resolves.toBe(1)
-    expect(persistedPhases).toContain("progress")
-    expect(persistedPhases.at(-1)).toBe("result")
-    expect(cli.output).toEqual([])
-    expect(cli.errors.filter((line) => {
-      return line === "Error: E2E runner state persistence failed\n"
-    }
-    )).toHaveLength(1)
-    return expect(cli.errors.join("")).not.toContain("private final write failure")
-  }
-  )
+    await expect(
+      runJourneyCli(
+        ["e2e"],
+        "/workspace",
+        cli.streams,
+        dependencies({
+          persistState: (state: { phase: string }) => {
+            persistedPhases.push(state.phase);
+            if (state.phase === "result")
+              throw new Error("private final write failure");
+            return;
+          },
+        })
+      )
+    ).resolves.toBe(1);
+    expect(persistedPhases).toContain("progress");
+    expect(persistedPhases.at(-1)).toBe("result");
+    expect(cli.output).toEqual([]);
+    expect(
+      cli.errors.filter((line) => {
+        return line === "Error: E2E runner state persistence failed\n";
+      })
+    ).toHaveLength(1);
+    return expect(cli.errors.join("")).not.toContain(
+      "private final write failure"
+    );
+  });
 
   it("reports repeated persistence failures only once while sanitization fails", async () => {
-    const cli = streams()
+    const cli = streams();
     const persistState = vi.fn(() => {
-      throw new Error("private repeated state failure")
-    }
-    )
+      throw new Error("private repeated state failure");
+    });
 
-    await expect(runJourneyCli(["e2e"], "/workspace", cli.streams, dependencies({
-      persistState,
-      scanArtifacts: async () => ({
-        ...cleanScan,
-        scannedEntries: -1,
-      }),
-    }))).resolves.toBe(1)
-    expect(persistState).toHaveBeenCalledOnce()
-    expect(cli.output).toEqual([])
-    expect(cli.errors.filter((line) => {
-      return line === "Error: E2E runner state persistence failed\n"
-    }
-    )).toHaveLength(1)
-    expect(cli.errors.join("")).not.toContain("private repeated state failure")
-    return expect(cli.errors.join("")).not.toContain("-1")
-  }
-  )
+    await expect(
+      runJourneyCli(
+        ["e2e"],
+        "/workspace",
+        cli.streams,
+        dependencies({
+          persistState,
+          scanArtifacts: async () => ({
+            ...cleanScan,
+            scannedEntries: -1,
+          }),
+        })
+      )
+    ).resolves.toBe(1);
+    expect(persistState).toHaveBeenCalledOnce();
+    expect(cli.output).toEqual([]);
+    expect(
+      cli.errors.filter((line) => {
+        return line === "Error: E2E runner state persistence failed\n";
+      })
+    ).toHaveLength(1);
+    expect(cli.errors.join("")).not.toContain("private repeated state failure");
+    return expect(cli.errors.join("")).not.toContain("-1");
+  });
 
   return it("fails closed when an injected result cannot be sanitized", async () => {
-    const cli = streams()
+    const cli = streams();
 
-    await expect(runJourneyCli(["e2e"], "/workspace", cli.streams, dependencies({
-      scanArtifacts: async () => ({
-        ...cleanScan,
-        scannedEntries: 1.5,
-      }),
-    }))).resolves.toBe(1)
-    expect(cli.output).toEqual([])
+    await expect(
+      runJourneyCli(
+        ["e2e"],
+        "/workspace",
+        cli.streams,
+        dependencies({
+          scanArtifacts: async () => ({
+            ...cleanScan,
+            scannedEntries: 1.5,
+          }),
+        })
+      )
+    ).resolves.toBe(1);
+    expect(cli.output).toEqual([]);
     expect(cli.errors.at(-1)).toBe(
-      "Error: E2E runner state persistence failed\n",
-    )
-    return expect(cli.errors.join("")).not.toContain("1.5")
-  }
-  )
-}
-)
+      "Error: E2E runner state persistence failed\n"
+    );
+    return expect(cli.errors.join("")).not.toContain("1.5");
+  });
+});
 
 const isolatedCliOverrides = (
   overrides: JourneyCliDependencies = {},
-  omitted?: "runPlaywright" | "scanArtifacts",
+  omitted?: "runPlaywright" | "scanArtifacts"
 ): JourneyCliDependencies => {
   const dependencies = {
     createHmacKey: () => "h".repeat(43),
@@ -1716,141 +1840,136 @@ const isolatedCliOverrides = (
     runPlaywright: async () => stoppedProcess,
     scanArtifacts: async () => cleanScan,
     ...overrides,
-  }
-  if (omitted !== undefined) Reflect.deleteProperty(dependencies, omitted)
-  return dependencies
-}
+  };
+  if (omitted !== undefined) Reflect.deleteProperty(dependencies, omitted);
+  return dependencies;
+};
 
 describe("default CLI dependency fakes", () => {
   afterEach(() => {
-    vi.doUnmock("node:crypto")
-    vi.doUnmock("node:fs/promises")
-    vi.doUnmock("./playwright-report.ts")
-    vi.doUnmock("./process.ts")
-    vi.doUnmock("./runner.ts")
-    vi.doUnmock("./system.ts")
-    vi.resetModules()
-    vi.restoreAllMocks()
-    return vi.unstubAllEnvs()
-  }
-  )
+    vi.doUnmock("node:crypto");
+    vi.doUnmock("node:fs/promises");
+    vi.doUnmock("./playwright-report.ts");
+    vi.doUnmock("./process.ts");
+    vi.doUnmock("./runner.ts");
+    vi.doUnmock("./system.ts");
+    vi.resetModules();
+    vi.restoreAllMocks();
+    return vi.unstubAllEnvs();
+  });
 
   it("redacts a primitive trusted Node resolver rejection", async () => {
-    const cli = streams()
-    const listSpecs = vi.fn(async () => ["tests/e2e/auth.spec.ts"])
+    const cli = streams();
+    const listSpecs = vi.fn(async () => ["tests/e2e/auth.spec.ts"]);
     const resolveNodeExecutable = vi.fn((_repositoryPath: string) => {
-      return Promise.reject("private trusted Node resolver failure")
-    }
-    )
+      return Promise.reject("private trusted Node resolver failure");
+    });
 
-    await expect(runJourneyCli(
-      ["e2e"],
-      "/workspace",
-      cli.streams,
-      isolatedCliOverrides({
-        listSpecs,
-        resolveNodeExecutable,
-      }, "scanArtifacts"),
-    )).resolves.toBe(1)
+    await expect(
+      runJourneyCli(
+        ["e2e"],
+        "/workspace",
+        cli.streams,
+        isolatedCliOverrides(
+          {
+            listSpecs,
+            resolveNodeExecutable,
+          },
+          "scanArtifacts"
+        )
+      )
+    ).resolves.toBe(1);
 
-    expect(resolveNodeExecutable).toHaveBeenCalledOnce()
-    expect(resolveNodeExecutable).toHaveBeenCalledWith("/workspace")
-    expect(listSpecs).not.toHaveBeenCalled()
-    expect(cli.output).toEqual([])
-    expect(cli.errors).toEqual([
-      "Trusted Node executable is unavailable\n",
-    ])
+    expect(resolveNodeExecutable).toHaveBeenCalledOnce();
+    expect(resolveNodeExecutable).toHaveBeenCalledWith("/workspace");
+    expect(listSpecs).not.toHaveBeenCalled();
+    expect(cli.output).toEqual([]);
+    expect(cli.errors).toEqual(["Trusted Node executable is unavailable\n"]);
     return expect(cli.errors.join("")).not.toContain(
-      "private trusted Node resolver failure",
-    )
-  }
-  )
+      "private trusted Node resolver failure"
+    );
+  });
 
   it("rejects a Node executable contained by the repository root", async () => {
-    const cli = streams()
-    const listSpecs = vi.fn(async () => ["tests/e2e/auth.spec.ts"])
-    const overrides = isolatedCliOverrides({ listSpecs }, "scanArtifacts")
-    Reflect.deleteProperty(overrides, "resolveNodeExecutable")
+    const cli = streams();
+    const listSpecs = vi.fn(async () => ["tests/e2e/auth.spec.ts"]);
+    const overrides = isolatedCliOverrides({ listSpecs }, "scanArtifacts");
+    Reflect.deleteProperty(overrides, "resolveNodeExecutable");
 
-    await expect(runJourneyCli(
-      ["e2e"],
-      "/",
-      cli.streams,
-      overrides,
-    )).resolves.toBe(1)
+    await expect(
+      runJourneyCli(["e2e"], "/", cli.streams, overrides)
+    ).resolves.toBe(1);
 
-    expect(listSpecs).not.toHaveBeenCalled()
-    expect(cli.output).toEqual([])
+    expect(listSpecs).not.toHaveBeenCalled();
+    expect(cli.output).toEqual([]);
     return expect(cli.errors).toEqual([
       "Trusted Node executable is unavailable\n",
-    ])
-  }
-  )
-
+    ]);
+  });
 
   it("reports cleanup when the parent cannot purge after a malformed scanner result", async () => {
-    vi.resetModules()
+    vi.resetModules();
     const runOwnedCommand = vi.fn(async () => ({
       exitCode: 1,
       stdout: "private scanner wrapper output",
       stderr: "not an authenticated scanner envelope",
       treeTerminated: true,
       reason: "completed" as const,
-    }))
+    }));
     const purgeOwnedRun = vi.fn(async () => {
-      throw new Error("private parent purge failure")
-    }
-    )
+      throw new Error("private parent purge failure");
+    });
     const createArtifactScannerDependencies = vi.fn(async () => ({
       artifactProfile: "no-binary" as const,
       deadlineMs: 30_000,
       collectEntries: async () => [],
       purgeOwnedRun,
-    }))
-    vi.doMock("./process.ts", () => ({ runOwnedCommand }))
+    }));
+    vi.doMock("./process.ts", () => ({ runOwnedCommand }));
     vi.doMock("./system.ts", async (importOriginal) => {
-      const actual = await importOriginal<typeof import("./system.ts")>()
+      const actual = await importOriginal<typeof import("./system.ts")>();
       return {
         ...actual,
         createArtifactScannerDependencies,
         decodeOwnedRunProof: () => proofFixture("isolated_cli_run"),
-      }
-    }
-    )
-    const { runJourneyCli: runIsolatedCli } = await import("./cli.ts")
-    const cli = streams()
+      };
+    });
+    const { runJourneyCli: runIsolatedCli } = await import("./cli.ts");
+    const cli = streams();
 
-    await expect(runIsolatedCli(
-      ["e2e"],
-      "/workspace",
-      cli.streams,
-      isolatedCliOverrides({}, "scanArtifacts"),
-    )).resolves.toBe(1)
+    await expect(
+      runIsolatedCli(
+        ["e2e"],
+        "/workspace",
+        cli.streams,
+        isolatedCliOverrides({}, "scanArtifacts")
+      )
+    ).resolves.toBe(1);
 
-    expect(createArtifactScannerDependencies).toHaveBeenCalledOnce()
-    expect(purgeOwnedRun).toHaveBeenCalledWith("isolated_cli_run")
-    expect(cli.output).toEqual([])
-    expect(cli.errors.join("")).toContain("scanFailureCategory=cleanup")
-    expect(cli.errors.join("")).not.toContain("private scanner wrapper")
-    return expect(cli.errors.join("")).not.toContain("private parent purge")
-  }
-  )
+    expect(createArtifactScannerDependencies).toHaveBeenCalledOnce();
+    expect(purgeOwnedRun).toHaveBeenCalledWith("isolated_cli_run");
+    expect(cli.output).toEqual([]);
+    expect(cli.errors.join("")).toContain("scanFailureCategory=cleanup");
+    expect(cli.errors.join("")).not.toContain("private scanner wrapper");
+    return expect(cli.errors.join("")).not.toContain("private parent purge");
+  });
 
   it("runs the default Playwright adapter through success and sanitized failure paths", async () => {
-    vi.resetModules()
+    vi.resetModules();
     const databaseUrl =
-      "postgresql://private%2Duser:private%2Dpassword@127.0.0.1/darkfactory"
-    vi.stubEnv("DATABASE_URL", databaseUrl)
-    vi.stubEnv("PATH", "/parent-tools/bin")
-    const canonicalDirectory = "/trusted-tools/bin"
-    const canonicalPnpm = "/trusted-pnpm/pnpm.cjs"
-    const canonicalNode = "/trusted-node/node"
+      "postgresql://private%2Duser:private%2Dpassword@127.0.0.1/darkfactory";
+    vi.stubEnv("DATABASE_URL", databaseUrl);
+    vi.stubEnv("PATH", "/parent-tools/bin");
+    const canonicalDirectory = "/trusted-tools/bin";
+    const canonicalPnpm = "/trusted-pnpm/pnpm.cjs";
+    const canonicalNode = "/trusted-node/node";
     const oversizedSuccessfulStderr = [
       "x".repeat(17 * 1024),
       "Error: Process from config.webServer was not able to start. Exit code: 1",
       "Error: Dashboard session proof failed: path=/dashboard rendered=error directStatus=500",
-    ].join("\n")
-    const runOwnedCommand = vi.fn()
+    ].join("\n");
+    const runOwnedCommand = vi
+      .fn()
       .mockResolvedValueOnce({
         exitCode: 0,
         stdout: "browser passed\n",
@@ -1861,7 +1980,8 @@ describe("default CLI dependency fakes", () => {
       .mockResolvedValueOnce({
         exitCode: 1,
         stdout: "browser failed safely\n",
-        stderr: "Error: Process from config.webServer was not able to start. Exit code: 1\n",
+        stderr:
+          "Error: Process from config.webServer was not able to start. Exit code: 1\n",
         treeTerminated: true,
         reason: "completed",
       })
@@ -1871,23 +1991,25 @@ describe("default CLI dependency fakes", () => {
         stderr: "",
         treeTerminated: true,
         reason: "completed",
-      })
-    const sanitizePlaywrightJsonReport = vi.fn()
+      });
+    const sanitizePlaywrightJsonReport = vi
+      .fn()
       .mockResolvedValueOnce(undefined)
-      .mockRejectedValueOnce("private redaction failure")
-    const finalizeOwnedLifecycleAfterPlaywright = vi.fn()
+      .mockRejectedValueOnce("private redaction failure");
+    const finalizeOwnedLifecycleAfterPlaywright = vi
+      .fn()
       .mockResolvedValueOnce(undefined)
       .mockRejectedValueOnce(new Error("private finalization failure"))
-      .mockResolvedValueOnce(undefined)
+      .mockResolvedValueOnce(undefined);
     const readOwnedLifecycleState = vi.fn(async () => ({
       version: 1 as const,
       status: "stopped",
       stage: "server-ready",
-    }))
-    let missingReportResult: unknown
-    const observedPlaywrightResults: unknown[] = []
+    }));
+    let missingReportResult: unknown;
+    const observedPlaywrightResults: unknown[] = [];
     vi.doMock("node:fs/promises", async (importOriginal) => {
-      const actual = await importOriginal<typeof import("node:fs/promises")>()
+      const actual = await importOriginal<typeof import("node:fs/promises")>();
       return {
         ...actual,
         access: vi.fn(async () => undefined),
@@ -1896,22 +2018,20 @@ describe("default CLI dependency fakes", () => {
           isFile: () => [canonicalPnpm, canonicalNode].includes(path),
         })),
         realpath: vi.fn(async (path: string) => {
-          if (path === "/workspace") return path
-          if (path === "/parent-tools/bin") return canonicalDirectory
-          if (path === `${canonicalDirectory}/pnpm`) return canonicalPnpm
-          if (path === `${canonicalDirectory}/node`) return canonicalNode
-          throw new Error("unexpected executable candidate")
-        }
-        ),
-      }
-    }
-    )
-    vi.doMock("./process.ts", () => ({ runOwnedCommand }))
+          if (path === "/workspace") return path;
+          if (path === "/parent-tools/bin") return canonicalDirectory;
+          if (path === `${canonicalDirectory}/pnpm`) return canonicalPnpm;
+          if (path === `${canonicalDirectory}/node`) return canonicalNode;
+          throw new Error("unexpected executable candidate");
+        }),
+      };
+    });
+    vi.doMock("./process.ts", () => ({ runOwnedCommand }));
     vi.doMock("./playwright-report.ts", () => ({
       sanitizePlaywrightJsonReport,
-    }))
+    }));
     vi.doMock("./system.ts", async (importOriginal) => {
-      const actual = await importOriginal<typeof import("./system.ts")>()
+      const actual = await importOriginal<typeof import("./system.ts")>();
       return {
         ...actual,
         assertOwnedLifecycleRoots: vi.fn(async () => undefined),
@@ -1923,57 +2043,60 @@ describe("default CLI dependency fakes", () => {
         decodeOwnedRunAdoption: vi.fn(() => ({})),
         finalizeOwnedLifecycleAfterPlaywright,
         readOwnedLifecycleState,
-      }
-    }
-    )
+      };
+    });
     vi.doMock("./runner.ts", async (importOriginal) => {
-      const actual = await importOriginal<typeof import("./runner.ts")>()
+      const actual = await importOriginal<typeof import("./runner.ts")>();
       return {
         ...actual,
         runJourneySuite: async (
           mode: "e2e" | "a11y",
-          dependencies: JourneyDependencies,
+          dependencies: JourneyDependencies
         ): Promise<JourneySuiteReport> => {
           const runPlaywright = async (
             ...args: Parameters<JourneyDependencies["runPlaywright"]>
           ) => {
-            const result = await dependencies.runPlaywright(...args)
-            observedPlaywrightResults.push(result)
-            return result
-          }
+            const result = await dependencies.runPlaywright(...args);
+            observedPlaywrightResults.push(result);
+            return result;
+          };
           const report = await actual.runJourneySuite(mode, {
             ...dependencies,
             runPlaywright,
-          })
-          missingReportResult = await runPlaywright(["pnpm"], {})
-          return report
-        }
-      }
-    }
-    )
-    const { runJourneyCli: runIsolatedCli } = await import("./cli.ts")
+          });
+          missingReportResult = await runPlaywright(["pnpm"], {});
+          return report;
+        },
+      };
+    });
+    const { runJourneyCli: runIsolatedCli } = await import("./cli.ts");
 
-    const cli = streams()
-    await expect(runIsolatedCli(
-      ["e2e"],
-      "/workspace",
-      cli.streams,
-      isolatedCliOverrides({
-        listSpecs: async () => [
-          "tests/e2e/auth.spec.ts",
-          "tests/e2e/admin.spec.ts",
-        ],
-      }, "runPlaywright"),
-    )).resolves.toBe(1)
-    expect(cli.output.join("")).toContain("browser passed")
-    expect(cli.output.join("")).toContain("browser failed safely")
-    expect(observedPlaywrightResults[0]).toEqual(expect.objectContaining({
-      diagnostics: [],
-      exitCode: 0,
-    }))
-    expect(cli.errors.join("")).not.toContain(
-      "Dashboard session proof failed",
-    )
+    const cli = streams();
+    await expect(
+      runIsolatedCli(
+        ["e2e"],
+        "/workspace",
+        cli.streams,
+        isolatedCliOverrides(
+          {
+            listSpecs: async () => [
+              "tests/e2e/auth.spec.ts",
+              "tests/e2e/admin.spec.ts",
+            ],
+          },
+          "runPlaywright"
+        )
+      )
+    ).resolves.toBe(1);
+    expect(cli.output.join("")).toContain("browser passed");
+    expect(cli.output.join("")).toContain("browser failed safely");
+    expect(observedPlaywrightResults[0]).toEqual(
+      expect.objectContaining({
+        diagnostics: [],
+        exitCode: 0,
+      })
+    );
+    expect(cli.errors.join("")).not.toContain("Dashboard session proof failed");
     expect(sanitizePlaywrightJsonReport).toHaveBeenNthCalledWith(
       1,
       "/workspace/test-results/e2e-runs/isolated_cli_run/playwright-report.json",
@@ -1983,25 +2106,26 @@ describe("default CLI dependency fakes", () => {
         "private%2Dpassword",
         "private-user",
         "private-password",
-      ]),
-    )
+      ])
+    );
 
     expect(cli.errors.join("")).toContain(
-      "Playwright webServer process failed before tests",
-    )
-    expect(cli.errors.join("")).not.toContain("private redaction failure")
-    expect(cli.errors.join("")).not.toContain("private finalization failure")
-    expect(finalizeOwnedLifecycleAfterPlaywright).toHaveBeenCalledTimes(3)
-    expect(readOwnedLifecycleState).toHaveBeenCalledTimes(4)
-    return expect(missingReportResult).toEqual(expect.objectContaining({
-      diagnostics: ["Owned Playwright JSON report redaction failed safely"],
-      exitCode: 1,
-    }))
-  }
-  )
+      "Playwright webServer process failed before tests"
+    );
+    expect(cli.errors.join("")).not.toContain("private redaction failure");
+    expect(cli.errors.join("")).not.toContain("private finalization failure");
+    expect(finalizeOwnedLifecycleAfterPlaywright).toHaveBeenCalledTimes(3);
+    expect(readOwnedLifecycleState).toHaveBeenCalledTimes(4);
+    return expect(missingReportResult).toEqual(
+      expect.objectContaining({
+        diagnostics: ["Owned Playwright JSON report redaction failed safely"],
+        exitCode: 1,
+      })
+    );
+  });
 
   it("retains raw database userinfo when either component cannot be decoded", async () => {
-    vi.resetModules()
+    vi.resetModules();
     const cases = [
       {
         name: "username",
@@ -2017,27 +2141,26 @@ describe("default CLI dependency fakes", () => {
         username: "PasswordCaseUser123",
         password: "malformed%E0%A4-password",
       },
-    ] as const
-    vi.stubEnv("PATH", "/parent-tools/bin")
-    const canonicalDirectory = "/trusted-tools/bin"
-    const canonicalPnpm = "/trusted-pnpm/pnpm.cjs"
-    const canonicalNode = "/trusted-node/node"
-    let commandIndex = 0
+    ] as const;
+    vi.stubEnv("PATH", "/parent-tools/bin");
+    const canonicalDirectory = "/trusted-tools/bin";
+    const canonicalPnpm = "/trusted-pnpm/pnpm.cjs";
+    const canonicalNode = "/trusted-node/node";
+    let commandIndex = 0;
     const runOwnedCommand = vi.fn(async () => {
-      const fixture = cases[commandIndex++]!
+      const fixture = cases[commandIndex++]!;
       return {
         exitCode: 1,
         stdout: `stdout ${fixture.username}\n`,
         stderr: `stderr ${fixture.password}\n`,
         treeTerminated: true,
         reason: "completed",
-      }
-    }
-    )
-    const sanitizePlaywrightJsonReport = vi.fn(async () => undefined)
-    const processResults: unknown[] = []
+      };
+    });
+    const sanitizePlaywrightJsonReport = vi.fn(async () => undefined);
+    const processResults: unknown[] = [];
     vi.doMock("node:fs/promises", async (importOriginal) => {
-      const actual = await importOriginal<typeof import("node:fs/promises")>()
+      const actual = await importOriginal<typeof import("node:fs/promises")>();
       return {
         ...actual,
         access: vi.fn(async () => undefined),
@@ -2046,22 +2169,20 @@ describe("default CLI dependency fakes", () => {
           isFile: () => [canonicalPnpm, canonicalNode].includes(path),
         })),
         realpath: vi.fn(async (path: string) => {
-          if (path === "/workspace") return path
-          if (path === "/parent-tools/bin") return canonicalDirectory
-          if (path === `${canonicalDirectory}/pnpm`) return canonicalPnpm
-          if (path === `${canonicalDirectory}/node`) return canonicalNode
-          throw new Error("unexpected executable candidate")
-        }
-        ),
-      }
-    }
-    )
-    vi.doMock("./process.ts", () => ({ runOwnedCommand }))
+          if (path === "/workspace") return path;
+          if (path === "/parent-tools/bin") return canonicalDirectory;
+          if (path === `${canonicalDirectory}/pnpm`) return canonicalPnpm;
+          if (path === `${canonicalDirectory}/node`) return canonicalNode;
+          throw new Error("unexpected executable candidate");
+        }),
+      };
+    });
+    vi.doMock("./process.ts", () => ({ runOwnedCommand }));
     vi.doMock("./playwright-report.ts", () => ({
       sanitizePlaywrightJsonReport,
-    }))
+    }));
     vi.doMock("./system.ts", async (importOriginal) => {
-      const actual = await importOriginal<typeof import("./system.ts")>()
+      const actual = await importOriginal<typeof import("./system.ts")>();
       return {
         ...actual,
         assertOwnedLifecycleRoots: vi.fn(async () => undefined),
@@ -2077,42 +2198,44 @@ describe("default CLI dependency fakes", () => {
           status: "stopped",
           stage: "server-ready",
         })),
-      }
-    }
-    )
+      };
+    });
     vi.doMock("./runner.ts", async (importOriginal) => {
-      const actual = await importOriginal<typeof import("./runner.ts")>()
+      const actual = await importOriginal<typeof import("./runner.ts")>();
       return {
         ...actual,
         runJourneySuite: async (
           _mode: "e2e" | "a11y",
-          dependencies: JourneyDependencies,
+          dependencies: JourneyDependencies
         ): Promise<JourneySuiteReport> => {
           for (const fixture of cases) {
-            vi.stubEnv("DATABASE_URL", fixture.databaseUrl)
-            processResults.push(await dependencies.runPlaywright(["pnpm"], {
-              E2E_RUN_ADOPTION: "private-adoption",
-              E2E_RUN_ID: `isolated_${fixture.name}_run`,
-              PLAYWRIGHT_JSON_OUTPUT_NAME:
-                `/workspace/${fixture.name}-report.json`,
-            }))
+            vi.stubEnv("DATABASE_URL", fixture.databaseUrl);
+            processResults.push(
+              await dependencies.runPlaywright(["pnpm"], {
+                E2E_RUN_ADOPTION: "private-adoption",
+                E2E_RUN_ID: `isolated_${fixture.name}_run`,
+                PLAYWRIGHT_JSON_OUTPUT_NAME: `/workspace/${fixture.name}-report.json`,
+              })
+            );
           }
-          return journeyReport([])
-        }
-      }
-    }
-    )
-    const { runJourneyCli: runIsolatedCli } = await import("./cli.ts")
-    const cli = streams()
+          return journeyReport([]);
+        },
+      };
+    });
+    const { runJourneyCli: runIsolatedCli } = await import("./cli.ts");
+    const cli = streams();
 
-    await expect(runIsolatedCli(
-      ["e2e"],
-      "/workspace",
-      cli.streams,
-      isolatedCliOverrides({}, "runPlaywright"),
-    )).resolves.toBe(1)
+    await expect(
+      runIsolatedCli(
+        ["e2e"],
+        "/workspace",
+        cli.streams,
+        isolatedCliOverrides({}, "runPlaywright")
+      )
+    ).resolves.toBe(1);
 
-    const results2=[];for (const [index, fixture] of cases.entries()) {
+    const results2 = [];
+    for (const [index, fixture] of cases.entries()) {
       expect(sanitizePlaywrightJsonReport).toHaveBeenNthCalledWith(
         index + 1,
         `/workspace/${fixture.name}-report.json`,
@@ -2120,19 +2243,23 @@ describe("default CLI dependency fakes", () => {
           fixture.databaseUrl,
           fixture.username,
           fixture.password,
-        ]),
-      )
-      const results3=[];for (const secret of [fixture.username, fixture.password]) {
-        expect(cli.output.join("")).not.toContain(secret)
-        expect(cli.errors.join("")).not.toContain(secret)
-        results3.push(expect(JSON.stringify(processResults)).not.toContain(secret))
-      }results2.push(results3)
-    };return results2;
-  }
-  )
+        ])
+      );
+      const results3 = [];
+      for (const secret of [fixture.username, fixture.password]) {
+        expect(cli.output.join("")).not.toContain(secret);
+        expect(cli.errors.join("")).not.toContain(secret);
+        results3.push(
+          expect(JSON.stringify(processResults)).not.toContain(secret)
+        );
+      }
+      results2.push(results3);
+    }
+    return results2;
+  });
 
   it("propagates canonical executable identities with an exact sanitized PATH", async () => {
-    vi.resetModules()
+    vi.resetModules();
     vi.stubEnv(
       "PATH",
       [
@@ -2140,87 +2267,83 @@ describe("default CLI dependency fakes", () => {
         "/workspace/node_modules/.bin",
         "/node-link/bin",
         "/pnpm-link/bin",
-      ].join(delimiter),
-    )
-    const canonicalPnpm = "/trusted-pnpm/lib/pnpm.cjs"
-    const canonicalNode = "/trusted-node/current/bin/node"
+      ].join(delimiter)
+    );
+    const canonicalPnpm = "/trusted-pnpm/lib/pnpm.cjs";
+    const canonicalNode = "/trusted-node/current/bin/node";
     const playwrightArguments = [
       "pnpm",
       "exec",
       "playwright",
       "test",
       "tests/e2e/auth.spec.ts",
-    ]
+    ];
     const runOwnedCommand = vi.fn(async () => ({
       exitCode: 0,
       stdout: "",
       stderr: "",
       treeTerminated: false,
       reason: "completed" as const,
-    }))
-    const runJourneySuite = vi.fn(async (
-      _mode: "e2e" | "a11y",
-      dependencies: JourneyDependencies,
-    ): Promise<JourneySuiteReport> => {
-      await dependencies.runPlaywright(playwrightArguments, {
-        [E2E_NODE_EXECUTABLE_KEY]: "/hostile/node",
-        [E2E_PNPM_SCRIPT_KEY]: "/hostile/pnpm.cjs",
-      })
-      return journeyReport([])
-    }
-    )
-    const access = vi.fn(async () => undefined)
+    }));
+    const runJourneySuite = vi.fn(
+      async (
+        _mode: "e2e" | "a11y",
+        dependencies: JourneyDependencies
+      ): Promise<JourneySuiteReport> => {
+        await dependencies.runPlaywright(playwrightArguments, {
+          [E2E_NODE_EXECUTABLE_KEY]: "/hostile/node",
+          [E2E_PNPM_SCRIPT_KEY]: "/hostile/pnpm.cjs",
+        });
+        return journeyReport([]);
+      }
+    );
+    const access = vi.fn(async () => undefined);
     const stat = vi.fn(async (path: string) => ({
-      isDirectory: () => [
-        "/trusted-pnpm/bin",
-        "/trusted-node/bin",
-      ].includes(path),
+      isDirectory: () =>
+        ["/trusted-pnpm/bin", "/trusted-node/bin"].includes(path),
       isFile: () => [canonicalPnpm, canonicalNode].includes(path),
-    }))
+    }));
     const realpath = vi.fn(async (path: string) => {
-      if (
-        path === "/workspace" ||
-        path === "/workspace/node_modules/.bin"
-      ) return path
-      if (path === "/node-link/bin") return "/trusted-node/bin"
-      if (path === "/pnpm-link/bin") return "/trusted-pnpm/bin"
-      if (path === "/trusted-pnpm/bin/pnpm") return canonicalPnpm
-      if (path === "/trusted-node/bin/node") return canonicalNode
+      if (path === "/workspace" || path === "/workspace/node_modules/.bin")
+        return path;
+      if (path === "/node-link/bin") return "/trusted-node/bin";
+      if (path === "/pnpm-link/bin") return "/trusted-pnpm/bin";
+      if (path === "/trusted-pnpm/bin/pnpm") return canonicalPnpm;
+      if (path === "/trusted-node/bin/node") return canonicalNode;
       if (
         path === "/trusted-node/bin/pnpm" ||
         path === "/trusted-pnpm/bin/node"
       ) {
         throw Object.assign(new Error("missing sibling executable"), {
           code: "ENOENT",
-        })
+        });
       }
-      throw new Error("unexpected executable candidate")
-    }
-    )
+      throw new Error("unexpected executable candidate");
+    });
     vi.doMock("node:fs/promises", async (importOriginal) => {
-      const actual = await importOriginal<typeof import("node:fs/promises")>()
+      const actual = await importOriginal<typeof import("node:fs/promises")>();
       return {
         ...actual,
         access,
         stat,
         realpath,
-      }
-    }
-    )
-    vi.doMock("./process.ts", () => ({ runOwnedCommand }))
+      };
+    });
+    vi.doMock("./process.ts", () => ({ runOwnedCommand }));
     vi.doMock("./runner.ts", async (importOriginal) => {
-      const actual = await importOriginal<typeof import("./runner.ts")>()
-      return { ...actual, runJourneySuite }
-    }
-    )
-    const { runJourneyCli: runIsolatedCli } = await import("./cli.ts")
+      const actual = await importOriginal<typeof import("./runner.ts")>();
+      return { ...actual, runJourneySuite };
+    });
+    const { runJourneyCli: runIsolatedCli } = await import("./cli.ts");
 
-    await expect(runIsolatedCli(
-      ["e2e"],
-      "/workspace",
-      streams().streams,
-      isolatedCliOverrides({}, "runPlaywright"),
-    )).resolves.toBe(1)
+    await expect(
+      runIsolatedCli(
+        ["e2e"],
+        "/workspace",
+        streams().streams,
+        isolatedCliOverrides({}, "runPlaywright")
+      )
+    ).resolves.toBe(1);
 
     expect(runOwnedCommand).toHaveBeenCalledWith(
       canonicalNode,
@@ -2239,11 +2362,11 @@ describe("default CLI dependency fakes", () => {
             "/bin",
           ].join(delimiter),
         }),
-      }),
-    )
-    expect(realpath).not.toHaveBeenCalledWith("relative")
-    expect(realpath).toHaveBeenCalledWith("/trusted-pnpm/bin/node")
-    expect(realpath).toHaveBeenCalledWith("/trusted-node/bin/pnpm")
+      })
+    );
+    expect(realpath).not.toHaveBeenCalledWith("relative");
+    expect(realpath).toHaveBeenCalledWith("/trusted-pnpm/bin/node");
+    expect(realpath).toHaveBeenCalledWith("/trusted-node/bin/pnpm");
     expect(stat.mock.calls.map((call) => call[0])).toEqual([
       "/trusted-node/bin",
       "/trusted-pnpm/bin",
@@ -2252,7 +2375,7 @@ describe("default CLI dependency fakes", () => {
       canonicalNode,
       canonicalNode,
       canonicalPnpm,
-    ])
+    ]);
     return expect(access.mock.calls).toEqual([
       ["/trusted-node/bin", constants.X_OK],
       ["/trusted-pnpm/bin", constants.X_OK],
@@ -2261,9 +2384,8 @@ describe("default CLI dependency fakes", () => {
       [canonicalNode, constants.X_OK],
       [canonicalNode, constants.X_OK],
       [canonicalPnpm, constants.X_OK],
-    ])
-  }
-  )
+    ]);
+  });
 
   it.each([
     [
@@ -2278,178 +2400,165 @@ describe("default CLI dependency fakes", () => {
       "/trusted-node/bin/pnpm",
       "/hostile/pnpm",
     ],
-  ] as const)("rejects %s when it differs and accepts the selected target", async (
-    _case,
-    inheritedDirectories,
-    collisionPath,
-    collisionTarget,
-  ) => {
-    vi.resetModules()
-    vi.stubEnv("PATH", inheritedDirectories.join(delimiter))
-    const canonicalPnpm = "/trusted-pnpm/pnpm.cjs"
-    const canonicalNode = "/trusted-node/node"
+  ] as const)("rejects %s when it differs and accepts the selected target", async (_case, inheritedDirectories, collisionPath, collisionTarget) => {
+    vi.resetModules();
+    vi.stubEnv("PATH", inheritedDirectories.join(delimiter));
+    const canonicalPnpm = "/trusted-pnpm/pnpm.cjs";
+    const canonicalNode = "/trusted-node/node";
     const expectedCollisionTarget = collisionPath.endsWith("/node")
       ? canonicalNode
-      : canonicalPnpm
-    let collisionEnabled = true
-    let siblingFailure: Error | undefined
-    const runOwnedCommand = vi.fn()
-    const runJourneySuite = vi.fn(async () => journeyReport([], true))
-    const access = vi.fn(async () => undefined)
+      : canonicalPnpm;
+    let collisionEnabled = true;
+    let siblingFailure: Error | undefined;
+    const runOwnedCommand = vi.fn();
+    const runJourneySuite = vi.fn(async () => journeyReport([], true));
+    const access = vi.fn(async () => undefined);
     const stat = vi.fn(async (path: string) => ({
-      isDirectory: () => [
-        "/trusted-pnpm/bin",
-        "/trusted-node/bin",
-      ].includes(path),
-      isFile: () => [
-        canonicalPnpm,
-        canonicalNode,
-        collisionTarget,
-      ].includes(path),
-    }))
+      isDirectory: () =>
+        ["/trusted-pnpm/bin", "/trusted-node/bin"].includes(path),
+      isFile: () =>
+        [canonicalPnpm, canonicalNode, collisionTarget].includes(path),
+    }));
     const realpath = vi.fn(async (path: string) => {
-      if (path === "/workspace") return path
-      if (path === "/pnpm-link/bin") return "/trusted-pnpm/bin"
-      if (path === "/node-link/bin") return "/trusted-node/bin"
-      if (path === "/trusted-pnpm/bin/pnpm") return canonicalPnpm
-      if (path === "/trusted-node/bin/node") return canonicalNode
+      if (path === "/workspace") return path;
+      if (path === "/pnpm-link/bin") return "/trusted-pnpm/bin";
+      if (path === "/node-link/bin") return "/trusted-node/bin";
+      if (path === "/trusted-pnpm/bin/pnpm") return canonicalPnpm;
+      if (path === "/trusted-node/bin/node") return canonicalNode;
       if (path === collisionPath) {
-        return collisionEnabled ? collisionTarget : expectedCollisionTarget
+        return collisionEnabled ? collisionTarget : expectedCollisionTarget;
       }
       if (
         path === "/trusted-pnpm/bin/node" ||
         path === "/trusted-node/bin/pnpm"
       ) {
-        if (siblingFailure !== undefined) throw siblingFailure
+        if (siblingFailure !== undefined) throw siblingFailure;
         throw Object.assign(new Error("missing sibling executable"), {
           code: "ENOENT",
-        })
+        });
       }
-      throw new Error("unexpected executable candidate")
-    }
-    )
+      throw new Error("unexpected executable candidate");
+    });
     vi.doMock("node:fs/promises", async (importOriginal) => {
-      const actual = await importOriginal<typeof import("node:fs/promises")>()
-      return { ...actual, access, stat, realpath }
-    }
-    )
-    vi.doMock("./process.ts", () => ({ runOwnedCommand }))
+      const actual = await importOriginal<typeof import("node:fs/promises")>();
+      return { ...actual, access, stat, realpath };
+    });
+    vi.doMock("./process.ts", () => ({ runOwnedCommand }));
     vi.doMock("./runner.ts", async (importOriginal) => {
-      const actual = await importOriginal<typeof import("./runner.ts")>()
-      return { ...actual, runJourneySuite }
-    }
-    )
-    const { runJourneyCli: runIsolatedCli } = await import("./cli.ts")
-    const cli = streams()
+      const actual = await importOriginal<typeof import("./runner.ts")>();
+      return { ...actual, runJourneySuite };
+    });
+    const { runJourneyCli: runIsolatedCli } = await import("./cli.ts");
+    const cli = streams();
 
-    await expect(runIsolatedCli(
-      ["e2e"],
-      "/workspace",
-      cli.streams,
-      isolatedCliOverrides({}, "runPlaywright"),
-    )).resolves.toBe(1)
+    await expect(
+      runIsolatedCli(
+        ["e2e"],
+        "/workspace",
+        cli.streams,
+        isolatedCliOverrides({}, "runPlaywright")
+      )
+    ).resolves.toBe(1);
 
-    expect(runJourneySuite).not.toHaveBeenCalled()
-    expect(runOwnedCommand).not.toHaveBeenCalled()
-    expect(cli.output).toEqual([])
+    expect(runJourneySuite).not.toHaveBeenCalled();
+    expect(runOwnedCommand).not.toHaveBeenCalled();
+    expect(cli.output).toEqual([]);
     expect(cli.errors).toEqual([
       "Trusted Playwright pnpm/Node executable pairing is unavailable\n",
-    ])
+    ]);
 
-    collisionEnabled = false
-    await expect(runIsolatedCli(
-      ["e2e"],
-      "/workspace",
-      streams().streams,
-      isolatedCliOverrides({}, "runPlaywright"),
-    )).resolves.toBe(0)
-    expect(runJourneySuite).toHaveBeenCalledOnce()
-    expect(runOwnedCommand).not.toHaveBeenCalled()
+    collisionEnabled = false;
+    await expect(
+      runIsolatedCli(
+        ["e2e"],
+        "/workspace",
+        streams().streams,
+        isolatedCliOverrides({}, "runPlaywright")
+      )
+    ).resolves.toBe(0);
+    expect(runJourneySuite).toHaveBeenCalledOnce();
+    expect(runOwnedCommand).not.toHaveBeenCalled();
 
     siblingFailure = Object.assign(
       new Error("sibling lookup permission denied"),
-      { code: "EACCES" },
-    )
-    await expect(runIsolatedCli(
-      ["e2e"],
-      "/workspace",
-      streams().streams,
-      isolatedCliOverrides({}, "runPlaywright"),
-    )).resolves.toBe(1)
-    expect(runJourneySuite).toHaveBeenCalledOnce()
-    return expect(runOwnedCommand).not.toHaveBeenCalled()
-  }
-  )
+      { code: "EACCES" }
+    );
+    await expect(
+      runIsolatedCli(
+        ["e2e"],
+        "/workspace",
+        streams().streams,
+        isolatedCliOverrides({}, "runPlaywright")
+      )
+    ).resolves.toBe(1);
+    expect(runJourneySuite).toHaveBeenCalledOnce();
+    return expect(runOwnedCommand).not.toHaveBeenCalled();
+  });
 
   it("rejects malformed Playwright pnpm sentinels before process execution", async () => {
-    vi.resetModules()
-    vi.stubEnv("PATH", "/parent-tools/bin")
-    const canonicalPnpm = "/trusted-pnpm/pnpm.cjs"
-    const canonicalNode = "/trusted-node/node"
-    const runOwnedCommand = vi.fn()
-    const runJourneySuite = vi.fn(async (
-      _mode: "e2e" | "a11y",
-      dependencies: JourneyDependencies,
-    ): Promise<JourneySuiteReport> => {
-      for (const malformed of [
-        [],
-        ["corepack", "pnpm"],
-        ["PNPM"],
-      ] as const) {
-        await expect(
-          dependencies.runPlaywright(malformed, {}),
-        ).rejects.toThrow("Playwright arguments must begin with pnpm")
+    vi.resetModules();
+    vi.stubEnv("PATH", "/parent-tools/bin");
+    const canonicalPnpm = "/trusted-pnpm/pnpm.cjs";
+    const canonicalNode = "/trusted-node/node";
+    const runOwnedCommand = vi.fn();
+    const runJourneySuite = vi.fn(
+      async (
+        _mode: "e2e" | "a11y",
+        dependencies: JourneyDependencies
+      ): Promise<JourneySuiteReport> => {
+        for (const malformed of [[], ["corepack", "pnpm"], ["PNPM"]] as const) {
+          await expect(
+            dependencies.runPlaywright(malformed, {})
+          ).rejects.toThrow("Playwright arguments must begin with pnpm");
+        }
+        return journeyReport([]);
       }
-      return journeyReport([])
-    }
-    )
-    const access = vi.fn(async () => undefined)
+    );
+    const access = vi.fn(async () => undefined);
     const stat = vi.fn(async (path: string) => ({
       isDirectory: () => path === "/trusted-tools/bin",
       isFile: () => [canonicalPnpm, canonicalNode].includes(path),
-    }))
+    }));
     const realpath = vi.fn(async (path: string) => {
-      if (path === "/workspace") return path
-      if (path === "/parent-tools/bin") return "/trusted-tools/bin"
-      if (path === "/trusted-tools/bin/pnpm") return canonicalPnpm
-      if (path === "/trusted-tools/bin/node") return canonicalNode
-      throw new Error("unexpected executable candidate")
-    }
-    )
+      if (path === "/workspace") return path;
+      if (path === "/parent-tools/bin") return "/trusted-tools/bin";
+      if (path === "/trusted-tools/bin/pnpm") return canonicalPnpm;
+      if (path === "/trusted-tools/bin/node") return canonicalNode;
+      throw new Error("unexpected executable candidate");
+    });
     vi.doMock("node:fs/promises", async (importOriginal) => {
-      const actual = await importOriginal<typeof import("node:fs/promises")>()
-      return { ...actual, access, stat, realpath }
-    }
-    )
-    vi.doMock("./process.ts", () => ({ runOwnedCommand }))
+      const actual = await importOriginal<typeof import("node:fs/promises")>();
+      return { ...actual, access, stat, realpath };
+    });
+    vi.doMock("./process.ts", () => ({ runOwnedCommand }));
     vi.doMock("./runner.ts", async (importOriginal) => {
-      const actual = await importOriginal<typeof import("./runner.ts")>()
-      return { ...actual, runJourneySuite }
-    }
-    )
-    const { runJourneyCli: runIsolatedCli } = await import("./cli.ts")
+      const actual = await importOriginal<typeof import("./runner.ts")>();
+      return { ...actual, runJourneySuite };
+    });
+    const { runJourneyCli: runIsolatedCli } = await import("./cli.ts");
 
-    await expect(runIsolatedCli(
-      ["e2e"],
-      "/workspace",
-      streams().streams,
-      isolatedCliOverrides({}, "runPlaywright"),
-    )).resolves.toBe(1)
+    await expect(
+      runIsolatedCli(
+        ["e2e"],
+        "/workspace",
+        streams().streams,
+        isolatedCliOverrides({}, "runPlaywright")
+      )
+    ).resolves.toBe(1);
 
-    return expect(runOwnedCommand).not.toHaveBeenCalled()
-  }
-  )
+    return expect(runOwnedCommand).not.toHaveBeenCalled();
+  });
 
   it("deduplicates one outside parent tool directory and fails closed without report inputs", async () => {
-    vi.resetModules()
-    vi.stubEnv("DATABASE_URL", "")
+    vi.resetModules();
+    vi.stubEnv("DATABASE_URL", "");
     vi.stubEnv(
       "PATH",
-      ["/workspace/node_modules/.bin", "/outside-tools/bin"].join(delimiter),
-    )
-    const canonicalDirectory = "/trusted-tools/bin"
-    const canonicalPnpm = "/trusted-pnpm/pnpm.cjs"
-    const canonicalNode = "/trusted-node/node"
+      ["/workspace/node_modules/.bin", "/outside-tools/bin"].join(delimiter)
+    );
+    const canonicalDirectory = "/trusted-tools/bin";
+    const canonicalPnpm = "/trusted-pnpm/pnpm.cjs";
+    const canonicalNode = "/trusted-node/node";
     const sanitizedPath = [
       canonicalDirectory,
       dirname(process.execPath),
@@ -2457,91 +2566,90 @@ describe("default CLI dependency fakes", () => {
       "/usr/local/bin",
       "/usr/bin",
       "/bin",
-    ].join(delimiter)
+    ].join(delimiter);
     const realpath = vi.fn(async (path: string) => {
-      if (
-        path === "/workspace" ||
-        path === "/workspace/node_modules/.bin"
-      ) return path
-      if (path === "/outside-tools/bin") return canonicalDirectory
-      if (path === `${canonicalDirectory}/pnpm`) return canonicalPnpm
-      if (path === `${canonicalDirectory}/node`) return canonicalNode
-      throw new Error("unexpected executable candidate")
-    }
-    )
-    const access = vi.fn(async () => undefined)
+      if (path === "/workspace" || path === "/workspace/node_modules/.bin")
+        return path;
+      if (path === "/outside-tools/bin") return canonicalDirectory;
+      if (path === `${canonicalDirectory}/pnpm`) return canonicalPnpm;
+      if (path === `${canonicalDirectory}/node`) return canonicalNode;
+      throw new Error("unexpected executable candidate");
+    });
+    const access = vi.fn(async () => undefined);
     const stat = vi.fn(async (path: string) => ({
       isDirectory: () => path === canonicalDirectory,
       isFile: () => [canonicalPnpm, canonicalNode].includes(path),
-    }))
+    }));
     const runOwnedCommand = vi.fn(async () => ({
       exitCode: 0,
       stdout: "",
       stderr: "",
       treeTerminated: true,
       reason: "completed" as const,
-    }))
-    const finalizeOwnedLifecycleAfterPlaywright = vi.fn(async () => undefined)
-    let adapterCalls = 0
-    const runJourneySuite = vi.fn(async (
-      mode: "e2e" | "a11y",
-      dependencies: JourneyDependencies,
-    ): Promise<JourneySuiteReport> => {
-      const processResult = await dependencies.runPlaywright(["pnpm"], {})
-      adapterCalls += 1
-      expect(processResult).toEqual({
-        diagnostics: ["Owned Playwright JSON report redaction failed safely"],
-        lifecycleStatus: "unavailable",
-        lifecycleStage: "unavailable",
-        lifecycleObservation: "missing",
-        lifecycleObservationReason: "inputs-missing",
-        nestedServerTerminated: false,
-        exitCode: 1,
-        treeTerminated: true,
-      })
-      return Object.freeze({
-        ok: false,
-        mode,
-        completed: 0,
-        results: [],
-        reason: "bounded adapter fixture",
-      })
-    }
-    )
+    }));
+    const finalizeOwnedLifecycleAfterPlaywright = vi.fn(async () => undefined);
+    let adapterCalls = 0;
+    const runJourneySuite = vi.fn(
+      async (
+        mode: "e2e" | "a11y",
+        dependencies: JourneyDependencies
+      ): Promise<JourneySuiteReport> => {
+        const processResult = await dependencies.runPlaywright(["pnpm"], {});
+        adapterCalls += 1;
+        expect(processResult).toEqual({
+          diagnostics: ["Owned Playwright JSON report redaction failed safely"],
+          lifecycleStatus: "unavailable",
+          lifecycleStage: "unavailable",
+          lifecycleObservation: "missing",
+          lifecycleObservationReason: "inputs-missing",
+          nestedServerTerminated: false,
+          exitCode: 1,
+          treeTerminated: true,
+        });
+        return Object.freeze({
+          ok: false,
+          mode,
+          completed: 0,
+          results: [],
+          reason: "bounded adapter fixture",
+        });
+      }
+    );
     vi.doMock("node:fs/promises", async (importOriginal) => {
-      const actual = await importOriginal<typeof import("node:fs/promises")>()
-      return { ...actual, access, realpath, stat }
-    }
-    )
-    vi.doMock("./process.ts", () => ({ runOwnedCommand }))
+      const actual = await importOriginal<typeof import("node:fs/promises")>();
+      return { ...actual, access, realpath, stat };
+    });
+    vi.doMock("./process.ts", () => ({ runOwnedCommand }));
     vi.doMock("./runner.ts", async (importOriginal) => {
-      const actual = await importOriginal<typeof import("./runner.ts")>()
-      return { ...actual, runJourneySuite }
-    }
-    )
+      const actual = await importOriginal<typeof import("./runner.ts")>();
+      return { ...actual, runJourneySuite };
+    });
     vi.doMock("./system.ts", async (importOriginal) => {
-      const actual = await importOriginal<typeof import("./system.ts")>()
-      return { ...actual, finalizeOwnedLifecycleAfterPlaywright }
-    }
-    )
-    const { runJourneyCli: runIsolatedCli } = await import("./cli.ts")
+      const actual = await importOriginal<typeof import("./system.ts")>();
+      return { ...actual, finalizeOwnedLifecycleAfterPlaywright };
+    });
+    const { runJourneyCli: runIsolatedCli } = await import("./cli.ts");
 
-    await expect(runIsolatedCli(
-      ["e2e"],
-      "/workspace",
-      streams().streams,
-      isolatedCliOverrides({}, "runPlaywright"),
-    )).resolves.toBe(1)
-    vi.stubEnv("DATABASE_URL", "not a database URL")
-    await expect(runIsolatedCli(
-      ["e2e"],
-      "/workspace",
-      streams().streams,
-      isolatedCliOverrides({}, "runPlaywright"),
-    )).resolves.toBe(1)
+    await expect(
+      runIsolatedCli(
+        ["e2e"],
+        "/workspace",
+        streams().streams,
+        isolatedCliOverrides({}, "runPlaywright")
+      )
+    ).resolves.toBe(1);
+    vi.stubEnv("DATABASE_URL", "not a database URL");
+    await expect(
+      runIsolatedCli(
+        ["e2e"],
+        "/workspace",
+        streams().streams,
+        isolatedCliOverrides({}, "runPlaywright")
+      )
+    ).resolves.toBe(1);
 
-    expect(adapterCalls).toBe(2)
-    expect(runOwnedCommand).toHaveBeenCalledTimes(2)
+    expect(adapterCalls).toBe(2);
+    expect(runOwnedCommand).toHaveBeenCalledTimes(2);
     expect(runOwnedCommand).toHaveBeenNthCalledWith(
       1,
       canonicalNode,
@@ -2554,8 +2662,8 @@ describe("default CLI dependency fakes", () => {
           [E2E_PNPM_SCRIPT_KEY]: canonicalPnpm,
           PATH: sanitizedPath,
         }),
-      }),
-    )
+      })
+    );
     expect(runOwnedCommand).toHaveBeenNthCalledWith(
       2,
       canonicalNode,
@@ -2568,8 +2676,8 @@ describe("default CLI dependency fakes", () => {
           DATABASE_URL: "not a database URL",
           PATH: sanitizedPath,
         }),
-      }),
-    )
+      })
+    );
     expect(access.mock.calls).toEqual([
       [canonicalDirectory, constants.X_OK],
       [canonicalPnpm, constants.X_OK],
@@ -2583,67 +2691,69 @@ describe("default CLI dependency fakes", () => {
       [canonicalNode, constants.X_OK],
       [canonicalNode, constants.X_OK],
       [canonicalPnpm, constants.X_OK],
-    ])
-    expect(finalizeOwnedLifecycleAfterPlaywright).toHaveBeenCalledTimes(2)
-    return expect(finalizeOwnedLifecycleAfterPlaywright).toHaveBeenNthCalledWith(
+    ]);
+    expect(finalizeOwnedLifecycleAfterPlaywright).toHaveBeenCalledTimes(2);
+    return expect(
+      finalizeOwnedLifecycleAfterPlaywright
+    ).toHaveBeenNthCalledWith(
       1,
       expect.objectContaining({
         encodedAdoption: "",
         runId: "",
         treeTerminated: true,
-      }),
-    )
-  }
-  )
+      })
+    );
+  });
 
   it("fails before discovery when no trusted parent-PATH pnpm executable resolves", async () => {
-    vi.resetModules()
-    vi.stubEnv("PATH", "")
-    const listSpecs = vi.fn(async () => ["tests/e2e/auth.spec.ts"])
+    vi.resetModules();
+    vi.stubEnv("PATH", "");
+    const listSpecs = vi.fn(async () => ["tests/e2e/auth.spec.ts"]);
     vi.doMock("node:fs/promises", async (importOriginal) => {
-      const actual = await importOriginal<typeof import("node:fs/promises")>()
+      const actual = await importOriginal<typeof import("node:fs/promises")>();
       return {
         ...actual,
         access: vi.fn(async () => {
-          throw new Error("unreachable")
-        }
-        ),
+          throw new Error("unreachable");
+        }),
         realpath: vi.fn(async (path: string) => {
-          if (path === "/workspace") return path
-          throw new Error("missing executable")
-        }
-        ),
-      }
-    }
-    )
-    const { runJourneyCli: runIsolatedCli } = await import("./cli.ts")
-    const cli = streams()
+          if (path === "/workspace") return path;
+          throw new Error("missing executable");
+        }),
+      };
+    });
+    const { runJourneyCli: runIsolatedCli } = await import("./cli.ts");
+    const cli = streams();
 
-    await expect(runIsolatedCli(
-      ["e2e"],
-      "/workspace",
-      cli.streams,
-      isolatedCliOverrides({
-        listSpecs,
-      }, "runPlaywright"),
-    )).resolves.toBe(1)
+    await expect(
+      runIsolatedCli(
+        ["e2e"],
+        "/workspace",
+        cli.streams,
+        isolatedCliOverrides(
+          {
+            listSpecs,
+          },
+          "runPlaywright"
+        )
+      )
+    ).resolves.toBe(1);
 
-    expect(listSpecs).not.toHaveBeenCalled()
-    expect(cli.output).toEqual([])
+    expect(listSpecs).not.toHaveBeenCalled();
+    expect(cli.output).toEqual([]);
     return expect(cli.errors).toEqual([
       "Trusted pnpm executable is unavailable\n",
-    ])
-  }
-  )
+    ]);
+  });
 
   it("fails before discovery when the trusted parent Node executable is missing", async () => {
-    vi.resetModules()
-    vi.stubEnv("PATH", "/parent-tools/bin")
-    const listSpecs = vi.fn(async () => ["tests/e2e/auth.spec.ts"])
-    const canonicalDirectory = "/trusted-tools/bin"
-    const canonicalPnpm = "/trusted-pnpm/pnpm.cjs"
+    vi.resetModules();
+    vi.stubEnv("PATH", "/parent-tools/bin");
+    const listSpecs = vi.fn(async () => ["tests/e2e/auth.spec.ts"]);
+    const canonicalDirectory = "/trusted-tools/bin";
+    const canonicalPnpm = "/trusted-pnpm/pnpm.cjs";
     vi.doMock("node:fs/promises", async (importOriginal) => {
-      const actual = await importOriginal<typeof import("node:fs/promises")>()
+      const actual = await importOriginal<typeof import("node:fs/promises")>();
       return {
         ...actual,
         access: vi.fn(async () => undefined),
@@ -2652,133 +2762,131 @@ describe("default CLI dependency fakes", () => {
           isFile: () => path === canonicalPnpm,
         })),
         realpath: vi.fn(async (path: string) => {
-          if (path === "/workspace") return path
-          if (path === "/parent-tools/bin") return canonicalDirectory
-          if (path === `${canonicalDirectory}/pnpm`) return canonicalPnpm
+          if (path === "/workspace") return path;
+          if (path === "/parent-tools/bin") return canonicalDirectory;
+          if (path === `${canonicalDirectory}/pnpm`) return canonicalPnpm;
           throw Object.assign(new Error("missing Node executable"), {
             code: "ENOENT",
-          })
-        }
-        ),
-      }
-    }
-    )
-    const { runJourneyCli: runIsolatedCli } = await import("./cli.ts")
-    const cli = streams()
+          });
+        }),
+      };
+    });
+    const { runJourneyCli: runIsolatedCli } = await import("./cli.ts");
+    const cli = streams();
 
-    await expect(runIsolatedCli(
-      ["e2e"],
-      "/workspace",
-      cli.streams,
-      isolatedCliOverrides({
-        listSpecs,
-      }, "runPlaywright"),
-    )).resolves.toBe(1)
+    await expect(
+      runIsolatedCli(
+        ["e2e"],
+        "/workspace",
+        cli.streams,
+        isolatedCliOverrides(
+          {
+            listSpecs,
+          },
+          "runPlaywright"
+        )
+      )
+    ).resolves.toBe(1);
 
-    expect(listSpecs).not.toHaveBeenCalled()
-    expect(cli.output).toEqual([])
+    expect(listSpecs).not.toHaveBeenCalled();
+    expect(cli.output).toEqual([]);
     return expect(cli.errors).toEqual([
       "Trusted parent-PATH Node executable is unavailable\n",
-    ])
-  }
-  )
+    ]);
+  });
   it("uses a proven parent purge after an unauthenticated scanner result", async () => {
-    vi.resetModules()
+    vi.resetModules();
     const runOwnedCommand = vi.fn(async () => ({
       exitCode: 1,
       stdout: "not-json",
       stderr: "",
       treeTerminated: true,
       reason: "completed" as const,
-    }))
-    const purgeOwnedRun = vi.fn(async () => undefined)
+    }));
+    const purgeOwnedRun = vi.fn(async () => undefined);
     const createArtifactScannerDependencies = vi.fn(async () => ({
       artifactProfile: "no-binary" as const,
       deadlineMs: 30_000,
       collectEntries: async () => [],
       purgeOwnedRun,
-    }))
-    vi.doMock("./process.ts", () => ({ runOwnedCommand }))
+    }));
+    vi.doMock("./process.ts", () => ({ runOwnedCommand }));
     vi.doMock("./system.ts", async (importOriginal) => {
-      const actual = await importOriginal<typeof import("./system.ts")>()
+      const actual = await importOriginal<typeof import("./system.ts")>();
       return {
         ...actual,
         createArtifactScannerDependencies,
         decodeOwnedRunProof: () => proofFixture("isolated_cli_run"),
-      }
-    }
-    )
-    const { runJourneyCli: runIsolatedCli } = await import("./cli.ts")
-    const cli = streams()
+      };
+    });
+    const { runJourneyCli: runIsolatedCli } = await import("./cli.ts");
+    const cli = streams();
 
-    await expect(runIsolatedCli(
-      ["e2e"],
-      "/workspace",
-      cli.streams,
-      isolatedCliOverrides({}, "scanArtifacts"),
-    )).resolves.toBe(1)
+    await expect(
+      runIsolatedCli(
+        ["e2e"],
+        "/workspace",
+        cli.streams,
+        isolatedCliOverrides({}, "scanArtifacts")
+      )
+    ).resolves.toBe(1);
 
-    expect(purgeOwnedRun).toHaveBeenCalledWith("isolated_cli_run")
-    expect(cli.errors.join("")).toContain("scanFailureCategory=internal")
-    return expect(cli.errors.join("")).not.toContain("scanFailureCategory=cleanup")
-  }
-  )
+    expect(purgeOwnedRun).toHaveBeenCalledWith("isolated_cli_run");
+    expect(cli.errors.join("")).toContain("scanFailureCategory=internal");
+    return expect(cli.errors.join("")).not.toContain(
+      "scanFailureCategory=cleanup"
+    );
+  });
 
   it("maps every lifecycle observation and finalization failure with system fakes", async () => {
-    vi.resetModules()
-    const createOwnedLifecyclePaths = vi.fn(async (
-      _repositoryPath: string,
-      runId: string,
-    ) => {
-      if (runId === "paths_fail") throw new Error("private paths failure")
-      return {
-        repository: "/workspace",
-        e2e: runId,
-        evidence: `${runId}-evidence`,
+    vi.resetModules();
+    const createOwnedLifecyclePaths = vi.fn(
+      async (_repositoryPath: string, runId: string) => {
+        if (runId === "paths_fail") throw new Error("private paths failure");
+        return {
+          repository: "/workspace",
+          e2e: runId,
+          evidence: `${runId}-evidence`,
+        };
       }
-    }
-    )
+    );
     const decodeOwnedRunAdoption = vi.fn((encoded: string, runId: string) => {
-      if (encoded === "decode-fail") throw new Error("private adoption failure")
-      return { runId }
-    }
-    )
-    const assertOwnedLifecycleRoots = vi.fn(async (
-      _paths: unknown,
-      adoption: { runId: string },
-    ) => {
-      if (adoption.runId === "assert_fail") {
-        throw new Error("private root failure")
-      };return
-    }
-    )
-    let remappedLifecycle = false
-    const readOwnedLifecycleState = vi.fn(async (
-      paths: { e2e: string },
-    ) => {
-      if (paths.e2e === "state_fail") throw new Error("private state failure")
-      if (paths.e2e === "state_missing") return undefined
+      if (encoded === "decode-fail")
+        throw new Error("private adoption failure");
+      return { runId };
+    });
+    const assertOwnedLifecycleRoots = vi.fn(
+      async (_paths: unknown, adoption: { runId: string }) => {
+        if (adoption.runId === "assert_fail") {
+          throw new Error("private root failure");
+        }
+        return;
+      }
+    );
+    let remappedLifecycle = false;
+    const readOwnedLifecycleState = vi.fn(async (paths: { e2e: string }) => {
+      if (paths.e2e === "state_fail") throw new Error("private state failure");
+      if (paths.e2e === "state_missing") return undefined;
       if (paths.e2e === "remapped") {
         return {
           version: 1,
           status: remappedLifecycle ? "runtime-failed" : "stopped",
           stage: "server-ready",
-        }
+        };
       }
-      return { version: 1, status: "stopped", stage: "server-ready" }
-    }
-    )
-    const finalizeOwnedLifecycleAfterPlaywright = vi.fn(async (
-      options: { runId: string },
-    ) => {
-      if (options.runId === "remapped") remappedLifecycle = true
-      if (options.runId === "finalize_fail") {
-        throw new Error("private finalization failure")
-      };return
-    }
-    )
+      return { version: 1, status: "stopped", stage: "server-ready" };
+    });
+    const finalizeOwnedLifecycleAfterPlaywright = vi.fn(
+      async (options: { runId: string }) => {
+        if (options.runId === "remapped") remappedLifecycle = true;
+        if (options.runId === "finalize_fail") {
+          throw new Error("private finalization failure");
+        }
+        return;
+      }
+    );
     vi.doMock("./system.ts", async (importOriginal) => {
-      const actual = await importOriginal<typeof import("./system.ts")>()
+      const actual = await importOriginal<typeof import("./system.ts")>();
       return {
         ...actual,
         assertOwnedLifecycleRoots,
@@ -2786,102 +2894,102 @@ describe("default CLI dependency fakes", () => {
         decodeOwnedRunAdoption,
         finalizeOwnedLifecycleAfterPlaywright,
         readOwnedLifecycleState,
-      }
-    }
-    )
-    const {
-      finalizeAndObserveE2ELifecycle,
-      observeE2ELifecycle,
-    } = await import("./cli.ts")
+      };
+    });
+    const { finalizeAndObserveE2ELifecycle, observeE2ELifecycle } =
+      await import("./cli.ts");
     const environment = (
       runId: string,
-      adoption = "adoption",
+      adoption = "adoption"
     ): Readonly<Record<string, string>> => ({
       E2E_RUN_ADOPTION: adoption,
       E2E_RUN_ID: runId,
-    })
+    });
 
     await expect(observeE2ELifecycle({}, "/workspace")).resolves.toEqual({
       lifecycleStatus: "unavailable",
       lifecycleStage: "unavailable",
       lifecycleObservation: "missing",
       lifecycleObservationReason: "inputs-missing",
-    })
-    await expect(observeE2ELifecycle(
-      environment("paths_fail"),
-      "/workspace",
-    )).resolves.toMatchObject({
+    });
+    await expect(
+      observeE2ELifecycle(environment("paths_fail"), "/workspace")
+    ).resolves.toMatchObject({
       lifecycleObservation: "invalid",
       lifecycleObservationReason: "paths-failed",
-    })
-    await expect(observeE2ELifecycle(
-      environment("decode_fail", "decode-fail"),
-      "/workspace",
-    )).resolves.toMatchObject({
+    });
+    await expect(
+      observeE2ELifecycle(
+        environment("decode_fail", "decode-fail"),
+        "/workspace"
+      )
+    ).resolves.toMatchObject({
       lifecycleObservation: "invalid",
       lifecycleObservationReason: "adoption-invalid",
-    })
-    await expect(observeE2ELifecycle(
-      environment("assert_fail"),
-      "/workspace",
-    )).resolves.toMatchObject({
+    });
+    await expect(
+      observeE2ELifecycle(environment("assert_fail"), "/workspace")
+    ).resolves.toMatchObject({
       lifecycleObservation: "invalid",
       lifecycleObservationReason: "adoption-invalid",
-    })
-    await expect(observeE2ELifecycle(
-      environment("state_fail"),
-      "/workspace",
-    )).resolves.toMatchObject({
+    });
+    await expect(
+      observeE2ELifecycle(environment("state_fail"), "/workspace")
+    ).resolves.toMatchObject({
       lifecycleObservation: "invalid",
       lifecycleObservationReason: "state-invalid",
-    })
-    await expect(observeE2ELifecycle(
-      environment("state_missing"),
-      "/workspace",
-    )).resolves.toMatchObject({
+    });
+    await expect(
+      observeE2ELifecycle(environment("state_missing"), "/workspace")
+    ).resolves.toMatchObject({
       lifecycleObservation: "missing",
       lifecycleObservationReason: "state-missing",
-    })
-    await expect(observeE2ELifecycle(
-      environment("observed"),
-      "/workspace",
-    )).resolves.toEqual({
+    });
+    await expect(
+      observeE2ELifecycle(environment("observed"), "/workspace")
+    ).resolves.toEqual({
       lifecycleStatus: "stopped",
       lifecycleStage: "server-ready",
       lifecycleObservation: "state",
       lifecycleObservationReason: "observed-state",
-    })
+    });
 
-    await expect(finalizeAndObserveE2ELifecycle(
-      environment("state_missing"),
-      { exitCode: 1, treeTerminated: false },
-      "/workspace",
-    )).resolves.toMatchObject({
+    await expect(
+      finalizeAndObserveE2ELifecycle(
+        environment("state_missing"),
+        { exitCode: 1, treeTerminated: false },
+        "/workspace"
+      )
+    ).resolves.toMatchObject({
       finalizationFailed: false,
       nestedServerTerminated: false,
       lifecycle: { lifecycleObservationReason: "state-missing" },
-    })
-    expect(finalizeOwnedLifecycleAfterPlaywright).not.toHaveBeenCalled()
+    });
+    expect(finalizeOwnedLifecycleAfterPlaywright).not.toHaveBeenCalled();
 
-    await expect(finalizeAndObserveE2ELifecycle(
-      environment("finalize_fail"),
-      { exitCode: 1, treeTerminated: true },
-      "/workspace",
-    )).resolves.toMatchObject({
+    await expect(
+      finalizeAndObserveE2ELifecycle(
+        environment("finalize_fail"),
+        { exitCode: 1, treeTerminated: true },
+        "/workspace"
+      )
+    ).resolves.toMatchObject({
       finalizationFailed: true,
       nestedServerTerminated: true,
       lifecycle: {
         lifecycleStatus: "stopped",
         lifecycleStage: "server-ready",
       },
-    })
-    expect(finalizeOwnedLifecycleAfterPlaywright).toHaveBeenCalledOnce()
+    });
+    expect(finalizeOwnedLifecycleAfterPlaywright).toHaveBeenCalledOnce();
 
-    await expect(finalizeAndObserveE2ELifecycle(
-      environment("remapped"),
-      { exitCode: 1, treeTerminated: true },
-      "/workspace",
-    )).resolves.toEqual({
+    await expect(
+      finalizeAndObserveE2ELifecycle(
+        environment("remapped"),
+        { exitCode: 1, treeTerminated: true },
+        "/workspace"
+      )
+    ).resolves.toEqual({
       finalizationFailed: false,
       nestedServerTerminated: true,
       lifecycle: {
@@ -2890,266 +2998,281 @@ describe("default CLI dependency fakes", () => {
         lifecycleObservation: "state",
         lifecycleObservationReason: "observed-state",
       },
-    })
-    return expect(finalizeOwnedLifecycleAfterPlaywright).toHaveBeenCalledTimes(2)
-  }
-  )
+    });
+    return expect(finalizeOwnedLifecycleAfterPlaywright).toHaveBeenCalledTimes(
+      2
+    );
+  });
 
   it("bounds an unexpected serialized runner rejection before persistence", async () => {
-    vi.resetModules()
+    vi.resetModules();
     vi.doMock("./runner.ts", async (importOriginal) => {
-      const actual = await importOriginal<typeof import("./runner.ts")>()
+      const actual = await importOriginal<typeof import("./runner.ts")>();
       return {
         ...actual,
         runJourneySuite: vi.fn(async () => {
-          throw new Error("private serialized runner failure")
-        }
-        ),
-      }
-    }
-    )
-    const { runJourneyCli: runIsolatedCli } = await import("./cli.ts")
-    const cli = streams()
+          throw new Error("private serialized runner failure");
+        }),
+      };
+    });
+    const { runJourneyCli: runIsolatedCli } = await import("./cli.ts");
+    const cli = streams();
 
-    await expect(runIsolatedCli(
-      ["e2e"],
-      "/workspace",
-      cli.streams,
-      isolatedCliOverrides(),
-    )).resolves.toBe(1)
+    await expect(
+      runIsolatedCli(["e2e"], "/workspace", cli.streams, isolatedCliOverrides())
+    ).resolves.toBe(1);
 
-    expect(cli.output).toEqual([])
+    expect(cli.output).toEqual([]);
     expect(cli.errors.join("")).toContain(
-      "Error: E2E runner failed before result",
-    )
+      "Error: E2E runner failed before result"
+    );
     return expect(cli.errors.join("")).not.toContain(
-      "private serialized runner failure",
-    )
-  }
-  )
+      "private serialized runner failure"
+    );
+  });
   it("withholds scanner parsing until process-tree termination is proven", async () => {
-    vi.resetModules()
-    const reportNonce = Buffer.alloc(32, 1).toString("base64url")
+    vi.resetModules();
+    const reportNonce = Buffer.alloc(32, 1).toString("base64url");
     const cleanReport = {
       ok: true,
       scannedEntries: 3,
       findings: [],
       purged: false,
       reason: "E2E artifacts passed external secret scanning",
-    }
-    let stdoutReads = 0
-    let stderrReads = 0
-    const scannerUnproven = Object.defineProperties({
-      exitCode: 0,
-      treeTerminated: false,
-      reason: "termination-unproven" as const,
-    }, {
-      stdout: {
-        get: () => {
-          stdoutReads += 1
-          return scannerEnvelope(cleanReport, reportNonce)
-        }
+    };
+    let stdoutReads = 0;
+    let stderrReads = 0;
+    const scannerUnproven = Object.defineProperties(
+      {
+        exitCode: 0,
+        treeTerminated: false,
+        reason: "termination-unproven" as const,
       },
-      stderr: {
-        get: () => {
-          stderrReads += 1
-          return ""
-        }
-      },
-    })
-    const runOwnedCommand = vi.fn(async () => scannerUnproven)
-    const purgeOwnedRun = vi.fn(async () => undefined)
+      {
+        stdout: {
+          get: () => {
+            stdoutReads += 1;
+            return scannerEnvelope(cleanReport, reportNonce);
+          },
+        },
+        stderr: {
+          get: () => {
+            stderrReads += 1;
+            return "";
+          },
+        },
+      }
+    );
+    const runOwnedCommand = vi.fn(async () => scannerUnproven);
+    const purgeOwnedRun = vi.fn(async () => undefined);
     const createArtifactScannerDependencies = vi.fn(async () => ({
       artifactProfile: "no-binary" as const,
       deadlineMs: 30_000,
       collectEntries: async () => [],
       purgeOwnedRun,
-    }))
+    }));
     vi.doMock("node:crypto", async (importOriginal) => {
-      const actual = await importOriginal<typeof import("node:crypto")>()
+      const actual = await importOriginal<typeof import("node:crypto")>();
       return {
         ...actual,
         randomBytes: () => Buffer.alloc(32, 1),
-      }
-    }
-    )
-    vi.doMock("./process.ts", () => ({ runOwnedCommand }))
+      };
+    });
+    vi.doMock("./process.ts", () => ({ runOwnedCommand }));
     vi.doMock("./system.ts", async (importOriginal) => {
-      const actual = await importOriginal<typeof import("./system.ts")>()
+      const actual = await importOriginal<typeof import("./system.ts")>();
       return {
         ...actual,
         createArtifactScannerDependencies,
         decodeOwnedRunProof: () => proofFixture("isolated_cli_run"),
-      }
-    }
-    )
-    const { runJourneyCli: runIsolatedCli } = await import("./cli.ts")
-    const cli = streams()
+      };
+    });
+    const { runJourneyCli: runIsolatedCli } = await import("./cli.ts");
+    const cli = streams();
 
-    await expect(runIsolatedCli(
-      ["e2e"],
-      "/workspace",
-      cli.streams,
-      isolatedCliOverrides({}, "scanArtifacts"),
-    )).resolves.toBe(1)
+    await expect(
+      runIsolatedCli(
+        ["e2e"],
+        "/workspace",
+        cli.streams,
+        isolatedCliOverrides({}, "scanArtifacts")
+      )
+    ).resolves.toBe(1);
 
-    expect(stdoutReads).toBe(0)
-    expect(stderrReads).toBe(0)
-    expect(createArtifactScannerDependencies).not.toHaveBeenCalled()
-    expect(purgeOwnedRun).not.toHaveBeenCalled()
+    expect(stdoutReads).toBe(0);
+    expect(stderrReads).toBe(0);
+    expect(createArtifactScannerDependencies).not.toHaveBeenCalled();
+    expect(purgeOwnedRun).not.toHaveBeenCalled();
     return expect(cli.errors.join("")).toContain(
-      "treeTerminated=true scanOk=false purged=false scanFailureCategory=internal",
-    )
-  }
-  )
+      "treeTerminated=true scanOk=false purged=false scanFailureCategory=internal"
+    );
+  });
 
   return it("accepts a nonce-bound scanner result and parent-purges status mismatches", async () => {
-    vi.resetModules()
-    const reportNonce = Buffer.alloc(32, 1).toString("base64url")
+    vi.resetModules();
+    const reportNonce = Buffer.alloc(32, 1).toString("base64url");
     const cleanReport = {
       ok: true,
       scannedEntries: 3,
       findings: [],
       purged: false,
       reason: "E2E artifacts passed external secret scanning",
-    }
+    };
     const contaminatedReport = {
       ok: false,
       scannedEntries: 0,
-      findings: [{
-        category: "token-url",
-        path: "artifact-0123456789abcdef",
-      }],
+      findings: [
+        {
+          category: "token-url",
+          path: "artifact-0123456789abcdef",
+        },
+      ],
       purged: true,
-      reason: "Sensitive artifact patterns were detected; owned run evidence was purged",
+      reason:
+        "Sensitive artifact patterns were detected; owned run evidence was purged",
       failureCategory: "evidence-contamination",
-    }
+    };
     const scannerContamination = {
       exitCode: 1,
       stdout: scannerEnvelope(contaminatedReport, reportNonce),
       stderr: "",
       treeTerminated: true,
       reason: "completed" as const,
-    }
+    };
     const scannerSuccess = {
       exitCode: 0,
       stdout: scannerEnvelope(cleanReport, reportNonce),
       stderr: "",
       treeTerminated: true,
       reason: "completed" as const,
-    }
+    };
     const scannerUnproven = {
       ...scannerSuccess,
       treeTerminated: false,
       reason: "termination-unproven" as const,
-    }
+    };
     const scannerMalformed = {
       ...scannerSuccess,
       exitCode: 1,
       stdout: "not an authenticated scanner envelope",
-    }
-    const runOwnedCommand = vi.fn()
+    };
+    const runOwnedCommand = vi
+      .fn()
       .mockResolvedValueOnce(scannerSuccess)
       .mockResolvedValueOnce({ ...scannerSuccess, exitCode: 1 })
       .mockResolvedValueOnce(scannerSuccess)
       .mockResolvedValueOnce(scannerContamination)
       .mockResolvedValueOnce(scannerUnproven)
-      .mockResolvedValueOnce(scannerMalformed)
-    const purgeOwnedRun = vi.fn(async () => undefined)
+      .mockResolvedValueOnce(scannerMalformed);
+    const purgeOwnedRun = vi.fn(async () => undefined);
     const createArtifactScannerDependencies = vi.fn(async () => ({
       artifactProfile: "no-binary" as const,
       deadlineMs: 30_000,
       collectEntries: async () => [],
       purgeOwnedRun,
-    }))
+    }));
     vi.doMock("node:crypto", async (importOriginal) => {
-      const actual = await importOriginal<typeof import("node:crypto")>()
+      const actual = await importOriginal<typeof import("node:crypto")>();
       return {
         ...actual,
         randomBytes: () => Buffer.alloc(32, 1),
-      }
-    }
-    )
-    vi.doMock("./process.ts", () => ({ runOwnedCommand }))
+      };
+    });
+    vi.doMock("./process.ts", () => ({ runOwnedCommand }));
     vi.doMock("./system.ts", async (importOriginal) => {
-      const actual = await importOriginal<typeof import("./system.ts")>()
+      const actual = await importOriginal<typeof import("./system.ts")>();
       return {
         ...actual,
         createArtifactScannerDependencies,
         decodeOwnedRunProof: () => proofFixture("isolated_cli_run"),
-      }
-    }
-    )
-    const { runJourneyCli: runIsolatedCli } = await import("./cli.ts")
+      };
+    });
+    const { runJourneyCli: runIsolatedCli } = await import("./cli.ts");
 
-    await expect(runIsolatedCli(
-      ["e2e"],
-      "/workspace",
-      streams().streams,
-      isolatedCliOverrides({}, "scanArtifacts"),
-    )).resolves.toBe(0)
-    await expect(runIsolatedCli(
-      ["e2e"],
-      "/workspace",
-      streams().streams,
-      isolatedCliOverrides({}, "scanArtifacts"),
-    )).resolves.toBe(1)
-    await expect(runIsolatedCli(
-      ["e2e"],
-      "/workspace",
-      streams().streams,
-      isolatedCliOverrides({
-        runPlaywright: async () => ({
-          ...stoppedProcess,
-          exitCode: 1,
-          lifecycleStatus: "runtime-failed",
-        }),
-      }, "scanArtifacts"),
-    )).resolves.toBe(1)
-    const contaminationCli = streams()
-    await expect(runIsolatedCli(
-      ["e2e"],
-      "/workspace",
-      contaminationCli.streams,
-      isolatedCliOverrides({
-        runPlaywright: async () => ({
-          ...stoppedProcess,
-          exitCode: 1,
-          lifecycleStatus: "runtime-failed",
-        }),
-      }, "scanArtifacts"),
-    )).resolves.toBe(1)
+    await expect(
+      runIsolatedCli(
+        ["e2e"],
+        "/workspace",
+        streams().streams,
+        isolatedCliOverrides({}, "scanArtifacts")
+      )
+    ).resolves.toBe(0);
+    await expect(
+      runIsolatedCli(
+        ["e2e"],
+        "/workspace",
+        streams().streams,
+        isolatedCliOverrides({}, "scanArtifacts")
+      )
+    ).resolves.toBe(1);
+    await expect(
+      runIsolatedCli(
+        ["e2e"],
+        "/workspace",
+        streams().streams,
+        isolatedCliOverrides(
+          {
+            runPlaywright: async () => ({
+              ...stoppedProcess,
+              exitCode: 1,
+              lifecycleStatus: "runtime-failed",
+            }),
+          },
+          "scanArtifacts"
+        )
+      )
+    ).resolves.toBe(1);
+    const contaminationCli = streams();
+    await expect(
+      runIsolatedCli(
+        ["e2e"],
+        "/workspace",
+        contaminationCli.streams,
+        isolatedCliOverrides(
+          {
+            runPlaywright: async () => ({
+              ...stoppedProcess,
+              exitCode: 1,
+              lifecycleStatus: "runtime-failed",
+            }),
+          },
+          "scanArtifacts"
+        )
+      )
+    ).resolves.toBe(1);
     expect(contaminationCli.errors.join("")).toContain(
-      "scanFailureCategory=evidence-contamination",
-    )
-    const unprovenCli = streams()
-    await expect(runIsolatedCli(
-      ["e2e"],
-      "/workspace",
-      unprovenCli.streams,
-      isolatedCliOverrides({}, "scanArtifacts"),
-    )).resolves.toBe(1)
+      "scanFailureCategory=evidence-contamination"
+    );
+    const unprovenCli = streams();
+    await expect(
+      runIsolatedCli(
+        ["e2e"],
+        "/workspace",
+        unprovenCli.streams,
+        isolatedCliOverrides({}, "scanArtifacts")
+      )
+    ).resolves.toBe(1);
     expect(unprovenCli.errors.join("")).toContain(
-      "scanFailureCategory=internal",
-    )
-    const malformedCli = streams()
-    await expect(runIsolatedCli(
-      ["e2e"],
-      "/workspace",
-      malformedCli.streams,
-      isolatedCliOverrides({}, "scanArtifacts"),
-    )).resolves.toBe(1)
+      "scanFailureCategory=internal"
+    );
+    const malformedCli = streams();
+    await expect(
+      runIsolatedCli(
+        ["e2e"],
+        "/workspace",
+        malformedCli.streams,
+        isolatedCliOverrides({}, "scanArtifacts")
+      )
+    ).resolves.toBe(1);
     expect(malformedCli.errors.join("")).toContain(
-      "scanFailureCategory=internal",
-    )
+      "scanFailureCategory=internal"
+    );
 
-    expect(runOwnedCommand).toHaveBeenCalledTimes(6)
-    expect(createArtifactScannerDependencies).toHaveBeenCalledTimes(3)
-    expect(purgeOwnedRun).toHaveBeenCalledTimes(3)
-    expect(purgeOwnedRun).toHaveBeenNthCalledWith(1, "isolated_cli_run")
-    expect(purgeOwnedRun).toHaveBeenNthCalledWith(2, "isolated_cli_run")
-    return expect(purgeOwnedRun).toHaveBeenNthCalledWith(3, "isolated_cli_run")
-  }
-  )
-}
-)
+    expect(runOwnedCommand).toHaveBeenCalledTimes(6);
+    expect(createArtifactScannerDependencies).toHaveBeenCalledTimes(3);
+    expect(purgeOwnedRun).toHaveBeenCalledTimes(3);
+    expect(purgeOwnedRun).toHaveBeenNthCalledWith(1, "isolated_cli_run");
+    expect(purgeOwnedRun).toHaveBeenNthCalledWith(2, "isolated_cli_run");
+    return expect(purgeOwnedRun).toHaveBeenNthCalledWith(3, "isolated_cli_run");
+  });
+});

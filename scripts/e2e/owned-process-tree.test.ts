@@ -1,18 +1,17 @@
-import type { ChildProcess } from "node:child_process"
-import { EventEmitter } from "node:events"
-import { PassThrough } from "node:stream"
+import type { ChildProcess } from "node:child_process";
+import { EventEmitter } from "node:events";
+import { PassThrough } from "node:stream";
 
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const childProcess = vi.hoisted(() => ({
   spawn: vi.fn(),
-}))
+}));
 
 vi.mock("node:child_process", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("node:child_process")>()
-  return { ...actual, spawn: childProcess.spawn }
-}
-)
+  const actual = await importOriginal<typeof import("node:child_process")>();
+  return { ...actual, spawn: childProcess.spawn };
+});
 
 import {
   ownedProcessTreeExists,
@@ -22,64 +21,62 @@ import {
   terminateOwnedProcessTreeThen,
   type OwnedProcess,
   type TerminateOwnedProcessOptions,
-} from "./owned-process-tree.ts"
+} from "./owned-process-tree.ts";
 
 type MutableChild = ChildProcess & {
-  pid: number | undefined
-  exitCode: number | null
-  signalCode: NodeJS.Signals | null
-  stderr: PassThrough
-  stdout: PassThrough
-}
+  pid: number | undefined;
+  exitCode: number | null;
+  signalCode: NodeJS.Signals | null;
+  stderr: PassThrough;
+  stdout: PassThrough;
+};
 
-const fakeChild = (
-  pid = 4_321,
-  exitCode: number | null = null,
-): MutableChild => Object.assign(new EventEmitter(), {
-  exitCode,
-  pid,
-  signalCode: null,
-  stderr: new PassThrough(),
-  stdout: new PassThrough(),
-}) as MutableChild
+const fakeChild = (pid = 4_321, exitCode: number | null = null): MutableChild =>
+  Object.assign(new EventEmitter(), {
+    exitCode,
+    pid,
+    signalCode: null,
+    stderr: new PassThrough(),
+    stdout: new PassThrough(),
+  }) as MutableChild;
 
 const spawnFake = (
   child: MutableChild,
-  options: Record<string, unknown> = {},
+  options: Record<string, unknown> = {}
 ): OwnedProcess => {
-  childProcess.spawn.mockReturnValueOnce(child)
+  childProcess.spawn.mockReturnValueOnce(child);
   return spawnOwnedProcess(
     "trusted-command",
     ["--safe", "value"],
-    options as never,
-  )
-}
+    options as never
+  );
+};
 
 const errno = (code: string): NodeJS.ErrnoException => {
-  return Object.assign(new Error(code), { code })
-}
+  return Object.assign(new Error(code), { code });
+};
 
-const captureRejection = async (promise: Promise<unknown>): Promise<unknown> => {
+const captureRejection = async (
+  promise: Promise<unknown>
+): Promise<unknown> => {
   return await promise.then(
     () => undefined,
-    (error: unknown) => error,
-  )
-}
+    (error: unknown) => error
+  );
+};
 
 beforeEach(() => {
-  return childProcess.spawn.mockReset()
-}
-)
+  return childProcess.spawn.mockReset();
+});
 
 afterEach(() => {
-  vi.useRealTimers()
-  return vi.restoreAllMocks()
-}
-)
+  vi.useRealTimers();
+  return vi.restoreAllMocks();
+});
 
 describe("owned process spawning and existence", () => {
   it("forces a detached shell-free process with bounded stdio ownership", () => {
-    const child = fakeChild()
+    const child = fakeChild();
     const owned = spawnFake(child, {
       cwd: "/workspace",
       detached: false,
@@ -87,9 +84,9 @@ describe("owned process spawning and existence", () => {
       shell: true,
       stdio: "inherit",
       windowsHide: true,
-    })
+    });
 
-    expect(owned).toBe(child)
+    expect(owned).toBe(child);
     return expect(childProcess.spawn).toHaveBeenCalledWith(
       "trusted-command",
       ["--safe", "value"],
@@ -100,177 +97,172 @@ describe("owned process spawning and existence", () => {
         shell: false,
         stdio: ["ignore", "pipe", "pipe"],
         windowsHide: true,
-      },
-    )
-  }
-  )
+      }
+    );
+  });
 
   it("distinguishes a live PID, a missing PID, and unexpected probe errors", () => {
-    const kill = vi.spyOn(process, "kill")
-      .mockImplementation((() => true) as typeof process.kill)
-    expect(processExists(123)).toBe(true)
-    expect(kill).toHaveBeenLastCalledWith(123, 0)
+    const kill = vi
+      .spyOn(process, "kill")
+      .mockImplementation((() => true) as typeof process.kill);
+    expect(processExists(123)).toBe(true);
+    expect(kill).toHaveBeenLastCalledWith(123, 0);
 
     kill.mockImplementation((() => {
-      throw errno("ESRCH")
-    }
-    ) as typeof process.kill)
-    expect(processExists(123)).toBe(false)
+      throw errno("ESRCH");
+    }) as typeof process.kill);
+    expect(processExists(123)).toBe(false);
 
-    const failure = errno("EPERM")
+    const failure = errno("EPERM");
     kill.mockImplementation((() => {
-      throw failure
-    }
-    ) as typeof process.kill)
-    return expect(() => processExists(123)).toThrow(failure)
-  }
-  )
+      throw failure;
+    }) as typeof process.kill);
+    return expect(() => processExists(123)).toThrow(failure);
+  });
 
   it("reports a missing child PID without probing the operating system", () => {
-    const child = fakeChild()
-    Reflect.deleteProperty(child, "pid")
-    const kill = vi.spyOn(process, "kill")
+    const child = fakeChild();
+    Reflect.deleteProperty(child, "pid");
+    const kill = vi.spyOn(process, "kill");
 
-    expect(ownedProcessTreeExists(child)).toBe(false)
-    return expect(kill).not.toHaveBeenCalled()
-  }
-  )
+    expect(ownedProcessTreeExists(child)).toBe(false);
+    return expect(kill).not.toHaveBeenCalled();
+  });
 
   it("makes an owned immutable-PID absence durable for later teardown", async () => {
-    vi.spyOn(process, "platform", "get").mockReturnValue("linux")
-    const child = fakeChild()
-    const owned = spawnFake(child)
-    child.pid = 9_999
+    vi.spyOn(process, "platform", "get").mockReturnValue("linux");
+    const child = fakeChild();
+    const owned = spawnFake(child);
+    child.pid = 9_999;
     const kill = vi.spyOn(process, "kill").mockImplementation((() => {
-      throw errno("ESRCH")
-    }
-    ) as typeof process.kill)
+      throw errno("ESRCH");
+    }) as typeof process.kill);
 
-    expect(ownedProcessTreeExists(owned)).toBe(false)
-    expect(kill).toHaveBeenCalledOnce()
-    expect(kill).toHaveBeenCalledWith(-4_321, 0)
-    child.emit("close", 0, null)
-    await expect(terminateOwnedProcessTree(owned, {
-      platform: "linux",
-    })).resolves.toBeUndefined()
-    expect(ownedProcessTreeExists(owned)).toBe(false)
-    return expect(kill).toHaveBeenCalledOnce()
-  }
-  )
+    expect(ownedProcessTreeExists(owned)).toBe(false);
+    expect(kill).toHaveBeenCalledOnce();
+    expect(kill).toHaveBeenCalledWith(-4_321, 0);
+    child.emit("close", 0, null);
+    await expect(
+      terminateOwnedProcessTree(owned, {
+        platform: "linux",
+      })
+    ).resolves.toBeUndefined();
+    expect(ownedProcessTreeExists(owned)).toBe(false);
+    return expect(kill).toHaveBeenCalledOnce();
+  });
 
   it("maps platform-native tree existence outcomes", () => {
-    const child = fakeChild()
+    const child = fakeChild();
     if (process.platform === "win32") {
-      expect(ownedProcessTreeExists(child)).toBe(true)
-      child.exitCode = 0
-      expect(ownedProcessTreeExists(child)).toBe(true)
-      return
+      expect(ownedProcessTreeExists(child)).toBe(true);
+      child.exitCode = 0;
+      expect(ownedProcessTreeExists(child)).toBe(true);
+      return;
     }
 
-    const kill = vi.spyOn(process, "kill")
-      .mockImplementation((() => true) as typeof process.kill)
-    expect(ownedProcessTreeExists(child)).toBe(true)
-    expect(kill).toHaveBeenLastCalledWith(-4_321, 0)
-
-    kill.mockImplementation((() => {
-      throw errno("ESRCH")
-    }
-    ) as typeof process.kill)
-    expect(ownedProcessTreeExists(child)).toBe(false)
+    const kill = vi
+      .spyOn(process, "kill")
+      .mockImplementation((() => true) as typeof process.kill);
+    expect(ownedProcessTreeExists(child)).toBe(true);
+    expect(kill).toHaveBeenLastCalledWith(-4_321, 0);
 
     kill.mockImplementation((() => {
-      throw errno("EPERM")
-    }
-    ) as typeof process.kill)
-    expect(ownedProcessTreeExists(child)).toBe(true)
+      throw errno("ESRCH");
+    }) as typeof process.kill);
+    expect(ownedProcessTreeExists(child)).toBe(false);
 
-    const failure = errno("EACCES")
     kill.mockImplementation((() => {
-      throw failure
-    }
-    ) as typeof process.kill)
-    return expect(() => ownedProcessTreeExists(child)).toThrow(failure)
-  }
-  )
+      throw errno("EPERM");
+    }) as typeof process.kill);
+    expect(ownedProcessTreeExists(child)).toBe(true);
+
+    const failure = errno("EACCES");
+    kill.mockImplementation((() => {
+      throw failure;
+    }) as typeof process.kill);
+    return expect(() => ownedProcessTreeExists(child)).toThrow(failure);
+  });
   return it("conservatively treats a Windows PID as possibly containing descendants", () => {
-    vi.spyOn(process, "platform", "get").mockReturnValue("win32")
-    const child = fakeChild()
+    vi.spyOn(process, "platform", "get").mockReturnValue("win32");
+    const child = fakeChild();
 
-    expect(ownedProcessTreeExists(child)).toBe(true)
-    child.signalCode = "SIGTERM"
-    expect(ownedProcessTreeExists(child)).toBe(true)
-    child.signalCode = null
-    child.exitCode = 0
-    expect(ownedProcessTreeExists(child)).toBe(true)
-    const owned = spawnFake(fakeChild(9_876))
-    return expect(ownedProcessTreeExists(owned)).toBe(true)
-  }
-  )
-}
-)
+    expect(ownedProcessTreeExists(child)).toBe(true);
+    child.signalCode = "SIGTERM";
+    expect(ownedProcessTreeExists(child)).toBe(true);
+    child.signalCode = null;
+    child.exitCode = 0;
+    expect(ownedProcessTreeExists(child)).toBe(true);
+    const owned = spawnFake(fakeChild(9_876));
+    return expect(ownedProcessTreeExists(owned)).toBe(true);
+  });
+});
 
 describe("owned process tree termination", () => {
   it("refuses unowned processes and owned processes without a PID", async () => {
-    const unowned = fakeChild()
-    await expect(// Deliberately unowned: the brand is absent at runtime.
-    terminateOwnedProcessTree(unowned as unknown as OwnedProcess)).rejects.toThrow(
-      /not spawned as owned/i,
-    )
+    const unowned = fakeChild();
+    await expect(
+      // Deliberately unowned: the brand is absent at runtime.
+      terminateOwnedProcessTree(unowned as unknown as OwnedProcess)
+    ).rejects.toThrow(/not spawned as owned/i);
 
-    const noPid = fakeChild()
-    Reflect.deleteProperty(noPid, "pid")
-    const owned = spawnFake(noPid)
-    await expect(terminateOwnedProcessTree(owned, {
-      platform: "win32",
-    })).rejects.toThrow(/has no PID/i)
-    noPid.pid = 9_999
-    const kill = vi.spyOn(process, "kill")
-    expect(ownedProcessTreeExists(owned)).toBe(false)
-    return expect(kill).not.toHaveBeenCalled()
-  }
-  )
+    const noPid = fakeChild();
+    Reflect.deleteProperty(noPid, "pid");
+    const owned = spawnFake(noPid);
+    await expect(
+      terminateOwnedProcessTree(owned, {
+        platform: "win32",
+      })
+    ).rejects.toThrow(/has no PID/i);
+    noPid.pid = 9_999;
+    const kill = vi.spyOn(process, "kill");
+    expect(ownedProcessTreeExists(owned)).toBe(false);
+    return expect(kill).not.toHaveBeenCalled();
+  });
 
   it("rejects an exited Windows child without invoking taskkill", async () => {
-    const child = fakeChild(4_321, 0)
-    const owned = spawnFake(child)
+    const child = fakeChild(4_321, 0);
+    const owned = spawnFake(child);
 
-    await expect(terminateOwnedProcessTree(owned, {
-      platform: "win32",
-    })).rejects.toThrow(/termination is unproven on Windows/i)
-    return expect(childProcess.spawn.mock.calls.map((call) => call[0])).toEqual([
-      "trusted-command",
-    ])
-  }
-  )
+    await expect(
+      terminateOwnedProcessTree(owned, {
+        platform: "win32",
+      })
+    ).rejects.toThrow(/termination is unproven on Windows/i);
+    return expect(childProcess.spawn.mock.calls.map((call) => call[0])).toEqual(
+      ["trusted-command"]
+    );
+  });
 
   it("rejects a live Windows child without invoking taskkill", async () => {
-    const child = fakeChild()
-    const owned = spawnFake(child)
+    const child = fakeChild();
+    const owned = spawnFake(child);
 
-    await expect(terminateOwnedProcessTree(owned, {
-      platform: "win32",
-    })).rejects.toThrow(/termination is unproven on Windows/i)
-    return expect(childProcess.spawn.mock.calls.map((call) => call[0])).toEqual([
-      "trusted-command",
-    ])
-  }
-  )
+    await expect(
+      terminateOwnedProcessTree(owned, {
+        platform: "win32",
+      })
+    ).rejects.toThrow(/termination is unproven on Windows/i);
+    return expect(childProcess.spawn.mock.calls.map((call) => call[0])).toEqual(
+      ["trusted-command"]
+    );
+  });
 
   it("cannot bypass real Windows containment with an injected platform", async () => {
-    const child = fakeChild()
-    const owned = spawnFake(child)
-    vi.spyOn(process, "platform", "get").mockReturnValue("win32")
-    const kill = vi.spyOn(process, "kill")
+    const child = fakeChild();
+    const owned = spawnFake(child);
+    vi.spyOn(process, "platform", "get").mockReturnValue("win32");
+    const kill = vi.spyOn(process, "kill");
 
-    await expect(terminateOwnedProcessTree(owned, {
-      platform: "linux",
-    })).rejects.toThrow(/termination is unproven on Windows/i)
-    return expect(kill).not.toHaveBeenCalled()
-  }
-  )
+    await expect(
+      terminateOwnedProcessTree(owned, {
+        platform: "linux",
+      })
+    ).rejects.toThrow(/termination is unproven on Windows/i);
+    return expect(kill).not.toHaveBeenCalled();
+  });
 
   it("rejects invalid timeout budgets before probing or signaling", async () => {
-    const kill = vi.spyOn(process, "kill")
+    const kill = vi.spyOn(process, "kill");
     const invalidOptions: TerminateOwnedProcessOptions[] = [
       { gracefulTimeoutMillis: Number.NaN, platform: "linux" },
       { forceTimeoutMillis: Number.POSITIVE_INFINITY, platform: "linux" },
@@ -281,517 +273,552 @@ describe("owned process tree termination", () => {
         gracefulTimeoutMillis: 1_500_000_000,
         platform: "linux",
       },
-    ]
+    ];
 
     for (const [index, options] of invalidOptions.entries()) {
-      const owned = spawnFake(fakeChild(4_400 + index))
+      const owned = spawnFake(fakeChild(4_400 + index));
       await expect(terminateOwnedProcessTree(owned, options)).rejects.toThrow(
-        /timeout budget/i,
-      )
+        /timeout budget/i
+      );
     }
-    return expect(kill).not.toHaveBeenCalled()
-  }
-  )
+    return expect(kill).not.toHaveBeenCalled();
+  });
 
   it("uses the immutable PID captured when the child was spawned", async () => {
-    const child = fakeChild()
-    const owned = spawnFake(child)
-    child.pid = 9_876
-    child.emit("close", 0, "SIGTERM")
+    const child = fakeChild();
+    const owned = spawnFake(child);
+    child.pid = 9_876;
+    child.emit("close", 0, "SIGTERM");
     const kill = vi.spyOn(process, "kill").mockImplementation((() => {
-      throw errno("ESRCH")
-    }
-    ) as typeof process.kill)
+      throw errno("ESRCH");
+    }) as typeof process.kill);
 
-    await expect(terminateOwnedProcessTree(owned, {
-      platform: "linux",
-    })).resolves.toBeUndefined()
-    expect(kill).toHaveBeenCalledOnce()
-    return expect(kill).toHaveBeenCalledWith(-4_321, 0)
-  }
-  )
+    await expect(
+      terminateOwnedProcessTree(owned, {
+        platform: "linux",
+      })
+    ).resolves.toBeUndefined();
+    expect(kill).toHaveBeenCalledOnce();
+    return expect(kill).toHaveBeenCalledWith(-4_321, 0);
+  });
 
   it("requires both POSIX process-group absence and exact child close", async () => {
-    const child = fakeChild()
-    const owned = spawnFake(child)
-    let alive = true
-    const delivered: Array<number | NodeJS.Signals> = []
-    vi.spyOn(process, "kill").mockImplementation(((pid: number, signal?: number | NodeJS.Signals) => {
-      expect(pid).toBe(-4_321)
+    const child = fakeChild();
+    const owned = spawnFake(child);
+    let alive = true;
+    const delivered: Array<number | NodeJS.Signals> = [];
+    vi.spyOn(process, "kill").mockImplementation(((
+      pid: number,
+      signal?: number | NodeJS.Signals
+    ) => {
+      expect(pid).toBe(-4_321);
       if (signal === 0) {
-        if (alive) return true
-        throw errno("ESRCH")
+        if (alive) return true;
+        throw errno("ESRCH");
       }
-      delivered.push(signal ?? 0)
-      alive = false
-      child.emit("close", 0, signal)
-      return true
-    }
-    ) as typeof process.kill)
+      delivered.push(signal ?? 0);
+      alive = false;
+      child.emit("close", 0, signal);
+      return true;
+    }) as typeof process.kill);
 
-    await expect(terminateOwnedProcessTree(owned, {
-      gracefulTimeoutMillis: 0,
-      platform: "darwin",
-    })).resolves.toBeUndefined()
-    expect(delivered).toEqual(["SIGTERM"])
+    await expect(
+      terminateOwnedProcessTree(owned, {
+        gracefulTimeoutMillis: 0,
+        platform: "darwin",
+      })
+    ).resolves.toBeUndefined();
+    expect(delivered).toEqual(["SIGTERM"]);
 
-    const vanished = fakeChild(5_678)
-    const vanishedOwned = spawnFake(vanished)
-    vanished.emit("close", 0, "SIGTERM")
-    let probes = 0
-    vi.mocked(process.kill).mockImplementation(((pid: number, signal?: number | NodeJS.Signals) => {
-      expect(pid).toBe(-5_678)
-      if (signal === 0 && probes++ === 0) return true
-      throw errno("ESRCH")
-    }
-    ) as typeof process.kill)
-    return await expect(terminateOwnedProcessTree(vanishedOwned, {
-      gracefulTimeoutMillis: 0,
-      platform: "linux",
-    })).resolves.toBeUndefined()
-  }
-  )
+    const vanished = fakeChild(5_678);
+    const vanishedOwned = spawnFake(vanished);
+    vanished.emit("close", 0, "SIGTERM");
+    let probes = 0;
+    vi.mocked(process.kill).mockImplementation(((
+      pid: number,
+      signal?: number | NodeJS.Signals
+    ) => {
+      expect(pid).toBe(-5_678);
+      if (signal === 0 && probes++ === 0) return true;
+      throw errno("ESRCH");
+    }) as typeof process.kill);
+    return await expect(
+      terminateOwnedProcessTree(vanishedOwned, {
+        gracefulTimeoutMillis: 0,
+        platform: "linux",
+      })
+    ).resolves.toBeUndefined();
+  });
 
   it("treats SIGTERM ESRCH as durable absence without another probe", async () => {
-    vi.useFakeTimers()
-    const child = fakeChild()
-    const owned = spawnFake(child)
-    const kill = vi.spyOn(process, "kill").mockImplementation(((_pid: number, signal?: number | NodeJS.Signals) => {
-      if (signal === 0 && kill.mock.calls.length === 1) return true
+    vi.useFakeTimers();
+    const child = fakeChild();
+    const owned = spawnFake(child);
+    const kill = vi.spyOn(process, "kill").mockImplementation(((
+      _pid: number,
+      signal?: number | NodeJS.Signals
+    ) => {
+      if (signal === 0 && kill.mock.calls.length === 1) return true;
       if (signal === "SIGTERM") {
-        setTimeout(() => child.emit("close", 0, "SIGTERM"), 50)
-        throw errno("ESRCH")
+        setTimeout(() => child.emit("close", 0, "SIGTERM"), 50);
+        throw errno("ESRCH");
       }
-      throw new Error("Process group was touched after SIGTERM proved it absent")
-    }
-    ) as typeof process.kill)
+      throw new Error(
+        "Process group was touched after SIGTERM proved it absent"
+      );
+    }) as typeof process.kill);
 
     const termination = terminateOwnedProcessTree(owned, {
       forceTimeoutMillis: 50,
       gracefulTimeoutMillis: 50,
       platform: "linux",
-    })
-    await vi.advanceTimersByTimeAsync(50)
-    await expect(termination).resolves.toBeUndefined()
+    });
+    await vi.advanceTimersByTimeAsync(50);
+    await expect(termination).resolves.toBeUndefined();
     return expect(kill.mock.calls).toEqual([
       [-4_321, 0],
       [-4_321, "SIGTERM"],
-    ])
-  }
-  )
+    ]);
+  });
 
   it("treats SIGKILL ESRCH as durable absence without another probe", async () => {
-    vi.useFakeTimers()
-    const child = fakeChild()
-    const owned = spawnFake(child)
-    const kill = vi.spyOn(process, "kill").mockImplementation(((_pid: number, signal?: number | NodeJS.Signals) => {
-      if (signal === 0) return true
-      if (signal === "SIGTERM") return true
+    vi.useFakeTimers();
+    const child = fakeChild();
+    const owned = spawnFake(child);
+    const kill = vi.spyOn(process, "kill").mockImplementation(((
+      _pid: number,
+      signal?: number | NodeJS.Signals
+    ) => {
+      if (signal === 0) return true;
+      if (signal === "SIGTERM") return true;
       if (signal === "SIGKILL") {
-        setTimeout(() => child.emit("close", 0, "SIGKILL"), 50)
-        throw errno("ESRCH")
+        setTimeout(() => child.emit("close", 0, "SIGKILL"), 50);
+        throw errno("ESRCH");
       }
-      throw new Error("Unexpected process-tree operation")
-    }
-    ) as typeof process.kill)
+      throw new Error("Unexpected process-tree operation");
+    }) as typeof process.kill);
 
     const termination = terminateOwnedProcessTree(owned, {
       forceTimeoutMillis: 50,
       gracefulTimeoutMillis: 0,
       platform: "linux",
-    })
-    await vi.advanceTimersByTimeAsync(50)
-    await expect(termination).resolves.toBeUndefined()
+    });
+    await vi.advanceTimersByTimeAsync(50);
+    await expect(termination).resolves.toBeUndefined();
     return expect(kill.mock.calls).toEqual([
       [-4_321, 0],
       [-4_321, "SIGTERM"],
       [-4_321, 0],
       [-4_321, "SIGKILL"],
-    ])
-  }
-  )
+    ]);
+  });
 
   it("waits for the exact owned child to close after its process group disappears", async () => {
-    vi.useFakeTimers()
-    const child = fakeChild()
-    const owned = spawnFake(child)
-    const cleanup = vi.fn(async () => undefined)
-    let alive = true
-    let groupAbsent = false
-    let probesAfterAbsence = 0
-    const delivered: NodeJS.Signals[] = []
-    vi.spyOn(process, "kill").mockImplementation(((_pid: number, signal?: number | NodeJS.Signals) => {
+    vi.useFakeTimers();
+    const child = fakeChild();
+    const owned = spawnFake(child);
+    const cleanup = vi.fn(async () => undefined);
+    let alive = true;
+    let groupAbsent = false;
+    let probesAfterAbsence = 0;
+    const delivered: NodeJS.Signals[] = [];
+    vi.spyOn(process, "kill").mockImplementation(((
+      _pid: number,
+      signal?: number | NodeJS.Signals
+    ) => {
       if (signal === 0) {
-        if (groupAbsent) probesAfterAbsence += 1
-        if (alive) return true
-        groupAbsent = true
-        throw errno("ESRCH")
+        if (groupAbsent) probesAfterAbsence += 1;
+        if (alive) return true;
+        groupAbsent = true;
+        throw errno("ESRCH");
       }
-      delivered.push(signal as NodeJS.Signals)
-      alive = false
+      delivered.push(signal as NodeJS.Signals);
+      alive = false;
       setTimeout(() => {
-        return child.emit("close", 0, "SIGTERM")
-      }
-      , 150)
-      return true
-    }
-    ) as typeof process.kill)
+        return child.emit("close", 0, "SIGTERM");
+      }, 150);
+      return true;
+    }) as typeof process.kill);
 
     const termination = terminateOwnedProcessTreeThen(owned, cleanup, {
       forceTimeoutMillis: 100,
       gracefulTimeoutMillis: 100,
       platform: "linux",
-    })
-    await Promise.resolve()
-    expect(cleanup).not.toHaveBeenCalled()
-    await vi.advanceTimersByTimeAsync(25)
-    expect(cleanup).not.toHaveBeenCalled()
-    await vi.advanceTimersByTimeAsync(150)
-    await expect(termination).resolves.toBeUndefined()
-    expect(cleanup).toHaveBeenCalledOnce()
-    expect(delivered).toEqual(["SIGTERM"])
-    return expect(probesAfterAbsence).toBe(0)
-  }
-  )
+    });
+    await Promise.resolve();
+    expect(cleanup).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(25);
+    expect(cleanup).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(150);
+    await expect(termination).resolves.toBeUndefined();
+    expect(cleanup).toHaveBeenCalledOnce();
+    expect(delivered).toEqual(["SIGTERM"]);
+    return expect(probesAfterAbsence).toBe(0);
+  });
 
   it("fails closed when a vanished group retains the owned child's pipes", async () => {
-    const child = fakeChild()
-    const owned = spawnFake(child)
+    const child = fakeChild();
+    const owned = spawnFake(child);
     const kill = vi.spyOn(process, "kill").mockImplementation((() => {
-      throw errno("ESRCH")
-    }
-    ) as typeof process.kill)
+      throw errno("ESRCH");
+    }) as typeof process.kill);
     const options = {
       forceTimeoutMillis: 0,
       gracefulTimeoutMillis: 0,
       platform: "linux" as const,
-    }
+    };
 
     await expect(terminateOwnedProcessTree(owned, options)).rejects.toThrow(
-      /owned child closed/i,
-    )
-    expect(kill).toHaveBeenCalledOnce()
-    child.emit("close", 0, "SIGTERM")
-    await expect(terminateOwnedProcessTree(owned, options)).resolves.toBeUndefined()
-    return expect(kill).toHaveBeenCalledOnce()
-  }
-  )
+      /owned child closed/i
+    );
+    expect(kill).toHaveBeenCalledOnce();
+    child.emit("close", 0, "SIGTERM");
+    await expect(
+      terminateOwnedProcessTree(owned, options)
+    ).resolves.toBeUndefined();
+    return expect(kill).toHaveBeenCalledOnce();
+  });
 
   it("does not prove a forced group exit before the owned child closes", async () => {
-    const child = fakeChild()
-    const owned = spawnFake(child)
-    let alive = true
-    const delivered: NodeJS.Signals[] = []
-    vi.spyOn(process, "kill").mockImplementation(((_pid: number, signal?: number | NodeJS.Signals) => {
+    const child = fakeChild();
+    const owned = spawnFake(child);
+    let alive = true;
+    const delivered: NodeJS.Signals[] = [];
+    vi.spyOn(process, "kill").mockImplementation(((
+      _pid: number,
+      signal?: number | NodeJS.Signals
+    ) => {
       if (signal === 0) {
-        if (alive) return true
-        throw errno("ESRCH")
+        if (alive) return true;
+        throw errno("ESRCH");
       }
-      delivered.push(signal as NodeJS.Signals)
-      if (signal === "SIGKILL") alive = false
-      return true
-    }
-    ) as typeof process.kill)
+      delivered.push(signal as NodeJS.Signals);
+      if (signal === "SIGKILL") alive = false;
+      return true;
+    }) as typeof process.kill);
 
-    await expect(terminateOwnedProcessTree(owned, {
-      forceTimeoutMillis: 0,
-      gracefulTimeoutMillis: 0,
-      platform: "linux",
-    })).rejects.toThrow(/owned child closed/i)
-    return expect(delivered).toEqual(["SIGTERM", "SIGKILL"])
-  }
-  )
+    await expect(
+      terminateOwnedProcessTree(owned, {
+        forceTimeoutMillis: 0,
+        gracefulTimeoutMillis: 0,
+        platform: "linux",
+      })
+    ).rejects.toThrow(/owned child closed/i);
+    return expect(delivered).toEqual(["SIGTERM", "SIGKILL"]);
+  });
 
   it("does not signal an already absent POSIX process group", async () => {
-    const child = fakeChild()
-    const owned = spawnFake(child)
-    child.emit("close", 0, "SIGTERM")
-    vi.spyOn(process, "platform", "get").mockReturnValue("linux")
+    const child = fakeChild();
+    const owned = spawnFake(child);
+    child.emit("close", 0, "SIGTERM");
+    vi.spyOn(process, "platform", "get").mockReturnValue("linux");
     const kill = vi.spyOn(process, "kill").mockImplementation((() => {
-      throw errno("ESRCH")
-    }
-    ) as typeof process.kill)
-    await expect(terminateOwnedProcessTree(owned)).resolves.toBeUndefined()
-    expect(kill).toHaveBeenCalledOnce()
-    expect(kill).toHaveBeenCalledWith(-4_321, 0)
-    child.pid = 9_999
-    expect(ownedProcessTreeExists(owned)).toBe(false)
-    return expect(kill).toHaveBeenCalledOnce()
-  }
-  )
+      throw errno("ESRCH");
+    }) as typeof process.kill);
+    await expect(terminateOwnedProcessTree(owned)).resolves.toBeUndefined();
+    expect(kill).toHaveBeenCalledOnce();
+    expect(kill).toHaveBeenCalledWith(-4_321, 0);
+    child.pid = 9_999;
+    expect(ownedProcessTreeExists(owned)).toBe(false);
+    return expect(kill).toHaveBeenCalledOnce();
+  });
 
   it("uses default deadlines before a forced POSIX exit", async () => {
-    vi.useFakeTimers()
-    const child = fakeChild()
-    const owned = spawnFake(child)
-    let alive = true
-    const delivered: NodeJS.Signals[] = []
-    vi.spyOn(process, "kill").mockImplementation(((_pid: number, signal?: number | NodeJS.Signals) => {
+    vi.useFakeTimers();
+    const child = fakeChild();
+    const owned = spawnFake(child);
+    let alive = true;
+    const delivered: NodeJS.Signals[] = [];
+    vi.spyOn(process, "kill").mockImplementation(((
+      _pid: number,
+      signal?: number | NodeJS.Signals
+    ) => {
       if (signal === 0) {
-        if (alive) return true
-        throw errno("ESRCH")
+        if (alive) return true;
+        throw errno("ESRCH");
       }
-      delivered.push(signal as NodeJS.Signals)
+      delivered.push(signal as NodeJS.Signals);
       if (signal === "SIGKILL") {
         setTimeout(() => {
-          alive = false
-          return child.emit("close", 0, "SIGKILL")
-        }
-        , 10)
+          alive = false;
+          return child.emit("close", 0, "SIGKILL");
+        }, 10);
       }
-      return true
-    }
-    ) as typeof process.kill)
+      return true;
+    }) as typeof process.kill);
 
-    const termination = terminateOwnedProcessTree(owned, { platform: "linux" })
-    await vi.runAllTimersAsync()
+    const termination = terminateOwnedProcessTree(owned, { platform: "linux" });
+    await vi.runAllTimersAsync();
 
-    await expect(termination).resolves.toBeUndefined()
-    return expect(delivered).toEqual(["SIGTERM", "SIGKILL"])
-  }
-  )
+    await expect(termination).resolves.toBeUndefined();
+    return expect(delivered).toEqual(["SIGTERM", "SIGKILL"]);
+  });
 
   it("keeps teardown bounded when the wall clock moves backward", async () => {
-    vi.useFakeTimers()
-    const wallClock = vi.spyOn(Date, "now")
+    vi.useFakeTimers();
+    const wallClock = vi
+      .spyOn(Date, "now")
       .mockReturnValueOnce(1_000)
-      .mockReturnValue(-1_000_000)
-    const child = fakeChild()
-    const owned = spawnFake(child)
-    let alive = true
-    vi.spyOn(process, "kill").mockImplementation(((_pid: number, signal?: number | NodeJS.Signals) => {
+      .mockReturnValue(-1_000_000);
+    const child = fakeChild();
+    const owned = spawnFake(child);
+    let alive = true;
+    vi.spyOn(process, "kill").mockImplementation(((
+      _pid: number,
+      signal?: number | NodeJS.Signals
+    ) => {
       if (signal === 0) {
-        if (alive) return true
-        throw errno("ESRCH")
+        if (alive) return true;
+        throw errno("ESRCH");
       }
       if (signal === "SIGKILL") {
         setTimeout(() => {
-          alive = false
-          return child.emit("close", 0, "SIGKILL")
-        }
-        , 10)
+          alive = false;
+          return child.emit("close", 0, "SIGKILL");
+        }, 10);
       }
-      return true
-    }
-    ) as typeof process.kill)
+      return true;
+    }) as typeof process.kill);
 
     const termination = terminateOwnedProcessTree(owned, {
       forceTimeoutMillis: 50,
       gracefulTimeoutMillis: 50,
       platform: "linux",
-    })
-    await vi.runAllTimersAsync()
+    });
+    await vi.runAllTimersAsync();
 
-    await expect(termination).resolves.toBeUndefined()
-    return expect(wallClock).not.toHaveBeenCalled()
-  }
-  )
+    await expect(termination).resolves.toBeUndefined();
+    return expect(wallClock).not.toHaveBeenCalled();
+  });
 
   it("fails when a POSIX tree survives forced termination", async () => {
-    const child = fakeChild()
-    const owned = spawnFake(child)
-    const delivered: NodeJS.Signals[] = []
-    vi.spyOn(process, "kill").mockImplementation(((_pid: number, signal?: number | NodeJS.Signals) => {
-      if (signal === 0) return true
-      delivered.push(signal as NodeJS.Signals)
-      return true
-    }
-    ) as typeof process.kill)
+    const child = fakeChild();
+    const owned = spawnFake(child);
+    const delivered: NodeJS.Signals[] = [];
+    vi.spyOn(process, "kill").mockImplementation(((
+      _pid: number,
+      signal?: number | NodeJS.Signals
+    ) => {
+      if (signal === 0) return true;
+      delivered.push(signal as NodeJS.Signals);
+      return true;
+    }) as typeof process.kill);
 
-    await expect(terminateOwnedProcessTree(owned, {
-      forceTimeoutMillis: 0,
-      gracefulTimeoutMillis: 0,
-      platform: "linux",
-    })).rejects.toThrow(/did not exit after SIGKILL/i)
-    return expect(delivered).toEqual(["SIGTERM", "SIGKILL"])
-  }
-  )
+    await expect(
+      terminateOwnedProcessTree(owned, {
+        forceTimeoutMillis: 0,
+        gracefulTimeoutMillis: 0,
+        platform: "linux",
+      })
+    ).rejects.toThrow(/did not exit after SIGKILL/i);
+    return expect(delivered).toEqual(["SIGTERM", "SIGKILL"]);
+  });
 
   it("reports only the forced POSIX signal failure after graceful signaling", async () => {
-    const child = fakeChild()
-    const owned = spawnFake(child)
-    const forceFailure = errno("EACCES")
-    vi.spyOn(process, "kill").mockImplementation(((_pid: number, signal?: number | NodeJS.Signals) => {
-      if (signal === 0 || signal === "SIGTERM") return true
-      throw forceFailure
-    }
-    ) as typeof process.kill)
+    const child = fakeChild();
+    const owned = spawnFake(child);
+    const forceFailure = errno("EACCES");
+    vi.spyOn(process, "kill").mockImplementation(((
+      _pid: number,
+      signal?: number | NodeJS.Signals
+    ) => {
+      if (signal === 0 || signal === "SIGTERM") return true;
+      throw forceFailure;
+    }) as typeof process.kill);
 
-    const error = await captureRejection(terminateOwnedProcessTree(owned, {
-      gracefulTimeoutMillis: 0,
-      platform: "linux",
-    }))
-    expect(error).toBeInstanceOf(AggregateError)
-    return expect((error as AggregateError).errors).toEqual([forceFailure])
-  }
-  )
+    const error = await captureRejection(
+      terminateOwnedProcessTree(owned, {
+        gracefulTimeoutMillis: 0,
+        platform: "linux",
+      })
+    );
+    expect(error).toBeInstanceOf(AggregateError);
+    return expect((error as AggregateError).errors).toEqual([forceFailure]);
+  });
 
   it("aggregates unexpected POSIX graceful and forced signal failures", async () => {
-    const child = fakeChild()
-    const owned = spawnFake(child)
-    vi.spyOn(process, "kill").mockImplementation(((_pid: number, signal?: number | NodeJS.Signals) => {
-      if (signal === 0) return true
-      throw signal === "SIGTERM" ? errno("EPERM") : errno("EACCES")
-    }
-    ) as typeof process.kill)
+    const child = fakeChild();
+    const owned = spawnFake(child);
+    vi.spyOn(process, "kill").mockImplementation(((
+      _pid: number,
+      signal?: number | NodeJS.Signals
+    ) => {
+      if (signal === 0) return true;
+      throw signal === "SIGTERM" ? errno("EPERM") : errno("EACCES");
+    }) as typeof process.kill);
 
-    const error = await captureRejection(terminateOwnedProcessTree(owned, {
-      gracefulTimeoutMillis: 0,
-      platform: "linux",
-    }))
-    expect(error).toBeInstanceOf(AggregateError)
+    const error = await captureRejection(
+      terminateOwnedProcessTree(owned, {
+        gracefulTimeoutMillis: 0,
+        platform: "linux",
+      })
+    );
+    expect(error).toBeInstanceOf(AggregateError);
     return expect((error as AggregateError).errors).toEqual([
       expect.objectContaining({ code: "EPERM" }),
       expect.objectContaining({ code: "EACCES" }),
-    ])
-  }
-  )
+    ]);
+  });
 
   it("allows a retry after a transient termination failure", async () => {
-    const child = fakeChild()
-    const owned = spawnFake(child)
-    let attempt = 0
-    let alive = true
-    vi.spyOn(process, "kill").mockImplementation(((pid: number, signal?: number | NodeJS.Signals) => {
-      expect(pid).toBe(-4_321)
+    const child = fakeChild();
+    const owned = spawnFake(child);
+    let attempt = 0;
+    let alive = true;
+    vi.spyOn(process, "kill").mockImplementation(((
+      pid: number,
+      signal?: number | NodeJS.Signals
+    ) => {
+      expect(pid).toBe(-4_321);
       if (signal === 0) {
-        if (alive) return true
-        throw errno("ESRCH")
+        if (alive) return true;
+        throw errno("ESRCH");
       }
       if (signal === "SIGTERM") {
-        attempt += 1
-        if (attempt === 1) throw errno("EPERM")
-        alive = false
-        child.emit("close", 0, "SIGTERM")
-        return true
+        attempt += 1;
+        if (attempt === 1) throw errno("EPERM");
+        alive = false;
+        child.emit("close", 0, "SIGTERM");
+        return true;
       }
-      if (attempt === 1) throw errno("EACCES")
-      alive = false
-      return true
-    }
-    ) as typeof process.kill)
+      if (attempt === 1) throw errno("EACCES");
+      alive = false;
+      return true;
+    }) as typeof process.kill);
 
-    await expect(terminateOwnedProcessTree(owned, {
-      gracefulTimeoutMillis: 0,
-      platform: "linux",
-    })).rejects.toThrow(/failed to terminate/i)
-    await expect(terminateOwnedProcessTree(owned, {
-      gracefulTimeoutMillis: 0,
-      platform: "linux",
-    })).resolves.toBeUndefined()
-    return expect(attempt).toBe(2)
-  }
-  )
+    await expect(
+      terminateOwnedProcessTree(owned, {
+        gracefulTimeoutMillis: 0,
+        platform: "linux",
+      })
+    ).rejects.toThrow(/failed to terminate/i);
+    await expect(
+      terminateOwnedProcessTree(owned, {
+        gracefulTimeoutMillis: 0,
+        platform: "linux",
+      })
+    ).resolves.toBeUndefined();
+    return expect(attempt).toBe(2);
+  });
 
   it("coalesces in-flight termination and memoizes success without another PID probe", async () => {
-    vi.useFakeTimers()
-    const child = fakeChild()
-    const owned = spawnFake(child)
-    let alive = true
-    const delivered: NodeJS.Signals[] = []
-    vi.spyOn(process, "kill").mockImplementation(((pid: number, signal?: number | NodeJS.Signals) => {
-      expect(pid).toBe(-4_321)
+    vi.useFakeTimers();
+    const child = fakeChild();
+    const owned = spawnFake(child);
+    let alive = true;
+    const delivered: NodeJS.Signals[] = [];
+    vi.spyOn(process, "kill").mockImplementation(((
+      pid: number,
+      signal?: number | NodeJS.Signals
+    ) => {
+      expect(pid).toBe(-4_321);
       if (signal === 0) {
-        if (alive) return true
-        throw errno("ESRCH")
+        if (alive) return true;
+        throw errno("ESRCH");
       }
-      delivered.push(signal as NodeJS.Signals)
+      delivered.push(signal as NodeJS.Signals);
       if (signal === "SIGTERM") {
         setTimeout(() => {
-          alive = false
-          return child.emit("close", 0, "SIGTERM")
-        }
-        , 10)
+          alive = false;
+          return child.emit("close", 0, "SIGTERM");
+        }, 10);
       }
-      return true
-    }
-    ) as typeof process.kill)
+      return true;
+    }) as typeof process.kill);
     const options = {
       gracefulTimeoutMillis: 50,
       platform: "linux" as const,
-    }
+    };
 
-    const first = terminateOwnedProcessTree(owned, options)
-    const second = terminateOwnedProcessTree(owned, options)
-    expect(delivered).toEqual(["SIGTERM"])
-    await vi.advanceTimersByTimeAsync(25)
+    const first = terminateOwnedProcessTree(owned, options);
+    const second = terminateOwnedProcessTree(owned, options);
+    expect(delivered).toEqual(["SIGTERM"]);
+    await vi.advanceTimersByTimeAsync(25);
     await expect(Promise.all([first, second])).resolves.toEqual([
       undefined,
       undefined,
-    ])
-    const callsAfterSuccess = vi.mocked(process.kill).mock.calls.length
-    await expect(terminateOwnedProcessTree(owned, options)).resolves.toBeUndefined()
-    expect(process.kill).toHaveBeenCalledTimes(callsAfterSuccess)
-    return expect(delivered).toEqual(["SIGTERM"])
-  }
-  )
-
+    ]);
+    const callsAfterSuccess = vi.mocked(process.kill).mock.calls.length;
+    await expect(
+      terminateOwnedProcessTree(owned, options)
+    ).resolves.toBeUndefined();
+    expect(process.kill).toHaveBeenCalledTimes(callsAfterSuccess);
+    return expect(delivered).toEqual(["SIGTERM"]);
+  });
 
   it("validates in-flight and cached termination requests before cleanup", async () => {
-    vi.useFakeTimers()
-    const child = fakeChild()
-    const owned = spawnFake(child)
-    const cleanup = vi.fn(async () => undefined)
-    let alive = true
-    vi.spyOn(process, "kill").mockImplementation(((_pid: number, signal?: number | NodeJS.Signals) => {
+    vi.useFakeTimers();
+    const child = fakeChild();
+    const owned = spawnFake(child);
+    const cleanup = vi.fn(async () => undefined);
+    let alive = true;
+    vi.spyOn(process, "kill").mockImplementation(((
+      _pid: number,
+      signal?: number | NodeJS.Signals
+    ) => {
       if (signal === 0) {
-        if (alive) return true
-        throw errno("ESRCH")
+        if (alive) return true;
+        throw errno("ESRCH");
       }
       if (signal === "SIGTERM") {
         setTimeout(() => {
-          alive = false
-          return child.emit("close", 0, "SIGTERM")
-        }
-        , 10)
+          alive = false;
+          return child.emit("close", 0, "SIGTERM");
+        }, 10);
       }
-      return true
-    }
-    ) as typeof process.kill)
+      return true;
+    }) as typeof process.kill);
 
     const termination = terminateOwnedProcessTree(owned, {
       gracefulTimeoutMillis: 50,
       platform: "linux",
-    })
-    await expect(terminateOwnedProcessTreeThen(owned, cleanup, {
-      gracefulTimeoutMillis: Number.NaN,
-      platform: "linux",
-    })).rejects.toThrow(/timeout budget/i)
-    expect(cleanup).not.toHaveBeenCalled()
+    });
+    await expect(
+      terminateOwnedProcessTreeThen(owned, cleanup, {
+        gracefulTimeoutMillis: Number.NaN,
+        platform: "linux",
+      })
+    ).rejects.toThrow(/timeout budget/i);
+    expect(cleanup).not.toHaveBeenCalled();
 
-    await vi.advanceTimersByTimeAsync(25)
-    await expect(termination).resolves.toBeUndefined()
-    await expect(terminateOwnedProcessTreeThen(owned, cleanup, {
-      forceTimeoutMillis: -1,
-      platform: "linux",
-    })).rejects.toThrow(/timeout budget/i)
-    await expect(terminateOwnedProcessTreeThen(owned, cleanup, {
-      platform: "win32",
-    })).rejects.toThrow(/termination is unproven on Windows/i)
-    return expect(cleanup).not.toHaveBeenCalled()
-  }
-  )
+    await vi.advanceTimersByTimeAsync(25);
+    await expect(termination).resolves.toBeUndefined();
+    await expect(
+      terminateOwnedProcessTreeThen(owned, cleanup, {
+        forceTimeoutMillis: -1,
+        platform: "linux",
+      })
+    ).rejects.toThrow(/timeout budget/i);
+    await expect(
+      terminateOwnedProcessTreeThen(owned, cleanup, {
+        platform: "win32",
+      })
+    ).rejects.toThrow(/termination is unproven on Windows/i);
+    return expect(cleanup).not.toHaveBeenCalled();
+  });
   return it("withholds cleanup when Windows containment is unproven", async () => {
-    const child = fakeChild()
-    const owned = spawnFake(child)
-    const cleanup = vi.fn(async () => undefined)
+    const child = fakeChild();
+    const owned = spawnFake(child);
+    const cleanup = vi.fn(async () => undefined);
 
-    await expect(terminateOwnedProcessTreeThen(owned, cleanup, {
-      platform: "win32",
-    })).rejects.toThrow(/termination is unproven on Windows/i)
+    await expect(
+      terminateOwnedProcessTreeThen(owned, cleanup, {
+        platform: "win32",
+      })
+    ).rejects.toThrow(/termination is unproven on Windows/i);
     expect(childProcess.spawn.mock.calls.map((call) => call[0])).toEqual([
       "trusted-command",
-    ])
-    expect(cleanup).not.toHaveBeenCalled()
+    ]);
+    expect(cleanup).not.toHaveBeenCalled();
 
-    const refusedCleanup = vi.fn(async () => undefined)
-    await expect(terminateOwnedProcessTreeThen(
-      // Deliberately unowned: the brand is absent at runtime.
-      fakeChild() as unknown as OwnedProcess,
-      refusedCleanup,
-    )).rejects.toThrow(/not spawned as owned/i)
-    return expect(refusedCleanup).not.toHaveBeenCalled()
-  }
-  )
-}
-)
+    const refusedCleanup = vi.fn(async () => undefined);
+    await expect(
+      terminateOwnedProcessTreeThen(
+        // Deliberately unowned: the brand is absent at runtime.
+        fakeChild() as unknown as OwnedProcess,
+        refusedCleanup
+      )
+    ).rejects.toThrow(/not spawned as owned/i);
+    return expect(refusedCleanup).not.toHaveBeenCalled();
+  });
+});

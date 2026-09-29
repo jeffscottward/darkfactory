@@ -10,18 +10,18 @@ import {
   WorkflowRunTerminalError,
   WorkflowMessageCapacityError,
   type WorkflowRepository,
-} from "@darkfactory/db/server/workflow"
+} from "@darkfactory/db/server/workflow";
 import {
   WorkflowPlanEvidenceError,
   parseWorkflowPlanEvidenceV1,
-} from "@darkfactory/jobs/server/plan-evidence"
+} from "@darkfactory/jobs/server/plan-evidence";
 import {
   WorkflowProjectionVerificationError,
   createWorkflowApplication,
   workflowApprovalIdFor,
   type WorkflowApplication,
   type VerifiedWorkflowProjection,
-} from "@darkfactory/jobs/server/workflow-runtime"
+} from "@darkfactory/jobs/server/workflow-runtime";
 import {
   WorkflowRetryLimitReachedError,
   canonicalJsonV1,
@@ -31,12 +31,12 @@ import {
   parseWorkflowEffectScopeV1,
   replayWorkflowV1,
   sha256Hex,
-} from "@darkfactory/state/workflow"
+} from "@darkfactory/state/workflow";
 
 import type {
   OperatorApprovalBindingInput,
   OperatorListInput,
-} from "../contract.ts"
+} from "../contract.ts";
 import {
   OperatorWorkflowPortError,
   operatorServiceErrorMessage,
@@ -44,35 +44,35 @@ import {
   type OperatorWorkflowPort,
   type WorkflowOperatorDetail,
   type WorkflowOperatorRunSummary,
-} from "./operator-service.ts"
+} from "./operator-service.ts";
 
 export type OperatorWorkflowPortOptions = Readonly<{
-  repository: WorkflowRepository
-  authorizeRepository: (ownerId: string, repositoryId: string) => boolean
-  now?: () => Date
-}>
+  repository: WorkflowRepository;
+  authorizeRepository: (ownerId: string, repositoryId: string) => boolean;
+  now?: () => Date;
+}>;
 
 const mapError = (
   error: unknown,
-  fallback: "STORAGE_ERROR" | "VALIDATION_ERROR",
+  fallback: "STORAGE_ERROR" | "VALIDATION_ERROR"
 ): never => {
   if (error instanceof OperatorWorkflowPortError) {
     throw new OperatorWorkflowPortError(
       error.code,
-      operatorServiceErrorMessage(error.code),
-    )
+      operatorServiceErrorMessage(error.code)
+    );
   }
   if (error instanceof WorkflowRunNotFoundError) {
     throw new OperatorWorkflowPortError(
       "NOT_FOUND",
-      operatorServiceErrorMessage("NOT_FOUND"),
-    )
+      operatorServiceErrorMessage("NOT_FOUND")
+    );
   }
   if (error instanceof WorkflowConcurrencyError) {
     throw new OperatorWorkflowPortError(
       "CONFLICT",
-      operatorServiceErrorMessage("CONFLICT"),
-    )
+      operatorServiceErrorMessage("CONFLICT")
+    );
   }
   if (
     error instanceof WorkflowRunTerminalError ||
@@ -81,14 +81,14 @@ const mapError = (
   ) {
     throw new OperatorWorkflowPortError(
       "CONFLICT",
-      operatorServiceErrorMessage("CONFLICT"),
-    )
+      operatorServiceErrorMessage("CONFLICT")
+    );
   }
   if (error instanceof StaleWorkflowApprovalError) {
     throw new OperatorWorkflowPortError(
       "STALE_APPROVAL",
-      operatorServiceErrorMessage("STALE_APPROVAL"),
-    )
+      operatorServiceErrorMessage("STALE_APPROVAL")
+    );
   }
   if (
     error instanceof WorkflowProjectionIntegrityError ||
@@ -97,50 +97,49 @@ const mapError = (
   ) {
     throw new OperatorWorkflowPortError(
       "PROJECTION_INVALID",
-      operatorServiceErrorMessage("PROJECTION_INVALID"),
-    )
+      operatorServiceErrorMessage("PROJECTION_INVALID")
+    );
   }
   if (error instanceof WorkflowRunCapacityError) {
     throw new OperatorWorkflowPortError(
       "SERVICE_UNAVAILABLE",
-      operatorServiceErrorMessage("SERVICE_UNAVAILABLE"),
-    )
+      operatorServiceErrorMessage("SERVICE_UNAVAILABLE")
+    );
   }
   if (error instanceof WorkflowRunSubmissionRateError) {
     throw new OperatorWorkflowPortError(
       "SERVICE_UNAVAILABLE",
-      operatorServiceErrorMessage("SERVICE_UNAVAILABLE"),
-    )
+      operatorServiceErrorMessage("SERVICE_UNAVAILABLE")
+    );
   }
   if (error instanceof WorkflowPersistenceInputError) {
     throw new OperatorWorkflowPortError(
       "VALIDATION_ERROR",
-      operatorServiceErrorMessage("VALIDATION_ERROR"),
-    )
+      operatorServiceErrorMessage("VALIDATION_ERROR")
+    );
   }
   throw new OperatorWorkflowPortError(
     fallback,
     operatorServiceErrorMessage(fallback),
-    { cause: error },
-  )
-}
+    { cause: error }
+  );
+};
 
-const runPort = async <Value,>(
+const runPort = async <Value>(
   operation: () => Promise<Value>,
-  fallback: "STORAGE_ERROR" | "VALIDATION_ERROR" = "STORAGE_ERROR",
+  fallback: "STORAGE_ERROR" | "VALIDATION_ERROR" = "STORAGE_ERROR"
 ): Promise<Value> => {
   try {
-    return await operation()
+    return await operation();
+  } catch (error) {
+    return mapError(error, fallback);
   }
-  catch (error) {
-    return mapError(error, fallback)
-  }
-}
+};
 
 const summaryFor = (
-  projection: VerifiedWorkflowProjection,
+  projection: VerifiedWorkflowProjection
 ): WorkflowOperatorRunSummary => {
-  const context = projection.snapshot.context
+  const context = projection.snapshot.context;
   return Object.freeze({
     id: projection.persistence.run.id,
     ownerId: projection.persistence.run.ownerId,
@@ -154,18 +153,24 @@ const summaryFor = (
       : { blockedReason: context.lastErrorCode }),
     machineId: projection.snapshot.machineId,
     machineVersion: projection.snapshot.machineVersion,
-  })
-}
+  });
+};
 
 const approvalFor = (
-  projection: VerifiedWorkflowProjection,
+  projection: VerifiedWorkflowProjection
 ): WorkflowOperatorDetail["approval"] => {
-  const pending = projection.snapshot.context.pendingEffect
-  if (projection.snapshot.state !== "awaitingApproval" || pending?.kind !== "implement") {
-    return null
+  const pending = projection.snapshot.context.pendingEffect;
+  if (
+    projection.snapshot.state !== "awaitingApproval" ||
+    pending?.kind !== "implement"
+  ) {
+    return null;
   }
-  const approvalId = workflowApprovalIdFor(projection.snapshot)
-  const binding = createWorkflowApprovalBindingV1(approvalId, projection.snapshot)
+  const approvalId = workflowApprovalIdFor(projection.snapshot);
+  const binding = createWorkflowApprovalBindingV1(
+    approvalId,
+    projection.snapshot
+  );
   return Object.freeze({
     machineId: binding.machineId,
     machineVersion: binding.machineVersion,
@@ -175,15 +180,16 @@ const approvalFor = (
     effectHash: binding.effectHash,
     effectScope: canonicalJsonV1(binding.effectScope),
     stale: false,
-  })
-}
+  });
+};
 
 const matchesApproval = (
   input: OperatorApprovalBindingInput,
-  projection: VerifiedWorkflowProjection,
+  projection: VerifiedWorkflowProjection
 ): boolean => {
-  const expected = approvalFor(projection)
-  return expected !== null &&
+  const expected = approvalFor(projection);
+  return (
+    expected !== null &&
     input.machineId === expected.machineId &&
     input.machineVersion === expected.machineVersion &&
     input.eventVersion === expected.eventVersion &&
@@ -191,99 +197,111 @@ const matchesApproval = (
     input.journalHeadHash === expected.journalHeadHash &&
     input.effectHash === expected.effectHash &&
     input.effectScope === expected.effectScope
-}
+  );
+};
 
 const canRequestPlanRevision = (
-  projection: VerifiedWorkflowProjection,
+  projection: VerifiedWorkflowProjection
 ): boolean => {
-  return projection.snapshot.state === "awaitingApproval" ||
-    (
-      projection.snapshot.state === "blocked" &&
-      projection.snapshot.context.failedStage === "planning"
-    )
-}
+  return (
+    projection.snapshot.state === "awaitingApproval" ||
+    (projection.snapshot.state === "blocked" &&
+      projection.snapshot.context.failedStage === "planning")
+  );
+};
 
 export const projectWorkflowPlanRevisions = (
-  journal: VerifiedWorkflowProjection["journal"],
+  journal: VerifiedWorkflowProjection["journal"]
 ): WorkflowOperatorDetail["planRevisions"] => {
-  const revisions: WorkflowOperatorDetail["planRevisions"][number][] = []
+  const revisions: WorkflowOperatorDetail["planRevisions"][number][] = [];
   for (const entry of journal) {
     if (entry.event.type === "PLAN_REVISION_REQUESTED") {
-      revisions.push(Object.freeze({
-        message: entry.event.clarification,
-        createdAt: new Date(entry.event.occurredAt),
-      }))
-      if (revisions.length === 1_000) break
+      revisions.push(
+        Object.freeze({
+          message: entry.event.clarification,
+          createdAt: new Date(entry.event.occurredAt),
+        })
+      );
+      if (revisions.length === 1_000) break;
     }
   }
-  return Object.freeze(revisions)
-}
+  return Object.freeze(revisions);
+};
 
 export const createOperatorWorkflowPort = (
-  options: OperatorWorkflowPortOptions,
+  options: OperatorWorkflowPortOptions
 ): OperatorWorkflowPort => {
-  const now = options.now ?? (() => new Date())
-  const application = createWorkflowApplication(options.repository, { now })
+  const now = options.now ?? (() => new Date());
+  const application = createWorkflowApplication(options.repository, { now });
 
   const requireProjection = async (
     ownerId: string,
-    runId: string,
+    runId: string
   ): Promise<VerifiedWorkflowProjection> => {
-    const projection = await application.findProjection(ownerId, runId)
+    const projection = await application.findProjection(ownerId, runId);
     if (projection === null) {
-      throw new OperatorWorkflowPortError("NOT_FOUND", "Workflow run not found")
+      throw new OperatorWorkflowPortError(
+        "NOT_FOUND",
+        "Workflow run not found"
+      );
     }
-    return projection
-  }
+    return projection;
+  };
 
   const planFor = async (
-    projection: VerifiedWorkflowProjection,
+    projection: VerifiedWorkflowProjection
   ): Promise<WorkflowOperatorDetail["implementationPlan"]> => {
-    const planEvidenceId = projection.snapshot.context.planEvidenceId
-    const planHash = projection.snapshot.context.planHash
+    const planEvidenceId = projection.snapshot.context.planEvidenceId;
+    const planHash = projection.snapshot.context.planHash;
     if (planEvidenceId === null) {
       if (planHash !== null) {
-        throw new WorkflowPlanEvidenceError("Plan digest has no durable evidence")
+        throw new WorkflowPlanEvidenceError(
+          "Plan digest has no durable evidence"
+        );
       }
-      return null
+      return null;
     }
     if (planHash === null) {
-      throw new WorkflowPlanEvidenceError("Durable plan evidence has no digest")
+      throw new WorkflowPlanEvidenceError(
+        "Durable plan evidence has no digest"
+      );
     }
     const row = await options.repository.findEvidenceByOwner(
       planEvidenceId,
       projection.persistence.run.id,
-      projection.persistence.run.ownerId,
-    )
+      projection.persistence.run.ownerId
+    );
     if (row === null) {
-      throw new WorkflowPlanEvidenceError("Durable plan evidence is missing")
+      throw new WorkflowPlanEvidenceError("Durable plan evidence is missing");
     }
     if (row.kind !== "plan.succeeded") {
-      throw new WorkflowPlanEvidenceError("Durable plan evidence has an invalid kind")
+      throw new WorkflowPlanEvidenceError(
+        "Durable plan evidence has an invalid kind"
+      );
     }
-    return parseWorkflowPlanEvidenceV1(row.data["plan"], planHash)
-  }
+    return parseWorkflowPlanEvidenceV1(row.data["plan"], planHash);
+  };
 
   const detailFor = async (
-    projection: VerifiedWorkflowProjection,
+    projection: VerifiedWorkflowProjection
   ): Promise<WorkflowOperatorDetail> => {
-    const submittedEvent = projection.journal[0]?.event
+    const submittedEvent = projection.journal[0]?.event;
     if (submittedEvent?.type !== "RUN_SUBMITTED") {
       throw new WorkflowProjectionVerificationError(
-        "missing initial run submission",
-      )
+        "missing initial run submission"
+      );
     }
-    const planRevisions = projectWorkflowPlanRevisions(projection.journal)
+    const planRevisions = projectWorkflowPlanRevisions(projection.journal);
 
-    const runId = projection.persistence.run.id
-    const ownerId = projection.persistence.run.ownerId
+    const runId = projection.persistence.run.id;
+    const ownerId = projection.persistence.run.ownerId;
     const [evidencePage, messagePage, implementationPlan] = await Promise.all([
       options.repository.listEvidenceByOwner(runId, ownerId, { limit: 100 }),
       options.repository.listMessagesByOwner(runId, ownerId, { limit: 100 }),
       planFor(projection),
-    ])
-    const evidence = evidencePage.items
-    const messages = messagePage.items
+    ]);
+    const evidence = evidencePage.items;
+    const messages = messagePage.items;
     return Object.freeze({
       ownerId,
       integrity: "verified",
@@ -291,88 +309,103 @@ export const createOperatorWorkflowPort = (
       originalRequest: submittedEvent.humanRequest ?? submittedEvent.taskId,
       planRevisions: Object.freeze(planRevisions),
       run: summaryFor(projection),
-      timeline: Object.freeze(projection.persistence.journal.map((entry) => ({
-        sequence: entry.sequence,
-        eventType: entry.eventType,
-        summary: entry.eventType.toLowerCase().replaceAll("_", " "),
-        hash: entry.hash,
-        createdAt: entry.occurredAt,
-      }))),
+      timeline: Object.freeze(
+        projection.persistence.journal.map((entry) => ({
+          sequence: entry.sequence,
+          eventType: entry.eventType,
+          summary: entry.eventType.toLowerCase().replaceAll("_", " "),
+          hash: entry.hash,
+          createdAt: entry.occurredAt,
+        }))
+      ),
       approval: approvalFor(projection),
       implementationPlan,
-      evidence: Object.freeze(evidence.map((item) => {
-        const content = canonicalJsonV1(item.data)
-        return {
-          id: item.id,
-          kind: item.kind,
-          label: item.summary,
-          content,
-          redacted: item.summary.includes("[REDACTED]") || content.includes("[REDACTED]"),
-          createdAt: item.createdAt,
-        }
-      }
-      )),
-      messages: Object.freeze(messages.map((message) => ({
-        id: message.id,
-        authorLabel: message.authorId ?? "System",
-        body: message.content,
-        createdAt: message.createdAt,
-      }))),
-    })
-  }
+      evidence: Object.freeze(
+        evidence.map((item) => {
+          const content = canonicalJsonV1(item.data);
+          return {
+            id: item.id,
+            kind: item.kind,
+            label: item.summary,
+            content,
+            redacted:
+              item.summary.includes("[REDACTED]") ||
+              content.includes("[REDACTED]"),
+            createdAt: item.createdAt,
+          };
+        })
+      ),
+      messages: Object.freeze(
+        messages.map((message) => ({
+          id: message.id,
+          authorLabel: message.authorId ?? "System",
+          body: message.content,
+          createdAt: message.createdAt,
+        }))
+      ),
+    });
+  };
 
   const actionDetail = async (
     input: OperatorActionContext,
-    event: Parameters<WorkflowApplication["transition"]>[0]["event"],
+    event: Parameters<WorkflowApplication["transition"]>[0]["event"]
   ): Promise<WorkflowOperatorDetail> => {
     const projected = await application.transition({
       ownerId: input.ownerId,
       runId: input.runId,
       event,
-    })
-    return detailFor(projected)
-  }
+    });
+    return detailFor(projected);
+  };
 
   const submitRun = async (
-    input: Parameters<OperatorWorkflowPort["submit"]>[0],
+    input: Parameters<OperatorWorkflowPort["submit"]>[0]
   ): Promise<WorkflowOperatorDetail> => {
-    const scope = parseWorkflowEffectScopeV1(input.scope)
+    const scope = parseWorkflowEffectScopeV1(input.scope);
     if (!options.authorizeRepository(input.ownerId, scope.repositoryId)) {
       throw new OperatorWorkflowPortError(
         "FORBIDDEN",
-        operatorServiceErrorMessage("FORBIDDEN"),
-      )
+        operatorServiceErrorMessage("FORBIDDEN")
+      );
     }
-    const canonicalScope = canonicalJsonV1(scope)
-    const submissionHash = sha256Hex(canonicalJsonV1({
-      ownerId: input.ownerId,
-      idempotencyKey: input.idempotencyKey,
-    }))
-    const runId = `run-${submissionHash}`
-    const eventId = `submit-${submissionHash}`
-    const taskHash = sha256Hex(canonicalJsonV1({
-      title: input.title,
-      scope,
-    }))
-    const matchesSubmission = (projection: VerifiedWorkflowProjection): boolean => {
-      const submitted = projection.journal[0]?.event
-      return submitted?.type === "RUN_SUBMITTED" &&
+    const canonicalScope = canonicalJsonV1(scope);
+    const submissionHash = sha256Hex(
+      canonicalJsonV1({
+        ownerId: input.ownerId,
+        idempotencyKey: input.idempotencyKey,
+      })
+    );
+    const runId = `run-${submissionHash}`;
+    const eventId = `submit-${submissionHash}`;
+    const taskHash = sha256Hex(
+      canonicalJsonV1({
+        title: input.title,
+        scope,
+      })
+    );
+    const matchesSubmission = (
+      projection: VerifiedWorkflowProjection
+    ): boolean => {
+      const submitted = projection.journal[0]?.event;
+      return (
+        submitted?.type === "RUN_SUBMITTED" &&
         submitted.eventId === eventId &&
         submitted.taskId === input.title &&
         submitted.taskHash === taskHash &&
         canonicalJsonV1(submitted.scope) === canonicalScope
-    }
+      );
+    };
     const recover = async (): Promise<WorkflowOperatorDetail | null> => {
-      const existing = await application.findProjection(input.ownerId, runId)
-      if (existing === null) return null
-      if (!matchesSubmission(existing)) throw new WorkflowConcurrencyError()
-      return detailFor(existing)
-    }
+      const existing = await application.findProjection(input.ownerId, runId);
+      if (existing === null) return null;
+      if (!matchesSubmission(existing)) throw new WorkflowConcurrencyError();
+      return detailFor(existing);
+    };
 
-    const existing = await recover()
-    if (existing !== null) return existing
+    const existing = await recover();
+    if (existing !== null) return existing;
 
-    let projection: VerifiedWorkflowProjection
+    let projection: VerifiedWorkflowProjection;
     try {
       projection = await application.createRun({
         ownerId: input.ownerId,
@@ -389,25 +422,26 @@ export const createOperatorWorkflowPort = (
           taskHash,
           scope,
         },
-      })
+      });
+    } catch (error) {
+      const recovered = await recover();
+      if (recovered !== null) return recovered;
+      throw error;
     }
-    catch (error) {
-      const recovered = await recover()
-      if (recovered !== null) return recovered
-      throw error
-    }
-    return detailFor(projection)
-  }
+    return detailFor(projection);
+  };
 
   const revisePlan = async (
-    input: Parameters<OperatorWorkflowPort["revise"]>[0],
+    input: Parameters<OperatorWorkflowPort["revise"]>[0]
   ): Promise<WorkflowOperatorDetail> => {
-    const identityHash = sha256Hex(canonicalJsonV1({
-      ownerId: input.ownerId,
-      runId: input.runId,
-      idempotencyKey: input.idempotencyKey,
-    }))
-    const eventId = `plan-revision-${identityHash}`
+    const identityHash = sha256Hex(
+      canonicalJsonV1({
+        ownerId: input.ownerId,
+        runId: input.runId,
+        idempotencyKey: input.idempotencyKey,
+      })
+    );
+    const eventId = `plan-revision-${identityHash}`;
     const proposedEvent = {
       type: "PLAN_REVISION_REQUESTED" as const,
       eventId,
@@ -415,55 +449,53 @@ export const createOperatorWorkflowPort = (
       machineVersion: 1 as const,
       occurredAt: now().toISOString(),
       clarification: input.clarification,
-    }
+    };
     const apply = async (
-      projection: VerifiedWorkflowProjection,
+      projection: VerifiedWorkflowProjection
     ): Promise<WorkflowOperatorDetail> => {
       const existingIndex = projection.journal.findIndex(
-        (entry) => entry.event.eventId === eventId,
-      )
-      const existing = existingIndex === -1
-        ? undefined
-        : projection.journal[existingIndex]!.event
+        (entry) => entry.event.eventId === eventId
+      );
+      const existing =
+        existingIndex === -1
+          ? undefined
+          : projection.journal[existingIndex]!.event;
       if (
         existing !== undefined &&
-        (
-          existing.type !== "PLAN_REVISION_REQUESTED" ||
-          existing.clarification !== input.clarification
-        )
+        (existing.type !== "PLAN_REVISION_REQUESTED" ||
+          existing.clarification !== input.clarification)
       ) {
-        throw new WorkflowConcurrencyError()
+        throw new WorkflowConcurrencyError();
       }
 
-      const event = existing?.type === "PLAN_REVISION_REQUESTED"
-        ? existing
-        : proposedEvent
+      const event =
+        existing?.type === "PLAN_REVISION_REQUESTED" ? existing : proposedEvent;
       let ref;
-        if (existingIndex === -1) { ref = projection.snapshot}
-        else {
-          const initial = createInitialWorkflowSnapshotV1({
-            runId: input.runId,
-            ownerId: input.ownerId,
-          })
-          ref = replayWorkflowV1(
-            initial,
-            projection.journal
-              .slice(0, existingIndex)
-              .map((entry) => entry.event),
-          ).snapshot
-        };const decisionSnapshot =ref
+      if (existingIndex === -1) {
+        ref = projection.snapshot;
+      } else {
+        const initial = createInitialWorkflowSnapshotV1({
+          runId: input.runId,
+          ownerId: input.ownerId,
+        });
+        ref = replayWorkflowV1(
+          initial,
+          projection.journal.slice(0, existingIndex).map((entry) => entry.event)
+        ).snapshot;
+      }
+      const decisionSnapshot = ref;
 
-      if (!(
-        decisionSnapshot.state === "awaitingApproval" ||
-        (
-          decisionSnapshot.state === "blocked" &&
-          decisionSnapshot.context.failedStage === "planning"
-        ))
+      if (
+        !(
+          decisionSnapshot.state === "awaitingApproval" ||
+          (decisionSnapshot.state === "blocked" &&
+            decisionSnapshot.context.failedStage === "planning")
+        )
       ) {
         throw new OperatorWorkflowPortError(
           "VALIDATION_ERROR",
-          operatorServiceErrorMessage("VALIDATION_ERROR"),
-        )
+          operatorServiceErrorMessage("VALIDATION_ERROR")
+        );
       }
 
       if (decisionSnapshot.state === "awaitingApproval") {
@@ -479,242 +511,264 @@ export const createOperatorWorkflowPort = (
             reason: "plan-revision-requested",
           },
           event,
-        })
-        return detailFor(decided)
+        });
+        return detailFor(decided);
       }
-      if (existing !== undefined) return detailFor(projection)
-      return actionDetail(input, proposedEvent)
-    }
+      if (existing !== undefined) return detailFor(projection);
+      return actionDetail(input, proposedEvent);
+    };
 
-    const projection = await requireProjection(input.ownerId, input.runId)
+    const projection = await requireProjection(input.ownerId, input.runId);
     try {
-      return await apply(projection)
-    }
-    catch (error) {
-      if (!(
-        error instanceof WorkflowConcurrencyError ||
-        error instanceof StaleWorkflowApprovalError)
+      return await apply(projection);
+    } catch (error) {
+      if (
+        !(
+          error instanceof WorkflowConcurrencyError ||
+          error instanceof StaleWorkflowApprovalError
+        )
       ) {
-        throw error
+        throw error;
       }
-      const recovered = await requireProjection(input.ownerId, input.runId)
-      if (!recovered.journal.some(
-        (entry) => entry.event.eventId === eventId,
-      )) {
-        throw error
+      const recovered = await requireProjection(input.ownerId, input.runId);
+      if (!recovered.journal.some((entry) => entry.event.eventId === eventId)) {
+        throw error;
       }
-      return apply(recovered)
+      return apply(recovered);
     }
-  }
+  };
 
   return Object.freeze({
     submit: (input) => runPort(() => submitRun(input), "VALIDATION_ERROR"),
 
-    workspace: (ownerId, input) => runPort(async () => {
-      const rows = await options.repository.listRunsByOwner(ownerId, { limit: input.limit })
-      const projections = await application.listProjections(
-        ownerId,
-        rows.map(({ id }) => id),
-      )
-      return Object.freeze(projections.map(summaryFor))
-    }
-    ),
+    workspace: (ownerId, input) =>
+      runPort(async () => {
+        const rows = await options.repository.listRunsByOwner(ownerId, {
+          limit: input.limit,
+        });
+        const projections = await application.listProjections(
+          ownerId,
+          rows.map(({ id }) => id)
+        );
+        return Object.freeze(projections.map(summaryFor));
+      }),
 
-    list: (ownerId, input: OperatorListInput) => runPort(async () => {
-      const limit = input.limit ?? 100
-      const rows = await options.repository.listRunsByOwner(ownerId, {
-        limit: limit + 1,
-        ...(input.state === undefined ? {} : { state: input.state }),
-        ...(input.cursor === undefined ? {} : { cursor: input.cursor }),
-      })
-      const pageRows = rows.slice(0, limit)
-      const projections = await application.listProjections(
-        ownerId,
-        pageRows.map(({ id }) => id),
-      )
-      if (projections.length !== pageRows.length) {
-        throw new OperatorWorkflowPortError("NOT_FOUND", "Workflow run not found")
-      }
-      return Object.freeze({
-        runs: Object.freeze(projections.map(summaryFor)),
-        nextCursor: rows.length > limit
-          ? encodeWorkflowRunsCursor({
-              id: pageRows.at(-1)!.id,
-              updatedAt: pageRows.at(-1)!.updatedAt,
-              ...(input.state === undefined ? {} : { state: input.state }),
-            })
-          : null,
-      })
-    }
-    ),
+    list: (ownerId, input: OperatorListInput) =>
+      runPort(async () => {
+        const limit = input.limit ?? 100;
+        const rows = await options.repository.listRunsByOwner(ownerId, {
+          limit: limit + 1,
+          ...(input.state === undefined ? {} : { state: input.state }),
+          ...(input.cursor === undefined ? {} : { cursor: input.cursor }),
+        });
+        const pageRows = rows.slice(0, limit);
+        const projections = await application.listProjections(
+          ownerId,
+          pageRows.map(({ id }) => id)
+        );
+        if (projections.length !== pageRows.length) {
+          throw new OperatorWorkflowPortError(
+            "NOT_FOUND",
+            "Workflow run not found"
+          );
+        }
+        return Object.freeze({
+          runs: Object.freeze(projections.map(summaryFor)),
+          nextCursor:
+            rows.length > limit
+              ? encodeWorkflowRunsCursor({
+                  id: pageRows.at(-1)!.id,
+                  updatedAt: pageRows.at(-1)!.updatedAt,
+                  ...(input.state === undefined ? {} : { state: input.state }),
+                })
+              : null,
+        });
+      }),
 
-    detail: (ownerId, runId) => runPort(async () => {
-      const projection = await application.findProjection(ownerId, runId)
-      return projection === null ? null : detailFor(projection)
-    }
-    ),
+    detail: (ownerId, runId) =>
+      runPort(async () => {
+        const projection = await application.findProjection(ownerId, runId);
+        return projection === null ? null : detailFor(projection);
+      }),
 
-    approve: (input) => runPort(async () => {
-      const projection = await requireProjection(input.ownerId, input.runId)
-      const eventId = `approval-${sha256Hex(canonicalJsonV1({
-        runId: input.runId,
-        binding: input.approval,
-        decision: "granted",
-      }))}`
-      const existing = projection.journal.find(
-        (entry) => entry.event.eventId === eventId,
-      )
-      if (existing !== undefined) {
-        if (
-          existing.event.type !== "APPROVAL_GRANTED" ||
-          input.approval.machineId !== existing.event.binding.machineId ||
-          input.approval.machineVersion !== existing.event.binding.machineVersion ||
-          input.approval.eventVersion !== existing.event.binding.eventVersion ||
-          input.approval.snapshotSequence !== existing.event.binding.snapshotSequence ||
-          input.approval.journalHeadHash !== existing.event.binding.journalHeadHash ||
-          input.approval.effectHash !== existing.event.binding.effectHash ||
-          input.approval.effectScope !==
-            canonicalJsonV1(existing.event.binding.effectScope)
-        ) {
+    approve: (input) =>
+      runPort(async () => {
+        const projection = await requireProjection(input.ownerId, input.runId);
+        const eventId = `approval-${sha256Hex(
+          canonicalJsonV1({
+            runId: input.runId,
+            binding: input.approval,
+            decision: "granted",
+          })
+        )}`;
+        const existing = projection.journal.find(
+          (entry) => entry.event.eventId === eventId
+        );
+        if (existing !== undefined) {
+          if (
+            existing.event.type !== "APPROVAL_GRANTED" ||
+            input.approval.machineId !== existing.event.binding.machineId ||
+            input.approval.machineVersion !==
+              existing.event.binding.machineVersion ||
+            input.approval.eventVersion !==
+              existing.event.binding.eventVersion ||
+            input.approval.snapshotSequence !==
+              existing.event.binding.snapshotSequence ||
+            input.approval.journalHeadHash !==
+              existing.event.binding.journalHeadHash ||
+            input.approval.effectHash !== existing.event.binding.effectHash ||
+            input.approval.effectScope !==
+              canonicalJsonV1(existing.event.binding.effectScope)
+          ) {
+            throw new OperatorWorkflowPortError(
+              "STALE_APPROVAL",
+              "Approval binding is stale"
+            );
+          }
+          return detailFor(projection);
+        }
+        if (!matchesApproval(input.approval, projection)) {
           throw new OperatorWorkflowPortError(
             "STALE_APPROVAL",
-            "Approval binding is stale",
-          )
+            "Approval binding is stale"
+          );
         }
-        return detailFor(projection)
-      }
-      if (!matchesApproval(input.approval, projection)) {
-        throw new OperatorWorkflowPortError(
-          "STALE_APPROVAL",
-          "Approval binding is stale",
-        )
-      }
-      await planFor(projection)
-      const approvalId = workflowApprovalIdFor(projection.snapshot)
-      const binding = createWorkflowApprovalBindingV1(
-        approvalId,
-        projection.snapshot,
-      )
-      const event = {
-        type: "APPROVAL_GRANTED" as const,
-        eventId,
-        eventVersion: 1 as const,
-        machineVersion: 1 as const,
-        occurredAt: now().toISOString(),
-        approvalId,
-        approvalHash: hashWorkflowApprovalV1({
-          runId: input.runId,
+        await planFor(projection);
+        const approvalId = workflowApprovalIdFor(projection.snapshot);
+        const binding = createWorkflowApprovalBindingV1(
           approvalId,
-          snapshotSequence: binding.snapshotSequence,
-          journalHeadHash: binding.journalHeadHash,
-          effectHash: binding.effectHash,
-          effectScope: binding.effectScope,
-        }),
-        binding,
-      }
-      const decided = await application.decideApproval({
-        ownerId: input.ownerId,
-        runId: input.runId,
-        approval: {
-          id: approvalId,
-          runId: input.runId,
+          projection.snapshot
+        );
+        const event = {
+          type: "APPROVAL_GRANTED" as const,
+          eventId,
+          eventVersion: 1 as const,
+          machineVersion: 1 as const,
+          occurredAt: now().toISOString(),
+          approvalId,
+          approvalHash: hashWorkflowApprovalV1({
+            runId: input.runId,
+            approvalId,
+            snapshotSequence: binding.snapshotSequence,
+            journalHeadHash: binding.journalHeadHash,
+            effectHash: binding.effectHash,
+            effectScope: binding.effectScope,
+          }),
+          binding,
+        };
+        const decided = await application.decideApproval({
           ownerId: input.ownerId,
-          decidedBy: input.actorUserId,
-          decision: "granted",
-        },
-        event,
-      })
-      return detailFor(decided)
-    }
-    ),
-
-    reject: (input) => runPort(async () => {
-      const projection = await requireProjection(input.ownerId, input.runId)
-      const existing = projection.journal.find(
-        (entry) => entry.event.eventId === input.requestId,
-      )
-      const replayEvent = existing?.event.type === "APPROVAL_REJECTED"
-        ? existing.event
-        : null
-      if (existing !== undefined && replayEvent === null) {
-        throw new OperatorWorkflowPortError(
-          "CONFLICT",
-          operatorServiceErrorMessage("CONFLICT"),
-        )
-      }
-      const approvalId = replayEvent?.approvalId ??
-        workflowApprovalIdFor(projection.snapshot)
-      const event = replayEvent ?? {
-        type: "APPROVAL_REJECTED" as const,
-        eventId: input.requestId,
-        eventVersion: 1 as const,
-        machineVersion: 1 as const,
-        occurredAt: now().toISOString(),
-        approvalId,
-        reasonCode: "operator-rejected",
-      }
-      const decided = await application.decideApproval({
-        ownerId: input.ownerId,
-        runId: input.runId,
-        approval: {
-          id: approvalId,
           runId: input.runId,
+          approval: {
+            id: approvalId,
+            runId: input.runId,
+            ownerId: input.ownerId,
+            decidedBy: input.actorUserId,
+            decision: "granted",
+          },
+          event,
+        });
+        return detailFor(decided);
+      }),
+
+    reject: (input) =>
+      runPort(async () => {
+        const projection = await requireProjection(input.ownerId, input.runId);
+        const existing = projection.journal.find(
+          (entry) => entry.event.eventId === input.requestId
+        );
+        const replayEvent =
+          existing?.event.type === "APPROVAL_REJECTED" ? existing.event : null;
+        if (existing !== undefined && replayEvent === null) {
+          throw new OperatorWorkflowPortError(
+            "CONFLICT",
+            operatorServiceErrorMessage("CONFLICT")
+          );
+        }
+        const approvalId =
+          replayEvent?.approvalId ?? workflowApprovalIdFor(projection.snapshot);
+        const event = replayEvent ?? {
+          type: "APPROVAL_REJECTED" as const,
+          eventId: input.requestId,
+          eventVersion: 1 as const,
+          machineVersion: 1 as const,
+          occurredAt: now().toISOString(),
+          approvalId,
+          reasonCode: "operator-rejected",
+        };
+        const decided = await application.decideApproval({
           ownerId: input.ownerId,
-          decidedBy: input.actorUserId,
-          decision: "rejected",
-          ...(input.reason === undefined ? {} : { reason: input.reason }),
-        },
-        event,
-      })
-      return detailFor(decided)
-    }
-    ),
+          runId: input.runId,
+          approval: {
+            id: approvalId,
+            runId: input.runId,
+            ownerId: input.ownerId,
+            decidedBy: input.actorUserId,
+            decision: "rejected",
+            ...(input.reason === undefined ? {} : { reason: input.reason }),
+          },
+          event,
+        });
+        return detailFor(decided);
+      }),
 
-    cancel: (input) => runPort(() => actionDetail(input, {
-      type: "CANCEL_REQUESTED",
-      eventId: input.requestId,
-      eventVersion: 1,
-      machineVersion: 1,
-      occurredAt: now().toISOString(),
-      reasonCode: "operator-cancelled",
-    }), "VALIDATION_ERROR"),
+    cancel: (input) =>
+      runPort(
+        () =>
+          actionDetail(input, {
+            type: "CANCEL_REQUESTED",
+            eventId: input.requestId,
+            eventVersion: 1,
+            machineVersion: 1,
+            occurredAt: now().toISOString(),
+            reasonCode: "operator-cancelled",
+          }),
+        "VALIDATION_ERROR"
+      ),
 
-    retry: (input) => runPort(() => actionDetail(input, {
-      type: "RETRY_REQUESTED",
-      eventId: input.requestId,
-      eventVersion: 1,
-      machineVersion: 1,
-      occurredAt: now().toISOString(),
-      reasonCode: "operator-retry",
-    }), "VALIDATION_ERROR"),
+    retry: (input) =>
+      runPort(
+        () =>
+          actionDetail(input, {
+            type: "RETRY_REQUESTED",
+            eventId: input.requestId,
+            eventVersion: 1,
+            machineVersion: 1,
+            occurredAt: now().toISOString(),
+            reasonCode: "operator-retry",
+          }),
+        "VALIDATION_ERROR"
+      ),
 
     revise: (input) => runPort(() => revisePlan(input)),
 
-    message: (input) => runPort(async () => {
-      const identityHash = sha256Hex(canonicalJsonV1({
-        ownerId: input.ownerId,
-        runId: input.runId,
-        idempotencyKey: input.idempotencyKey,
-      }))
-      const messageId = `message-${identityHash}`
-      const projected = await application.addMessage({
-        id: messageId,
-        idempotencyKey: input.idempotencyKey,
-        runId: input.runId,
-        ownerId: input.ownerId,
-        authorId: input.actorUserId,
-        content: input.body,
-        event: {
-          type: "OPERATOR_MESSAGE_ADDED",
-          eventId: `message-event-${identityHash}`,
-          eventVersion: 1,
-          machineVersion: 1,
-          occurredAt: now().toISOString(),
-          messageId,
-        },
-      })
-      return detailFor(projected)
-    }
-    ),
-  })
-}
+    message: (input) =>
+      runPort(async () => {
+        const identityHash = sha256Hex(
+          canonicalJsonV1({
+            ownerId: input.ownerId,
+            runId: input.runId,
+            idempotencyKey: input.idempotencyKey,
+          })
+        );
+        const messageId = `message-${identityHash}`;
+        const projected = await application.addMessage({
+          id: messageId,
+          idempotencyKey: input.idempotencyKey,
+          runId: input.runId,
+          ownerId: input.ownerId,
+          authorId: input.actorUserId,
+          content: input.body,
+          event: {
+            type: "OPERATOR_MESSAGE_ADDED",
+            eventId: `message-event-${identityHash}`,
+            eventVersion: 1,
+            machineVersion: 1,
+            occurredAt: now().toISOString(),
+            messageId,
+          },
+        });
+        return detailFor(projected);
+      }),
+  });
+};

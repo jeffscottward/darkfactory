@@ -2,27 +2,30 @@ import {
   materializeWorkerBindings,
   workerBindingsTargetPath,
   type WorkerBindingsTarget,
-} from "./dev/bindings.ts"
+} from "./dev/bindings.ts";
 
-const [candidate, ...extra] = process.argv.slice(2)
-const isValidTarget = candidate === undefined || candidate === "operator"
+const [candidate, ...extra] = process.argv.slice(2);
+const isValidTarget = candidate === undefined || candidate === "operator";
 if (!isValidTarget || extra.length > 0) {
-  process.stderr.write("Usage: dev-bindings [operator]\n")
-  process.exitCode = 2
-}
-else {
-  const target: WorkerBindingsTarget = candidate === "operator" ? "operator" : "web"
+  process.stderr.write("Usage: dev-bindings [operator]\n");
+  process.exitCode = 2;
+} else {
+  const target: WorkerBindingsTarget =
+    candidate === "operator" ? "operator" : "web";
   try {
-    await materializeWorkerBindings(process.cwd(), target)
-    process.stdout.write(JSON.stringify({
-      action: target === "operator" ? "operator:bindings" : "dev:bindings",
-      ok: true,
-      target: workerBindingsTargetPath(target),
-      mode: "0600",
-    }) + "\n")
-  }
-  catch {
-    process.stderr.write("Unable to materialize validated Worker bindings safely.\n")
-    process.exitCode = 1
+    await materializeWorkerBindings(process.cwd(), target);
+    process.stdout.write(
+      JSON.stringify({
+        action: target === "operator" ? "operator:bindings" : "dev:bindings",
+        ok: true,
+        target: workerBindingsTargetPath(target),
+        mode: "0600",
+      }) + "\n"
+    );
+  } catch {
+    process.stderr.write(
+      "Unable to materialize validated Worker bindings safely.\n"
+    );
+    process.exitCode = 1;
   }
 }
