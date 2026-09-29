@@ -21,15 +21,14 @@ Security fix release. Covers [#40](https://github.com/jeffscottward/darkfactory/
 
 ### Security
 
-- The operator verifier image leaked local secrets. Its `Dockerfile.dockerignore` re-included whole `apps/` and `packages/` subtrees, so each app's `.dev.vars` (which holds every non-empty value from `.env`), other `.env*` files and host `node_modules` were copied into the image. Code under verification could read them; the container has no network, but its results flow back to the operator. The allowlist now names files only, and an invariant test rejects directory re-includes. (#47)
+- The operator verifier image leaked local secrets. Its `Dockerfile.dockerignore` re-included whole `apps/` and `packages/` subtrees, so each app's `.dev.vars` (which holds every non-empty value from `.env`), other `.env*` files and host `node_modules` were copied into the image. `.dev.vars` stayed root-only in the image, so code under verification (uid 65532, no network) could not read it; anyone with access to the image can. World-readable `.env*` files there were readable in the container, with `/output` as the only way out. The allowlist now names files only, and an invariant test rejects directory re-includes. (#47)
 - The verifier image fetches pnpm as a checksum-pinned registry tarball instead of an unpinned `npm install --global`, and its Bun base defaults to a digest-pinned `oven/bun:1.3.14`. `DARKFACTORY_VERIFIER_BASE_IMAGE` is now an optional override, which must still be digest-pinned. (#47)
 
 To remove the exposure, rebuilding is not enough: the worker keeps running the image pinned in `.env`.
 
-1. Rebuild: `pnpm --filter @darkfactory/jobs verifier:image:setup`.
-2. Set `WORKFLOW_VERIFIER_IMAGE_DIGEST` in `.env` to the printed digest, then restart `worker:pilot`.
-3. Delete the old image (`docker image rm <old digest>`) and remove it from any registry it was pushed to.
-4. Rotate the real credentials that were in that checkout's `.env` when the old image was built (provider API keys, database passwords, auth secrets).
+1. Run `pnpm --filter @darkfactory/jobs verifier:image:setup`, set the printed digest as `WORKFLOW_VERIFIER_IMAGE_DIGEST` in `.env`, then restart `worker:pilot`.
+2. Delete every other verifier image. A rebuild untags the old one, so list them by label: `docker image ls --filter label=org.darkfactory.verifier.identity`, then `docker image rm` each ID except the new digest. Remove old images from any registry too.
+3. Rotate the credentials from `.env` if an old image was exported, pushed or shared, and any real secrets in other `.env*` files under `apps/` or `packages/`.
 
 ## [0.3.0] - 2026-09-29
 
