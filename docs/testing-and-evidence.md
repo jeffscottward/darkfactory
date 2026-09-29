@@ -114,7 +114,7 @@ The committed deterministic scope measures 100% for lines, branches, functions, 
 
 ## Browser evidence
 
-Automated browser coverage currently uses Chromium at <https://darkfactory.localhost>. Playwright starts or reuses the portless route, retains traces and video on failure, and captures screenshots only on failure.
+Automated browser coverage uses Chromium against the production build at `https://darkfactory.localhost:1356`. One Playwright invocation runs the `e2e` and `a11y` projects. It starts a private portless HTTPS proxy and the app itself, and trusts only the run's generated certificate authority (an SPKI pin, with no trust-store change). It records a trace on the first retry and a screenshot only on failure. `bun run verify:browser` builds first; `test:e2e` and `test:a11y` reuse the last build.
 
 For a DF item that requires visual, responsive, keyboard, authentication, cookie, or network evidence, record more than `bun run test:e2e`:
 
@@ -127,7 +127,7 @@ For a DF item that requires visual, responsive, keyboard, authentication, cookie
 7. Screenshot, trace, or video path and a short statement of what it proves.
 8. Exact failures and rerun result; never omit a failing viewport or persona.
 
-`playwright-report/` and `test-results/` are local/generated evidence. GitHub Actions preserves them for seven days only when the browser lane and its evidence scanner both succeed. Failed, contaminated, purged, or indeterminate material is never uploaded; use the redacted job log to diagnose that failure. A missing artifact must not be described as passing evidence.
+`playwright-report/` and `test-results/` are local/generated evidence. GitHub Actions uploads them for seven days only when the browser lane fails. A missing artifact must not be described as passing evidence.
 
 ## Graphify evidence
 

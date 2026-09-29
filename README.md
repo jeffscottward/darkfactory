@@ -203,7 +203,7 @@ Vitest and Vinext's development, build, and deployment CLIs deliberately run thr
 
 ## Testing and evidence
 
-Start the isolated PostgreSQL service and load the test environment before database-backed checks. Playwright starts or reuses the canonical portless route and stores failure material in `playwright-report/` and `test-results/`.
+Start the isolated PostgreSQL service and load the test environment before database-backed checks. Playwright starts its own portless HTTPS proxy (port 1356) and the production app, and stores failure material in `playwright-report/` and `test-results/`.
 
 ```bash
 bun run db:test:up
