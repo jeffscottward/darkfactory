@@ -28,7 +28,7 @@ The operator UI and API run anywhere, but no run can execute outside macOS. A Li
 
 1. Complete [getting-started.md](getting-started.md) so Postgres and the product run.
 2. Install OMP, and the Wayfinder skill at `~/.agents/skills/wayfinder/SKILL.md`.
-3. Build the verifier image once: `pnpm --filter @darkfactory/jobs verifier:image:setup`. It prints the digest for the next step.
+3. Build the verifier image once: `pnpm --filter @darkfactory/jobs verifier:image:setup`. It prints the digest for the next step. It builds on the Bun base pinned in `packages/jobs/verifier/Dockerfile`; to override it, set `DARKFACTORY_VERIFIER_BASE_IMAGE` to another `name@sha256:…` image.
 4. Add to `.env` (see the comments in `.env.example`):
 
    | Key | Value |

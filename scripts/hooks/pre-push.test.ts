@@ -303,7 +303,6 @@ describe("source-bound pre-push", () => {
   });
 
   it.each([
-    ["empty", ""],
     ["extra field", `HEAD ${HEAD} refs/heads/main ${ZERO} extra\n`],
     ["blank record", `${update()}\n`],
     ["control byte", `HE\0AD ${HEAD} refs/heads/main ${ZERO}\n`],
@@ -329,6 +328,14 @@ describe("source-bound pre-push", () => {
   ])("rejects %s ref input before any assessment", (_, input) => {
     expect(run(input)).toBe(1);
     return expect(invokedLanes()).toEqual([]);
+  });
+
+  it("accepts Git's empty input for up-to-date or already-rejected pushes", () => {
+    // Git 2.55 sends no lines for "Everything up-to-date", stale-lease and
+    // non-fast-forward rejections; no ref is published in those cases.
+    expect(run("")).toBe(0);
+    expect(invokedLanes()).toEqual([]);
+    return expect(mocks.spawnSync).not.toHaveBeenCalled();
   });
 
   it("accepts whitespace-separated SHA-256 records without substituting HEAD for their source", () => {

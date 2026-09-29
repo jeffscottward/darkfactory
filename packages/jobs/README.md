@@ -49,3 +49,9 @@ pnpm --filter @darkfactory/jobs verifier:image:check
 drift from their pinned digests. If you edit `checks.json`, re-pin
 `OMP_VERIFIER_CONFIG_DIGEST` and the matching constants in `verifier-image.ts`
 and `verifier/runner.ts`.
+
+The image installs only dependencies. `verifier/Dockerfile.dockerignore` is an
+allowlist of files (manifests, lockfile, `checks.json`, `runner.ts`); never
+re-include a directory, or its whole subtree is sent, including `.dev.vars`,
+`.env` and host `node_modules`. Bases are pinned by digest and pnpm by tarball
+checksum; `scripts/ci/toolchain-invariants.test.ts` enforces all three rules.

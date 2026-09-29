@@ -121,9 +121,10 @@ const inspect = async (digest: string): Promise<void> => {
 
 const command = process.argv[2];
 if (command === "setup") {
+  // Optional override; the Dockerfile's default base is already digest-pinned.
   const baseImage =
     process.env["DARKFACTORY_VERIFIER_BASE_IMAGE"]?.trim() ?? "";
-  if (!PINNED_IMAGE_PATTERN.test(baseImage)) {
+  if (baseImage !== "" && !PINNED_IMAGE_PATTERN.test(baseImage)) {
     fail("DARKFACTORY_VERIFIER_BASE_IMAGE must be pinned by sha256 digest");
   }
   const imageName =
@@ -139,8 +140,7 @@ if (command === "setup") {
     "packages/jobs/verifier/Dockerfile",
     "--tag",
     imageName,
-    "--build-arg",
-    `BUN_BASE_IMAGE=${baseImage}`,
+    ...(baseImage === "" ? [] : ["--build-arg", `BUN_BASE_IMAGE=${baseImage}`]),
     "--build-arg",
     `VERIFIER_CONFIG_DIGEST=${CONFIG_DIGEST}`,
     "--build-arg",

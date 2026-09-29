@@ -75,6 +75,8 @@ afterEach(() => {
   return vi.resetModules();
 });
 
+// The script runs its command on load, so each test sets argv and env first
+// and then imports it dynamically (afterEach resets the module registry).
 describe("verifier image executable", { concurrent: false }, () => {
   it("builds a pinned image, verifies its immutable identity, and prints the digest", async () => {
     process.argv = ["bun", "verifier-image.ts", "setup"];
@@ -136,6 +138,48 @@ describe("verifier image executable", { concurrent: false }, () => {
     );
   });
 
+  it("builds on the Dockerfile's pinned base when no override is set", async () => {
+    process.argv = ["bun", "verifier-image.ts", "setup"];
+    delete process.env["DARKFACTORY_VERIFIER_BASE_IMAGE"];
+    delete process.env["DARKFACTORY_VERIFIER_IMAGE_NAME"];
+    const { spawn } = installBun([
+      { exitCode: 0 },
+      { exitCode: 0, stdout: `${IMAGE_DIGEST}\n` },
+      {
+        exitCode: 0,
+        stdout: `${IMAGE_DIGEST}|${CONFIG_DIGEST}|${ARGV_DIGEST}\n`,
+      },
+    ]);
+    vi.spyOn(process.stdout, "write").mockImplementation(() => true);
+
+    await import("./verifier-image.ts");
+
+    return expect(spawn.mock.calls[0]?.[0]).toEqual([
+      "/usr/local/bin/docker",
+      "build",
+      "--pull",
+      "--file",
+      "packages/jobs/verifier/Dockerfile",
+      "--tag",
+      "darkfactory-verifier",
+      "--build-arg",
+      `VERIFIER_CONFIG_DIGEST=${CONFIG_DIGEST}`,
+      "--build-arg",
+      `VERIFIER_ARGV_DIGEST=${ARGV_DIGEST}`,
+      ".",
+    ]);
+  });
+
+  it("rejects a base image override that is not pinned by digest", async () => {
+    process.argv = ["bun", "verifier-image.ts", "setup"];
+    process.env["DARKFACTORY_VERIFIER_BASE_IMAGE"] = "oven/bun:1.3.14";
+    installBun([]);
+
+    return await expect(import("./verifier-image.ts")).rejects.toThrow(
+      "DARKFACTORY_VERIFIER_BASE_IMAGE must be pinned by sha256 digest"
+    );
+  });
+
   it("checks an existing image with fallback environment values", async () => {
     process.argv = ["bun", "verifier-image.ts", "check"];
     process.env["WORKFLOW_VERIFIER_IMAGE_DIGEST"] = ` ${IMAGE_DIGEST} `;
@@ -189,11 +233,6 @@ describe("verifier image executable", { concurrent: false }, () => {
   });
 
   it.each([
-    [
-      "setup without a pinned base",
-      "setup",
-      "DARKFACTORY_VERIFIER_BASE_IMAGE must be pinned by sha256 digest",
-    ],
     [
       "check without a valid digest",
       "check",
