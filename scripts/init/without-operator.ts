@@ -206,19 +206,26 @@ const pruneManifest = (
 };
 
 /**
- * Drops array strings that cite the plane (lint overrides, ignore lists). An
- * `includes` list left empty takes its whole override object with it.
+ * Drops what cites the plane from JSON(C) config: array strings (lint
+ * overrides, ignore lists) and object keys with their values (knip
+ * workspaces). An `includes` list left empty takes its whole override with it.
  */
 const pruneJson = (source: string, footprint: Footprint): string => {
   const doomed: Node[] = [];
+  const cites = (node: Node): boolean =>
+    node.type === "string" && citesToken(node.value as string, footprint);
   const visit = (node: Node): void => {
     const children = node.children ?? [];
-    const cited = children.filter(
-      (child) =>
-        node.type === "array" &&
-        child.type === "string" &&
-        citesToken(child.value as string, footprint)
-    );
+    if (node.type === "object") {
+      // Tracked config is well-formed, so every property has a key and a value.
+      for (const property of children) {
+        const [key, value] = property.children as [Node, Node];
+        if (cites(key)) doomed.push(value);
+        else visit(value);
+      }
+      return;
+    }
+    const cited = children.filter(cites);
     const owner = node.parent?.parent;
     if (
       cited.length > 0 &&
@@ -280,12 +287,20 @@ export const withoutOperator = (texts: Texts): OperatorRemoval => {
   const directories = bricks.map((brick) => brick.directory);
   const names = bricks.map((brick) => brick.name);
   const shortNames = names.map((name) => name.slice(name.indexOf("/") + 1));
+  // Real import statements and calls only; a fixture string that quotes an
+  // import keeps its file.
+  const target = `["'](?:${names.map((name) => name.replaceAll(".", "\\.")).join("|")})(?:/[^"'\\n]*)?["']`;
   const importer =
     names.length === 0
       ? undefined
       : new RegExp(
-          `(?:\\bfrom\\s*|\\bimport\\s*\\(?\\s*|\\b(?:require|mock|doMock|importActual)\\s*\\(\\s*)(["'])(?:${names.map((name) => name.replaceAll(".", "\\.")).join("|")})(?:/[^"']*)?\\1`,
-          "u"
+          [
+            `^\\s*(?:import|export)\\b[^\\n]*?\\bfrom\\s*${target}`,
+            `^\\s*\\}\\s*from\\s*${target}`,
+            `^\\s*import\\s*${target}`,
+            `^(?!\\s*["'\`])[^\\n]*?\\b(?:import|require|mock|doMock|importActual)\\s*\\(\\s*${target}`,
+          ].join("|"),
+          "mu"
         );
   const removed = new Set<string>();
   for (const [path, text] of texts) {

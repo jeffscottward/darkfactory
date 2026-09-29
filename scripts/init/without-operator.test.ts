@@ -35,6 +35,10 @@ describe("withoutOperator", () => {
         "tests/e2e/mocked.spec.ts": 'vi.mock("@darkfactory/operator");\n',
         "tests/unit/keep.test.ts":
           'const name = "@darkfactory/operator-app";\n',
+        "scripts/docs/fixture.test.ts":
+          "const probe = [\n  'import type * as Jobs from \"@darkfactory/jobs/schema\";',\n  'vi.mock(\"@darkfactory/jobs\");',\n];\n",
+        "tests/integration/multiline.test.ts":
+          'import {\n  run,\n} from "@darkfactory/jobs/server/run";\n',
         "tests/fixture.bin.ts": undefined,
         "docs/jobs-guide.md": "# Kept\n",
       })
@@ -48,6 +52,7 @@ describe("withoutOperator", () => {
       "packages/jobs/verifier/Dockerfile",
       "packages/operator/package.json",
       "tests/e2e/mocked.spec.ts",
+      "tests/integration/multiline.test.ts",
       "tests/integration/workflow.test.ts",
     ]);
     expect([...result.texts.keys()].sort()).toEqual([
@@ -55,6 +60,7 @@ describe("withoutOperator", () => {
       "packages/odd/package.json",
       "packages/raw/package.json",
       "packages/state/package.json",
+      "scripts/docs/fixture.test.ts",
       "tests/fixture.bin.ts",
       "tests/unit/keep.test.ts",
     ]);
@@ -170,7 +176,7 @@ describe("withoutOperator", () => {
     );
   });
 
-  it("drops config entries that cite the plane, and overrides left empty", () => {
+  it("drops config entries and keys that cite the plane, and overrides left empty", () => {
     const biome = [
       "{",
       '  "overrides": [',
@@ -184,6 +190,11 @@ describe("withoutOperator", () => {
       '  "ignore": ["apps/operator/"],',
       '  "includes": ["packages/operator"],',
       '  "nested": [["packages/jobs"]],',
+      "  // knip: one entry per workspace.",
+      '  "workspaces": {',
+      '    "apps/operator": { "entry": ["src/app/page.tsx"] },',
+      '    "apps/web": { "entry": ["src/app/page.tsx"] }',
+      "  },",
       '  "count": 1',
       "}",
       "",
@@ -211,6 +222,14 @@ describe("withoutOperator", () => {
         '  "nested": [',
         "    []",
         "  ],",
+        "  // knip: one entry per workspace.",
+        '  "workspaces": {',
+        '    "apps/web": {',
+        '      "entry": [',
+        '        "src/app/page.tsx"',
+        "      ]",
+        "    }",
+        "  },",
         '  "count": 1',
         "}",
         "",

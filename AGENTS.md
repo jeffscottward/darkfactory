@@ -1,6 +1,6 @@
 # AGENTS.md
 
-The index for every agent and contributor. `CLAUDE.md` is a symlink to this file. It takes precedence over every other Markdown file; [ARCHITECTURE.md](ARCHITECTURE.md) (boundaries) and [CONVENTIONS.md](CONVENTIONS.md) (code rules) add detail. `docs/archive/` is history, not instructions.
+The index for every agent and contributor. `CLAUDE.md` is a symlink to this file. It takes precedence over every other Markdown file; [ARCHITECTURE.md](ARCHITECTURE.md) (boundaries) and [CONVENTIONS.md](CONVENTIONS.md) (code rules) add detail.<!-- init:start --> `docs/archive/` is history, not instructions.<!-- init:end -->
 
 ## Mission
 
