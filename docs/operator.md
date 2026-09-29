@@ -58,10 +58,11 @@ Sign in as an admin (the seeded `admin@domain.test` locally), start a Wayfinder 
 
 Rebuild after any change under `packages/jobs/verifier/`. The worker runs the image pinned in `.env`, so a rebuild alone changes nothing:
 
-1. Run `pnpm --filter @darkfactory/jobs verifier:image:setup`; it prints the new digest.
-2. Set `WORKFLOW_VERIFIER_IMAGE_DIGEST` in `.env` to that digest, then restart `worker:pilot`.
-3. Delete the old image (`docker image rm <old digest>`) and remove it from any registry it was pushed to.
-4. If the old image came from 0.3.0 or earlier, rotate the real credentials that were in `.env` when it was built. Those images copied each app's `.dev.vars`, which holds every non-empty `.env` value.
+1. Run `pnpm --filter @darkfactory/jobs verifier:image:setup`, set the printed digest as `WORKFLOW_VERIFIER_IMAGE_DIGEST` in `.env`, then restart `worker:pilot`.
+2. Delete every other verifier image. A rebuild untags the old one, so list them by label: `docker image ls --filter label=org.darkfactory.verifier.identity`, then `docker image rm` each ID except the new digest. Remove old images from any registry too.
+3. Rotate the credentials from `.env` if an old image was exported, pushed or shared, and any real secrets in other `.env*` files under `apps/` or `packages/`.
+
+Images from 0.3.0 or earlier hold each app's `.dev.vars` (every non-empty `.env` value) in their layers. `.dev.vars` stayed root-only in the image, so code under verification (uid 65532, no network) could not read it; anyone with access to the image can. World-readable `.env*` files there were readable in the container, with `/output` as the only way out.
 
 ## Remove it
 
