@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { parse } from "yaml";
+import { PINNED_TOOL_MANIFESTS } from "../doctor/doctor.ts";
 import { parseMiseToolchain } from "../lib/toolchain.ts";
 
 // mise.toml is the one toolchain pin. CI and containers still read these
@@ -93,6 +94,16 @@ describe("toolchain pins", () => {
           "mu"
         )
       );
+    }
+  });
+
+  it("keeps doctor's expected tool versions equal to the pnpm catalog", async () => {
+    const { catalog } = parse(await read("pnpm-workspace.yaml")) as Readonly<{
+      catalog: Record<string, string>;
+    }>;
+    for (const [path, expected] of PINNED_TOOL_MANIFESTS) {
+      const name = /node_modules\/(.+)\/package\.json$/u.exec(path)?.[1] ?? "";
+      expect(catalog[name], path).toBe(expected);
     }
   });
 
