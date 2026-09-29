@@ -81,14 +81,15 @@ const encodeCanonical = (
   }
 };
 
-export const canonicalJson = (value: CanonicalJsonValue | unknown): string => {
+export const canonicalJsonV1 = (
+  value: CanonicalJsonValue | unknown
+): string => {
   const encoded = encodeCanonical(value, new Set(), false);
   if (encoded === undefined) {
     throw new TypeError("Unsupported canonical JSON root value");
   }
   return encoded;
 };
-export const canonicalJsonV1 = canonicalJson;
 
 export const sha256Hex = (material: string): string => {
   return bytesToHex(sha256(utf8ToBytes(material)));
@@ -98,7 +99,7 @@ export const hashWorkflowEffectProposalV1 = (
   proposal: WorkflowEffectProposalV1
 ): string =>
   sha256Hex(
-    canonicalJson({
+    canonicalJsonV1({
       machineId: WORKFLOW_MACHINE_ID,
       machineVersion: WORKFLOW_MACHINE_VERSION,
       proposal,
@@ -114,7 +115,7 @@ export interface WorkflowJournalHashMaterialV1 {
 export const journalHashMaterialV1 = (
   material: WorkflowJournalHashMaterialV1
 ): string =>
-  canonicalJson({
+  canonicalJsonV1({
     machineId: WORKFLOW_MACHINE_ID,
     machineVersion: WORKFLOW_MACHINE_VERSION,
     sequence: material.sequence,
