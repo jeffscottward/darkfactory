@@ -1,5 +1,5 @@
 import type { SemanticEvent } from "@darkfactory/observability";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => {
   const env = {
@@ -27,6 +27,7 @@ const mocks = vi.hoisted(() => {
     trackedSchedule: vi.fn(),
     db: { kind: "request-db" },
     createAuth: vi.fn(() => ({ kind: "auth" })),
+    parentHeaders: vi.fn(async () => new Headers()),
     selectEmailPort: vi.fn(() => ({ kind: "email" })),
     emit: vi.fn(async (_event: SemanticEvent) => undefined),
     createEvlogSink: vi.fn(),
@@ -53,7 +54,9 @@ vi.mock("@darkfactory/db/server", async (importOriginal) => ({
 vi.mock("@darkfactory/auth/server", async (importOriginal) => ({
   ...(await importOriginal<object>()),
   createAuth: mocks.createAuth,
+  createAuthHandler: () => async () => new Response("session"),
 }));
+vi.mock("next/headers", () => ({ headers: mocks.parentHeaders }));
 vi.mock("@darkfactory/email/server", async (importOriginal) => ({
   ...(await importOriginal<object>()),
   selectEmailPort: mocks.selectEmailPort,
@@ -67,6 +70,7 @@ import { RequestDatabaseCapacityError } from "@darkfactory/db/server";
 import { handleAuthRequest } from "../app/api/auth/[...all]/handler.ts";
 import { handleStrictSignOutRequest } from "../app/api/auth/strict-sign-out/handler.ts";
 import { handleOrpcRuntimeRequest } from "../app/api/orpc/[...rest]/route.ts";
+import { dispatchInternalAuthRequest } from "../lib/server-internal-dispatch.ts";
 import { type WebRequestScope, withRequestScope } from "./request-scope.ts";
 
 const request = (headers: Record<string, string> = {}) =>
@@ -90,9 +94,14 @@ beforeEach(() => {
 describe("withRequestScope composition", () => {
   it("composes env, id, sink, Hyperdrive-aware DB, email and auth, then runs", async () => {
     const waitUntil = vi.fn();
-    const source = request({ "x-request-id": "parent-request.1" });
+    const source = request();
 
-    const response = await withRequestScope(source, waitUntil, okRun);
+    const response = await withRequestScope(
+      source,
+      waitUntil,
+      okRun,
+      "parent-request.1"
+    );
 
     expect(response.status).toBe(201);
     expect(response.headers.get("x-kept")).toBe("1");
@@ -251,11 +260,11 @@ describe("database capacity mapping", () => {
       () =>
         handleAuthRequest(
           new Request("https://darkfactory.localhost/api/auth/get-session", {
-            headers: { "x-request-id": "capacity-auth" },
+            headers: { "cf-ray": "0000000000000001-SJC" },
           }),
           vi.fn()
         ),
-      "capacity-auth",
+      "0000000000000001-SJC",
     ],
     [
       "strict sign-out",
@@ -265,12 +274,12 @@ describe("database capacity mapping", () => {
             "https://darkfactory.localhost/api/auth/strict-sign-out",
             {
               method: "POST",
-              headers: { "x-request-id": "capacity-sign-out" },
+              headers: { "cf-ray": "0000000000000002-SJC" },
             }
           ),
           vi.fn()
         ),
-      "capacity-sign-out",
+      "0000000000000002-SJC",
     ],
     [
       "oRPC",
@@ -278,11 +287,11 @@ describe("database capacity mapping", () => {
         handleOrpcRuntimeRequest(
           new Request(
             "https://darkfactory.localhost/api/orpc/dashboard/summary",
-            { headers: { "x-request-id": "capacity-orpc" } }
+            { headers: { "cf-ray": "0000000000000003-SJC" } }
           ),
           vi.fn()
         ),
-      "capacity-orpc",
+      "0000000000000003-SJC",
     ],
   ])("maps capacity exhaustion to the coded 503 in the %s handler", async (_name, handle, requestId) => {
     mocks.openRequestScope.mockRejectedValueOnce(
@@ -292,5 +301,44 @@ describe("database capacity mapping", () => {
     await expectCapacity(await handle(), requestId);
     expect(mocks.createAuth).not.toHaveBeenCalled();
     expect(mocks.finalize).not.toHaveBeenCalled();
+  });
+});
+
+describe("request id trust boundary", () => {
+  afterEach(() => vi.unstubAllEnvs());
+
+  it("ignores a forged x-request-id on an external request and echoes the effective id", async () => {
+    const response = await handleAuthRequest(
+      request({ "x-request-id": "attacker-controlled" }),
+      vi.fn()
+    );
+
+    const effective = response.headers.get("x-request-id");
+    expect(effective).not.toBe("attacker-controlled");
+    expect(effective).toMatch(/^[0-9a-f-]{36}$/);
+    const [{ diagnosticSink }] = mocks.openRequestScope.mock.calls[0]!;
+    diagnosticSink({ code: "REQUEST_DATABASE_CLIENT_ERROR" });
+    await vi.waitFor(() =>
+      expect(mocks.emit).toHaveBeenCalledWith(
+        expect.objectContaining({ correlation: { requestId: effective } })
+      )
+    );
+  });
+
+  it("carries the parent id through in-process dispatch even when a header is forged", async () => {
+    vi.stubEnv("APP_URL", "https://darkfactory.localhost");
+    mocks.parentHeaders.mockResolvedValueOnce(
+      new Headers({
+        "cf-ray": "8f1e2d3c4b5a6978-SJC",
+        "x-request-id": "attacker-parent",
+      })
+    );
+
+    const response = await dispatchInternalAuthRequest(
+      request({ "x-request-id": "attacker-controlled" })
+    );
+
+    expect(await response.text()).toBe("session");
+    expect(response.headers.get("x-request-id")).toBe("8f1e2d3c4b5a6978-SJC");
   });
 });

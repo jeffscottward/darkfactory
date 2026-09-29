@@ -45,7 +45,8 @@ const mocks = vi.hoisted(() => {
       async (
         _request: Request,
         _waitUntil: unknown,
-        run: (value: typeof scope) => Promise<Response>
+        run: (value: typeof scope) => Promise<Response>,
+        _internalParentRequestId?: string
       ) => run(scope)
     ),
     parseServerEnv: vi.fn(() => env),
@@ -159,6 +160,8 @@ describe("oRPC Worker route composition", () => {
 
     expect(mocks.withRequestScope).toHaveBeenCalledTimes(2);
     expect(mocks.withRequestScope.mock.calls[0]![1]).toBe(mocks.waitUntil);
+    // Route exports never forward an internal parent id.
+    expect(mocks.withRequestScope.mock.calls[0]![3]).toBeUndefined();
     expect(mocks.initializeTelemetry).toHaveBeenCalledOnce();
     expect(mocks.initializeTelemetry).toHaveBeenCalledWith({
       enabled: true,

@@ -164,20 +164,27 @@ const expectSafeStableEvent = (
 };
 
 describe("feature mutation semantic events", () => {
-  it("correlates with a valid incoming request ID but never an unsafe one", () => {
+  it("ignores an untrusted public request ID header at the request boundary", () => {
+    const request = new Request("https://darkfactory.localhost/api/orpc", {
+      headers: { "x-request-id": "attacker-controlled" },
+    });
+
+    return expect(
+      resolveApiRequestId(request, {
+        generateRequestId: () => "internal-request-id",
+      })
+    ).toBe("internal-request-id");
+  });
+
+  it("correlates with a pattern-checked cf-ray, else an injected or generated id", () => {
     const generateRequestId = () => "internal-request-id";
     const withHeaders = (headers: Record<string, string>) =>
       new Request("https://darkfactory.localhost/api/orpc", { headers });
 
     expect(
-      resolveApiRequestId(withHeaders({ "x-request-id": "parent-request.1" }), {
-        generateRequestId,
-      })
-    ).toBe("parent-request.1");
-    expect(
       resolveApiRequestId(
         withHeaders({
-          "x-request-id": "attacker controlled\n",
+          "x-request-id": "attacker-controlled",
           "cf-ray": "8f1e2d3c4b5a6978-SJC",
         }),
         { generateRequestId }
@@ -194,10 +201,10 @@ describe("feature mutation semantic events", () => {
       })
     ).toBe("internal-request-id");
     expect(
-      resolveApiRequestId(withHeaders({ "x-request-id": "parent" }), {
-        requestId: "injected",
+      resolveApiRequestId(withHeaders({ "cf-ray": "8f1e2d3c4b5a6978-SJC" }), {
+        requestId: "injected-parent",
       })
-    ).toBe("injected");
+    ).toBe("injected-parent");
   });
 
   it.each([

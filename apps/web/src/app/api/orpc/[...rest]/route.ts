@@ -184,7 +184,8 @@ const admitContactSubmission = async (
 
 export const handleOrpcRuntimeRequest = async (
   request: Request,
-  waitUntil: BackgroundTaskScheduler
+  waitUntil: BackgroundTaskScheduler,
+  internalParentRequestId?: string
 ): Promise<Response> => {
   const env = parseServerEnv(process.env);
   const method = request.method.toUpperCase();
@@ -206,46 +207,50 @@ export const handleOrpcRuntimeRequest = async (
     return payloadTooLargeResponse();
   const effectiveRequest = boundedRequest.request;
 
-  return await withRequestScope(effectiveRequest, waitUntil, (scope) =>
-    runWithRequestTelemetry(
-      telemetryFor(env),
-      {
-        name: "orpc.request",
-        correlation: { requestId: scope.requestId, route: "/api/orpc" },
-        attributes: { "rpc.system": "orpc" },
-      },
-      waitUntil,
-      async (span) => {
-        let contact: ContactDependencies | undefined;
-        if (isContactSubmission) {
-          const admitted = await admitContactSubmission(
-            scope,
-            effectiveRequest,
-            boundedRequest.tooLarge
-          );
-          if (admitted instanceof Response) return admitted;
-          contact = admitted;
+  return await withRequestScope(
+    effectiveRequest,
+    waitUntil,
+    (scope) =>
+      runWithRequestTelemetry(
+        telemetryFor(env),
+        {
+          name: "orpc.request",
+          correlation: { requestId: scope.requestId, route: "/api/orpc" },
+          attributes: { "rpc.system": "orpc" },
+        },
+        waitUntil,
+        async (span) => {
+          let contact: ContactDependencies | undefined;
+          if (isContactSubmission) {
+            const admitted = await admitContactSubmission(
+              scope,
+              effectiveRequest,
+              boundedRequest.tooLarge
+            );
+            if (admitted instanceof Response) return admitted;
+            contact = admitted;
+          }
+          const context = createApiContext(effectiveRequest, {
+            repositories: createRepositories(scope.db),
+            capabilities: getProviderCapabilities(scope.env),
+            requireSession: (headers) => requireSession(scope.auth, headers),
+            requireRole: (headers, role) =>
+              requireRole(scope.auth, headers, role),
+            requestId: scope.requestId,
+            semanticEvents: createSemanticEventFanout({
+              sink: scope.sink,
+              analytics: analyticsFor(scope.env),
+              resolveConsent: () => resolveAnalyticsConsent(request),
+            }),
+            span,
+            // Not DB-bound, so it must not hold the connection open: use the raw waitUntil.
+            waitUntil,
+            ...contact,
+          });
+          return await handleOrpcRequest(effectiveRequest, context);
         }
-        const context = createApiContext(effectiveRequest, {
-          repositories: createRepositories(scope.db),
-          capabilities: getProviderCapabilities(scope.env),
-          requireSession: (headers) => requireSession(scope.auth, headers),
-          requireRole: (headers, role) =>
-            requireRole(scope.auth, headers, role),
-          requestId: scope.requestId,
-          semanticEvents: createSemanticEventFanout({
-            sink: scope.sink,
-            analytics: analyticsFor(scope.env),
-            resolveConsent: () => resolveAnalyticsConsent(request),
-          }),
-          span,
-          // Not DB-bound, so it must not hold the connection open: use the raw waitUntil.
-          waitUntil,
-          ...contact,
-        });
-        return await handleOrpcRequest(effectiveRequest, context);
-      }
-    )
+      ),
+    internalParentRequestId
   );
 };
 

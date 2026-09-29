@@ -51,10 +51,10 @@ const CF_RAY_PATTERN = /^[0-9a-f]{16}(?:-[A-Z]{3})?$/;
 
 /**
  * Correlation id for one request, shared by evlog, the OTel span and audit rows.
- * Order: injected id, then a valid incoming `x-request-id` (in-process dispatch
- * copies the parent's, see apps/web/src/lib/server-internal-dispatch.ts),
- * then a pattern-checked `cf-ray`, then a fresh UUID. Header values are
- * correlation hints only, never authority, so an invalid one is ignored.
+ * Order: an injected id (in-process dispatch passes its parent's, see
+ * apps/web/src/lib/server-internal-dispatch.ts), then a pattern-checked
+ * edge-set `cf-ray`, then a fresh UUID. A public `x-request-id` is never
+ * read: it would let a client choose its own `audit_records.request_id`.
  */
 export const resolveApiRequestId = (
   request: Readonly<{ headers: Pick<Headers, "get"> }>,
@@ -69,8 +69,6 @@ export const resolveApiRequestId = (
     return options.requestId;
   }
 
-  const incoming = request.headers.get("x-request-id");
-  if (incoming !== null && REQUEST_ID_PATTERN.test(incoming)) return incoming;
   const ray = request.headers.get("cf-ray");
   if (ray !== null && CF_RAY_PATTERN.test(ray)) return ray;
 

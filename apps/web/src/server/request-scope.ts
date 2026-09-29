@@ -56,10 +56,21 @@ const withRequestIdHeader = (
 export const withRequestScope = async (
   request: Request,
   waitUntil: BackgroundTaskScheduler,
-  run: (scope: WebRequestScope) => Promise<Response>
+  run: (scope: WebRequestScope) => Promise<Response>,
+  /**
+   * The parent page's id, passed only by in-process dispatch
+   * (apps/web/src/lib/server-internal-dispatch.ts). Route exports never
+   * forward a third argument, so a network client cannot set it.
+   */
+  internalParentRequestId?: string
 ): Promise<Response> => {
   const env = parseServerEnv(process.env);
-  const requestId = resolveApiRequestId(request);
+  const requestId = resolveApiRequestId(
+    request,
+    internalParentRequestId === undefined
+      ? {}
+      : { requestId: internalParentRequestId }
+  );
   const connectionString = composeDatabaseProfile(
     env,
     resolveDatabaseRequestBinding()

@@ -885,7 +885,10 @@ describe.sequential("DF-041 through DF-045 Better Auth integration", () => {
       );
       const response = await handleAuthRequest(
         new Request(`${BASE_URL}/api/auth/ok`, {
-          headers: { "x-request-id": "integration-auth-ok" },
+          headers: {
+            "cf-ray": "0123456789abcdef-SJC",
+            "x-request-id": "attacker-controlled",
+          },
         }),
         (task) => {
           return backgroundTasks.push(task);
@@ -899,7 +902,8 @@ describe.sequential("DF-041 through DF-045 Better Auth integration", () => {
 
       expect(response).toBeInstanceOf(Response);
       expect(response.status).toBe(200);
-      expect(response.headers.get("x-request-id")).toBe("integration-auth-ok");
+      // A public x-request-id is ignored; the edge-set cf-ray is the effective id.
+      expect(response.headers.get("x-request-id")).toBe("0123456789abcdef-SJC");
       return expect(after?.connection_count).toBe(before?.connection_count);
     } finally {
       vi.unstubAllEnvs();

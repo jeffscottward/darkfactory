@@ -16,7 +16,8 @@ const mocks = vi.hoisted(() => {
       async (
         _request: Request,
         _waitUntil: unknown,
-        run: (value: typeof scope) => Promise<Response>
+        run: (value: typeof scope) => Promise<Response>,
+        _internalParentRequestId?: string
       ) => run(scope)
     ),
     requestHandler: vi.fn(async (_request: Request) => new Response("handled")),
@@ -60,13 +61,14 @@ describe("Better Auth handler", () => {
       { headers: { cookie: "session=opaque" } }
     );
 
-    const response = await handleAuthRequest(request, waitUntil);
+    const response = await handleAuthRequest(request, waitUntil, "parent-id");
 
     expect(await response.text()).toBe("handled");
     expect(mocks.withRequestScope).toHaveBeenCalledWith(
       request,
       waitUntil,
-      expect.any(Function)
+      expect.any(Function),
+      "parent-id"
     );
     expect(mocks.createAuthHandler).toHaveBeenCalledWith(mocks.scope.auth);
     expect(mocks.requestHandler).toHaveBeenCalledWith(request);

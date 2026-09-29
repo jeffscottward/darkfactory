@@ -31,20 +31,14 @@ const requestFrom = (input: RequestInfo | URL, init?: RequestInit): Request =>
  */
 
 /**
- * The parent page request's correlation id, memoized per server request by
- * React `cache`, so every dispatch of one render (and its evlog events and
- * OTel span) shares it; in production this is the parent's `cf-ray`.
+ * The parent page request's id (its edge-set `cf-ray`, else a UUID), memoized
+ * per server request by React `cache` so every dispatch of one render shares
+ * it. It is handed to the route handler as an explicit in-process argument,
+ * never as a header: a header is forgeable by any network client.
  */
 const parentRequestId = cache(
   async (): Promise<string> => resolveApiRequestId({ headers: await headers() })
 );
-
-const withParentRequestId = async (request: Request): Promise<Request> => {
-  const requestId = await parentRequestId();
-  const correlated = new Request(request);
-  correlated.headers.set("x-request-id", requestId);
-  return correlated;
-};
 
 const isConfiguredOrigin = (url: URL): boolean => {
   return url.origin === resolvePortalAppUrl().origin;
@@ -117,7 +111,7 @@ export const dispatchInternalAuthRequest: typeof globalThis.fetch = async (
     );
   }
   return await dispatchWithAbort(request, async () =>
-    handleAuthRequest(await withParentRequestId(request), waitUntil)
+    handleAuthRequest(request, waitUntil, await parentRequestId())
   );
 };
 
@@ -140,6 +134,6 @@ export const dispatchInternalOrpcRequest: typeof globalThis.fetch = async (
     );
   }
   return await dispatchWithAbort(request, async () =>
-    handleOrpcRuntimeRequest(await withParentRequestId(request), waitUntil)
+    handleOrpcRuntimeRequest(request, waitUntil, await parentRequestId())
   );
 };

@@ -9,7 +9,8 @@ export const AUTH_REQUEST_MAX_BYTES = 64 * 1024;
 
 export const handleAuthRequest = async (
   request: Request,
-  waitUntil: BackgroundTaskScheduler
+  waitUntil: BackgroundTaskScheduler,
+  internalParentRequestId?: string
 ): Promise<Response> => {
   // Bound the body before the scope opens a connection, so oversized input never costs a DB slot.
   const bounded = AUTH_BODY_METHODS.includes(request.method.toUpperCase())
@@ -18,7 +19,10 @@ export const handleAuthRequest = async (
   if (bounded.tooLarge) {
     return Response.json({ error: "Payload Too Large" }, { status: 413 });
   }
-  return await withRequestScope(bounded.request, waitUntil, ({ auth }) =>
-    createAuthHandler(auth)(bounded.request)
+  return await withRequestScope(
+    bounded.request,
+    waitUntil,
+    ({ auth }) => createAuthHandler(auth)(bounded.request),
+    internalParentRequestId
   );
 };
