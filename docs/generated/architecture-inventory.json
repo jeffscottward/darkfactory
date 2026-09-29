@@ -5,7 +5,6 @@
     "api:openapi:generate",
     "auth:schema:check",
     "build",
-    "capability:add",
     "certs:generate",
     "certs:install",
     "ci",
@@ -79,6 +78,7 @@
       "directory": "packages/ai",
       "publicExports": [
         ".",
+        "./adapters",
         "./server/groq",
         "./test"
       ],
@@ -90,6 +90,7 @@
       "directory": "packages/analytics",
       "publicExports": [
         ".",
+        "./adapters",
         "./server/posthog",
         "./test"
       ],
@@ -134,7 +135,11 @@
         "./server",
         "./server/capabilities"
       ],
-      "workspaceDependencies": []
+      "workspaceDependencies": [
+        "@darkfactory/ai",
+        "@darkfactory/analytics",
+        "@darkfactory/email"
+      ]
     },
     {
       "name": "@darkfactory/db",
@@ -155,6 +160,7 @@
       "directory": "packages/email",
       "publicExports": [
         ".",
+        "./adapters",
         "./recipient",
         "./server",
         "./test"
@@ -241,15 +247,6 @@
       "workspaceDependencies": []
     },
     {
-      "name": "@darkfactory/shared",
-      "version": "0.2.1",
-      "directory": "packages/shared",
-      "publicExports": [
-        "."
-      ],
-      "workspaceDependencies": []
-    },
-    {
       "name": "@darkfactory/state",
       "version": "0.2.1",
       "directory": "packages/state",
@@ -258,16 +255,6 @@
         "./client",
         "./flow",
         "./workflow"
-      ],
-      "workspaceDependencies": []
-    },
-    {
-      "name": "@darkfactory/storage",
-      "version": "0.2.1",
-      "directory": "packages/storage",
-      "publicExports": [
-        ".",
-        "./test"
       ],
       "workspaceDependencies": []
     },

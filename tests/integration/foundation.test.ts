@@ -1,11 +1,5 @@
 import { toClientEnv } from "@darkfactory/config";
 import { parseServerEnv } from "@darkfactory/config/server";
-import {
-  createIdentifier,
-  matchResult,
-  type Result,
-  success,
-} from "@darkfactory/shared";
 import { createFixedClock, createIdSequence } from "@darkfactory/testkit";
 import { describe, expect, it } from "vitest";
 
@@ -22,19 +16,11 @@ describe("foundation package integration", () =>
         "test-only-contact-throttle-secret-32-characters",
     });
 
-    const contextValue = {
-      id: createIdentifier<"foundation-request">(nextRequestId()),
+    const context = {
+      id: nextRequestId(),
       observedAt: clock.now().toISOString(),
       environment: toClientEnv(serverEnv),
     };
-    const contextResult: Result<typeof contextValue, never> =
-      success(contextValue);
-    const context = matchResult(contextResult, {
-      success: (value: typeof contextValue) => value,
-      failure: (error: never) => {
-        throw error;
-      },
-    });
 
     expect(context).toEqual({
       id: "foundation_request_01",

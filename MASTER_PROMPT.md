@@ -130,12 +130,11 @@ Required workspace responsibilities:
 | `packages/ui` | Semantic tokens, shadcn/Radix primitives, themes, typography, shared accessible compositions |
 | `packages/config` | Runtime-specific environment parsing, client allowlist, capability classification, production rejection rules |
 | `packages/state` | Shared XState/Zustand integration only where truly cross-feature |
-| `packages/email` | Provider-neutral email port, React Email rendering, preview transport, Resend adapter |
+| `packages/email` | Provider-neutral email port, HTML rendering, preview transport, Resend adapter |
 | `packages/ai` | Provider-neutral AI port, validated Groq adapter, unavailable/unconfigured behavior |
 | `packages/analytics` | Typed product-event port and PostHog adapter |
 | `packages/observability` | evlog/OpenTelemetry context, redaction, structured technical telemetry |
-| `packages/storage` / `packages/jobs` | Capability ports and disabled/unavailable behavior; no active infrastructure unless enabled |
-| `packages/shared` | Small genuinely cross-cutting domain-neutral values, not miscellaneous dumping ground |
+| `packages/jobs` | Capability ports and disabled/unavailable behavior; no active infrastructure unless enabled |
 | `packages/testkit` | Real-PostgreSQL harness, deterministic fixtures, cross-package test utilities |
 | `scripts` | Small composed database, generator, doctor, Graphify, HTTPS, and lifecycle CLIs |
 
