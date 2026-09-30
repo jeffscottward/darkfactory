@@ -1,5 +1,14 @@
 import { createHash } from "node:crypto";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import {
+  lstat,
+  mkdir,
+  readdir,
+  readFile,
+  readlink,
+  rm,
+  symlink,
+  writeFile,
+} from "node:fs/promises";
 import { isAbsolute, join, normalize, relative } from "node:path";
 
 const CONFIG_PATH = "/opt/darkfactory-verifier/checks.json";
@@ -70,16 +79,39 @@ const cleanEnvironment = Object.freeze({
   XDG_DATA_HOME: "/cache/data",
 });
 
+// The worker keeps at most 32 KiB of verifier output, and a build alone prints
+// more. Passing checks stay quiet; a failing one prints the tail of its output.
+const FAILURE_TAIL_BYTES = 12 * 1024;
+
+const collectTail = async (
+  stream: ReadableStream<Uint8Array>
+): Promise<Buffer> => {
+  let tail = Buffer.alloc(0);
+  for await (const chunk of stream) {
+    tail = Buffer.concat([tail, Buffer.from(chunk)]).subarray(
+      -FAILURE_TAIL_BYTES
+    );
+  }
+  return tail;
+};
+
 const run = async (argv: readonly string[], cwd: string): Promise<void> => {
   const child = Bun.spawn([...argv], {
     cwd,
     env: cleanEnvironment,
     stdin: "ignore",
-    stdout: "inherit",
-    stderr: "inherit",
+    stdout: "pipe",
+    stderr: "pipe",
   });
-  const exitCode = await child.exited;
+  const [stdout, stderr, exitCode] = await Promise.all([
+    collectTail(child.stdout),
+    collectTail(child.stderr),
+    child.exited,
+  ]);
   if (exitCode !== 0) {
+    process.stderr.write(
+      Buffer.concat([stdout, stderr]).subarray(-FAILURE_TAIL_BYTES)
+    );
     fail(`verifier command failed with exit ${exitCode}`);
   }
 };
@@ -97,6 +129,64 @@ await run(
   ],
   "/output"
 );
+
+// The copied workspace has the source but no node_modules, and Node's ESM
+// resolver, Vite and Biome ignore NODE_PATH. So each directory gets its
+// installed dependencies from the image, and pnpm's relative @darkfactory
+// links are recreated so they resolve to this workspace's source.
+const DEPENDENCIES = "/opt/darkfactory-verifier/dependencies";
+const isPresent = (path: string): Promise<boolean> =>
+  lstat(path).then(
+    () => true,
+    () => false
+  );
+const linkDependencies = async (directory: string): Promise<void> => {
+  const installed = join(DEPENDENCIES, directory, "node_modules");
+  const target = join(EXECUTION_WORKSPACE, directory, "node_modules");
+  await mkdir(target, { recursive: true });
+  for (const entry of await readdir(installed)) {
+    const destination = join(target, entry);
+    if (entry === "@darkfactory") {
+      await mkdir(destination, { recursive: true });
+      for (const name of await readdir(join(installed, entry))) {
+        if (!(await isPresent(join(destination, name)))) {
+          await symlink(
+            await readlink(join(installed, entry, name)),
+            join(destination, name)
+          );
+        }
+      }
+    } else if (!(await isPresent(destination))) {
+      await symlink(join(installed, entry), destination);
+    }
+  }
+};
+await linkDependencies("");
+for (const group of ["apps", "packages"]) {
+  for (const name of await readdir(join(DEPENDENCIES, group))) {
+    await linkDependencies(join(group, name));
+  }
+}
+
+// The source is a git worktree whose .git file points outside the container,
+// and checks that list tracked files need a repository: the copy becomes one.
+await rm(join(EXECUTION_WORKSPACE, ".git"), { force: true, recursive: true });
+for (const gitArguments of [
+  ["init", "--quiet"],
+  ["add", "--all"],
+  [
+    "-c",
+    "user.name=DarkFactory verifier",
+    "-c",
+    "user.email=verifier@darkfactory.invalid",
+    "commit",
+    "--quiet",
+    "--no-verify",
+    "--message=verifier workspace",
+  ],
+]) {
+  await run(["/usr/bin/git", ...gitArguments], EXECUTION_WORKSPACE);
+}
 
 const rawConfiguration = await readFile(CONFIG_PATH, "utf8");
 if (

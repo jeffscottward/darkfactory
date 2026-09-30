@@ -69,15 +69,22 @@ export const OMP_VERIFIER_ARGV_IDENTITY =
 export const OMP_VERIFIER_MEMORY = "2g";
 export const OMP_VERIFIER_MEMORY_SWAP = "2g";
 export const OMP_VERIFIER_CPUS = "2";
-export const OMP_VERIFIER_PIDS = "256";
+// The pids limit counts threads. Each Vite-based tool (vitest, vinext) starts
+// about 35, and the operations check runs a Vitest worker next to up to five
+// `vitest list` processes (scripts/ci/test-invariants.test.ts).
+export const OMP_VERIFIER_PIDS = "512";
 export const OMP_VERIFIER_FILE_SIZE = "67108864";
 export const OMP_VERIFIER_NOFILE = "1024";
 export const OMP_VERIFIER_OUTPUT_TMPFS =
   "rw,noexec,nosuid,nodev,size=512m,nr_inodes=65536,mode=1777";
 export const OMP_VERIFIER_CACHE_TMPFS =
   "rw,noexec,nosuid,nodev,size=256m,nr_inodes=32768,mode=1777";
+// /tmp allows exec (Docker's tmpfs default is noexec) because the verified test
+// suite creates and runs helper executables; /output and /cache stay noexec.
+// The boundary is the container: no network, read-only root, no capabilities,
+// a non-root user and resource limits.
 export const OMP_VERIFIER_TMP_TMPFS =
-  "rw,noexec,nosuid,nodev,size=64m,nr_inodes=8192,mode=1777";
+  "rw,exec,nosuid,nodev,size=64m,nr_inodes=8192,mode=1777";
 const INJECTED_VERIFIER_MANIFEST_DIGEST = createHash("sha256")
   .update("darkfactory-injected-verifier-v1")
   .digest("hex");
