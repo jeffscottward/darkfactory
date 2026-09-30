@@ -18,11 +18,25 @@ The seven `workflow_*` tables were created by migrations 0005–0007 in the prod
 
 | Platform | Status |
 | --- | --- |
+| Linux | Supported. The sandbox uses bubblewrap (`/usr/bin/bwrap`), which needs unprivileged user namespaces. |
 | macOS | Supported. The sandbox uses `/usr/bin/sandbox-exec`. |
-| Linux | Not supported. The worker fails closed with `OmpConfigurationError: OMP filesystem sandbox is unsupported` (`packages/jobs/src/server/omp.ts#requireSandboxBackend`). |
 | Windows | Not supported. |
 
-The operator UI and API run anywhere, but no run can execute outside macOS. A Linux sandbox (for example bubblewrap) is deferred. Do not bypass the sandbox check.
+Both sandboxes apply one policy (`packages/jobs/src/server/omp.ts#sandboxProfileFor`, `packages/jobs/src/server/bubblewrap.ts#bubblewrapOmpArguments`):
+
+- The agent reads only its scope paths and writes to them only in implementation runs, plus its Wayfinder tracker and session directory. The rest of the repository, `.git`, your home directory and `/etc` are invisible.
+- The agent has network, to reach its model API; git runs without network.
+- No capabilities. On Linux the sandbox also has a private process namespace and dies with the worker.
+
+Before every run the worker checks the sandbox and fails closed with `OmpConfigurationError` (`packages/jobs/src/server/omp.ts#requireSandboxBackend`): on any other platform, when the sandbox binary is missing or writable by non-root users, or when bubblewrap cannot create namespaces (for example where AppArmor restricts user namespaces). Do not bypass these checks.
+
+Linux differs in three ways:
+
+- An implementation scope path must already exist. Create the directory first; macOS can grant a path that the run creates.
+- Bubblewrap limits what is mounted, not what may run. No shell or `/usr/bin` is mounted, and the agent has no shell or exec tool.
+- Inbound connections are not blocked, because a network namespace is all or nothing.
+
+On Linux, the Docker verifier works with Docker Engine or rootless Docker. For rootless Docker, set `DOCKER_HOST=unix:///run/user/<uid>/docker.sock` in `.env` and in the shell that builds the image. The worker accepts only a local unix socket, and the `cpu`, `memory` and `pids` cgroup controllers must be delegated to your user.
 
 ## Enable it
 

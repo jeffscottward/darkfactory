@@ -12,13 +12,14 @@ it:
   `isStaleWorkflowApprovalError(error)`, not `instanceof`. Why: one file can
   load as two module instances, and `instanceof` then fails.
 
-## Operator plane: opt-in; macOS sandbox today
+## Operator plane: opt-in and sandboxed
 
 - The operator app, the pilot worker and the OMP adapter are opt-in. The
   product app never builds or queries them.
-- Running OMP needs the macOS filesystem sandbox. Linux refuses to run with
-  `OmpConfigurationError` until a bubblewrap backend exists. See
-  `requireSandboxBackend` in `src/server/omp.ts`.
+- OMP and git run in a filesystem sandbox: `sandbox-exec` on macOS, and
+  bubblewrap on Linux (`src/server/bubblewrap.ts`). Other platforms fail closed
+  with `OmpConfigurationError`. See `requireSandboxBackend` in
+  `src/server/omp.ts`.
 
 ## Migrations
 

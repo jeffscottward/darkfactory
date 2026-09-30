@@ -25,7 +25,8 @@ Start with `bun run doctor`, then find the symptom below. Paths are relative to 
 | Integration tests refuse `DATABASE_URL` | `packages/testkit/src/postgres.ts`: only local hosts and the test maintenance database are allowed ([testing.md](testing.md#integration-tests)) |
 | E2E fails on TLS | `playwright.config.ts` SPKI pin and portless state directory; see [testing.md](testing.md#how-e2e-runs) |
 | `docs:check` fails | Run `bun run docs:generate`; a missing `brick` or a brick-rule violation is reported by `scripts/docs/docs.ts#buildPackageGraph` |
-| Operator worker fails with `OmpConfigurationError` | Expected on anything but macOS. `packages/jobs/src/server/omp.ts#requireSandboxBackend`; see [operator.md](operator.md) |
+| Operator worker fails with `OmpConfigurationError` | `packages/jobs/src/server/omp.ts#requireSandboxBackend`: "unsupported" means neither macOS nor Linux; "unavailable" means `sandbox-exec` or `bwrap` is missing or not root-owned; "cannot create namespaces" means user namespaces are blocked, for example by AppArmor. See [operator.md](operator.md) |
+| `OMP implementation scope must exist on Linux` | `packages/jobs/src/server/omp.ts#ompSandboxCommand`: create the scope directory in the repository, then retry |
 
 ## Tools
 
