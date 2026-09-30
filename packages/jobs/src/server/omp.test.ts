@@ -1260,10 +1260,6 @@ describe("OMP CLI adapter", () => {
               },
             }),
       }).execute(requestFor({ workspaceId }));
-    const relayDirectories = async () =>
-      (await readdir(tmpdir())).filter((name) =>
-        name.startsWith("darkfactory-model-relay-")
-      );
     try {
       await expect(run("linux-no-gateway")).rejects.toThrow(
         "OMP model gateway is not configured"
@@ -1303,18 +1299,37 @@ describe("OMP CLI adapter", () => {
       mocks.openModelRelay = undefined;
 
       // The real relay opens, but this sandbox never reports its process: the
-      // run stops before OMP starts and the relay's socket directory is removed.
-      const before = await relayDirectories();
-      sandboxResponses.push({
-        error: null,
-        stdout: "",
-        stderr: "",
-        holdOpen: true,
-      });
-      await expect(run("linux-attach", configured)).rejects.toThrow(
-        new OmpConfigurationError("OMP sandbox did not report its process")
-      );
-      expect(await relayDirectories()).toEqual(before);
+      // run stops before OMP starts and the relay removes its socket directory.
+      // A private TMPDIR keeps other test files' relays out of the check.
+      const relayRoot = await mkdtemp(join(tmpdir(), "df-relay-root-"));
+      const isRelayDirectory = (name: string) =>
+        name.startsWith("darkfactory-model-relay-");
+      const openedWith: string[][] = [];
+      mocks.openModelRelay = async (actual, input) => {
+        const session = await actual(input);
+        openedWith.push((await readdir(relayRoot)).filter(isRelayDirectory));
+        return session;
+      };
+      const previousTmpdir = process.env["TMPDIR"];
+      process.env["TMPDIR"] = relayRoot;
+      try {
+        sandboxResponses.push({
+          error: null,
+          stdout: "",
+          stderr: "",
+          holdOpen: true,
+        });
+        await expect(run("linux-attach", configured)).rejects.toThrow(
+          new OmpConfigurationError("OMP sandbox did not report its process")
+        );
+      } finally {
+        if (previousTmpdir === undefined) delete process.env["TMPDIR"];
+        else process.env["TMPDIR"] = previousTmpdir;
+        mocks.openModelRelay = undefined;
+      }
+      expect(openedWith).toEqual([[expect.any(String)]]);
+      expect((await readdir(relayRoot)).filter(isRelayDirectory)).toEqual([]);
+      await rm(relayRoot, { recursive: true, force: true });
 
       gateway.close();
       await once(gateway, "close");
