@@ -5,7 +5,7 @@
 - [mise](https://mise.jdx.dev/). It installs the Node, Bun and pnpm versions pinned in [`mise.toml`](../mise.toml).
 - Docker with Compose, for local Postgres. Without Docker, run your own PostgreSQL 17 with the roles in [`infra/docker/postgres.compose.yml`](../infra/docker/postgres.compose.yml) and point `DATABASE_URL` at it.
 - macOS or Linux.
-- Optional: running agents through the operator plane currently needs macOS ([operator.md](operator.md)).
+- Optional: running agents through the operator plane needs macOS, or Linux with bubblewrap ([operator.md](operator.md)).
 
 ## Get the code
 

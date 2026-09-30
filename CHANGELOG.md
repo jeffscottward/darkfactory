@@ -4,9 +4,19 @@ Notable changes to DarkFactory will be documented in this file. The format is ba
 
 ## [Unreleased]
 
+### Added
+
+- Linux support for the operator plane. OMP and git run in a bubblewrap sandbox with the same scope as the macOS `sandbox-exec` profile: scopes read-only, writable only in implementation runs, network for the agent and none for git. The worker checks `bwrap` and user namespaces before each run and fails closed. See `docs/operator.md`.
+- The Docker verifier reaches rootless Docker, or any local daemon, through `DOCKER_HOST`. Only local unix sockets are accepted.
+
 ### Changed
 
-- vinext and `@vinext/cloudflare` 1.0.0 (stable), up from 1.0.0-beta.13 and beta.11. `bun run doctor` expects the new versions, and an invariant test keeps its expected versions equal to the pnpm catalog.
+- Implementation artifacts record file modes as git does (0644, or 0755 when executable), whatever the host umask.
+- vinext and `@vinext/cloudflare` 1.0.0 (stable), up from 1.0.0-beta.13 and beta.11. `bun run doctor` expects the new versions, and an invariant test keeps its expected versions equal to the pnpm catalog. (#51)
+
+### Fixed
+
+- On Linux, the verifier container (uid 65532) can read its workspace. The checkout followed the worker's umask, so under a restrictive umask such as 077 it could read nothing.
 
 ## [0.3.1] - 2026-09-29
 

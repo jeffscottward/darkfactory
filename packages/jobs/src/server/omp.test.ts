@@ -1,5 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
 import { EventEmitter } from "node:events";
+import type { Stats } from "node:fs";
 import {
   access,
   chmod,
@@ -47,6 +48,10 @@ const mocks = vi.hoisted(() => ({
   WP4lstatDelegate: undefined as WPFilesystemDelegate | undefined,
   WP4readFileDelegate: undefined as WPFilesystemDelegate | undefined,
   WP4openDelegate: undefined as WPFilesystemDelegate | undefined,
+  // A root-owned Command Line Tools git, as on a Mac; tests that simulate
+  // Xcode toolchains themselves turn it off.
+  syntheticCommandLineTools: true,
+  bubblewrapProbeError: null as NodeJS.ErrnoException | null,
 }));
 
 vi.mock("node:child_process", () => ({
@@ -56,6 +61,40 @@ vi.mock("node:child_process", () => ({
 
 vi.mock("node:fs/promises", async (importOriginal) => {
   const actual = await importOriginal<typeof import("node:fs/promises")>();
+  const commandLineTools = "/Library/Developer/CommandLineTools";
+  const syntheticDirectories = new Set([
+    "/Library",
+    "/Library/Developer",
+    commandLineTools,
+    `${commandLineTools}/usr`,
+    `${commandLineTools}/usr/bin`,
+  ]);
+  const syntheticKind = (path: unknown): "file" | "directory" | undefined => {
+    if (!mocks.syntheticCommandLineTools) return undefined;
+    const value = String(path);
+    if (value === `${commandLineTools}/usr/bin/git`) return "file";
+    return syntheticDirectories.has(value) ? "directory" : undefined;
+  };
+  const hostAccess = (path: unknown, ...rest: any[]) =>
+    syntheticKind(path) === undefined
+      ? actual.access(path as string, ...rest)
+      : Promise.resolve();
+  const hostRealpath = (path: unknown, ...rest: any[]) =>
+    syntheticKind(path) === undefined
+      ? actual.realpath(path as string, ...rest)
+      : Promise.resolve(String(path));
+  const hostStat = (path: unknown, ...rest: any[]) => {
+    const kind = syntheticKind(path);
+    if (kind === undefined) return actual.stat(path as string, ...rest);
+    return Promise.resolve({
+      uid: 0,
+      gid: 0,
+      mode: kind === "file" ? 0o10_0755 : 0o4_0755,
+      isFile: () => kind === "file",
+      isDirectory: () => kind === "directory",
+      isSymbolicLink: () => false,
+    });
+  };
   const delegateFor =
     (
       delegate: () => WPFilesystemDelegate | undefined,
@@ -71,7 +110,7 @@ vi.mock("node:fs/promises", async (importOriginal) => {
   return {
     ...actual,
     open: delegateFor(() => mocks.WP4openDelegate, actual.open),
-    access: delegateFor(() => mocks.WP3accessDelegate, actual.access),
+    access: delegateFor(() => mocks.WP3accessDelegate, hostAccess),
     lstat: (...arguments_: any[]) => {
       if (mocks.WP4lstatDelegate !== undefined) {
         return mocks.WP4lstatDelegate(actual.lstat, ...arguments_);
@@ -102,23 +141,20 @@ vi.mock("node:fs/promises", async (importOriginal) => {
     },
     realpath: (...arguments_: any[]) => {
       if (mocks.WP2realpathDelegate !== undefined) {
-        return mocks.WP2realpathDelegate(actual.realpath, ...arguments_);
+        return mocks.WP2realpathDelegate(hostRealpath, ...arguments_);
       }
       return delegateFor(
         () => mocks.WP3realpathDelegate,
-        actual.realpath
+        hostRealpath
       )(...arguments_);
     },
     rename: delegateFor(() => mocks.WP2renameDelegate, actual.rename),
     rm: delegateFor(() => mocks.WP2rmDelegate, actual.rm),
     stat: (...arguments_: any[]) => {
       if (mocks.WP2statDelegate !== undefined) {
-        return mocks.WP2statDelegate(actual.stat, ...arguments_);
+        return mocks.WP2statDelegate(hostStat, ...arguments_);
       }
-      return delegateFor(
-        () => mocks.WP3statDelegate,
-        actual.stat
-      )(...arguments_);
+      return delegateFor(() => mocks.WP3statDelegate, hostStat)(...arguments_);
     },
     writeFile: delegateFor(() => mocks.WP2writeFileDelegate, actual.writeFile),
   };
@@ -255,6 +291,27 @@ const gitCommandArguments = (
   return arguments_.slice(index);
 };
 
+// Git runs inside bubblewrap on Linux: its arguments follow "--" and the git path.
+const bubblewrapGitArguments = (
+  arguments_: readonly string[]
+): readonly string[] | undefined => {
+  const separator = arguments_.indexOf("--");
+  if (separator < 0 || arguments_[separator + 1] !== "/usr/bin/git") {
+    return;
+  }
+  let index = separator + 2;
+  while (arguments_[index] === "-c") index += 2;
+  return arguments_.slice(index);
+};
+
+const bubblewrapGitCalls = () =>
+  mocks.execFile.mock.calls.filter((call) => {
+    return (
+      call[0] === "/usr/bin/bwrap" &&
+      bubblewrapGitArguments(call[1] as readonly string[]) !== undefined
+    );
+  });
+
 const gitCalls = () =>
   gitSandboxCalls().map((call) => [
     "/usr/bin/git",
@@ -339,6 +396,11 @@ const unsupportedMetadataFor = async (
 beforeEach(async () => {
   vi.clearAllMocks();
   resetWPFilesystemDelegates();
+  // These cases pin the macOS sandbox-exec contract on every host; the Linux
+  // bubblewrap cases below set the platform themselves.
+  vi.spyOn(process, "platform", "get").mockReturnValue("darwin");
+  mocks.syntheticCommandLineTools = true;
+  mocks.bubblewrapProbeError = null;
   sandboxResponses.length = 0;
   workspaceDirectories.length = 0;
   mocks.spawn.mockClear();
@@ -387,11 +449,21 @@ beforeEach(async () => {
         stderr?: string | Buffer
       ) => void
     ) => {
+      const bubblewrapGit =
+        executable === "/usr/bin/bwrap"
+          ? bubblewrapGitArguments(arguments_)
+          : undefined;
+      if (executable === "/usr/bin/bwrap" && bubblewrapGit === undefined) {
+        // The namespace probe of requireBubblewrap.
+        callback(mocks.bubblewrapProbeError, "bubblewrap 0.12.0\n", "");
+        return;
+      }
       if (
-        executable === "/usr/bin/sandbox-exec" &&
-        isTestAppleGitExecutable(arguments_[2])
+        bubblewrapGit !== undefined ||
+        (executable === "/usr/bin/sandbox-exec" &&
+          isTestAppleGitExecutable(arguments_[2]))
       ) {
-        const gitArguments = gitCommandArguments(arguments_);
+        const gitArguments = bubblewrapGit ?? gitCommandArguments(arguments_);
         void (async () => {
           const override = gitResponseOverrides.get(gitArguments.join("\0"));
           if (override instanceof Error) throw override;
@@ -819,28 +891,184 @@ describe("OMP CLI adapter", () => {
       ).toBe(true);
       return await result.lifecycle!.finalize("unpersisted");
     } finally {
-      platform.mockRestore();
+      platform.mockReturnValue("darwin");
       resetWPFilesystemDelegates();
     }
   });
 
-  it("uses the default Git path outside macOS", async () => {
+  it("runs git and the agent inside bubblewrap on Linux", async () => {
     const platform = vi
       .spyOn(process, "platform", "get")
       .mockReturnValue("linux");
-    try {
-      callbackWith(null, "planned through default Git");
-      const result = await createOmpCliAdapter({ repositoriesRoot }).execute(
-        requestFor({ workspaceId: "non-darwin-git" })
+    const bindsExactly = (
+      arguments_: readonly string[],
+      flag: string,
+      path: string
+    ): boolean =>
+      arguments_.some(
+        (value, index) =>
+          value === flag &&
+          arguments_[index + 1] === path &&
+          arguments_[index + 2] === path
       );
+    try {
+      callbackWith(null, "planned inside bubblewrap");
+      const planned = await createOmpCliAdapter({ repositoriesRoot }).execute(
+        requestFor({ workspaceId: "linux-plan" })
+      );
+      expect(planned.status).toBe("succeeded");
+      expect(gitSandboxCalls()).toEqual([]);
+      expect(bubblewrapGitCalls().length).toBeGreaterThan(0);
+      for (const call of bubblewrapGitCalls()) {
+        const arguments_ = call[1] as readonly string[];
+        expect(arguments_.slice(0, 4)).toEqual([
+          "--unshare-all",
+          "--die-with-parent",
+          "--cap-drop",
+          "ALL",
+        ]);
+        expect(arguments_).not.toContain("--share-net");
+      }
+      const [planCall] = sandboxCalls();
+      const planArguments = planCall![1] as readonly string[];
+      const planCwd = (planCall![2] as Readonly<{ cwd: string }>).cwd;
+      expect(planCall![0]).toBe("/usr/bin/bwrap");
+      expect(planArguments).toContain("--share-net");
       expect(
-        gitSandboxCalls().every((call) => {
-          return (call[1] as readonly string[])[2] === TEST_GIT_EXECUTABLE;
-        })
+        bindsExactly(
+          planArguments,
+          "--ro-bind-try",
+          join(planCwd, "packages/jobs")
+        )
       ).toBe(true);
-      return await result.lifecycle!.finalize("unpersisted");
+      expect(planArguments.slice(planArguments.indexOf("--") + 1, -1)).toEqual(
+        expect.arrayContaining(["-p", `--cwd=${planCwd}`])
+      );
+      await planned.lifecycle!.finalize("unpersisted");
+
+      callbackWith(null, "implemented inside bubblewrap", "", async (cwd) => {
+        await writeFile(join(cwd, "packages/jobs/linux.ts"), "export {};\n", {
+          mode: 0o600,
+        });
+        await writeFile(join(cwd, "packages/jobs/run.sh"), "#!/bin/sh\n", {
+          mode: 0o700,
+        });
+      });
+      const implemented = await createOmpCliAdapter({
+        repositoriesRoot,
+      }).execute(
+        requestFor({ workspaceId: "linux-implement", effectKind: "implement" })
+      );
+      expect(implemented.status).toBe("succeeded");
+      // Artifact modes follow git (0644, or 0755 when executable), whatever the umask.
+      expect(
+        decodeOmpImplementationArtifact(
+          implemented.implementationArtifact!,
+          implemented.change!.changeHash
+        ).entries.map((entry) => [
+          entry.path,
+          entry.kind === "file" ? entry.mode : entry.kind,
+        ])
+      ).toEqual([
+        ["packages/jobs/linux.ts", 0o644],
+        ["packages/jobs/run.sh", 0o755],
+      ]);
+      const implementCall = sandboxCalls().at(-1)!;
+      const implementCwd = (implementCall[2] as Readonly<{ cwd: string }>).cwd;
+      expect(
+        bindsExactly(
+          implementCall[1] as readonly string[],
+          "--bind",
+          join(implementCwd, "packages/jobs")
+        )
+      ).toBe(true);
+      await implemented.lifecycle!.finalize("unpersisted");
+
+      return await expect(
+        createOmpCliAdapter({ repositoriesRoot }).execute(
+          requestFor({
+            workspaceId: "linux-missing-scope",
+            effectKind: "implement",
+            scopePaths: ["packages/new-brick"],
+          })
+        )
+      ).rejects.toThrow("OMP implementation scope must exist on Linux");
     } finally {
-      platform.mockRestore();
+      platform.mockReturnValue("darwin");
+    }
+  });
+
+  it("fails closed without a secure, working bubblewrap or git on Linux", async () => {
+    const platform = vi
+      .spyOn(process, "platform", "get")
+      .mockReturnValue("linux");
+    const secureExecutable = {
+      uid: 0,
+      gid: 0,
+      mode: 0o10_0755,
+      isFile: () => true,
+      isDirectory: () => false,
+    } as unknown as Stats;
+    const executables = new Map<string, Stats | null>([
+      ["/usr/bin/bwrap", secureExecutable],
+    ]);
+    mocks.WP3statDelegate = async (actual, path, ...arguments_) => {
+      const metadata = executables.get(String(path));
+      if (metadata === null)
+        throw Object.assign(new Error("gone"), { code: "ENOENT" });
+      return metadata ?? actual(path, ...arguments_);
+    };
+    const run = (workspaceId: string) =>
+      createProductionOmpCliAdapter({ repositoriesRoot }).execute(
+        requestFor({ workspaceId })
+      );
+    try {
+      executables.set("/usr/bin/bwrap", null);
+      await expect(run("linux-bwrap-missing")).rejects.toThrow(
+        "OMP filesystem sandbox is unavailable"
+      );
+      executables.set("/usr/bin/bwrap", {
+        ...secureExecutable,
+        mode: 0o10_0777,
+      });
+      await expect(run("linux-bwrap-insecure")).rejects.toThrow(
+        "OMP filesystem sandbox is unavailable"
+      );
+      executables.set("/usr/bin/bwrap", secureExecutable);
+      mocks.bubblewrapProbeError = Object.assign(
+        new Error("setting up uid map: Permission denied"),
+        { code: "EPERM" }
+      );
+      await expect(run("linux-bwrap-namespaces")).rejects.toThrow(
+        "OMP filesystem sandbox cannot create namespaces"
+      );
+      mocks.bubblewrapProbeError = null;
+      for (const git of [null, { ...secureExecutable, uid: 1000 }]) {
+        executables.set("/usr/bin/git", git);
+        await expect(
+          createOmpCliAdapter({ repositoriesRoot }).execute(
+            requestFor({ workspaceId: "linux-git-insecure" })
+          )
+        ).rejects.toThrow("OMP git executable is unavailable");
+      }
+      executables.delete("/usr/bin/git");
+      callbackWith(null, "planned after the namespace probe");
+      const planned = await run("linux-bwrap-probed");
+      expect(planned.status).toBe("succeeded");
+      expect(
+        mocks.execFile.mock.calls.some(
+          ([executable, arguments_]) =>
+            executable === "/usr/bin/bwrap" &&
+            (arguments_ as readonly string[]).at(-1) === "--version"
+        )
+      ).toBe(true);
+      await planned.lifecycle!.finalize("unpersisted");
+      platform.mockReturnValue("win32");
+      return await expect(run("unsupported-platform")).rejects.toThrow(
+        "OMP filesystem sandbox is unsupported"
+      );
+    } finally {
+      platform.mockReturnValue("darwin");
     }
   });
 
@@ -1001,7 +1229,7 @@ describe("OMP CLI adapter", () => {
       }
     } finally {
       resetWPFilesystemDelegates();
-      platform.mockRestore();
+      platform.mockReturnValue("darwin");
     }
   });
 
@@ -2740,6 +2968,58 @@ describe("OMP CLI adapter", () => {
     ).toBe(OMP_VERIFIER_ARGV_IDENTITY);
   });
 
+  it("reaches a local Docker socket through DOCKER_HOST and refuses other hosts", async () => {
+    const run = () =>
+      runDockerVerifier({
+        dockerExecutable: "/usr/bin/docker",
+        workspace: repositoryDirectory,
+        sessionDirectory: repositoriesRoot,
+        imageDigest: VERIFIER_IMAGE_DIGEST,
+        timeoutMs: 1000,
+        shutdownTimeoutMs: 100,
+        maximumOutputBytes: 64,
+        redactions: [],
+        now: Date.now,
+      });
+    try {
+      process.env["DOCKER_HOST"] = "unix:///run/user/1000/docker.sock";
+      sandboxResponses.push({
+        error: null,
+        stdout: "",
+        stderr: "",
+        closeCode: 1,
+      });
+      await expect(run()).resolves.toMatchObject({ status: "failed" });
+      expect(
+        (mocks.spawn.mock.calls[0]![2] as Readonly<{ env: NodeJS.ProcessEnv }>)
+          .env["DOCKER_HOST"]
+      ).toBe("unix:///run/user/1000/docker.sock");
+      for (const host of ["tcp://10.0.0.5:2375", "unix://relative.sock"]) {
+        process.env["DOCKER_HOST"] = host;
+        await expect(run()).rejects.toThrow(
+          "OMP Docker verifier requires a local unix socket DOCKER_HOST"
+        );
+      }
+      process.env["DOCKER_HOST"] = "";
+      sandboxResponses.push({
+        error: null,
+        stdout: "",
+        stderr: "",
+        closeCode: 1,
+      });
+      await run();
+      return expect(
+        (
+          mocks.spawn.mock.calls.at(-1)![2] as Readonly<{
+            env: NodeJS.ProcessEnv;
+          }>
+        ).env["DOCKER_HOST"]
+      ).toBeUndefined();
+    } finally {
+      delete process.env["DOCKER_HOST"];
+    }
+  });
+
   it("cleans named Docker containers on pre-create failure, overflow, and cleanup failure", async () => {
     const inspectIdentity = `${VERIFIER_IMAGE_DIGEST}|${OMP_VERIFIER_CONFIG_DIGEST}|${OMP_VERIFIER_ARGV_IDENTITY}`;
     const run = () =>
@@ -3466,11 +3746,11 @@ describe("OMP CLI adapter", () => {
 
     const platform = vi
       .spyOn(process, "platform", "get")
-      .mockReturnValue("linux");
+      .mockReturnValue("win32");
     await expect(
       createProductionOmpCliAdapter({ repositoriesRoot }).execute(requestFor())
     ).rejects.toThrow("OMP filesystem sandbox is unsupported");
-    platform.mockRestore();
+    platform.mockReturnValue("darwin");
 
     const controlExecutable = join(repositoriesRoot, "omp\n");
     await writeFile(controlExecutable, "#!/bin/sh\n");
@@ -5024,7 +5304,7 @@ describe("OMP CLI adapter", () => {
         });
         expect(sandboxCalls()).toHaveLength(0);
       } finally {
-        platform.mockRestore();
+        platform.mockReturnValue("darwin");
       }
     }
 
@@ -5058,7 +5338,7 @@ describe("OMP CLI adapter", () => {
       });
       expect(sandboxCalls()).toHaveLength(0);
     } finally {
-      platform.mockRestore();
+      platform.mockReturnValue("darwin");
     }
 
     const developerDirectory = "/Applications/Xcode-CI.app/Contents/Developer";
@@ -5129,7 +5409,7 @@ describe("OMP CLI adapter", () => {
       if (originalPath === undefined) {
         delete process.env["PATH"];
       } else process.env["PATH"] = originalPath;
-      validPlatform.mockRestore();
+      validPlatform.mockReturnValue("darwin");
     }
 
     mocks.WP3realpathDelegate = undefined;

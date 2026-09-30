@@ -38,6 +38,12 @@ import {
   isWorkflowRelativePathV1,
   MAX_WORKFLOW_SCOPE_PATHS,
 } from "../workflow/index.ts";
+import {
+  BUBBLEWRAP_EXECUTABLE,
+  BUBBLEWRAP_PROBE_ARGUMENTS,
+  bubblewrapGitArguments,
+  bubblewrapOmpArguments,
+} from "./bubblewrap.ts";
 import { required } from "./required.ts";
 
 export const DEFAULT_OMP_TIMEOUT_MS = 5 * 60 * 1000;
@@ -947,8 +953,7 @@ export const applyOmpImplementationArtifact = async (
 const DEFAULT_ALLOWED_EXECUTABLES = Object.freeze(["omp"]);
 const DEFAULT_ALLOWED_COMMANDS = Object.freeze(["print"] as const);
 const SANDBOX_EXECUTABLE = "/usr/bin/sandbox-exec";
-const DEFAULT_GIT_EXECUTABLE =
-  "/Library/Developer/CommandLineTools/usr/bin/git";
+const LINUX_GIT_EXECUTABLE = "/usr/bin/git";
 const XCODE_SELECT_LINK = "/var/db/xcode_select_link";
 const DEFAULT_APPLE_DEVELOPER_DIRECTORIES = Object.freeze([
   "/Library/Developer/CommandLineTools",
@@ -1643,10 +1648,7 @@ const resolveOmpExecutable = async (executable: string): Promise<string> => {
   throw new OmpConfigurationError("OMP executable is unavailable");
 };
 
-const requireSandboxBackend = async (): Promise<void> => {
-  if (process.platform !== "darwin") {
-    throw new OmpConfigurationError("OMP filesystem sandbox is unsupported");
-  }
+const requireMacosSandbox = async (): Promise<void> => {
   try {
     await access(SANDBOX_EXECUTABLE, constants.X_OK);
     if (!(await stat(SANDBOX_EXECUTABLE)).isFile()) {
@@ -1656,6 +1658,50 @@ const requireSandboxBackend = async (): Promise<void> => {
     throw new OmpConfigurationError("OMP filesystem sandbox is unavailable");
   }
 };
+
+// bwrap must be root-owned and unwritable by others, and must be able to create
+// its namespaces here (AppArmor, for example, can forbid that): a failed probe
+// fails closed before any run starts.
+const requireBubblewrap = async (): Promise<void> => {
+  if (
+    !(await isSecureRootOwnedExecutable(BUBBLEWRAP_EXECUTABLE).catch(
+      () => false
+    ))
+  ) {
+    throw new OmpConfigurationError("OMP filesystem sandbox is unavailable");
+  }
+  // The package targets a library without Promise.withResolvers.
+  const probed = await new Promise<boolean>((resolveProbe) => {
+    execFile(
+      BUBBLEWRAP_EXECUTABLE,
+      [...BUBBLEWRAP_PROBE_ARGUMENTS],
+      {
+        encoding: "utf8",
+        env: { NODE_ENV: "production", PATH: "/usr/bin:/bin" },
+        timeout: 10_000,
+        windowsHide: true,
+      },
+      (error: Error | null) => resolveProbe(error === null)
+    );
+  });
+  if (!probed) {
+    throw new OmpConfigurationError(
+      "OMP filesystem sandbox cannot create namespaces"
+    );
+  }
+};
+
+// macOS uses sandbox-exec and Linux uses bubblewrap; every other platform
+// fails closed before any sandboxed process starts.
+const sandboxPlatform = (): "darwin" | "linux" => {
+  if (process.platform === "darwin" || process.platform === "linux") {
+    return process.platform;
+  }
+  throw new OmpConfigurationError("OMP filesystem sandbox is unsupported");
+};
+
+const requireSandboxBackend = async (): Promise<void> =>
+  sandboxPlatform() === "darwin" ? requireMacosSandbox() : requireBubblewrap();
 
 const DEFAULT_FILESYSTEM_SANDBOX_BACKEND = Object.freeze({
   requireAvailable: requireSandboxBackend,
@@ -1950,10 +1996,10 @@ const isStandardApplicationsDirectory = (
   );
 };
 
-const isSecureRootOwnedGitPath = async (
-  gitExecutable: string
-): Promise<boolean> => {
-  let candidate = gitExecutable;
+// The executable and every ancestor directory must be root-owned and not
+// writable by group or others, so no other user can swap what runs.
+const isSecureRootOwnedExecutable = async (path: string): Promise<boolean> => {
+  let candidate = path;
   let executable = true;
   while (true) {
     const metadata = await stat(candidate);
@@ -1980,7 +2026,14 @@ const isSecureRootOwnedGitPath = async (
 };
 
 const resolveGitExecutable = async (): Promise<string> => {
-  if (process.platform !== "darwin") return DEFAULT_GIT_EXECUTABLE;
+  if (sandboxPlatform() === "linux") {
+    if (
+      await isSecureRootOwnedExecutable(LINUX_GIT_EXECUTABLE).catch(() => false)
+    ) {
+      return LINUX_GIT_EXECUTABLE;
+    }
+    throw new OmpConfigurationError("OMP git executable is unavailable");
+  }
   const candidates = [...DEFAULT_APPLE_DEVELOPER_DIRECTORIES];
   try {
     candidates.unshift(await realpath(XCODE_SELECT_LINK));
@@ -1996,7 +2049,7 @@ const resolveGitExecutable = async (): Promise<string> => {
       );
       if (!isContainedPath(developerDirectory, gitExecutable)) continue;
       await access(gitExecutable, constants.X_OK);
-      if (await isSecureRootOwnedGitPath(gitExecutable)) {
+      if (await isSecureRootOwnedExecutable(gitExecutable)) {
         return gitExecutable;
       }
     } catch {
@@ -2048,6 +2101,100 @@ const gitSandboxProfileFor = (
     .join("\n");
 };
 
+type SandboxedCommand = Readonly<{
+  executable: string;
+  arguments: readonly string[];
+}>;
+
+const gitSandboxCommand = async (
+  boundary: GitOperationBoundary,
+  gitExecutable: string,
+  allowFork: boolean,
+  cwd: string,
+  gitArguments: readonly string[]
+): Promise<SandboxedCommand> => {
+  if (sandboxPlatform() === "darwin") {
+    return {
+      executable: SANDBOX_EXECUTABLE,
+      arguments: [
+        "-p",
+        gitSandboxProfileFor(boundary, gitExecutable, allowFork),
+        gitExecutable,
+        ...gitArguments,
+      ],
+    };
+  }
+  return {
+    executable: BUBBLEWRAP_EXECUTABLE,
+    arguments: [
+      ...(await bubblewrapGitArguments({
+        cwd,
+        gitExecutable,
+        readablePaths: boundary.readablePaths,
+        writablePaths: boundary.writablePaths,
+      })),
+      "--",
+      gitExecutable,
+      ...gitArguments,
+    ],
+  };
+};
+
+const ompSandboxCommand = async (
+  input: Readonly<{
+    cwd: string;
+    sessionDirectory: string;
+    executable: string;
+    effectKind: OmpEffectKind;
+    scopePaths: readonly string[];
+    wayfinderTrackerDirectory: string | undefined;
+    ompArguments: readonly string[];
+  }>
+): Promise<SandboxedCommand> => {
+  if (sandboxPlatform() === "darwin") {
+    return {
+      executable: SANDBOX_EXECUTABLE,
+      arguments: [
+        "-p",
+        sandboxProfileFor(
+          input.cwd,
+          input.sessionDirectory,
+          input.executable,
+          input.effectKind,
+          input.scopePaths,
+          input.wayfinderTrackerDirectory
+        ),
+        input.executable,
+        ...input.ompArguments,
+      ],
+    };
+  }
+  const writableScopes = input.effectKind === "implement";
+  // A bind needs an existing source, so Linux cannot grant a scope path that
+  // the run itself would create (macOS matches paths by name instead).
+  for (const scopePath of writableScopes ? input.scopePaths : []) {
+    if (!(await pathExists(scopePath))) {
+      throw new OmpRequestError("OMP implementation scope must exist on Linux");
+    }
+  }
+  return {
+    executable: BUBBLEWRAP_EXECUTABLE,
+    arguments: [
+      ...(await bubblewrapOmpArguments({
+        cwd: input.cwd,
+        sessionDirectory: input.sessionDirectory,
+        executable: input.executable,
+        scopePaths: input.scopePaths,
+        writableScopes,
+        wayfinderTrackerDirectory: input.wayfinderTrackerDirectory,
+      })),
+      "--",
+      input.executable,
+      ...input.ompArguments,
+    ],
+  };
+};
+
 const runGit = async (
   arguments_: readonly string[],
   cwd: string,
@@ -2056,6 +2203,13 @@ const runGit = async (
   execution: GitExecutionOptions = {}
 ): Promise<string> => {
   const gitExecutable = await resolveGitExecutable();
+  const command = await gitSandboxCommand(
+    boundary,
+    gitExecutable,
+    execution.allowFork ?? false,
+    cwd,
+    [...GIT_SAFE_CONFIG_ARGUMENTS, ...repositoryConfigOverrides, ...arguments_]
+  );
   return new Promise((resolveGit, rejectGit) => {
     const remaining =
       execution.deadlineAtMs === undefined
@@ -2066,11 +2220,6 @@ const runGit = async (
       return;
     }
     const operationTimeoutMs = Math.min(30_000, remaining);
-    const profile = gitSandboxProfileFor(
-      boundary,
-      gitExecutable,
-      execution.allowFork ?? false
-    );
     const gitOptions = {
       cwd,
       detached: true,
@@ -2093,15 +2242,8 @@ const runGit = async (
       windowsHide: true,
     } as const;
     const child = execFile(
-      SANDBOX_EXECUTABLE,
-      [
-        "-p",
-        profile,
-        gitExecutable,
-        ...GIT_SAFE_CONFIG_ARGUMENTS,
-        ...repositoryConfigOverrides,
-        ...arguments_,
-      ],
+      command.executable,
+      [...command.arguments],
       gitOptions,
       (error, stdout) => {
         if (error !== null) {
@@ -2758,6 +2900,22 @@ const provisionVerifierWorkspacePackages = async (
   }
 };
 
+// On Linux, Docker enforces host file modes, and the checkout follows the
+// worker's umask (often 077), so the verifier's uid 65532 could read nothing.
+// The worktrees root stays 0700, so this exposes nothing to other host users.
+const grantVerifierReadAccess = async (path: string): Promise<void> => {
+  const metadata = await lstat(path);
+  if (metadata.isSymbolicLink()) return;
+  if (!metadata.isDirectory()) {
+    await chmod(path, (metadata.mode & 0o777) | 0o444);
+    return;
+  }
+  await chmod(path, (metadata.mode & 0o777) | 0o555);
+  for (const name of await readdir(path)) {
+    await grantVerifierReadAccess(join(path, name));
+  }
+};
+
 const prepareVerifierWorkspace = async (
   input: Readonly<{
     sourceCwd: string;
@@ -2860,6 +3018,7 @@ const prepareVerifierWorkspace = async (
       throw new OmpRequestError("OMP verifier control manifest changed");
     }
     await provisionVerifierWorkspacePackages(verifierCwd);
+    await grantVerifierReadAccess(verifierCwd);
     return Object.freeze({
       cwd: verifierCwd,
       release: async (): Promise<void> => {
@@ -2949,7 +3108,10 @@ const implementationArtifactFor = async (
           Object.freeze({
             path,
             kind: "file",
-            mode: metadata.mode & 0o777,
+            // Modes as git records them (0644, or 0755 when executable), so an
+            // artifact does not depend on the host umask and the verifier's
+            // uid 65532 can read every changed file.
+            mode: (metadata.mode & 0o100) === 0 ? 0o644 : 0o755,
             contentBase64: (await readFile(absolutePath)).toString("base64"),
           })
         );
@@ -3275,6 +3437,19 @@ const resolveDockerExecutable = async (): Promise<string> => {
   throw new OmpConfigurationError("OMP Docker verifier backend is unavailable");
 };
 
+// A rootless or custom daemon is reached through DOCKER_HOST; only a local unix
+// socket is accepted, and anything else fails closed.
+const dockerHostEnvironment = (): Readonly<Record<string, string>> => {
+  const host = process.env["DOCKER_HOST"];
+  if (host === undefined || host === "") return {};
+  if (!/^unix:\/\/\/[^\s\0]+$/u.test(host)) {
+    throw new OmpConfigurationError(
+      "OMP Docker verifier requires a local unix socket DOCKER_HOST"
+    );
+  }
+  return { DOCKER_HOST: host };
+};
+
 const environmentForDocker = (sessionDirectory: string): NodeJS.ProcessEnv => ({
   DOCKER_CONFIG: sessionDirectory,
   HOME: sessionDirectory,
@@ -3283,6 +3458,7 @@ const environmentForDocker = (sessionDirectory: string): NodeJS.ProcessEnv => ({
   LANG: "C",
   PATH: "/usr/bin:/bin",
   TMPDIR: sessionDirectory,
+  ...dockerHostEnvironment(),
 });
 
 export const dockerVerifierArgumentsFor = (
@@ -3770,17 +3946,18 @@ export const createOmpCliAdapter = (
         `--session-dir=${sessionDirectory}`,
         request.instruction,
       ] as const;
-      const profile = sandboxProfileFor(
+      const command = await ompSandboxCommand({
         cwd,
         sessionDirectory,
-        ompExecutable,
-        request.effectKind,
+        executable: ompExecutable,
+        effectKind: request.effectKind,
         scopePaths,
-        wayfinderTrackerDirectory
-      );
+        wayfinderTrackerDirectory,
+        ompArguments,
+      });
       const execution = await runOwnedProcess({
-        executable: SANDBOX_EXECUTABLE,
-        arguments: ["-p", profile, ompExecutable, ...ompArguments],
+        executable: command.executable,
+        arguments: command.arguments,
         cwd,
         environment: environmentForOmp(sessionDirectory, inheritedEnvironment),
         ...(request.signal === undefined ? {} : { signal: request.signal }),
