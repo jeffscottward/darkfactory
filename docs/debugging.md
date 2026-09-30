@@ -28,6 +28,7 @@ Start with `bun run doctor`, then find the symptom below. Paths are relative to 
 | Operator worker fails with `OmpConfigurationError` | `packages/jobs/src/server/omp.ts#requireSandboxBackend`: "unsupported" means neither macOS nor Linux; "unavailable" means `sandbox-exec` or `bwrap` is missing or not root-owned; "cannot create namespaces" means user namespaces are blocked, for example by AppArmor. See [operator.md](operator.md) |
 | `pilot worker: <KEY> …` or `pilot worker failed to start (…)` | The first names the `.env` key to fix (`packages/jobs/src/server/pilot-worker.ts#parsePilotWorkerEnvironment`). The second is usually Postgres: check `DATABASE_URL` and that the database is running |
 | `OMP implementation scope must exist on Linux` | `packages/jobs/src/server/omp.ts#ompSandboxCommand`: create the scope directory in the repository, then retry |
+| Verifier check fails with `EAGAIN` or `Resource temporarily unavailable` | The container's task limit, which counts threads (`packages/jobs/src/server/omp.ts#OMP_VERIFIER_PIDS`). Limit how many processes the failing test starts at once; see [operator.md](operator.md#how-the-verifier-runs) |
 
 ## Tools
 

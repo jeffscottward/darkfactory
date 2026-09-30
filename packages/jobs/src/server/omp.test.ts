@@ -48,9 +48,11 @@ const mocks = vi.hoisted(() => ({
   WP4lstatDelegate: undefined as WPFilesystemDelegate | undefined,
   WP4readFileDelegate: undefined as WPFilesystemDelegate | undefined,
   WP4openDelegate: undefined as WPFilesystemDelegate | undefined,
-  // A root-owned Command Line Tools git, as on a Mac; tests that simulate
-  // Xcode toolchains themselves turn it off.
-  syntheticCommandLineTools: true,
+  // A root-owned Command Line Tools git and a Docker CLI, as on a developer
+  // Mac, so the suite does not depend on the tools of the host running it (the
+  // verifier image has neither). Tests that simulate their own tools use the
+  // delegates below, which take precedence.
+  syntheticHostTools: true,
   bubblewrapProbeError: null as NodeJS.ErrnoException | null,
 }));
 
@@ -70,14 +72,19 @@ vi.mock("node:fs/promises", async (importOriginal) => {
     `${commandLineTools}/usr/bin`,
   ]);
   const syntheticKind = (path: unknown): "file" | "directory" | undefined => {
-    if (!mocks.syntheticCommandLineTools) return undefined;
+    if (!mocks.syntheticHostTools) return undefined;
     const value = String(path);
-    if (value === `${commandLineTools}/usr/bin/git`) return "file";
+    if (
+      value === `${commandLineTools}/usr/bin/git` ||
+      value === "/usr/bin/docker"
+    ) {
+      return "file";
+    }
     return syntheticDirectories.has(value) ? "directory" : undefined;
   };
-  const hostAccess = (path: unknown, ...rest: any[]) =>
+  const hostAccess = (path: unknown, mode?: number): Promise<void> =>
     syntheticKind(path) === undefined
-      ? actual.access(path as string, ...rest)
+      ? actual.access(path as string, mode)
       : Promise.resolve();
   const hostRealpath = (path: unknown, ...rest: any[]) =>
     syntheticKind(path) === undefined
@@ -399,7 +406,7 @@ beforeEach(async () => {
   // These cases pin the macOS sandbox-exec contract on every host; the Linux
   // bubblewrap cases below set the platform themselves.
   vi.spyOn(process, "platform", "get").mockReturnValue("darwin");
-  mocks.syntheticCommandLineTools = true;
+  mocks.syntheticHostTools = true;
   mocks.bubblewrapProbeError = null;
   sandboxResponses.length = 0;
   workspaceDirectories.length = 0;

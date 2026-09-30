@@ -32,6 +32,9 @@ RUN apt-get update \
 
 WORKDIR /opt/darkfactory-verifier/dependencies
 COPY --from=dependencies /opt/darkfactory-verifier/dependencies ./
+# pnpm's .bin shims exec `node`, and the runner's clean PATH (runner.ts) holds
+# only /usr/local/bin and the system bins, so the pinned Node goes there.
+COPY --from=dependencies /usr/local/bin/node /usr/local/bin/node
 
 WORKDIR /opt/darkfactory-verifier
 COPY packages/jobs/verifier/checks.json ./checks.json
@@ -41,5 +44,13 @@ RUN chmod 0555 ./runner.ts \
   && chmod -R a-w /opt/darkfactory-verifier
 
 USER 65532:65532
+# Every executable in runner.ts must start under its exact clean environment;
+# otherwise each verification would fail on its first check.
+RUN env -i HOME=/tmp PATH=/opt/darkfactory-verifier/dependencies/node_modules/.bin:/usr/local/bin:/usr/bin:/bin sh -ec '\
+  bin=/opt/darkfactory-verifier/dependencies/node_modules/.bin; \
+  for tool in "$bin/biome" "$bin/markdownlint-cli2" "$bin/tsc" "$bin/vitest" \
+    /opt/darkfactory-verifier/dependencies/apps/web/node_modules/.bin/vinext \
+    /usr/local/bin/bun; do "$tool" --version >/dev/null; done'
+
 ENTRYPOINT []
 CMD ["/usr/local/bin/bun","/opt/darkfactory-verifier/runner.ts","--config","/opt/darkfactory-verifier/checks.json","--workspace","/workspace","--output","/output/result.json"]

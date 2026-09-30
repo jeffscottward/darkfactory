@@ -68,6 +68,12 @@ On Linux, the Docker verifier works with Docker Engine or rootless Docker. For r
 
 Sign in as an admin (the seeded `admin@domain.test` locally), start a Wayfinder plan, review it, and approve it. HTTP and browser code never execute OMP; only the worker does, after the plan has been approved.
 
+## How the verifier runs
+
+The worker mounts the changed workspace read-only in a Docker container (`packages/jobs/src/server/omp.ts#dockerVerifierArgumentsFor`). The runner in the image (`packages/jobs/verifier/runner.ts`) copies it, links the dependencies installed in the image into the copy, commits the copy to a new git repository, and runs the checks in `packages/jobs/verifier/checks.json` in order. A passing check prints only its ID; a failing check prints the last 12 KiB of its output.
+
+The container has no network, a read-only root, no capabilities and user 65532. It gets 2 CPUs, 2 GiB of memory, 512 tasks and 300 s of CPU time per process. The task limit counts threads, and each Vite-based tool (Vitest, vinext) starts about 35. If a check fails with `EAGAIN` or `Resource temporarily unavailable`, a test started too many processes at once; limit its concurrency. `/tmp` allows executables; `/output` and `/cache` do not.
+
 ## Rebuild the verifier image
 
 Rebuild after any change under `packages/jobs/verifier/`. The worker runs the image pinned in `.env`, so a rebuild alone changes nothing:

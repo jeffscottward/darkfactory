@@ -15,6 +15,10 @@ type ListedFile = Readonly<{ file: string; projectName: string }>;
 
 const root = fileURLToPath(new URL("../../", import.meta.url));
 const execFileAsync = promisify(execFile);
+// Each `vitest list` loads the config through Vite, whose native bundler starts
+// a thread pool sized to the host's CPUs. Unbounded, the ~20 lists exhaust the
+// Docker verifier's process limit, which counts threads, and its memory.
+const LIST_CONCURRENCY = 4;
 const vitestBin = join(root, "node_modules/vitest/vitest.mjs");
 const listDirectory = await mkdtemp(
   join(tmpdir(), "darkfactory-test-invariants-")
@@ -230,10 +234,23 @@ const allTestFiles = async (): Promise<ListedFile[]> => {
 const executionCounts = async (
   script: string
 ): Promise<Map<string, number>> => {
+  const runs = await expandVitestRuns(script);
+  const listed: string[][] = [];
+  let next = 0;
+  const listRemaining = async (): Promise<void> => {
+    while (next < runs.length) {
+      const index = next;
+      next += 1;
+      listed[index] = await listFiles(runs[index]!);
+    }
+  };
+  await Promise.all(
+    Array.from({ length: Math.min(LIST_CONCURRENCY, runs.length) }, () =>
+      listRemaining()
+    )
+  );
   const counts = new Map<string, number>();
-  for (const files of await Promise.all(
-    (await expandVitestRuns(script)).map(listFiles)
-  )) {
+  for (const files of listed) {
     for (const file of files) {
       counts.set(file, (counts.get(file) ?? 0) + 1);
     }
