@@ -84,8 +84,9 @@ export const OMP_VERIFIER_MEMORY = "2g";
 export const OMP_VERIFIER_MEMORY_SWAP = "2g";
 export const OMP_VERIFIER_CPUS = "2";
 // The pids limit counts threads. Each Vite-based tool (vitest, vinext) starts
-// about 35, and the operations check runs a Vitest worker next to up to five
-// `vitest list` processes (scripts/ci/test-invariants.test.ts).
+// about 35, and the operations check runs a Vitest worker next to `vitest list`
+// processes, two at a time under this CPU quota
+// (scripts/ci/test-invariants.test.ts).
 export const OMP_VERIFIER_PIDS = "512";
 export const OMP_VERIFIER_FILE_SIZE = "67108864";
 export const OMP_VERIFIER_NOFILE = "1024";

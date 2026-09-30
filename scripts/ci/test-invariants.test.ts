@@ -1,6 +1,6 @@
 import { execFile } from "node:child_process";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { availableParallelism, tmpdir } from "node:os";
 import { join, matchesGlob, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
@@ -15,10 +15,11 @@ type ListedFile = Readonly<{ file: string; projectName: string }>;
 
 const root = fileURLToPath(new URL("../../", import.meta.url));
 const execFileAsync = promisify(execFile);
-// Each `vitest list` loads the config through Vite, whose native bundler starts
-// a thread pool sized to the host's CPUs. Unbounded, the ~20 lists exhaust the
-// Docker verifier's process limit, which counts threads, and its memory.
-const LIST_CONCURRENCY = 4;
+// Each `vitest list` loads the config through Vite, whose native bundler
+// (Rolldown) starts about 25 threads even under a CPU quota. All ~20 lists at
+// once exhaust the Docker verifier's process limit, which counts threads, and
+// its memory. availableParallelism() follows the quota (2 in the verifier).
+const LIST_CONCURRENCY = Math.min(4, availableParallelism());
 const vitestBin = join(root, "node_modules/vitest/vitest.mjs");
 const listDirectory = await mkdtemp(
   join(tmpdir(), "darkfactory-test-invariants-")
@@ -237,18 +238,29 @@ const executionCounts = async (
   const runs = await expandVitestRuns(script);
   const listed: string[][] = [];
   let next = 0;
+  let failed = false;
+  // After a failure no new list starts, and the running ones finish before the
+  // error surfaces, so afterAll never removes the directory under them.
   const listRemaining = async (): Promise<void> => {
-    while (next < runs.length) {
+    while (!failed && next < runs.length) {
       const index = next;
       next += 1;
-      listed[index] = await listFiles(runs[index]!);
+      try {
+        listed[index] = await listFiles(runs[index]!);
+      } catch (error) {
+        failed = true;
+        throw error;
+      }
     }
   };
-  await Promise.all(
+  const lanes = await Promise.allSettled(
     Array.from({ length: Math.min(LIST_CONCURRENCY, runs.length) }, () =>
       listRemaining()
     )
   );
+  for (const lane of lanes) {
+    if (lane.status === "rejected") throw lane.reason;
+  }
   const counts = new Map<string, number>();
   for (const files of listed) {
     for (const file of files) {
@@ -377,10 +389,9 @@ describe("every Vitest test file runs in the gates", {
   });
 
   it("runs every test file exactly once in the full verify lifecycle", async () => {
-    const [files, counts] = await Promise.all([
-      allTestFiles(),
-      executionCounts("verify"),
-    ]);
+    // One after the other: a failing list then leaves nothing running.
+    const files = await allTestFiles();
+    const counts = await executionCounts("verify");
     const expected = new Map(files.map(({ file }) => [file, 1]));
     return expect(Object.fromEntries(counts)).toEqual(
       Object.fromEntries(expected)
@@ -388,10 +399,9 @@ describe("every Vitest test file runs in the gates", {
   });
 
   return it("runs every unit, contract, operations, and e2e-helpers file in verify:prepush", async () => {
-    const [files, counts] = await Promise.all([
-      allTestFiles(),
-      executionCounts("verify:prepush"),
-    ]);
+    // One after the other: a failing list then leaves nothing running.
+    const files = await allTestFiles();
+    const counts = await executionCounts("verify:prepush");
     const local = files.filter(({ projectName }) =>
       LOCAL_PROJECTS.some((name) => name === projectName)
     );
