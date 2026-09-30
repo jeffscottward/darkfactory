@@ -16,6 +16,7 @@ Notable changes to DarkFactory will be documented in this file. The format is ba
 
 ### Fixed
 
+- The operator worker starts with the optional `WORKFLOW_*` keys left empty, as `.env.example` ships them; it used to exit, and its CLI printed nothing. It now prints configuration errors (the key, never its value) and only the type of any other startup error.
 - `bun run dev` and `bun run operator:dev` start again: vinext 1.0 takes Vite's `--host`, not `--hostname`. A test now checks the forwarded flags against the installed CLI. (#51 regression)
 - On Linux, the verifier container (uid 65532) can read its workspace. The checkout followed the worker's umask, so under a restrictive umask such as 077 it could read nothing.
 

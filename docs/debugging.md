@@ -26,6 +26,7 @@ Start with `bun run doctor`, then find the symptom below. Paths are relative to 
 | E2E fails on TLS | `playwright.config.ts` SPKI pin and portless state directory; see [testing.md](testing.md#how-e2e-runs) |
 | `docs:check` fails | Run `bun run docs:generate`; a missing `brick` or a brick-rule violation is reported by `scripts/docs/docs.ts#buildPackageGraph` |
 | Operator worker fails with `OmpConfigurationError` | `packages/jobs/src/server/omp.ts#requireSandboxBackend`: "unsupported" means neither macOS nor Linux; "unavailable" means `sandbox-exec` or `bwrap` is missing or not root-owned; "cannot create namespaces" means user namespaces are blocked, for example by AppArmor. See [operator.md](operator.md) |
+| `pilot worker: <KEY> …` or `pilot worker failed to start (…)` | The first names the `.env` key to fix (`packages/jobs/src/server/pilot-worker.ts#parsePilotWorkerEnvironment`). The second is usually Postgres: check `DATABASE_URL` and that the database is running |
 | `OMP implementation scope must exist on Linux` | `packages/jobs/src/server/omp.ts#ompSandboxCommand`: create the scope directory in the repository, then retry |
 
 ## Tools

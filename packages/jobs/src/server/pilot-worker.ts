@@ -66,7 +66,8 @@ const boundedInteger = (
   fallback: number,
   name: string
 ): number => {
-  if (value === undefined) return fallback;
+  // An empty value, as `.env.example` ships it, means "use the default".
+  if (value === undefined || value.trim() === "") return fallback;
   const parsed = Number(value);
   if (
     !Number.isSafeInteger(parsed) ||
@@ -130,8 +131,11 @@ export const parsePilotWorkerEnvironment = (
     );
   }
 
+  const configuredLeaseOwner = source["WORKFLOW_LEASE_OWNER"]?.trim();
   const leaseOwner =
-    source["WORKFLOW_LEASE_OWNER"]?.trim() ?? `pilot-${process.pid}`;
+    configuredLeaseOwner === undefined || configuredLeaseOwner === ""
+      ? `pilot-${process.pid}`
+      : configuredLeaseOwner;
   if (!LEASE_OWNER_PATTERN.test(leaseOwner)) {
     throw new PilotWorkerConfigurationError("WORKFLOW_LEASE_OWNER is invalid");
   }
