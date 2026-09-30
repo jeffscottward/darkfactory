@@ -13,7 +13,7 @@ How DarkFactory is meant to be kept safe while you build on it. This is guidance
 | Configuration | Shipping development secrets, local URLs or preview email to production | `parseServerEnv` and database profiles fail closed; `deploy:web:*` validates before deploying |
 | Data | Secrets or personal data leaking into logs, events, analytics or test artifacts | `redact` on every event, typed public errors, redacting E2E error guards |
 | Supply chain and CI | Malicious dependency or workflow change | Pinned actions, least-privilege tokens, no `pull_request_target`, Dependency Review, CodeQL, pnpm 11's default one-day minimum release age with no exclusions, a build-script allowlist (`allowBuilds` in `pnpm-workspace.yaml`), and a three-day Dependabot cooldown |
-| Agent plane | An agent acting outside its grant | Opt-in operator, admin-only API, explicit approvals, exact repository grants, filesystem sandbox (`sandbox-exec` on macOS, bubblewrap on Linux) |
+| Agent plane | An agent acting outside its grant | Opt-in operator, admin-only API, explicit approvals, exact repository grants, filesystem sandbox (`sandbox-exec` on macOS, bubblewrap on Linux). On Linux the agent has no network and no credentials; each run reaches one model through a relay to a local OMP gateway |
 
 Request path: untrusted client → HTTPS → Better Auth session and origin checks → oRPC schema and authorization → service rules → Drizzle repository → Postgres, with redacted events and provider adapters on the side.
 

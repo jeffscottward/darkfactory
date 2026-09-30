@@ -86,7 +86,7 @@ beforeEach(() => {
 });
 
 describe("bubblewrap sandbox arguments", () => {
-  it("gives the agent network, its executable, read-only scopes and its session", async () =>
+  it("gives the agent no network, its executable, read-only scopes and its session", async () =>
     expect(
       await bubblewrapOmpArguments({
         cwd: "/w/repo",
@@ -101,7 +101,6 @@ describe("bubblewrap sandbox arguments", () => {
       })
     ).toEqual([
       ...ISOLATION,
-      "--share-net",
       ...SYSTEM_MOUNTS,
       "--proc",
       "/proc",

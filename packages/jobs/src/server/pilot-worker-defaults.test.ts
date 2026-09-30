@@ -65,6 +65,7 @@ describe("pilot worker default dependencies", () => {
       repositoryGrants: parseWorkflowRepositoryGrants("owner-1=darkfactory"),
       verifierId: "darkfactory-verify-core-v2",
       verifierImageDigest: VERIFIER_IMAGE_DIGEST,
+      modelGateway: null,
     });
     const running = worker.start();
     await vi.waitFor(() => expect(runtime.runOnce).toHaveBeenCalledOnce());
@@ -124,8 +125,20 @@ describe("pilot worker default dependencies", () => {
         WORKFLOW_REPOSITORY_GRANTS: "owner-1=darkfactory",
         WORKFLOW_VERIFIER_ID: "darkfactory-verify-core-v2",
         WORKFLOW_VERIFIER_IMAGE_DIGEST: VERIFIER_IMAGE_DIGEST,
+        WORKFLOW_OMP_GATEWAY_URL: "http://127.0.0.1:4010",
+        WORKFLOW_OMP_GATEWAY_TOKEN_FILE: "/srv/gateway/token",
       })
     ).rejects.toBe(pollingError);
+    expect(mocks.createOmpCliAdapter).toHaveBeenCalledWith(
+      expect.objectContaining({
+        modelGateway: {
+          url: "http://127.0.0.1:4010",
+          tokenFile: "/srv/gateway/token",
+          implementModel: "anthropic/claude-opus-5-5",
+          planModel: "openrouter/google/gemini-3.8-flash",
+        },
+      })
+    );
     return expect(mocks.close).toHaveBeenCalled();
   });
 });

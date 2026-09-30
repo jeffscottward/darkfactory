@@ -89,7 +89,8 @@ export type BubblewrapOmpPolicy = Readonly<{
   wayfinderTrackerDirectory?: string | undefined;
 }>;
 
-// The OMP agent: network like the macOS profile's network-outbound, the
+// The OMP agent: no network (its model is reached through a relay that the
+// worker places in the sandbox's network namespace; see model-relay.ts), the
 // executable, the scope paths (writable only for implementation runs), the
 // Wayfinder tracker and the session directory. The repository root shows only
 // the scope paths. /proc is private to the sandbox's PID namespace; Linux
@@ -100,7 +101,6 @@ export const bubblewrapOmpArguments = async (
   const scopeBind = policy.writableScopes ? "--bind" : "--ro-bind-try";
   return Object.freeze([
     ...ISOLATION,
-    "--share-net",
     ...(await systemMountArguments()),
     "--proc",
     "/proc",

@@ -20,6 +20,10 @@ it:
   bubblewrap on Linux (`src/server/bubblewrap.ts`). Other platforms fail closed
   with `OmpConfigurationError`. See `requireSandboxBackend` in
   `src/server/omp.ts`.
+- On Linux the agent has no network and no credentials: each run reaches one
+  model through a relay to a local `omp auth-gateway`
+  (`src/server/model-relay.ts`, and
+  [Models and credentials](../../docs/operator.md#models-and-credentials)).
 
 ## Migrations
 

@@ -6,7 +6,8 @@ Notable changes to DarkFactory will be documented in this file. The format is ba
 
 ### Added
 
-- Linux support for the operator plane. OMP and git run in a bubblewrap sandbox with the same scope as the macOS `sandbox-exec` profile: scopes read-only, writable only in implementation runs, network for the agent and none for git. The worker checks `bwrap` and user namespaces before each run and fails closed. See `docs/operator.md`.
+- Linux support for the operator plane. OMP and git run in a bubblewrap sandbox with the same filesystem scope as the macOS `sandbox-exec` profile: scopes read-only, writable only in implementation runs. The worker checks `bwrap` and user namespaces before each run and fails closed. See `docs/operator.md`.
+- On Linux the agent has no network and holds no credentials. Each run reaches exactly one model through a relay to a local `omp auth-gateway`, which gets credentials from `omp auth-broker`: `anthropic/claude-opus-5-5` for implementation, and `openrouter/google/gemini-3.8-flash` for planning and review. Configure it with `WORKFLOW_OMP_GATEWAY_URL` and `WORKFLOW_OMP_GATEWAY_TOKEN_FILE`; `WORKFLOW_OMP_IMPLEMENT_MODEL` and `WORKFLOW_OMP_PLAN_MODEL` override the models. Before each run the worker checks the gateway, the model and `nsenter`, and fails closed. See `docs/operator.md#models-and-credentials`.
 - The Docker verifier reaches rootless Docker, or any local daemon, through `DOCKER_HOST`. Only local unix sockets are accepted.
 
 ### Changed

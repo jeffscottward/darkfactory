@@ -44,6 +44,20 @@ import {
   bubblewrapGitArguments,
   bubblewrapOmpArguments,
 } from "./bubblewrap.ts";
+import {
+  NSENTER_EXECUTABLE,
+  OMP_MODEL_RELAY_EXTRA_STDIO,
+  OMP_MODEL_RELAY_SANDBOX_ARGUMENTS,
+  type OmpModelGatewayOptions,
+  OmpModelRelayError,
+  type OmpModelRelaySession,
+  type OmpModelRoute,
+  ompModelForEffect,
+  ompModelsConfigFor,
+  openOmpModelRelay,
+  readOmpModelGatewayToken,
+  requireOmpModelGateway,
+} from "./model-relay.ts";
 import { required } from "./required.ts";
 
 export const DEFAULT_OMP_TIMEOUT_MS = 5 * 60 * 1000;
@@ -293,6 +307,18 @@ export type OmpFilesystemSandboxBackend = Readonly<{
   requireAvailable: () => Promise<void>;
 }>;
 
+// Linux OMP runs have no network and reach only their own model through a
+// per-run relay to a local `omp auth-gateway` (model-relay.ts).
+export type OmpModelRelayBackend = Readonly<{
+  // Checks the gateway before a run and returns the one model this effect may
+  // use. Fails closed with OmpConfigurationError.
+  route: (
+    gateway: OmpModelGatewayOptions | undefined,
+    effectKind: OmpEffectKind
+  ) => Promise<OmpModelRoute>;
+  open: (route: OmpModelRoute) => Promise<OmpModelRelaySession>;
+}>;
+
 export type OmpCliAdapterOptions = Readonly<{
   repositoriesRoot: string;
   executable?: string;
@@ -310,6 +336,9 @@ export type OmpCliAdapterOptions = Readonly<{
   now?: () => number;
   filesystemSandboxBackend?: OmpFilesystemSandboxBackend;
   wayfinderSkillsRoot?: string;
+  // Required on Linux: the local gateway that holds the model credentials.
+  modelGateway?: OmpModelGatewayOptions;
+  modelRelayBackend?: OmpModelRelayBackend;
 }>;
 
 export class OmpConfigurationError extends Error {
@@ -1714,6 +1743,47 @@ const DEFAULT_FILESYSTEM_SANDBOX_BACKEND = Object.freeze({
   requireAvailable: requireSandboxBackend,
 } satisfies OmpFilesystemSandboxBackend);
 
+const modelRelayConfigurationError = (error: unknown): OmpConfigurationError =>
+  new OmpConfigurationError(
+    error instanceof OmpModelRelayError
+      ? error.message
+      : "OMP model relay failed to start"
+  );
+
+// nsenter must be as trustworthy as bwrap; the token file, the gateway and the
+// model are checked before every run, so a run never starts without them.
+const DEFAULT_MODEL_RELAY_BACKEND = Object.freeze({
+  route: async (gateway, effectKind) => {
+    if (gateway === undefined) {
+      throw new OmpConfigurationError("OMP model gateway is not configured");
+    }
+    const nsenterSecure = await isSecureRootOwnedExecutable(
+      NSENTER_EXECUTABLE
+    ).catch(() => false);
+    if (!nsenterSecure) {
+      throw new OmpConfigurationError("OMP model relay is unavailable");
+    }
+    try {
+      const route = Object.freeze({
+        gatewayUrl: gateway.url,
+        token: await readOmpModelGatewayToken(gateway.tokenFile),
+        modelId: ompModelForEffect(gateway, effectKind),
+      });
+      await requireOmpModelGateway({ route });
+      return route;
+    } catch (error) {
+      throw modelRelayConfigurationError(error);
+    }
+  },
+  open: async (route) => {
+    try {
+      return await openOmpModelRelay({ route });
+    } catch (error) {
+      throw modelRelayConfigurationError(error);
+    }
+  },
+} satisfies OmpModelRelayBackend);
+
 const sandboxLiteral = (value: string): string => {
   if (/[\u0000-\u001F\u007F]/u.test(value)) {
     throw new OmpRequestError("OMP sandbox path contains control characters");
@@ -2195,6 +2265,8 @@ const ompSandboxCommand = async (
         writableScopes,
         wayfinderTrackerDirectory: input.wayfinderTrackerDirectory,
       })),
+      // bwrap waits for the model relay (fd 4) and reports its PID (fd 3).
+      ...OMP_MODEL_RELAY_SANDBOX_ARGUMENTS,
       "--",
       input.executable,
       ...input.ompArguments,
@@ -3301,6 +3373,10 @@ type OwnedProcessOptions = Readonly<{
   redactions: readonly string[];
   now: () => number;
   startError: string;
+  // Extra pipes after stdin/stdout/stderr (fd 3 and up) for `prepare`.
+  extraStdio?: number;
+  // Runs once the process exists; a failure stops it and fails closed.
+  prepare?: (child: ChildProcess) => Promise<void>;
 }>;
 
 const runOwnedProcess = async (
@@ -3388,7 +3464,15 @@ const runOwnedProcess = async (
           detached: true,
           env: options.environment,
           shell: false,
-          stdio: ["ignore", "pipe", "pipe"],
+          stdio: [
+            "ignore",
+            "pipe",
+            "pipe",
+            ...Array.from(
+              { length: options.extraStdio ?? 0 },
+              () => "pipe" as const
+            ),
+          ],
           windowsHide: true,
         });
       } catch {
@@ -3418,6 +3502,16 @@ const runOwnedProcess = async (
         () => settle("timed-out", null, "SIGTERM"),
         options.timeoutMs
       );
+      options.prepare?.(child).catch((error: unknown) => {
+        if (settling) return;
+        settling = true;
+        clearTimeout(timeout);
+        options.signal?.removeEventListener("abort", abortExecution);
+        void terminate().then(
+          () => rejectExecution(modelRelayConfigurationError(error)),
+          rejectExecution
+        );
+      });
     }
   );
 };
@@ -3775,6 +3869,8 @@ export const createOmpCliAdapter = (
   const now = options.now ?? Date.now;
   const filesystemSandboxBackend =
     options.filesystemSandboxBackend ?? DEFAULT_FILESYSTEM_SANDBOX_BACKEND;
+  const modelRelayBackend =
+    options.modelRelayBackend ?? DEFAULT_MODEL_RELAY_BACKEND;
 
   const execute = async (
     request: OmpExecutionRequest
@@ -3840,6 +3936,15 @@ export const createOmpCliAdapter = (
         ? await trustedVerifierManifestFor(sourceCwd)
         : null;
     await filesystemSandboxBackend.requireAvailable();
+    // Linux: the sandbox has no network, so its model must be reachable through
+    // the relay before anything else happens (fail closed).
+    const modelRoute =
+      sandboxPlatform() === "linux"
+        ? await modelRelayBackend.route(
+            options.modelGateway,
+            request.effectKind
+          )
+        : null;
     const ompExecutable = await resolveOmpExecutable(executable);
     let worktree = await prepareWorktree(
       sourceCwd,
@@ -3951,6 +4056,7 @@ export const createOmpCliAdapter = (
         "--no-session",
         `--cwd=${cwd}`,
         `--session-dir=${sessionDirectory}`,
+        ...(modelRoute === null ? [] : [`--model=${modelRoute.modelId}`]),
         request.instruction,
       ] as const;
       const command = await ompSandboxCommand({
@@ -3962,19 +4068,47 @@ export const createOmpCliAdapter = (
         wayfinderTrackerDirectory,
         ompArguments,
       });
-      const execution = await runOwnedProcess({
-        executable: command.executable,
-        arguments: command.arguments,
-        cwd,
-        environment: environmentForOmp(sessionDirectory, inheritedEnvironment),
-        ...(request.signal === undefined ? {} : { signal: request.signal }),
-        timeoutMs,
-        shutdownTimeoutMs,
-        maximumOutputBytes: maxOutputBytes,
-        redactions,
-        now,
-        startError: "OMP process failed to start",
-      });
+      let modelRelay: OmpModelRelaySession | null = null;
+      let execution: OmpVerifierRunnerResult;
+      try {
+        if (modelRoute !== null) {
+          // OMP reads models.yml from its agent directory, the session
+          // directory; it routes the model's provider to the relay.
+          await writeFile(
+            join(sessionDirectory, "models.yml"),
+            ompModelsConfigFor(modelRoute.modelId),
+            { mode: 0o600 }
+          );
+          modelRelay = await modelRelayBackend.open(modelRoute);
+        }
+        execution = await runOwnedProcess({
+          executable: command.executable,
+          arguments: command.arguments,
+          cwd,
+          // Linux passes no provider keys: the sandbox holds no credentials.
+          environment: environmentForOmp(
+            sessionDirectory,
+            modelRoute === null
+              ? inheritedEnvironment
+              : { PATH: inheritedEnvironment["PATH"] }
+          ),
+          ...(request.signal === undefined ? {} : { signal: request.signal }),
+          timeoutMs,
+          shutdownTimeoutMs,
+          maximumOutputBytes: maxOutputBytes,
+          redactions,
+          now,
+          startError: "OMP process failed to start",
+          ...(modelRelay === null
+            ? {}
+            : {
+                extraStdio: OMP_MODEL_RELAY_EXTRA_STDIO,
+                prepare: modelRelay.attach,
+              }),
+        });
+      } finally {
+        await modelRelay?.close();
+      }
       const lifecycleFor = (
         retainWhenPersisted: boolean,
         status: OmpExecutionStatus
