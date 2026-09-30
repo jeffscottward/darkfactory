@@ -12,7 +12,8 @@ import {
   rm,
   writeFile,
 } from "node:fs/promises";
-import { createServer, type Server } from "node:net";
+import { createServer as createHttpServer } from "node:http";
+import { type AddressInfo, createServer, type Server } from "node:net";
 import { tmpdir } from "node:os";
 import { delimiter, join } from "node:path";
 import { promisify } from "node:util";
@@ -23,6 +24,12 @@ import {
   bubblewrapGitArguments,
   bubblewrapOmpArguments,
 } from "./bubblewrap.ts";
+import {
+  OMP_MODEL_RELAY_API_KEY,
+  OMP_MODEL_RELAY_SANDBOX_ARGUMENTS,
+  OMP_SANDBOX_MODEL_PORT,
+  openOmpModelRelay,
+} from "./model-relay.ts";
 
 const execFileAsync = promisify(execFile);
 
@@ -169,7 +176,8 @@ describe.runIf(usable)("bubblewrap sandbox on this host", () => {
       passwd: "ENOENT",
       capabilities: "none",
       processes: expect.stringMatching(/^[1-3]$/u),
-      network: "ok",
+      // No network: the host's loopback port is out of reach.
+      network: "ECONNREFUSED",
     }));
 
   it("lets an implementation run write inside its scope and nowhere else", async () => {
@@ -320,4 +328,83 @@ describe.runIf(usable)("bubblewrap sandbox on this host", () => {
       return expect(stdout).toMatch(/^omp\/\d+\.\d+\.\d+/u);
     }
   );
+
+  it("reaches only its own model, through the relay, with no other network", async () => {
+    const allowed = "openrouter/google/gemini-3.8-flash";
+    const token = "real-relay-test-token-0123456789";
+    const seen: string[] = [];
+    const gateway = createHttpServer(async (request, response) => {
+      let body = "";
+      for await (const chunk of request) body += String(chunk);
+      seen.push(`${request.headers.authorization} ${body}`);
+      response.writeHead(200, { "content-type": "text/event-stream" });
+      response.end("data: ok\n\n");
+    });
+    gateway.listen(0, "127.0.0.1");
+    await once(gateway, "listening");
+    const gatewayPort = (gateway.address() as AddressInfo).port;
+    const relay = await openOmpModelRelay({
+      route: {
+        gatewayUrl: `http://127.0.0.1:${gatewayPort}`,
+        token,
+        modelId: allowed,
+      },
+    });
+    // OMP's view from inside the sandbox: its model endpoint, the host's
+    // gateway port, and the internet.
+    const script = `
+const net = require("node:net");
+const post = (modelId) => fetch("http://127.0.0.1:${OMP_SANDBOX_MODEL_PORT}/v1/pi/stream", {
+  method: "POST",
+  headers: { "content-type": "application/json", authorization: "Bearer ${OMP_MODEL_RELAY_API_KEY}" },
+  body: JSON.stringify({ modelId, context: { messages: [] } }),
+}).then(async (r) => r.status + " " + (await r.text()).trim(), (e) => "error " + (e.cause?.code ?? e.message));
+const connect = (host, port) => new Promise((done) => {
+  const socket = net.connect({ host, port }, () => { socket.destroy(); done("ok"); });
+  socket.on("error", (e) => done(e.code));
+});
+(async () => console.log(JSON.stringify({
+  allowed: await post(${JSON.stringify(allowed)}),
+  other: await post("anthropic/claude-opus-5-5"),
+  gatewayPort: await connect("127.0.0.1", ${gatewayPort}),
+  internet: await connect("1.1.1.1", 443),
+})))();
+`;
+    try {
+      const child = spawn(
+        BUBBLEWRAP_EXECUTABLE,
+        [
+          ...(await ompPolicy(false)),
+          ...OMP_MODEL_RELAY_SANDBOX_ARGUMENTS,
+          "--",
+          node,
+          "-e",
+          script,
+        ],
+        {
+          cwd: repository,
+          env: { HOME: session, PATH: "/usr/bin", TMPDIR: session },
+          stdio: ["ignore", "pipe", "ignore", "pipe", "pipe"],
+        }
+      );
+      let stdout = "";
+      child.stdout?.on("data", (chunk) => (stdout += String(chunk)));
+      const closed = once(child, "close");
+      await relay.attach(child);
+      await closed;
+      expect(JSON.parse(stdout)).toEqual({
+        allowed: "200 data: ok",
+        other: expect.stringMatching(/^403 /u),
+        gatewayPort: "ECONNREFUSED",
+        internet: "ENETUNREACH",
+      });
+      // The gateway saw one request: the allowed model, with its own bearer.
+      return expect(seen).toEqual([
+        `Bearer ${token} ${JSON.stringify({ modelId: allowed, context: { messages: [] } })}`,
+      ]);
+    } finally {
+      await relay.close();
+      gateway.close();
+    }
+  });
 });

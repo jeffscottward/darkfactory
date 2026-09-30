@@ -31,6 +31,7 @@ const configuration = {
   repositoryGrants: parseWorkflowRepositoryGrants("owner-1=darkfactory"),
   verifierId: OMP_VERIFIER_COMMAND_IDENTITY,
   verifierImageDigest: VERIFIER_IMAGE_DIGEST,
+  modelGateway: null,
 } as const;
 
 describe("pilot workflow worker", () => {
@@ -313,7 +314,8 @@ describe("pilot workflow worker", () => {
       configuration.repositoriesRoot,
       Math.floor(configuration.shutdownTimeoutMs / 2),
       configuration.verifierId,
-      configuration.verifierImageDigest
+      configuration.verifierImageDigest,
+      configuration.modelGateway
     );
     expect(createWayfinderAdapter).toHaveBeenCalledWith({
       omp: adapter,
@@ -417,6 +419,79 @@ describe("pilot workflow worker", () => {
         DATABASE_URL: "postgres://localhost/darkfactory",
       }).connectionString
     ).toBe("postgres://localhost/darkfactory");
+  });
+
+  it("loads the Linux model gateway and one model per step", () => {
+    const valid = {
+      DATABASE_URL: "postgresql://localhost/darkfactory",
+      WORKFLOW_REPOSITORIES_ROOT: "/srv/repositories",
+      WORKFLOW_REPOSITORY_GRANTS: "owner-1=darkfactory",
+      WORKFLOW_VERIFIER_ID: OMP_VERIFIER_COMMAND_IDENTITY,
+      WORKFLOW_VERIFIER_IMAGE_DIGEST: VERIFIER_IMAGE_DIGEST,
+    };
+    const gateway = {
+      ...valid,
+      WORKFLOW_OMP_GATEWAY_URL: "http://127.0.0.1:4010",
+      WORKFLOW_OMP_GATEWAY_TOKEN_FILE: "/home/operator/.gateway/token",
+    };
+    expect(parsePilotWorkerEnvironment(gateway).modelGateway).toEqual({
+      url: "http://127.0.0.1:4010",
+      tokenFile: "/home/operator/.gateway/token",
+      implementModel: "anthropic/claude-opus-5-5",
+      planModel: "openrouter/google/gemini-3.8-flash",
+    });
+    expect(
+      parsePilotWorkerEnvironment({
+        ...gateway,
+        WORKFLOW_OMP_IMPLEMENT_MODEL: "anthropic/claude-sonnet-5",
+        WORKFLOW_OMP_PLAN_MODEL: "openrouter/google/gemini-3.7-flash",
+      }).modelGateway
+    ).toMatchObject({
+      implementModel: "anthropic/claude-sonnet-5",
+      planModel: "openrouter/google/gemini-3.7-flash",
+    });
+    // Empty keys, as `.env.example` ships them, leave the gateway unset.
+    expect(
+      parsePilotWorkerEnvironment({
+        ...valid,
+        WORKFLOW_OMP_GATEWAY_URL: "",
+        WORKFLOW_OMP_GATEWAY_TOKEN_FILE: " ",
+        WORKFLOW_OMP_IMPLEMENT_MODEL: "",
+        WORKFLOW_OMP_PLAN_MODEL: "",
+      }).modelGateway
+    ).toBeNull();
+    for (const [environment, message] of [
+      [
+        { ...valid, WORKFLOW_OMP_GATEWAY_URL: "http://127.0.0.1:4010" },
+        "WORKFLOW_OMP_GATEWAY_URL and WORKFLOW_OMP_GATEWAY_TOKEN_FILE must be set together",
+      ],
+      [
+        { ...valid, WORKFLOW_OMP_GATEWAY_TOKEN_FILE: "/token" },
+        "WORKFLOW_OMP_GATEWAY_URL and WORKFLOW_OMP_GATEWAY_TOKEN_FILE must be set together",
+      ],
+      [
+        { ...gateway, WORKFLOW_OMP_GATEWAY_URL: "https://gateway.example" },
+        "WORKFLOW_OMP_GATEWAY_URL must be a loopback http URL",
+      ],
+      [
+        { ...gateway, WORKFLOW_OMP_GATEWAY_TOKEN_FILE: "gateway.token" },
+        "WORKFLOW_OMP_GATEWAY_TOKEN_FILE must be an absolute path",
+      ],
+      [
+        { ...gateway, WORKFLOW_OMP_GATEWAY_TOKEN_FILE: "/token\0escape" },
+        "WORKFLOW_OMP_GATEWAY_TOKEN_FILE must be an absolute path",
+      ],
+      [
+        { ...gateway, WORKFLOW_OMP_IMPLEMENT_MODEL: "opus" },
+        "WORKFLOW_OMP_IMPLEMENT_MODEL is invalid",
+      ],
+      [
+        { ...valid, WORKFLOW_OMP_PLAN_MODEL: "openrouter/../x" },
+        "WORKFLOW_OMP_PLAN_MODEL is invalid",
+      ],
+    ] as const) {
+      expect(() => parsePilotWorkerEnvironment(environment)).toThrow(message);
+    }
   });
 
   it("rejects invalid polling shutdown deadlines", () => {
@@ -604,7 +679,8 @@ describe("pilot workflow worker", () => {
       configuration.repositoriesRoot,
       1,
       configuration.verifierId,
-      configuration.verifierImageDigest
+      configuration.verifierImageDigest,
+      configuration.modelGateway
     );
     return expect(close).toHaveBeenCalledOnce();
   });

@@ -153,6 +153,7 @@
     },
     {
       "includes": [
+        "packages/jobs/src/server/model-relay.ts",
         "packages/jobs/src/server/omp.ts",
         "packages/jobs/src/server/wayfinder.ts",
         "packages/jobs/src/server/wayfinder.test.ts",

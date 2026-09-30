@@ -11,6 +11,13 @@ import {
 } from "../workflow/index.ts";
 
 import {
+  DEFAULT_OMP_IMPLEMENT_MODEL,
+  DEFAULT_OMP_PLAN_MODEL,
+  type OmpModelGatewayOptions,
+  parseOmpModelGatewayUrl,
+  parseOmpModelId,
+} from "./model-relay.ts";
+import {
   createOmpCliAdapter,
   OMP_VERIFIER_COMMAND_IDENTITY,
   type OmpApprovedVerifierId,
@@ -45,6 +52,7 @@ export type PilotWorkerConfiguration = Readonly<{
   verifierId: OmpApprovedVerifierId;
   verifierImageDigest: string;
   repositoryGrants: ReturnType<typeof parseWorkflowRepositoryGrants>;
+  modelGateway: OmpModelGatewayOptions | null;
 }>;
 
 export class PilotWorkerConfigurationError extends Error {
@@ -93,6 +101,70 @@ const boundedShutdownTimeout = (value: string | undefined): number => {
     );
   }
   return timeout;
+};
+
+// An empty value, as `.env.example` ships it, means "not set".
+const optionalSetting = (
+  source: NodeJS.ProcessEnv,
+  name: string
+): string | undefined => {
+  const value = source[name]?.trim();
+  return value === undefined || value === "" ? undefined : value;
+};
+
+const modelSetting = (
+  source: NodeJS.ProcessEnv,
+  name: string,
+  fallback: string
+): string => {
+  try {
+    return parseOmpModelId(optionalSetting(source, name) ?? fallback);
+  } catch {
+    throw new PilotWorkerConfigurationError(`${name} is invalid`);
+  }
+};
+
+// Linux runs need the gateway (model-relay.ts); macOS runs ignore it.
+const parseModelGateway = (
+  source: NodeJS.ProcessEnv
+): OmpModelGatewayOptions | null => {
+  const url = optionalSetting(source, "WORKFLOW_OMP_GATEWAY_URL");
+  const tokenFile = optionalSetting(source, "WORKFLOW_OMP_GATEWAY_TOKEN_FILE");
+  const implementModel = modelSetting(
+    source,
+    "WORKFLOW_OMP_IMPLEMENT_MODEL",
+    DEFAULT_OMP_IMPLEMENT_MODEL
+  );
+  const planModel = modelSetting(
+    source,
+    "WORKFLOW_OMP_PLAN_MODEL",
+    DEFAULT_OMP_PLAN_MODEL
+  );
+  if (url === undefined && tokenFile === undefined) return null;
+  if (url === undefined || tokenFile === undefined) {
+    throw new PilotWorkerConfigurationError(
+      "WORKFLOW_OMP_GATEWAY_URL and WORKFLOW_OMP_GATEWAY_TOKEN_FILE must be set together"
+    );
+  }
+  let gatewayUrl: string;
+  try {
+    gatewayUrl = parseOmpModelGatewayUrl(url);
+  } catch {
+    throw new PilotWorkerConfigurationError(
+      "WORKFLOW_OMP_GATEWAY_URL must be a loopback http URL"
+    );
+  }
+  if (tokenFile.includes("\0") || !isAbsolute(tokenFile)) {
+    throw new PilotWorkerConfigurationError(
+      "WORKFLOW_OMP_GATEWAY_TOKEN_FILE must be an absolute path"
+    );
+  }
+  return Object.freeze({
+    url: gatewayUrl,
+    tokenFile,
+    implementModel,
+    planModel,
+  });
 };
 
 export const parsePilotWorkerEnvironment = (
@@ -173,6 +245,7 @@ export const parsePilotWorkerEnvironment = (
     repositoryGrants,
     verifierId,
     verifierImageDigest,
+    modelGateway: parseModelGateway(source),
     pollIntervalMs: boundedInteger(
       source["WORKFLOW_POLL_INTERVAL_MS"],
       DEFAULT_PILOT_POLL_INTERVAL_MS,
@@ -352,7 +425,8 @@ export type PilotWorkerDependencies = Readonly<{
     repositoriesRoot: string,
     shutdownTimeoutMs: number,
     verifierId: OmpApprovedVerifierId,
-    verifierImageDigest: string
+    verifierImageDigest: string,
+    modelGateway: OmpModelGatewayOptions | null
   ) => OmpCliAdapter;
   createWayfinderAdapter: (
     input: Readonly<{
@@ -375,13 +449,15 @@ const createDefaultAdapter: PilotWorkerDependencies["createAdapter"] = (
   repositoriesRoot,
   shutdownTimeoutMs,
   verifierId,
-  verifierImageDigest
+  verifierImageDigest,
+  modelGateway
 ) => {
   return createOmpCliAdapter({
     repositoriesRoot,
     shutdownTimeoutMs,
     verifierId,
     verifierImageDigest,
+    ...(modelGateway === null ? {} : { modelGateway }),
   });
 };
 
@@ -414,7 +490,8 @@ export const createPilotWorker = async (
       configuration.repositoriesRoot,
       processShutdownTimeoutMs,
       configuration.verifierId,
-      configuration.verifierImageDigest
+      configuration.verifierImageDigest,
+      configuration.modelGateway
     );
     const wayfinderAdapter = dependencies.createWayfinderAdapter({
       omp: adapter,

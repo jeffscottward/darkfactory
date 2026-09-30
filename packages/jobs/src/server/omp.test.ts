@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
-import { EventEmitter } from "node:events";
-import type { Stats } from "node:fs";
+import { EventEmitter, once } from "node:events";
+import { readFileSync, type Stats } from "node:fs";
 import {
   access,
   chmod,
@@ -18,6 +18,7 @@ import {
   symlink,
   writeFile,
 } from "node:fs/promises";
+import { createServer } from "node:http";
 import { homedir, tmpdir } from "node:os";
 import { basename, dirname, join } from "node:path";
 import { PassThrough } from "node:stream";
@@ -54,12 +55,25 @@ const mocks = vi.hoisted(() => ({
   // delegates below, which take precedence.
   syntheticHostTools: true,
   bubblewrapProbeError: null as NodeJS.ErrnoException | null,
+  // Replaces model-relay.ts#openOmpModelRelay when set.
+  openModelRelay: undefined as WPFilesystemDelegate | undefined,
 }));
 
 vi.mock("node:child_process", () => ({
   execFile: mocks.execFile,
   spawn: mocks.spawn,
 }));
+
+vi.mock("./model-relay.ts", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("./model-relay.ts")>();
+  return {
+    ...actual,
+    openOmpModelRelay: (...arguments_: any[]) =>
+      mocks.openModelRelay === undefined
+        ? actual.openOmpModelRelay(arguments_[0])
+        : mocks.openModelRelay(actual.openOmpModelRelay, ...arguments_),
+  };
+});
 
 vi.mock("node:fs/promises", async (importOriginal) => {
   const actual = await importOriginal<typeof import("node:fs/promises")>();
@@ -197,6 +211,7 @@ import {
   OMP_VERIFIER_TMP_TMPFS,
   OMP_WAYFINDER_SKILLS,
   type OmpCliAdapterOptions,
+  type OmpModelRelayBackend,
   OmpConfigurationError,
   type OmpExecutionRequest,
   type OmpFilesystemSandboxBackend,
@@ -212,6 +227,11 @@ import {
   trustedVerifierManifestFor,
   validateOmpWayfinderTrackerArtifact,
 } from "./omp.ts";
+import {
+  DEFAULT_OMP_IMPLEMENT_MODEL,
+  DEFAULT_OMP_PLAN_MODEL,
+  OmpModelRelayError,
+} from "./model-relay.ts";
 import { createLocalWayfinderExecutionAdapter } from "./wayfinder.ts";
 
 const TEST_FILESYSTEM_SANDBOX_BACKEND = Object.freeze({
@@ -223,6 +243,45 @@ const createOmpCliAdapter = (options: OmpCliAdapterOptions) => {
     ...options,
     filesystemSandboxBackend: TEST_FILESYSTEM_SANDBOX_BACKEND,
   });
+};
+
+// A stand-in for the Linux model relay: it records what each run was given.
+// models.yml is read as soon as the sandbox starts, before the run can finish
+// and remove its session directory.
+const fakeModelRelay = (
+  attachError: (child: unknown) => Promise<void> = async () => undefined
+) => {
+  const events: string[] = [];
+  const backend = {
+    route: vi.fn(async (_gateway: unknown, effectKind: string) =>
+      Object.freeze({
+        gatewayUrl: "http://127.0.0.1:4010",
+        token: "relay-test-token-0123456789",
+        modelId:
+          effectKind === "implement"
+            ? DEFAULT_OMP_IMPLEMENT_MODEL
+            : DEFAULT_OMP_PLAN_MODEL,
+      })
+    ),
+    open: vi.fn(async (route: Readonly<{ modelId: string }>) =>
+      Object.freeze({
+        attach: vi.fn(async (child: unknown) => {
+          const arguments_ = mocks.spawn.mock.calls.at(-1)![1] as string[];
+          const session = arguments_
+            .find((value) => value.startsWith("--session-dir="))!
+            .slice("--session-dir=".length);
+          events.push(
+            `attach ${route.modelId} ${readFileSync(join(session, "models.yml"), "utf8").replace(/\s+/gu, "")}`
+          );
+          return await attachError(child);
+        }),
+        close: vi.fn(async () => {
+          events.push("close");
+        }),
+      })
+    ),
+  } satisfies OmpModelRelayBackend;
+  return { backend, events };
 };
 
 type SandboxResponse = Readonly<{
@@ -331,6 +390,7 @@ const directGitCalls = () =>
   mocks.execFile.mock.calls.filter((call) => call[0] === "/usr/bin/git");
 
 const resetWPFilesystemDelegates = (): void => {
+  mocks.openModelRelay = undefined;
   mocks.WP1lstatDelegate = undefined;
   mocks.WP1readdirDelegate = undefined;
   mocks.WP2mkdirDelegate = undefined;
@@ -547,6 +607,7 @@ beforeEach(async () => {
         pid: response.pid,
         stdout,
         stderr,
+        stdio: [null, stdout, stderr],
         kill: vi.fn(() => true),
       });
       void (async () => {
@@ -918,9 +979,23 @@ describe("OMP CLI adapter", () => {
           arguments_[index + 1] === path &&
           arguments_[index + 2] === path
       );
+    const relay = fakeModelRelay();
+    const modelGateway = Object.freeze({
+      url: "http://127.0.0.1:4010",
+      tokenFile: "/srv/gateway/token",
+      implementModel: DEFAULT_OMP_IMPLEMENT_MODEL,
+      planModel: DEFAULT_OMP_PLAN_MODEL,
+    });
+    const linuxAdapter = () =>
+      createOmpCliAdapter({
+        repositoriesRoot,
+        modelGateway,
+        modelRelayBackend: relay.backend,
+      });
+    process.env["OPENAI_API_KEY"] = "sk-must-not-reach-the-sandbox";
     try {
       callbackWith(null, "planned inside bubblewrap");
-      const planned = await createOmpCliAdapter({ repositoriesRoot }).execute(
+      const planned = await linuxAdapter().execute(
         requestFor({ workspaceId: "linux-plan" })
       );
       expect(planned.status).toBe("succeeded");
@@ -938,9 +1013,32 @@ describe("OMP CLI adapter", () => {
       }
       const [planCall] = sandboxCalls();
       const planArguments = planCall![1] as readonly string[];
-      const planCwd = (planCall![2] as Readonly<{ cwd: string }>).cwd;
+      const planOptions = planCall![2] as Readonly<{
+        cwd: string;
+        env: NodeJS.ProcessEnv;
+        stdio: readonly string[];
+      }>;
+      const planCwd = planOptions.cwd;
+      const separator = planArguments.indexOf("--");
       expect(planCall![0]).toBe("/usr/bin/bwrap");
-      expect(planArguments).toContain("--share-net");
+      // No network: the model is reached only through the relay, which bwrap
+      // waits for (fd 4) after reporting its process (fd 3).
+      expect(planArguments).not.toContain("--share-net");
+      expect(planArguments.slice(separator - 4, separator)).toEqual([
+        "--info-fd",
+        "3",
+        "--block-fd",
+        "4",
+      ]);
+      expect(planOptions.stdio).toEqual([
+        "ignore",
+        "pipe",
+        "pipe",
+        "pipe",
+        "pipe",
+      ]);
+      expect(planOptions.env["OPENAI_API_KEY"]).toBeUndefined();
+      expect(planOptions.env["PATH"]).toBe(process.env["PATH"]);
       expect(
         bindsExactly(
           planArguments,
@@ -948,8 +1046,12 @@ describe("OMP CLI adapter", () => {
           join(planCwd, "packages/jobs")
         )
       ).toBe(true);
-      expect(planArguments.slice(planArguments.indexOf("--") + 1, -1)).toEqual(
-        expect.arrayContaining(["-p", `--cwd=${planCwd}`])
+      expect(planArguments.slice(separator + 1, -1)).toEqual(
+        expect.arrayContaining([
+          "-p",
+          `--cwd=${planCwd}`,
+          `--model=${DEFAULT_OMP_PLAN_MODEL}`,
+        ])
       );
       await planned.lifecycle!.finalize("unpersisted");
 
@@ -961,9 +1063,7 @@ describe("OMP CLI adapter", () => {
           mode: 0o700,
         });
       });
-      const implemented = await createOmpCliAdapter({
-        repositoriesRoot,
-      }).execute(
+      const implemented = await linuxAdapter().execute(
         requestFor({ workspaceId: "linux-implement", effectKind: "implement" })
       );
       expect(implemented.status).toBe("succeeded");
@@ -981,18 +1081,22 @@ describe("OMP CLI adapter", () => {
         ["packages/jobs/run.sh", 0o755],
       ]);
       const implementCall = sandboxCalls().at(-1)!;
+      const implementArguments = implementCall[1] as readonly string[];
       const implementCwd = (implementCall[2] as Readonly<{ cwd: string }>).cwd;
       expect(
         bindsExactly(
-          implementCall[1] as readonly string[],
+          implementArguments,
           "--bind",
           join(implementCwd, "packages/jobs")
         )
       ).toBe(true);
+      expect(implementArguments).toContain(
+        `--model=${DEFAULT_OMP_IMPLEMENT_MODEL}`
+      );
       await implemented.lifecycle!.finalize("unpersisted");
 
-      return await expect(
-        createOmpCliAdapter({ repositoriesRoot }).execute(
+      await expect(
+        linuxAdapter().execute(
           requestFor({
             workspaceId: "linux-missing-scope",
             effectKind: "implement",
@@ -1000,6 +1104,29 @@ describe("OMP CLI adapter", () => {
           })
         )
       ).rejects.toThrow("OMP implementation scope must exist on Linux");
+      // Each run got its own model and relay; the relay closed after each run
+      // and never opened for the run that failed before starting.
+      expect(relay.backend.route.mock.calls).toEqual([
+        [modelGateway, "plan"],
+        [modelGateway, "implement"],
+        [modelGateway, "implement"],
+      ]);
+      const routed = (model: string) =>
+        `attach ${model} ${JSON.stringify({
+          providers: {
+            [model.slice(0, model.indexOf("/"))]: {
+              baseUrl: "http://127.0.0.1:4000",
+              transport: "pi-native",
+              apiKey: "darkfactory-model-relay",
+            },
+          },
+        })}`;
+      return expect(relay.events).toEqual([
+        routed(DEFAULT_OMP_PLAN_MODEL),
+        "close",
+        routed(DEFAULT_OMP_IMPLEMENT_MODEL),
+        "close",
+      ]);
     } finally {
       platform.mockReturnValue("darwin");
     }
@@ -1026,9 +1153,10 @@ describe("OMP CLI adapter", () => {
       return metadata ?? actual(path, ...arguments_);
     };
     const run = (workspaceId: string) =>
-      createProductionOmpCliAdapter({ repositoriesRoot }).execute(
-        requestFor({ workspaceId })
-      );
+      createProductionOmpCliAdapter({
+        repositoriesRoot,
+        modelRelayBackend: fakeModelRelay().backend,
+      }).execute(requestFor({ workspaceId }));
     try {
       executables.set("/usr/bin/bwrap", null);
       await expect(run("linux-bwrap-missing")).rejects.toThrow(
@@ -1053,9 +1181,10 @@ describe("OMP CLI adapter", () => {
       for (const git of [null, { ...secureExecutable, uid: 1000 }]) {
         executables.set("/usr/bin/git", git);
         await expect(
-          createOmpCliAdapter({ repositoriesRoot }).execute(
-            requestFor({ workspaceId: "linux-git-insecure" })
-          )
+          createOmpCliAdapter({
+            repositoriesRoot,
+            modelRelayBackend: fakeModelRelay().backend,
+          }).execute(requestFor({ workspaceId: "linux-git-insecure" }))
         ).rejects.toThrow("OMP git executable is unavailable");
       }
       executables.delete("/usr/bin/git");
@@ -1074,6 +1203,190 @@ describe("OMP CLI adapter", () => {
       return await expect(run("unsupported-platform")).rejects.toThrow(
         "OMP filesystem sandbox is unsupported"
       );
+    } finally {
+      platform.mockReturnValue("darwin");
+    }
+  });
+
+  it("fails closed when the Linux model relay is missing, insecure or unreachable", async () => {
+    const platform = vi
+      .spyOn(process, "platform", "get")
+      .mockReturnValue("linux");
+    const secureExecutable = {
+      uid: 0,
+      gid: 0,
+      mode: 0o10_0755,
+      isFile: () => true,
+      isDirectory: () => false,
+    } as unknown as Stats;
+    let nsenter: Stats | null = null;
+    mocks.WP3statDelegate = async (actual, path, ...arguments_) => {
+      if (String(path) !== "/usr/bin/nsenter")
+        return actual(path, ...arguments_);
+      if (nsenter === null) {
+        throw Object.assign(new Error("gone"), { code: "ENOENT" });
+      }
+      return nsenter;
+    };
+    const gatewayDirectory = await mkdtemp(join(tmpdir(), "df-gateway-"));
+    const tokenFile = join(gatewayDirectory, "gateway.token");
+    await writeFile(tokenFile, "gateway-token-0123456789abcdef\n", {
+      mode: 0o600,
+    });
+    let servedModels: readonly string[] = [DEFAULT_OMP_PLAN_MODEL];
+    const gateway = createServer((request, response) => {
+      if (request.url === "/healthz") return response.end('{"ok":true}');
+      return response.end(
+        JSON.stringify({ data: servedModels.map((id) => ({ id })) })
+      );
+    });
+    gateway.listen(0, "127.0.0.1");
+    await once(gateway, "listening");
+    const address = gateway.address();
+    const gatewayUrl = `http://127.0.0.1:${typeof address === "object" && address !== null ? address.port : 0}`;
+    const run = (
+      workspaceId: string,
+      modelGateway?: Readonly<{ url: string; tokenFile: string }>
+    ) =>
+      createOmpCliAdapter({
+        repositoriesRoot,
+        ...(modelGateway === undefined
+          ? {}
+          : {
+              modelGateway: {
+                ...modelGateway,
+                implementModel: DEFAULT_OMP_IMPLEMENT_MODEL,
+                planModel: DEFAULT_OMP_PLAN_MODEL,
+              },
+            }),
+      }).execute(requestFor({ workspaceId }));
+    const relayDirectories = async () =>
+      (await readdir(tmpdir())).filter((name) =>
+        name.startsWith("darkfactory-model-relay-")
+      );
+    try {
+      await expect(run("linux-no-gateway")).rejects.toThrow(
+        "OMP model gateway is not configured"
+      );
+      const configured = { url: gatewayUrl, tokenFile };
+      for (const metadata of [null, { ...secureExecutable, mode: 0o10_0777 }]) {
+        nsenter = metadata as Stats | null;
+        await expect(run("linux-nsenter", configured)).rejects.toThrow(
+          "OMP model relay is unavailable"
+        );
+      }
+      nsenter = secureExecutable;
+      await expect(
+        run("linux-token", {
+          url: gatewayUrl,
+          tokenFile: join(gatewayDirectory, "missing.token"),
+        })
+      ).rejects.toThrow("OMP model gateway token is unavailable");
+      servedModels = [DEFAULT_OMP_IMPLEMENT_MODEL];
+      await expect(run("linux-model", configured)).rejects.toThrow(
+        "OMP model gateway does not serve the configured model"
+      );
+      servedModels = [DEFAULT_OMP_PLAN_MODEL];
+
+      mocks.openModelRelay = async () => {
+        throw new Error("socket unavailable");
+      };
+      await expect(run("linux-open", configured)).rejects.toThrow(
+        "OMP model relay failed to start"
+      );
+      mocks.openModelRelay = async () => {
+        throw new OmpModelRelayError("OMP model relay is busy");
+      };
+      await expect(run("linux-open-busy", configured)).rejects.toThrow(
+        "OMP model relay is busy"
+      );
+      mocks.openModelRelay = undefined;
+
+      // The real relay opens, but this sandbox never reports its process: the
+      // run stops before OMP starts and the relay's socket directory is removed.
+      const before = await relayDirectories();
+      sandboxResponses.push({
+        error: null,
+        stdout: "",
+        stderr: "",
+        holdOpen: true,
+      });
+      await expect(run("linux-attach", configured)).rejects.toThrow(
+        new OmpConfigurationError("OMP sandbox did not report its process")
+      );
+      expect(await relayDirectories()).toEqual(before);
+
+      gateway.close();
+      await once(gateway, "close");
+      return await expect(
+        run("linux-gateway-down", configured)
+      ).rejects.toThrow("OMP model gateway is unavailable");
+    } finally {
+      platform.mockReturnValue("darwin");
+      gateway.close();
+      await rm(gatewayDirectory, { recursive: true, force: true });
+    }
+  });
+
+  it("starts OMP only after its relay attaches, and fails closed when it cannot", async () => {
+    const platform = vi
+      .spyOn(process, "platform", "get")
+      .mockReturnValue("linux");
+    const runWith = (
+      relay: ReturnType<typeof fakeModelRelay>,
+      workspaceId: string,
+      signal?: AbortSignal
+    ) =>
+      createOmpCliAdapter({
+        repositoriesRoot,
+        modelRelayBackend: relay.backend,
+      }).execute(
+        requestFor({
+          workspaceId,
+          ...(signal === undefined ? {} : { signal }),
+        })
+      );
+    try {
+      for (const [failure, message, signal] of [
+        [
+          new OmpModelRelayError("OMP sandbox did not report its process"),
+          "OMP sandbox did not report its process",
+          new AbortController().signal,
+        ],
+        [
+          new Error("nsenter failed"),
+          "OMP model relay failed to start",
+          undefined,
+        ],
+      ] as const) {
+        sandboxResponses.push({
+          error: null,
+          stdout: "",
+          stderr: "",
+          holdOpen: true,
+        });
+        const relay = fakeModelRelay(async () => {
+          throw failure;
+        });
+        await expect(
+          runWith(relay, "linux-attach-fails", signal)
+        ).rejects.toThrow(new OmpConfigurationError(message));
+        const child = mocks.spawn.mock.results.at(-1)!.value as Readonly<{
+          kill: ReturnType<typeof vi.fn>;
+        }>;
+        expect(child.kill).toHaveBeenCalledWith("SIGTERM");
+        expect(relay.events.at(-1)).toBe("close");
+      }
+
+      // A relay that fails only after OMP has finished changes nothing.
+      callbackWith(null, "planned before the relay gave up");
+      const late = fakeModelRelay(async (child) => {
+        await once(child as EventEmitter, "close");
+        throw new Error("relay stopped late");
+      });
+      const planned = await runWith(late, "linux-attach-late");
+      expect(planned.status).toBe("succeeded");
+      return await planned.lifecycle!.finalize("unpersisted");
     } finally {
       platform.mockReturnValue("darwin");
     }
