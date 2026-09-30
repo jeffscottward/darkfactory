@@ -1,12 +1,14 @@
 // What: the Linux filesystem sandbox (bubblewrap) for OMP runs and git. It
 // mirrors the macOS sandbox-exec profiles in omp.ts#sandboxProfileFor and
 // omp.ts#gitSandboxProfileFor: an empty read-only root, system libraries
-// read-only, and only the listed paths bound in.
+// read-only, and only the listed paths bound in. The process filter that
+// bwrap loads for them lives in seccomp.ts.
 // Used by: packages/jobs/src/server/omp.ts (ompSandboxCommand, gitSandboxCommand).
 // See: docs/operator.md#platform-support
 
 import { lstat, realpath } from "node:fs/promises";
 import { posix } from "node:path";
+import { processFilterArguments } from "./seccomp.ts";
 
 export const BUBBLEWRAP_EXECUTABLE = "/usr/bin/bwrap";
 
@@ -168,3 +170,31 @@ export const BUBBLEWRAP_PROBE_ARGUMENTS = Object.freeze([
   BUBBLEWRAP_EXECUTABLE,
   "--version",
 ] as const);
+
+// What the process filter probe prints when the filter holds: the runtime
+// (Node.js or Bun, whose own threads must still start) tries to start a
+// process, which must fail with EPERM. Without the filter the process starts
+// and only its exec fails, with ENOENT.
+export const PROCESS_FILTER_PROBE_OUTPUT = "EPERM";
+const PROCESS_FILTER_PROBE_SCRIPT =
+  "process.stdout.write(require('node:child_process').spawnSync('/nonexistent').error?.code ?? 'none')";
+
+// The same isolation under the process filter (seccomp.ts), which bwrap reads
+// on stdin. The runtime reopens its closed stdin on /dev/null, so /dev is the
+// minimal device tree that bwrap builds.
+export const bubblewrapFilteredProbeArguments = (
+  runtime: string
+): readonly string[] =>
+  Object.freeze([
+    ...ISOLATION,
+    "--ro-bind",
+    "/",
+    "/",
+    "--dev",
+    "/dev",
+    ...processFilterArguments(0),
+    "--",
+    runtime,
+    "-e",
+    PROCESS_FILTER_PROBE_SCRIPT,
+  ]);
