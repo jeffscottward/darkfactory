@@ -25,7 +25,7 @@ The seven `workflow_*` tables were created by migrations 0005–0007 in the prod
 Both sandboxes apply one filesystem policy (`packages/jobs/src/server/omp.ts#sandboxProfileFor`, `packages/jobs/src/server/bubblewrap.ts#bubblewrapOmpArguments`):
 
 - The agent reads only its scope paths and writes to them only in implementation runs, plus its Wayfinder tracker and session directory. The rest of the repository, `.git`, your home directory and `/etc` (except DNS and TLS trust files) are invisible.
-- Git runs without network. On macOS the agent has network to reach its model API; on Linux it has none (see [Models and credentials](#models-and-credentials)).
+- Git runs without network. On macOS the agent has network to reach its model API, and so do its tools: `read` can fetch URLs, and Wayfinder plans can use `web_search`. On Linux the agent has no network, so URL reads and web search fail and it reaches only its model (see [Models and credentials](#models-and-credentials)).
 - No capabilities. On Linux the sandbox also has a private process namespace and dies with the worker.
 
 Before every run the worker checks the sandbox and fails closed with `OmpConfigurationError` (`packages/jobs/src/server/omp.ts#requireSandboxBackend`): on any other platform, when `sandbox-exec` or `bwrap` is missing, when `bwrap` or `nsenter` is not root-owned or is writable by others, when bubblewrap cannot create namespaces (for example where AppArmor restricts user namespaces), or, on Linux, when the model gateway is not configured, does not answer, or does not serve the run's model. Do not bypass these checks.
