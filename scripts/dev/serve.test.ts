@@ -1,4 +1,8 @@
+import { execFileSync } from "node:child_process";
+import { existsSync } from "node:fs";
 import { readFile } from "node:fs/promises";
+import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { describe, expect, it, vi } from "vitest";
 import {
   runDevServer,
@@ -6,6 +10,8 @@ import {
   spawnInherited,
 } from "./serve.ts";
 import { DEVELOPMENT_TARGETS, isCanonicalRouteOutput } from "./targets.ts";
+
+const root = fileURLToPath(new URL("../../", import.meta.url));
 
 const fixture = (
   environment: Readonly<Record<string, string | undefined>>,
@@ -37,7 +43,7 @@ describe("foreground development server", () => {
       "dev",
       "--port",
       "4123",
-      "--hostname",
+      "--host",
       "127.0.0.1",
     ]);
     run.handlers.get("SIGTERM")?.();
@@ -58,9 +64,26 @@ describe("foreground development server", () => {
       "dev",
       "--port",
       "4999",
-      "--hostname",
+      "--host",
       "127.0.0.1",
     ]);
+  });
+
+  // A flag rename in vinext broke `bun run dev` while CI stayed green (it only
+  // builds), so the forwarded flags are checked against the installed CLI.
+  it("forwards only flags that each app's installed vinext dev accepts", () => {
+    const vinexts = Object.keys(DEVELOPMENT_TARGETS)
+      .map((target) => join(root, "apps", target, "node_modules/.bin/vinext"))
+      // `init --without-operator` removes the operator app.
+      .filter((vinext) => existsSync(vinext));
+    expect(vinexts.length).toBeGreaterThan(0);
+    for (const vinext of vinexts) {
+      const help = execFileSync(vinext, ["dev", "--help"], {
+        encoding: "utf8",
+      });
+      expect(help, vinext).toMatch(/^\s+--port\b/mu);
+      expect(help, vinext).toMatch(/^\s+--host\b/mu);
+    }
   });
 
   it("rejects unknown targets and a missing or malformed portless port", async () => {

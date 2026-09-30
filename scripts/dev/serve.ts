@@ -3,8 +3,9 @@ import { DEVELOPMENT_TARGETS, isDevelopmentTarget } from "./targets.ts";
 
 // Runs inside `portless <route> bun scripts/dev.ts <target>` (see the root
 // `dev` and `operator:dev` scripts). Portless assigns a hidden port through
-// PORT/HOST, but `vinext dev` ignores PORT and only honours --port/--hostname,
-// so this adapter forwards them to the app's own `dev` script.
+// PORT/HOST, but `vinext dev` ignores PORT and only honours --port/--host
+// (Vite's CLI flags since vinext 1.0), so this adapter forwards them to the
+// app's own `dev` script.
 export type ChildProcess = Readonly<{
   kill: (signal: NodeJS.Signals) => void;
   // Resolves with the exit code, or null when a signal ended the child.
@@ -55,7 +56,7 @@ export const runDevServer = async (
     "dev",
     "--port",
     port,
-    "--hostname",
+    "--host",
     dependencies.environment["HOST"] ?? "127.0.0.1",
   ]);
   for (const signal of FORWARDED_SIGNALS) {
