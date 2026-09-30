@@ -55,6 +55,10 @@ const mocks = vi.hoisted(() => ({
   // delegates below, which take precedence.
   syntheticHostTools: true,
   bubblewrapProbeError: null as NodeJS.ErrnoException | null,
+  // The same probe under the process filter (bubblewrap.ts): its runtime
+  // prints EPERM when the filter stops it from starting a process.
+  bubblewrapFilteredProbeError: null as NodeJS.ErrnoException | null,
+  bubblewrapFilteredProbeOutput: "EPERM",
   // Replaces model-relay.ts#openOmpModelRelay when set.
   openModelRelay: undefined as WPFilesystemDelegate | undefined,
 }));
@@ -232,6 +236,7 @@ import {
   DEFAULT_OMP_PLAN_MODEL,
   OmpModelRelayError,
 } from "./model-relay.ts";
+import { processFilterFor } from "./seccomp.ts";
 import { createLocalWayfinderExecutionAdapter } from "./wayfinder.ts";
 
 const TEST_FILESYSTEM_SANDBOX_BACKEND = Object.freeze({
@@ -378,6 +383,47 @@ const bubblewrapGitCalls = () =>
     );
   });
 
+// A child as execFile returns it for bwrap; its stdin keeps what the worker
+// sends there (the process filter).
+type FakeBubblewrapChild = EventEmitter &
+  Readonly<{ stdin: PassThrough; received: Buffer[]; kill: () => boolean }>;
+const fakeBubblewrapChild = (): FakeBubblewrapChild => {
+  const stdin = new PassThrough();
+  const received: Buffer[] = [];
+  stdin.on("data", (chunk: Buffer) => received.push(chunk));
+  return Object.assign(new EventEmitter(), {
+    stdin,
+    received,
+    kill: vi.fn(() => true),
+  });
+};
+
+// Every bwrap execFile call: its git operation (or command), whether it
+// names the process filter on stdin, and what its stdin received.
+const bubblewrapExecutionSummaries = (processFilter: Buffer) =>
+  mocks.execFile.mock.calls.flatMap((call, index) => {
+    if (call[0] !== "/usr/bin/bwrap") return [];
+    const arguments_ = call[1] as readonly string[];
+    const separator = arguments_.indexOf("--");
+    const stdin = Buffer.concat(
+      (mocks.execFile.mock.results[index]!.value as FakeBubblewrapChild)
+        .received
+    );
+    return [
+      {
+        command: (
+          bubblewrapGitArguments(arguments_) ?? arguments_.slice(separator + 1)
+        )
+          .slice(0, 2)
+          .join(" "),
+        filtered:
+          arguments_.slice(separator - 2, separator).join(" ") ===
+          "--seccomp 0",
+        stdin: stdin.equals(processFilter) ? "filter" : stdin.byteLength,
+      },
+    ];
+  });
+
 const gitCalls = () =>
   gitSandboxCalls().map((call) => [
     "/usr/bin/git",
@@ -468,6 +514,8 @@ beforeEach(async () => {
   vi.spyOn(process, "platform", "get").mockReturnValue("darwin");
   mocks.syntheticHostTools = true;
   mocks.bubblewrapProbeError = null;
+  mocks.bubblewrapFilteredProbeError = null;
+  mocks.bubblewrapFilteredProbeOutput = "EPERM";
   sandboxResponses.length = 0;
   workspaceDirectories.length = 0;
   mocks.spawn.mockClear();
@@ -521,9 +569,17 @@ beforeEach(async () => {
           ? bubblewrapGitArguments(arguments_)
           : undefined;
       if (executable === "/usr/bin/bwrap" && bubblewrapGit === undefined) {
-        // The namespace probe of requireBubblewrap.
-        callback(mocks.bubblewrapProbeError, "bubblewrap 0.12.0\n", "");
-        return;
+        // The probes of requireBubblewrap, without and with the process filter.
+        if (arguments_.includes("--seccomp")) {
+          callback(
+            mocks.bubblewrapFilteredProbeError,
+            mocks.bubblewrapFilteredProbeOutput,
+            ""
+          );
+        } else {
+          callback(mocks.bubblewrapProbeError, "bubblewrap 0.12.0\n", "");
+        }
+        return fakeBubblewrapChild();
       }
       if (
         bubblewrapGit !== undefined ||
@@ -588,7 +644,7 @@ beforeEach(async () => {
           (stdout) => callback(null, stdout),
           (error: NodeJS.ErrnoException) => callback(error)
         );
-        return;
+        return bubblewrapGit === undefined ? undefined : fakeBubblewrapChild();
       }
       throw new Error("unexpected non-git execFile invocation");
     }
@@ -603,11 +659,19 @@ beforeEach(async () => {
       if (response === undefined) throw new Error("missing sandbox response");
       const stdout = new PassThrough();
       const stderr = new PassThrough();
+      // fd 5 keeps the process filter. The relay's fds 3 and 4 stay absent:
+      // fake relays never read them, and a real one then fails closed at once.
+      const processFilterPipe = new PassThrough();
+      const processFilterBytes: Buffer[] = [];
+      processFilterPipe.on("data", (chunk: Buffer) =>
+        processFilterBytes.push(chunk)
+      );
       const child = Object.assign(new EventEmitter(), {
         pid: response.pid,
         stdout,
         stderr,
-        stdio: [null, stdout, stderr],
+        stdio: [null, stdout, stderr, undefined, undefined, processFilterPipe],
+        processFilterBytes,
         kill: vi.fn(() => true),
       });
       void (async () => {
@@ -1011,6 +1075,21 @@ describe("OMP CLI adapter", () => {
         ]);
         expect(arguments_).not.toContain("--share-net");
       }
+      // Like the macOS git profile, only `worktree add` may start processes;
+      // every other git operation gets the process filter on stdin (the agent
+      // gets it on fd 5, below).
+      const processFilter = processFilterFor(process.arch);
+      const gitExecutions = bubblewrapExecutionSummaries(processFilter);
+      expect(gitExecutions.map(({ command }) => command)).toEqual(
+        expect.arrayContaining(["worktree add", "rev-parse --show-toplevel"])
+      );
+      expect(gitExecutions).toEqual(
+        gitExecutions.map(({ command }) =>
+          command === "worktree add"
+            ? { command, filtered: false, stdin: 0 }
+            : { command, filtered: true, stdin: "filter" }
+        )
+      );
       const [planCall] = sandboxCalls();
       const planArguments = planCall![1] as readonly string[];
       const planOptions = planCall![2] as Readonly<{
@@ -1022,13 +1101,16 @@ describe("OMP CLI adapter", () => {
       const separator = planArguments.indexOf("--");
       expect(planCall![0]).toBe("/usr/bin/bwrap");
       // No network: the model is reached only through the relay, which bwrap
-      // waits for (fd 4) after reporting its process (fd 3).
+      // waits for (fd 4) after reporting its process (fd 3). The process
+      // filter arrives on fd 5, right after the process starts.
       expect(planArguments).not.toContain("--share-net");
-      expect(planArguments.slice(separator - 4, separator)).toEqual([
+      expect(planArguments.slice(separator - 6, separator)).toEqual([
         "--info-fd",
         "3",
         "--block-fd",
         "4",
+        "--seccomp",
+        "5",
       ]);
       expect(planOptions.stdio).toEqual([
         "ignore",
@@ -1036,7 +1118,17 @@ describe("OMP CLI adapter", () => {
         "pipe",
         "pipe",
         "pipe",
+        "pipe",
       ]);
+      expect(
+        Buffer.concat(
+          (
+            mocks.spawn.mock.results[0]!.value as Readonly<{
+              processFilterBytes: Buffer[];
+            }>
+          ).processFilterBytes
+        )
+      ).toEqual(processFilter);
       expect(planOptions.env["OPENAI_API_KEY"]).toBeUndefined();
       expect(planOptions.env["PATH"]).toBe(process.env["PATH"]);
       expect(
@@ -1178,6 +1270,34 @@ describe("OMP CLI adapter", () => {
         "OMP filesystem sandbox cannot create namespaces"
       );
       mocks.bubblewrapProbeError = null;
+      // The process filter must hold: the kernel refuses it, or the runtime
+      // under it still starts a process (the exec then fails with ENOENT), and
+      // the second probe fails closed.
+      mocks.bubblewrapFilteredProbeError = Object.assign(
+        new Error("prctl(PR_SET_SECCOMP): Invalid argument"),
+        { code: "EINVAL" }
+      );
+      await expect(run("linux-bwrap-filter")).rejects.toThrow(
+        "OMP process filter failed its probe"
+      );
+      mocks.bubblewrapFilteredProbeError = null;
+      mocks.bubblewrapFilteredProbeOutput = "ENOENT";
+      await expect(run("linux-bwrap-filter-open")).rejects.toThrow(
+        "OMP process filter failed its probe"
+      );
+      mocks.bubblewrapFilteredProbeOutput = "EPERM";
+      const architecture = Object.getOwnPropertyDescriptor(process, "arch")!;
+      Object.defineProperty(process, "arch", {
+        ...architecture,
+        value: "ia32",
+      });
+      try {
+        await expect(run("linux-bwrap-architecture")).rejects.toThrow(
+          "OMP process filter is unsupported"
+        );
+      } finally {
+        Object.defineProperty(process, "arch", architecture);
+      }
       for (const git of [null, { ...secureExecutable, uid: 1000 }]) {
         executables.set("/usr/bin/git", git);
         await expect(
@@ -1191,13 +1311,24 @@ describe("OMP CLI adapter", () => {
       callbackWith(null, "planned after the namespace probe");
       const planned = await run("linux-bwrap-probed");
       expect(planned.status).toBe("succeeded");
+      // Both probes ran, and only the second one, which runs this runtime,
+      // got the process filter.
+      const probes = new Set([
+        "/usr/bin/bwrap --version",
+        `${process.execPath} -e`,
+      ]);
       expect(
-        mocks.execFile.mock.calls.some(
-          ([executable, arguments_]) =>
-            executable === "/usr/bin/bwrap" &&
-            (arguments_ as readonly string[]).at(-1) === "--version"
-        )
-      ).toBe(true);
+        bubblewrapExecutionSummaries(processFilterFor(process.arch))
+          .filter(({ command }) => probes.has(command))
+          .slice(-2)
+      ).toEqual([
+        { command: "/usr/bin/bwrap --version", filtered: false, stdin: 0 },
+        {
+          command: `${process.execPath} -e`,
+          filtered: true,
+          stdin: "filter",
+        },
+      ]);
       await planned.lifecycle!.finalize("unpersisted");
       platform.mockReturnValue("win32");
       return await expect(run("unsupported-platform")).rejects.toThrow(

@@ -155,6 +155,7 @@
       "includes": [
         "packages/jobs/src/server/model-relay.ts",
         "packages/jobs/src/server/omp.ts",
+        "packages/jobs/src/server/seccomp.test.ts",
         "packages/jobs/src/server/wayfinder.ts",
         "packages/jobs/src/server/wayfinder.test.ts",
         "packages/jobs/src/server/workflow-recovery-regression.test.ts",
@@ -165,7 +166,7 @@
       "linter": {
         "rules": {
           "suspicious": {
-            // File modes, inode identities, checksums and PNG bytes need exact bit math.
+            // File modes, inode identities, checksums, PNG bytes and BPF programs need exact bit math.
             "noBitwiseOperators": "off"
           }
         }

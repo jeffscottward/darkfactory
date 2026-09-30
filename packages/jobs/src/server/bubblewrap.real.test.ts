@@ -16,13 +16,16 @@ import { createServer as createHttpServer } from "node:http";
 import { type AddressInfo, createServer, type Server } from "node:net";
 import { tmpdir } from "node:os";
 import { delimiter, join } from "node:path";
+import type { Writable } from "node:stream";
 import { promisify } from "node:util";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   BUBBLEWRAP_EXECUTABLE,
   BUBBLEWRAP_PROBE_ARGUMENTS,
+  bubblewrapFilteredProbeArguments,
   bubblewrapGitArguments,
   bubblewrapOmpArguments,
+  PROCESS_FILTER_PROBE_OUTPUT,
 } from "./bubblewrap.ts";
 import {
   OMP_MODEL_RELAY_API_KEY,
@@ -30,8 +33,42 @@ import {
   OMP_SANDBOX_MODEL_PORT,
   openOmpModelRelay,
 } from "./model-relay.ts";
+import {
+  processFilterArguments,
+  processFilterFor,
+  sendProcessFilter,
+} from "./seccomp.ts";
 
 const execFileAsync = promisify(execFile);
+
+// Runs a command in bwrap with the process filter on `fd` (0 is stdin), as
+// the worker does, and reports its exit code and output.
+const runFiltered = async (
+  sandbox: readonly string[],
+  fd: 0 | 3,
+  command: readonly string[],
+  options: Readonly<{ cwd: string; env: NodeJS.ProcessEnv }>
+): Promise<Readonly<{ code: number | null; stdout: string }>> => {
+  const child = spawn(
+    BUBBLEWRAP_EXECUTABLE,
+    [...sandbox, ...processFilterArguments(fd), "--", ...command],
+    {
+      ...options,
+      stdio:
+        fd === 0
+          ? ["pipe", "pipe", "ignore"]
+          : ["ignore", "pipe", "ignore", "pipe"],
+    }
+  );
+  sendProcessFilter(
+    child.stdio[fd] as Writable,
+    processFilterFor(process.arch)
+  );
+  let stdout = "";
+  child.stdout?.on("data", (chunk) => (stdout += String(chunk)));
+  const [code] = (await once(child, "close")) as [number | null];
+  return { code, stdout };
+};
 
 const usable = (() => {
   if (process.platform !== "linux") return false;
@@ -255,6 +292,30 @@ describe.runIf(usable)("bubblewrap sandbox on this host", () => {
         "HEAD"
       )
     ).toBe("denied");
+    // Every other git operation runs under the process filter on stdin: git
+    // still works (it reopens the closed stdin on /dev/null), but it cannot
+    // start a program, here /usr/bin/git through a "!" alias.
+    const filteredGit = async (...arguments_: string[]) =>
+      (
+        await runFiltered(sandbox, 0, ["/usr/bin/git", ...arguments_], {
+          cwd: source,
+          env: gitEnvironment,
+        })
+      ).code === 0
+        ? "ok"
+        : "denied";
+    const alias = ["-c", "alias.probe=!/usr/bin/git", "probe", "--version"];
+    expect({
+      status: await filteredGit("status", "--porcelain"),
+      head: await filteredGit("rev-parse", "HEAD"),
+      aliasFiltered: await filteredGit(...alias),
+      aliasUnfiltered: await sandboxedGit(...alias),
+    }).toEqual({
+      status: "ok",
+      head: "ok",
+      aliasFiltered: "denied",
+      aliasUnfiltered: "ok",
+    });
     const network = await probeIn(
       await bubblewrapGitArguments({
         cwd: session,
@@ -307,25 +368,90 @@ describe.runIf(usable)("bubblewrap sandbox on this host", () => {
     return expect(survivors).toEqual([]);
   });
 
+  it("lets the agent run threads but start no other process", async () => {
+    // Node starts a worker thread and tries to start node itself.
+    const script = `
+const { Worker } = require("node:worker_threads");
+const started = require("node:child_process").spawnSync(process.execPath, ["--version"]);
+const worker = new Worker("require('node:worker_threads').parentPort.postMessage('ran')", { eval: true });
+worker.once("message", (thread) => {
+  console.log(JSON.stringify({ process: started.error?.code ?? "started", thread }));
+  void worker.terminate();
+});
+`;
+    const options = {
+      cwd: repository,
+      env: { HOME: session, PATH: "/usr/bin", TMPDIR: session },
+    };
+    const filtered = await runFiltered(
+      await ompPolicy(false),
+      3,
+      [node, "-e", script],
+      options
+    );
+    const { stdout } = await execFileAsync(
+      BUBBLEWRAP_EXECUTABLE,
+      [...(await ompPolicy(false)), "--", node, "-e", script],
+      { ...options, encoding: "utf8" }
+    );
+    return expect({
+      filtered: { code: filtered.code, ...JSON.parse(filtered.stdout) },
+      unfiltered: JSON.parse(stdout),
+    }).toEqual({
+      filtered: { code: 0, process: "EPERM", thread: "ran" },
+      unfiltered: { process: "started", thread: "ran" },
+    });
+  });
+
+  it("passes the process filter probe, which fails open without the filter", async () => {
+    const probe = async (filtered: boolean) => {
+      const arguments_ = bubblewrapFilteredProbeArguments(process.execPath);
+      const separator = arguments_.indexOf("--");
+      const child = spawn(
+        BUBBLEWRAP_EXECUTABLE,
+        filtered
+          ? [...arguments_]
+          : [
+              ...arguments_.slice(0, separator - 2),
+              ...arguments_.slice(separator),
+            ],
+        { stdio: ["pipe", "pipe", "ignore"] }
+      );
+      if (filtered) {
+        sendProcessFilter(child.stdin, processFilterFor(process.arch));
+      } else child.stdin.end();
+      let stdout = "";
+      child.stdout.on("data", (chunk) => (stdout += String(chunk)));
+      const [code] = (await once(child, "close")) as [number | null];
+      return { code, stdout };
+    };
+    // Without the filter, the process starts and only its exec fails.
+    return expect({
+      filtered: await probe(true),
+      unfiltered: await probe(false),
+    }).toEqual({
+      filtered: { code: 0, stdout: PROCESS_FILTER_PROBE_OUTPUT },
+      unfiltered: { code: 0, stdout: "ENOENT" },
+    });
+  });
+
   it.runIf(installedOmp !== undefined)(
-    "starts the installed OMP binary inside the agent sandbox",
+    "starts the installed OMP binary inside the agent sandbox, under the process filter",
     async () => {
       const executable = await realpath(installedOmp ?? "");
-      const { stdout } = await execFileAsync(
-        BUBBLEWRAP_EXECUTABLE,
-        [
-          ...(await ompPolicy(false, executable)),
-          "--",
-          executable,
-          "--version",
-        ],
+      const { code, stdout } = await runFiltered(
+        await ompPolicy(false, executable),
+        3,
+        [executable, "--version"],
         {
           cwd: repository,
           env: { HOME: session, PATH: "/usr/bin", TMPDIR: session },
-          encoding: "utf8",
         }
       );
-      return expect(stdout).toMatch(/^omp\/\d+\.\d+\.\d+/u);
+      return expect({ code, stdout }).toEqual({
+        code: 0,
+        stdout: expect.stringMatching(/^omp\/\d+\.\d+\.\d+/u),
+      });
     }
   );
 
@@ -371,11 +497,15 @@ const connect = (host, port) => new Promise((done) => {
 })))();
 `;
     try {
+      // The worker's layout: relay on fds 3 and 4, process filter on fd 5,
+      // sent before the relay waits for bwrap to report its process.
+      const filterFd: number = 5;
       const child = spawn(
         BUBBLEWRAP_EXECUTABLE,
         [
           ...(await ompPolicy(false)),
           ...OMP_MODEL_RELAY_SANDBOX_ARGUMENTS,
+          ...processFilterArguments(filterFd),
           "--",
           node,
           "-e",
@@ -384,8 +514,12 @@ const connect = (host, port) => new Promise((done) => {
         {
           cwd: repository,
           env: { HOME: session, PATH: "/usr/bin", TMPDIR: session },
-          stdio: ["ignore", "pipe", "ignore", "pipe", "pipe"],
+          stdio: ["ignore", "pipe", "ignore", "pipe", "pipe", "pipe"],
         }
+      );
+      sendProcessFilter(
+        child.stdio[filterFd] as Writable,
+        processFilterFor(process.arch)
       );
       let stdout = "";
       child.stdout?.on("data", (chunk) => (stdout += String(chunk)));

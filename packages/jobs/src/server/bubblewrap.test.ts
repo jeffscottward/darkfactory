@@ -2,8 +2,10 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   BUBBLEWRAP_EXECUTABLE,
   BUBBLEWRAP_PROBE_ARGUMENTS,
+  bubblewrapFilteredProbeArguments,
   bubblewrapGitArguments,
   bubblewrapOmpArguments,
+  PROCESS_FILTER_PROBE_OUTPUT,
 } from "./bubblewrap.ts";
 
 // A simulated host layout that reaches every branch of the system mounts:
@@ -180,9 +182,9 @@ describe("bubblewrap sandbox arguments", () => {
       "/w/repo",
     ]));
 
-  it("probes namespaces with the same isolation", () => {
+  it("probes namespaces, then the process filter on stdin, with the same isolation", () => {
     expect(BUBBLEWRAP_EXECUTABLE).toBe("/usr/bin/bwrap");
-    return expect(BUBBLEWRAP_PROBE_ARGUMENTS).toEqual([
+    expect(BUBBLEWRAP_PROBE_ARGUMENTS).toEqual([
       ...ISOLATION,
       "--ro-bind",
       "/",
@@ -191,5 +193,23 @@ describe("bubblewrap sandbox arguments", () => {
       "/usr/bin/bwrap",
       "--version",
     ]);
+    // The runtime tries to start a process; under the filter that must fail.
+    expect(PROCESS_FILTER_PROBE_OUTPUT).toBe("EPERM");
+    return expect(bubblewrapFilteredProbeArguments("/opt/bun/bin/bun")).toEqual(
+      [
+        ...ISOLATION,
+        "--ro-bind",
+        "/",
+        "/",
+        "--dev",
+        "/dev",
+        "--seccomp",
+        "0",
+        "--",
+        "/opt/bun/bin/bun",
+        "-e",
+        "process.stdout.write(require('node:child_process').spawnSync('/nonexistent').error?.code ?? 'none')",
+      ]
+    );
   });
 });

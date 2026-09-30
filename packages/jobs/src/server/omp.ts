@@ -33,6 +33,7 @@ import {
   resolve,
   sep,
 } from "node:path";
+import type { Writable } from "node:stream";
 
 import {
   isWorkflowRelativePathV1,
@@ -41,8 +42,10 @@ import {
 import {
   BUBBLEWRAP_EXECUTABLE,
   BUBBLEWRAP_PROBE_ARGUMENTS,
+  bubblewrapFilteredProbeArguments,
   bubblewrapGitArguments,
   bubblewrapOmpArguments,
+  PROCESS_FILTER_PROBE_OUTPUT,
 } from "./bubblewrap.ts";
 import {
   NSENTER_EXECUTABLE,
@@ -59,6 +62,11 @@ import {
   requireOmpModelGateway,
 } from "./model-relay.ts";
 import { required } from "./required.ts";
+import {
+  processFilterArguments,
+  processFilterFor,
+  sendProcessFilter,
+} from "./seccomp.ts";
 
 export const DEFAULT_OMP_TIMEOUT_MS = 5 * 60 * 1000;
 export const DEFAULT_OMP_MAX_OUTPUT_BYTES = 32 * 1024;
@@ -1696,8 +1704,45 @@ const requireMacosSandbox = async (): Promise<void> => {
   }
 };
 
-// bwrap must be root-owned and unwritable by others, and must be able to create
-// its namespaces here (AppArmor, for example, can forbid that): a failed probe
+// Linux: the seccomp program for this machine's architecture (seccomp.ts).
+const linuxProcessFilter = (): Buffer => {
+  try {
+    return processFilterFor(process.arch);
+  } catch {
+    throw new OmpConfigurationError("OMP process filter is unsupported");
+  }
+};
+
+// The probe's output, or null when it fails. The package targets a library
+// without Promise.withResolvers.
+const bubblewrapProbe = (
+  arguments_: readonly string[],
+  processFilter?: Buffer
+): Promise<string | null> =>
+  new Promise<string | null>((resolveProbe) => {
+    const child = execFile(
+      BUBBLEWRAP_EXECUTABLE,
+      [...arguments_],
+      {
+        encoding: "utf8",
+        env: { NODE_ENV: "production", PATH: "/usr/bin:/bin" },
+        timeout: 10_000,
+        windowsHide: true,
+      },
+      (error: Error | null, stdout: string) =>
+        resolveProbe(error === null ? stdout : null)
+    );
+    // execFile opens stdin as a pipe, and the filtered probe reads it there.
+    if (processFilter !== undefined) {
+      sendProcessFilter(child.stdin as Writable, processFilter);
+    }
+  });
+
+// bwrap must be root-owned and unwritable by others, must be able to create
+// its namespaces here (AppArmor, for example, can forbid that), and its
+// process filter must hold: under it this runtime still starts, threads and
+// all, but cannot start a process. A filter with the wrong architecture or
+// system call numbers fails that probe instead of failing open. A failed probe
 // fails closed before any run starts.
 const requireBubblewrap = async (): Promise<void> => {
   if (
@@ -1707,24 +1752,18 @@ const requireBubblewrap = async (): Promise<void> => {
   ) {
     throw new OmpConfigurationError("OMP filesystem sandbox is unavailable");
   }
-  // The package targets a library without Promise.withResolvers.
-  const probed = await new Promise<boolean>((resolveProbe) => {
-    execFile(
-      BUBBLEWRAP_EXECUTABLE,
-      [...BUBBLEWRAP_PROBE_ARGUMENTS],
-      {
-        encoding: "utf8",
-        env: { NODE_ENV: "production", PATH: "/usr/bin:/bin" },
-        timeout: 10_000,
-        windowsHide: true,
-      },
-      (error: Error | null) => resolveProbe(error === null)
-    );
-  });
-  if (!probed) {
+  if ((await bubblewrapProbe(BUBBLEWRAP_PROBE_ARGUMENTS)) === null) {
     throw new OmpConfigurationError(
       "OMP filesystem sandbox cannot create namespaces"
     );
+  }
+  if (
+    (await bubblewrapProbe(
+      bubblewrapFilteredProbeArguments(process.execPath),
+      linuxProcessFilter()
+    )) !== PROCESS_FILTER_PROBE_OUTPUT
+  ) {
+    throw new OmpConfigurationError("OMP process filter failed its probe");
   }
 };
 
@@ -2182,7 +2221,15 @@ const gitSandboxProfileFor = (
 type SandboxedCommand = Readonly<{
   executable: string;
   arguments: readonly string[];
+  // Linux: the seccomp program for the descriptor that `arguments` names.
+  processFilter?: Buffer;
 }>;
+
+// git reads its process filter on stdin, which bwrap closes after reading;
+// git itself reopens a closed stdin on /dev/null, which its sandbox binds.
+const GIT_PROCESS_FILTER_FD = 0;
+// The OMP agent reads its process filter on the pipe after the relay's.
+const OMP_PROCESS_FILTER_FD = 3 + OMP_MODEL_RELAY_EXTRA_STDIO;
 
 const gitSandboxCommand = async (
   boundary: GitOperationBoundary,
@@ -2202,6 +2249,8 @@ const gitSandboxCommand = async (
       ],
     };
   }
+  // Like the macOS profile, git starts processes only where it must (`worktree
+  // add` runs git itself); every other operation runs under the process filter.
   return {
     executable: BUBBLEWRAP_EXECUTABLE,
     arguments: [
@@ -2211,10 +2260,12 @@ const gitSandboxCommand = async (
         readablePaths: boundary.readablePaths,
         writablePaths: boundary.writablePaths,
       })),
+      ...(allowFork ? [] : processFilterArguments(GIT_PROCESS_FILTER_FD)),
       "--",
       gitExecutable,
       ...gitArguments,
     ],
+    ...(allowFork ? {} : { processFilter: linuxProcessFilter() }),
   };
 };
 
@@ -2268,10 +2319,13 @@ const ompSandboxCommand = async (
       })),
       // bwrap waits for the model relay (fd 4) and reports its PID (fd 3).
       ...OMP_MODEL_RELAY_SANDBOX_ARGUMENTS,
+      // Like the macOS profile, the agent cannot start other processes.
+      ...processFilterArguments(OMP_PROCESS_FILTER_FD),
       "--",
       input.executable,
       ...input.ompArguments,
     ],
+    processFilter: linuxProcessFilter(),
   };
 };
 
@@ -2348,6 +2402,10 @@ const runGit = async (
         return resolveGit(String(stdout).trim());
       }
     );
+    // execFile opens stdin as a pipe; bwrap reads the filter there first.
+    if (command.processFilter !== undefined) {
+      sendProcessFilter(child.stdin as Writable, command.processFilter);
+    }
     return child;
   });
 };
@@ -3376,6 +3434,9 @@ type OwnedProcessOptions = Readonly<{
   startError: string;
   // Extra pipes after stdin/stdout/stderr (fd 3 and up) for `prepare`.
   extraStdio?: number;
+  // Linux: the seccomp program, sent on one more pipe after those as soon as
+  // the process exists (bwrap reads it before it reports to `prepare`).
+  processFilter?: Buffer;
   // Runs once the process exists; a failure stops it and fails closed.
   prepare?: (child: ChildProcess) => Promise<void>;
 }>;
@@ -3459,6 +3520,7 @@ const runOwnedProcess = async (
         }
       };
 
+      const extraPipes = options.extraStdio ?? 0;
       try {
         child = spawn(options.executable, [...options.arguments], {
           cwd: options.cwd,
@@ -3470,7 +3532,10 @@ const runOwnedProcess = async (
             "pipe",
             "pipe",
             ...Array.from(
-              { length: options.extraStdio ?? 0 },
+              {
+                length:
+                  extraPipes + (options.processFilter === undefined ? 0 : 1),
+              },
               () => "pipe" as const
             ),
           ],
@@ -3503,6 +3568,13 @@ const runOwnedProcess = async (
         () => settle("timed-out", null, "SIGTERM"),
         options.timeoutMs
       );
+      if (options.processFilter !== undefined) {
+        // A "pipe" descriptor is a socket, which is writable.
+        sendProcessFilter(
+          child.stdio[3 + extraPipes] as Writable,
+          options.processFilter
+        );
+      }
       options.prepare?.(child).catch((error: unknown) => {
         if (settling) return;
         settling = true;
@@ -4106,6 +4178,9 @@ export const createOmpCliAdapter = (
                 extraStdio: OMP_MODEL_RELAY_EXTRA_STDIO,
                 prepare: modelRelay.attach,
               }),
+          ...(command.processFilter === undefined
+            ? {}
+            : { processFilter: command.processFilter }),
         });
       } finally {
         await modelRelay?.close();
