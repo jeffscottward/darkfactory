@@ -398,6 +398,19 @@ describe("pilot workflow worker", () => {
       shutdownTimeoutMs: 10_000,
     });
     expect(defaults.leaseOwner).toBe(`pilot-${process.pid}`);
+    // `.env.example` ships the optional keys empty; empty means the default.
+    expect(
+      parsePilotWorkerEnvironment({
+        ...valid,
+        WORKFLOW_LEASE_OWNER: "",
+        WORKFLOW_POLL_INTERVAL_MS: " ",
+        WORKFLOW_SHUTDOWN_TIMEOUT_MS: "",
+      })
+    ).toMatchObject({
+      leaseOwner: `pilot-${process.pid}`,
+      pollIntervalMs: 1000,
+      shutdownTimeoutMs: 10_000,
+    });
     return expect(
       parsePilotWorkerEnvironment({
         ...valid,
