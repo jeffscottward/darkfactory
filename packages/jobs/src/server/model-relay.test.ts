@@ -598,6 +598,8 @@ const fakeInbound = (
     output?: string;
     stdout?: boolean;
     exitAtStdinEnd?: boolean;
+    // false: no exit is ever reported, not even after SIGKILL.
+    exitAtKill?: boolean;
     exitAtStart?: boolean;
     error?: boolean;
   }> = {}
@@ -608,6 +610,7 @@ const fakeInbound = (
     stdio: [],
     exitCode: null as number | null,
     kill: vi.fn((signal: string) => {
+      if (behaviour.exitAtKill === false) return true;
       child.exitCode = 137;
       child.emit("exit", null, signal);
       return true;
@@ -776,6 +779,35 @@ describe("sandbox relay session", () => {
     await session.attach(fakeSandbox(info, new PassThrough()));
     await session.close();
     return expect(inbound.kill).toHaveBeenCalledWith("SIGKILL");
+  });
+
+  it("stops waiting for an inbound relay whose exit is never reported, and still cleans up", async () => {
+    const inbound = fakeInbound({ exitAtStdinEnd: false, exitAtKill: false });
+    // A private TMPDIR keeps other test files' relays out of the check.
+    const relayRoot = await mkdtemp(join(tmpdir(), "df-relay-root-"));
+    const previous = process.env["TMPDIR"];
+    process.env["TMPDIR"] = relayRoot;
+    try {
+      const session = await openOmpModelRelay({
+        route: route(await closedPortUrl()),
+        exitTimeoutMs: 1200,
+        spawnImpl: (() => inbound) as never,
+      });
+      const info = new PassThrough();
+      reportPid(info, 4242);
+      await session.attach(fakeSandbox(info, new PassThrough()));
+      expect(await readdir(relayRoot)).toHaveLength(1);
+      const startedAt = Date.now();
+      await session.close();
+      // SIGKILL went out after the grace period, then the wait gave up.
+      expect(inbound.kill).toHaveBeenCalledWith("SIGKILL");
+      expect(Date.now() - startedAt).toBeLessThan(4000);
+      return expect(await readdir(relayRoot)).toEqual([]);
+    } finally {
+      if (previous === undefined) delete process.env["TMPDIR"];
+      else process.env["TMPDIR"] = previous;
+      await rm(relayRoot, { recursive: true, force: true });
+    }
   });
 
   it("uses the installed nsenter and runtime by default, and cleans up when the socket cannot listen", async () => {

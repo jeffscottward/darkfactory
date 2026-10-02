@@ -10,7 +10,7 @@ vi.mock("node:fs", () => ({ readFileSync: mocks.readFileSync }));
 
 import { runPreCommit } from "./index.ts";
 
-const BUN_VERSION = "1.3.14";
+const BUN_VERSION = "1.4.2";
 
 const spawnResult = (status: number | null, stdout = "", error?: Error) => ({
   status,

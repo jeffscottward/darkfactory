@@ -50,7 +50,7 @@ const fixture = (
   };
   const dependencies: SetupDependencies = {
     environment: { PATH: "/bin" },
-    bunVersion: options.bunVersion ?? "1.3.14",
+    bunVersion: options.bunVersion ?? "1.4.2",
     files: {
       readText: async (path) => files.get(path)?.content,
       createPrivate: async (path, content) => {
@@ -217,7 +217,7 @@ describe("bun run setup", () => {
     expect(drift.commands).toEqual([]);
     expect(drift.lines).toEqual([
       "✗ node 22.13.1 does not match mise.toml 24.21.0",
-      "✗ bun 1.2.0 does not match mise.toml 1.3.14",
+      "✗ bun 1.2.0 does not match mise.toml 1.4.2",
       "✗ pnpm missing does not match mise.toml 11.16.0",
       "Run `mise install` (and activate mise in your shell), then re-run.",
     ]);

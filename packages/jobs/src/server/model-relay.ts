@@ -52,6 +52,10 @@ const MAX_SANDBOX_INFO_BYTES = 4096;
 const GATEWAY_CHECK_TIMEOUT_MS = 5000;
 const RELAY_READY_TIMEOUT_MS = 10_000;
 const INBOUND_EXIT_GRACE_MS = 1000;
+// How long close() waits for the inbound relay to exit, SIGKILL included. A
+// runtime can fail to report a child's exit (Bun 1.3.14 did), and cleanup
+// must not hang the worker for it.
+const INBOUND_EXIT_TIMEOUT_MS = 5000;
 const MODEL_ID =
   /^[a-z0-9][a-z0-9-]{0,63}\/[A-Za-z0-9][A-Za-z0-9._:~-]*(?:\/[A-Za-z0-9][A-Za-z0-9._:~-]*)*$/u;
 const MAX_MODEL_ID_BYTES = 256;
@@ -533,6 +537,7 @@ export const openOmpModelRelay = async (
     runtimeExecutable?: string;
     inboundEntry?: string;
     readyTimeoutMs?: number;
+    exitTimeoutMs?: number;
     spawnImpl?: typeof spawn;
   }>
 ): Promise<OmpModelRelaySession> => {
@@ -587,16 +592,27 @@ export const openOmpModelRelay = async (
     block.end("1");
   };
   // Closing its stdin stops the inbound relay; SIGKILL follows a grace period.
+  // The wait for its exit is bounded, so a lost exit cannot hang the worker.
   const close = async (): Promise<void> => {
     const running = inbound;
     if (running !== undefined) {
       running.stdin?.end();
-      const timer = setTimeout(
+      const kill = setTimeout(
         () => running.kill("SIGKILL"),
         INBOUND_EXIT_GRACE_MS
       );
-      await inboundExited;
-      clearTimeout(timer);
+      let stopWaiting: ReturnType<typeof setTimeout> | undefined;
+      await Promise.race([
+        inboundExited,
+        new Promise<void>((resolve) => {
+          stopWaiting = setTimeout(
+            resolve,
+            input.exitTimeoutMs ?? INBOUND_EXIT_TIMEOUT_MS
+          );
+        }),
+      ]);
+      clearTimeout(kill);
+      clearTimeout(stopWaiting);
     }
     await server.close();
     await rm(directory, { force: true, recursive: true });

@@ -193,7 +193,7 @@ describe("bubblewrap sandbox arguments", () => {
       "/usr/bin/bwrap",
       "--version",
     ]);
-    // The runtime tries to start a process; under the filter that must fail.
+    // The runtime tries to start itself again; under the filter that must fail.
     expect(PROCESS_FILTER_PROBE_OUTPUT).toBe("EPERM");
     return expect(bubblewrapFilteredProbeArguments("/opt/bun/bin/bun")).toEqual(
       [
@@ -208,7 +208,7 @@ describe("bubblewrap sandbox arguments", () => {
         "--",
         "/opt/bun/bin/bun",
         "-e",
-        "process.stdout.write(require('node:child_process').spawnSync('/nonexistent').error?.code ?? 'none')",
+        "process.stdout.write(require('node:child_process').spawnSync(process.execPath, ['--version']).error?.code ?? 'none')",
       ]
     );
   });

@@ -19,7 +19,7 @@ import {
   probeTrustedHttps,
 } from "./system.ts";
 
-const INJECTED_BUN_VERSION = "1.3.14";
+const INJECTED_BUN_VERSION = "1.4.2";
 
 const errno = (code: string, message = code): NodeJS.ErrnoException => {
   return Object.assign(new Error(message), { code });

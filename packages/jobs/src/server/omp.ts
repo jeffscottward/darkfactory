@@ -1741,9 +1741,10 @@ const bubblewrapProbe = (
 // bwrap must be root-owned and unwritable by others, must be able to create
 // its namespaces here (AppArmor, for example, can forbid that), and its
 // process filter must hold: under it this runtime still starts, threads and
-// all, but cannot start a process. A filter with the wrong architecture or
-// system call numbers fails that probe instead of failing open. A failed probe
-// fails closed before any run starts.
+// all, but cannot start a process. A filter for the wrong architecture, or one
+// that lets this runtime start a process, fails the probe; the system call
+// numbers themselves are pinned by seccomp.test.ts. A failed probe fails
+// closed before any run starts.
 const requireBubblewrap = async (): Promise<void> => {
   if (
     !(await isSecureRootOwnedExecutable(BUBBLEWRAP_EXECUTABLE).catch(

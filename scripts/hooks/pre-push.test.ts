@@ -49,7 +49,7 @@ vi.mock("node:fs", async (importOriginal) => ({
 
 import { PRE_PUSH_SCRIPTS, runPrePush } from "./index.ts";
 
-const BUN_VERSION = "1.3.14";
+const BUN_VERSION = "1.4.2";
 
 const HEAD = "a".repeat(40);
 const OTHER = "b".repeat(40);
