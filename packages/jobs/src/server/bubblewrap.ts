@@ -172,12 +172,13 @@ export const BUBBLEWRAP_PROBE_ARGUMENTS = Object.freeze([
 ] as const);
 
 // What the process filter probe prints when the filter holds: the runtime
-// (Node.js or Bun, whose own threads must still start) tries to start a
-// process, which must fail with EPERM. Without the filter the process starts
-// and only its exec fails, with ENOENT.
+// (Node.js or Bun, whose own threads must still start) tries to start itself
+// again, which must fail with EPERM. Without the filter that process starts
+// and the probe prints "none". An existing program keeps the result
+// independent of how a runtime resolves a missing path.
 export const PROCESS_FILTER_PROBE_OUTPUT = "EPERM";
 const PROCESS_FILTER_PROBE_SCRIPT =
-  "process.stdout.write(require('node:child_process').spawnSync('/nonexistent').error?.code ?? 'none')";
+  "process.stdout.write(require('node:child_process').spawnSync(process.execPath, ['--version']).error?.code ?? 'none')";
 
 // The same isolation under the process filter (seccomp.ts), which bwrap reads
 // on stdin. The runtime reopens its closed stdin on /dev/null, so /dev is the

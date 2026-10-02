@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1.7
-# Verifier base: oven/bun:1.3.14 (multi-arch index), pinned by digest.
+# Verifier base: oven/bun:1.4.2 (multi-arch index), pinned by digest.
 # `verifier:image:setup` may override it with another digest-pinned image.
-ARG BUN_BASE_IMAGE=oven/bun@sha256:e10577f0db68676a7024391c6e5cb4b879ebd17188ab750cf10024a6d700e5c4
+ARG BUN_BASE_IMAGE=oven/bun@sha256:9114c058aeae42162ee16dd5084b95fe9473970bb6bcb5b232ab1630f0546895
 FROM node:24.21.0-bookworm-slim@sha256:0e0ff40c39bc087845bfb27465a0df4ea419520094bc35842ff83dd8cbe6f9b6 AS dependencies
 
 WORKDIR /opt/darkfactory-verifier/dependencies

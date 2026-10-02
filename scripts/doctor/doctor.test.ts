@@ -21,7 +21,7 @@ const WITHOUT_GRAPH_OR_HTTPS = MANIFEST.replace(
 ).replace("  https:\n    enabled: true", "  https:\n    enabled: false");
 
 const TEST_CWD = "/workspace/darkfactory";
-const PINNED_BUN_VERSION = "1.3.14";
+const PINNED_BUN_VERSION = "1.4.2";
 const PINNED_MANIFESTS: Readonly<Record<string, string>> = {
   "node_modules/typescript/package.json": "7.0.2",
   "node_modules/turbo/package.json": "2.11.5",

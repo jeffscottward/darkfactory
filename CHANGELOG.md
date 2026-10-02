@@ -15,6 +15,7 @@ Notable changes to DarkFactory will be documented in this file. The format is ba
 
 - Implementation artifacts record file modes as git does (0644, or 0755 when executable), whatever the host umask.
 - vinext and `@vinext/cloudflare` 1.0.0 (stable), up from 1.0.0-beta.13 and beta.11. `bun run doctor` expects the new versions, and an invariant test keeps its expected versions equal to the pnpm catalog. (#51)
+- Bun 1.4.2, up from 1.3.14. Bun 1.3.14 could lose the exit of a child process that had extra pipes (fd 3 and up), as the operator worker's sandbox and model relay do, and a run could then hang until the worker restarted. Run `mise install`. The verifier image now builds on `oven/bun:1.4.2`: rebuild it and pin its new digest; see [Rebuild the verifier image](docs/operator.md#rebuild-the-verifier-image).
 
 ### Fixed
 
@@ -22,6 +23,7 @@ Notable changes to DarkFactory will be documented in this file. The format is ba
 - `bun run dev` and `bun run operator:dev` start again: vinext 1.0 takes Vite's `--host`, not `--hostname`. A test now checks the forwarded flags against the installed CLI. (#51 regression)
 - On Linux, the verifier container (uid 65532) can read its workspace. The checkout followed the worker's umask, so under a restrictive umask such as 077 it could read nothing.
 - The Docker verifier passes on a real workspace; before, every run failed. Its checks now find `node`, the workspace copy gets the image's dependencies and its own git repository, `/tmp` allows executables, and a passing check prints only its ID, so a build no longer overflows the 32 KiB result. The task limit, which counts threads, rises from 256 to 512. `scripts/ci/test-invariants.test.ts` started about 20 `vitest list` processes at once; it now runs at most four (two under the verifier's 2-CPU quota), and a failing list no longer leaves others running. Rebuild the image and pin its new digest; see [Rebuild the verifier image](docs/operator.md#rebuild-the-verifier-image).
+- The model relay's cleanup waits at most 5 s for its helper process to exit, so a lost exit can no longer hang the operator worker.
 
 ## [0.3.1] - 2026-09-29
 

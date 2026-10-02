@@ -1271,7 +1271,7 @@ describe("OMP CLI adapter", () => {
       );
       mocks.bubblewrapProbeError = null;
       // The process filter must hold: the kernel refuses it, or the runtime
-      // under it still starts a process (the exec then fails with ENOENT), and
+      // under it still starts a process (the probe then prints "none"), and
       // the second probe fails closed.
       mocks.bubblewrapFilteredProbeError = Object.assign(
         new Error("prctl(PR_SET_SECCOMP): Invalid argument"),
@@ -1281,7 +1281,7 @@ describe("OMP CLI adapter", () => {
         "OMP process filter failed its probe"
       );
       mocks.bubblewrapFilteredProbeError = null;
-      mocks.bubblewrapFilteredProbeOutput = "ENOENT";
+      mocks.bubblewrapFilteredProbeOutput = "none";
       await expect(run("linux-bwrap-filter-open")).rejects.toThrow(
         "OMP process filter failed its probe"
       );

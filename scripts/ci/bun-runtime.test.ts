@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import { inspectBunRuntime } from "./bun-runtime.ts";
 
-const PIN = "1.3.14";
+const PIN = "1.4.2";
 const pathBun = (version = PIN, exitCode = 0) => ({
   exitCode,
   stdout: `${version}\n`,

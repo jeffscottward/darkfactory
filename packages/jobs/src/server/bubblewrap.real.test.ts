@@ -425,13 +425,13 @@ worker.once("message", (thread) => {
       const [code] = (await once(child, "close")) as [number | null];
       return { code, stdout };
     };
-    // Without the filter, the process starts and only its exec fails.
+    // Without the filter, the runtime starts itself again.
     return expect({
       filtered: await probe(true),
       unfiltered: await probe(false),
     }).toEqual({
       filtered: { code: 0, stdout: PROCESS_FILTER_PROBE_OUTPUT },
-      unfiltered: { code: 0, stdout: "ENOENT" },
+      unfiltered: { code: 0, stdout: "none" },
     });
   });
 
