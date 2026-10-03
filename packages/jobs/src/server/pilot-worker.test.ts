@@ -433,22 +433,13 @@ describe("pilot workflow worker", () => {
       ...valid,
       WORKFLOW_OMP_GATEWAY_URL: "http://127.0.0.1:4010",
       WORKFLOW_OMP_GATEWAY_TOKEN_FILE: "/home/operator/.gateway/token",
+      WORKFLOW_OMP_MODEL: "anthropic/claude-sonnet-5",
     };
+    // The operator's own model runs every step; DarkFactory has no default.
     expect(parsePilotWorkerEnvironment(gateway).modelGateway).toEqual({
       url: "http://127.0.0.1:4010",
       tokenFile: "/home/operator/.gateway/token",
-      implementModel: "anthropic/claude-opus-5-5",
-      planModel: "openrouter/google/gemini-3.8-flash",
-    });
-    expect(
-      parsePilotWorkerEnvironment({
-        ...gateway,
-        WORKFLOW_OMP_IMPLEMENT_MODEL: "anthropic/claude-sonnet-5",
-        WORKFLOW_OMP_PLAN_MODEL: "openrouter/google/gemini-3.7-flash",
-      }).modelGateway
-    ).toMatchObject({
-      implementModel: "anthropic/claude-sonnet-5",
-      planModel: "openrouter/google/gemini-3.7-flash",
+      model: "anthropic/claude-sonnet-5",
     });
     // Empty keys, as `.env.example` ships them, leave the gateway unset.
     expect(
@@ -456,8 +447,7 @@ describe("pilot workflow worker", () => {
         ...valid,
         WORKFLOW_OMP_GATEWAY_URL: "",
         WORKFLOW_OMP_GATEWAY_TOKEN_FILE: " ",
-        WORKFLOW_OMP_IMPLEMENT_MODEL: "",
-        WORKFLOW_OMP_PLAN_MODEL: "",
+        WORKFLOW_OMP_MODEL: "",
       }).modelGateway
     ).toBeNull();
     for (const [environment, message] of [
@@ -482,12 +472,16 @@ describe("pilot workflow worker", () => {
         "WORKFLOW_OMP_GATEWAY_TOKEN_FILE must be an absolute path",
       ],
       [
-        { ...gateway, WORKFLOW_OMP_IMPLEMENT_MODEL: "opus" },
-        "WORKFLOW_OMP_IMPLEMENT_MODEL is invalid",
+        { ...gateway, WORKFLOW_OMP_MODEL: "" },
+        "WORKFLOW_OMP_MODEL is required with WORKFLOW_OMP_GATEWAY_URL",
       ],
       [
-        { ...valid, WORKFLOW_OMP_PLAN_MODEL: "openrouter/../x" },
-        "WORKFLOW_OMP_PLAN_MODEL is invalid",
+        { ...gateway, WORKFLOW_OMP_MODEL: "opus" },
+        "WORKFLOW_OMP_MODEL is invalid",
+      ],
+      [
+        { ...valid, WORKFLOW_OMP_MODEL: "openrouter/../x" },
+        "WORKFLOW_OMP_MODEL is invalid",
       ],
     ] as const) {
       expect(() => parsePilotWorkerEnvironment(environment)).toThrow(message);

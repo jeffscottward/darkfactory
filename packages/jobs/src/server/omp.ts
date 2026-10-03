@@ -55,7 +55,6 @@ import {
   OmpModelRelayError,
   type OmpModelRelaySession,
   type OmpModelRoute,
-  ompModelForEffect,
   ompModelsConfigFor,
   openOmpModelRelay,
   readOmpModelGatewayToken,
@@ -319,11 +318,10 @@ export type OmpFilesystemSandboxBackend = Readonly<{
 // Linux OMP runs have no network and reach only their own model through a
 // per-run relay to a local `omp auth-gateway` (model-relay.ts).
 export type OmpModelRelayBackend = Readonly<{
-  // Checks the gateway before a run and returns the one model this effect may
+  // Checks the gateway before a run and returns the one model the run may
   // use. Fails closed with OmpConfigurationError.
   route: (
-    gateway: OmpModelGatewayOptions | undefined,
-    effectKind: OmpEffectKind
+    gateway: OmpModelGatewayOptions | undefined
   ) => Promise<OmpModelRoute>;
   open: (route: OmpModelRoute) => Promise<OmpModelRelaySession>;
 }>;
@@ -1794,7 +1792,7 @@ const modelRelayConfigurationError = (error: unknown): OmpConfigurationError =>
 // nsenter must be as trustworthy as bwrap; the token file, the gateway and the
 // model are checked before every run, so a run never starts without them.
 const DEFAULT_MODEL_RELAY_BACKEND = Object.freeze({
-  route: async (gateway, effectKind) => {
+  route: async (gateway) => {
     if (gateway === undefined) {
       throw new OmpConfigurationError("OMP model gateway is not configured");
     }
@@ -1808,7 +1806,7 @@ const DEFAULT_MODEL_RELAY_BACKEND = Object.freeze({
       const route = Object.freeze({
         gatewayUrl: gateway.url,
         token: await readOmpModelGatewayToken(gateway.tokenFile),
-        modelId: ompModelForEffect(gateway, effectKind),
+        modelId: gateway.model,
       });
       await requireOmpModelGateway({ route });
       return route;
@@ -4014,10 +4012,7 @@ export const createOmpCliAdapter = (
     // the relay before anything else happens (fail closed).
     const modelRoute =
       sandboxPlatform() === "linux"
-        ? await modelRelayBackend.route(
-            options.modelGateway,
-            request.effectKind
-          )
+        ? await modelRelayBackend.route(options.modelGateway)
         : null;
     const ompExecutable = await resolveOmpExecutable(executable);
     let worktree = await prepareWorktree(

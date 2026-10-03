@@ -35,8 +35,6 @@ import { fileURLToPath } from "node:url";
 export const OMP_SANDBOX_MODEL_PORT = 4000;
 // OMP sends this in place of a key; the relay replaces it with the gateway bearer.
 export const OMP_MODEL_RELAY_API_KEY = "darkfactory-model-relay";
-export const DEFAULT_OMP_IMPLEMENT_MODEL = "anthropic/claude-opus-5-5";
-export const DEFAULT_OMP_PLAN_MODEL = "openrouter/google/gemini-3.8-flash";
 export const NSENTER_EXECUTABLE = "/usr/bin/nsenter";
 export const OMP_MODEL_RELAY_SANDBOX_ARGUMENTS = Object.freeze([
   "--info-fd",
@@ -73,13 +71,12 @@ export class OmpModelRelayError extends Error {
   }
 }
 
-export type OmpModelEffect = "plan" | "implement" | "verify";
-
+// The model is the operator's own choice (`WORKFLOW_OMP_MODEL`): DarkFactory
+// pins none, and every step (planning, implementation, review) uses it.
 export type OmpModelGatewayOptions = Readonly<{
   url: string;
   tokenFile: string;
-  implementModel: string;
-  planModel: string;
+  model: string;
 }>;
 
 export type OmpModelRoute = Readonly<{
@@ -117,14 +114,6 @@ export const parseOmpModelGatewayUrl = (value: string): string => {
   }
   return url.origin;
 };
-
-// Code writing gets the implementation model; planning and review, which
-// write no code, get the planning model.
-export const ompModelForEffect = (
-  gateway: OmpModelGatewayOptions,
-  effectKind: OmpModelEffect
-): string =>
-  effectKind === "implement" ? gateway.implementModel : gateway.planModel;
 
 // OMP reads models.yml from its agent directory (the run's session directory);
 // JSON is valid YAML. Only the provider of the allowed model is routed, over

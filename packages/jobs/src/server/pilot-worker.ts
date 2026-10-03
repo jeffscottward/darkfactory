@@ -11,8 +11,6 @@ import {
 } from "../workflow/index.ts";
 
 import {
-  DEFAULT_OMP_IMPLEMENT_MODEL,
-  DEFAULT_OMP_PLAN_MODEL,
   type OmpModelGatewayOptions,
   parseOmpModelGatewayUrl,
   parseOmpModelId,
@@ -112,34 +110,25 @@ const optionalSetting = (
   return value === undefined || value === "" ? undefined : value;
 };
 
-const modelSetting = (
-  source: NodeJS.ProcessEnv,
-  name: string,
-  fallback: string
-): string => {
+// The model comes from the operator's own setup; DarkFactory has no default.
+const modelSetting = (source: NodeJS.ProcessEnv): string | undefined => {
+  const value = optionalSetting(source, "WORKFLOW_OMP_MODEL");
+  if (value === undefined) return;
   try {
-    return parseOmpModelId(optionalSetting(source, name) ?? fallback);
+    return parseOmpModelId(value);
   } catch {
-    throw new PilotWorkerConfigurationError(`${name} is invalid`);
+    throw new PilotWorkerConfigurationError("WORKFLOW_OMP_MODEL is invalid");
   }
 };
 
-// Linux runs need the gateway (model-relay.ts); macOS runs ignore it.
+// Linux runs need the gateway and its model (model-relay.ts); macOS runs
+// ignore them.
 const parseModelGateway = (
   source: NodeJS.ProcessEnv
 ): OmpModelGatewayOptions | null => {
   const url = optionalSetting(source, "WORKFLOW_OMP_GATEWAY_URL");
   const tokenFile = optionalSetting(source, "WORKFLOW_OMP_GATEWAY_TOKEN_FILE");
-  const implementModel = modelSetting(
-    source,
-    "WORKFLOW_OMP_IMPLEMENT_MODEL",
-    DEFAULT_OMP_IMPLEMENT_MODEL
-  );
-  const planModel = modelSetting(
-    source,
-    "WORKFLOW_OMP_PLAN_MODEL",
-    DEFAULT_OMP_PLAN_MODEL
-  );
+  const model = modelSetting(source);
   if (url === undefined && tokenFile === undefined) return null;
   if (url === undefined || tokenFile === undefined) {
     throw new PilotWorkerConfigurationError(
@@ -159,12 +148,12 @@ const parseModelGateway = (
       "WORKFLOW_OMP_GATEWAY_TOKEN_FILE must be an absolute path"
     );
   }
-  return Object.freeze({
-    url: gatewayUrl,
-    tokenFile,
-    implementModel,
-    planModel,
-  });
+  if (model === undefined) {
+    throw new PilotWorkerConfigurationError(
+      "WORKFLOW_OMP_MODEL is required with WORKFLOW_OMP_GATEWAY_URL"
+    );
+  }
+  return Object.freeze({ url: gatewayUrl, tokenFile, model });
 };
 
 export const parsePilotWorkerEnvironment = (

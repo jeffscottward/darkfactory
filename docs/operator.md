@@ -54,7 +54,7 @@ On Linux, the Docker verifier works with Docker Engine or rootless Docker. For r
    | `WORKFLOW_VERIFIER_IMAGE_DIGEST` | Digest printed by `verifier:image:setup` |
    | `WORKFLOW_LEASE_OWNER`, `WORKFLOW_POLL_INTERVAL_MS`, `WORKFLOW_SHUTDOWN_TIMEOUT_MS` | Optional worker tuning |
    | `WORKFLOW_OMP_GATEWAY_URL`, `WORKFLOW_OMP_GATEWAY_TOKEN_FILE` | Linux: the model gateway and its bearer file (see [Models and credentials](#models-and-credentials)) |
-   | `WORKFLOW_OMP_IMPLEMENT_MODEL`, `WORKFLOW_OMP_PLAN_MODEL` | Optional: override the default models |
+   | `WORKFLOW_OMP_MODEL` | Linux: the model every step uses, as `provider/model` (see [Models and credentials](#models-and-credentials)) |
 
    The operator API and the worker fail closed if `WORKFLOW_REPOSITORIES_ROOT` is missing or not absolute.
 5. Start the operator app with portless. It writes `apps/operator/.dev.vars` first (`bun run operator:bindings` refreshes it alone):
@@ -73,12 +73,9 @@ Sign in as an admin (the seeded `admin@domain.test` locally), start a Wayfinder 
 
 ## Models and credentials
 
-On Linux, OMP runs with no network and no credentials. Each run reaches exactly one model through a relay (`packages/jobs/src/server/model-relay.ts`) to a local `omp auth-gateway`, which holds the credentials:
+On Linux, OMP runs with no network and no credentials. Each run reaches exactly one model through a relay (`packages/jobs/src/server/model-relay.ts`) to a local `omp auth-gateway`, which holds the credentials.
 
-| Step | Default model | Setting |
-| --- | --- | --- |
-| Implementation (writes code) | `anthropic/claude-opus-5-5` | `WORKFLOW_OMP_IMPLEMENT_MODEL` |
-| Planning (Wayfinder) and review | `openrouter/google/gemini-3.8-flash` | `WORKFLOW_OMP_PLAN_MODEL` |
+DarkFactory does not choose the model. Set `WORKFLOW_OMP_MODEL` to the one you use, as `provider/model` from your gateway's model list; planning (Wayfinder), implementation and review all use it. The worker refuses to start with a gateway but no model.
 
 How a run reaches its model:
 
@@ -91,11 +88,11 @@ The sandbox holds no provider key, OAuth token or gateway bearer, and it cannot 
 
 Set up the gateway once per machine (see OMP's [auth broker and gateway](https://github.com/can1357/oh-my-pi/blob/main/docs/auth-broker-gateway.md)):
 
-1. Sign OMP in to both models' providers: `/login anthropic` for a Claude subscription, and an OpenRouter key.
+1. Sign OMP in to your model's provider, for example `/login anthropic` for a Claude subscription, or an API key.
 2. Run `omp auth-broker serve` (default `127.0.0.1:8765`) and `omp auth-gateway serve --bind=127.0.0.1:4010` as user services. The gateway needs `OMP_AUTH_BROKER_URL` and the broker token. Give it its own config directory (`PI_CONFIG_DIR`, relative to your home directory), so that its bearer is not shared, and an account pool file (`OMP_AUTH_BROKER_ACCOUNT_POOL_FILE`) that names only the accounts it may use.
-3. Set `WORKFLOW_OMP_GATEWAY_URL=http://127.0.0.1:4010` and `WORKFLOW_OMP_GATEWAY_TOKEN_FILE` to the gateway's `auth-gateway.token` in `.env`. The file must be yours and readable by no one else.
+3. Set `WORKFLOW_OMP_GATEWAY_URL=http://127.0.0.1:4010`, `WORKFLOW_OMP_GATEWAY_TOKEN_FILE` to the gateway's `auth-gateway.token`, and `WORKFLOW_OMP_MODEL` in `.env`. The token file must be yours and readable by no one else.
 
-Implementation runs count against the Claude plan's limits; planning and review runs are billed to the OpenRouter key.
+Every run's usage counts against that model's subscription or key.
 
 ## How the verifier runs
 

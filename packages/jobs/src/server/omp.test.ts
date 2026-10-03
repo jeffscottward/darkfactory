@@ -231,13 +231,13 @@ import {
   trustedVerifierManifestFor,
   validateOmpWayfinderTrackerArtifact,
 } from "./omp.ts";
-import {
-  DEFAULT_OMP_IMPLEMENT_MODEL,
-  DEFAULT_OMP_PLAN_MODEL,
-  OmpModelRelayError,
-} from "./model-relay.ts";
+import { OmpModelRelayError } from "./model-relay.ts";
 import { processFilterFor } from "./seccomp.ts";
 import { createLocalWayfinderExecutionAdapter } from "./wayfinder.ts";
+
+// The operator's own model (WORKFLOW_OMP_MODEL); DarkFactory pins none.
+const TEST_OMP_MODEL = "anthropic/claude-opus-5-5";
+const UNSERVED_OMP_MODEL = "openrouter/google/gemini-3.8-flash";
 
 const TEST_FILESYSTEM_SANDBOX_BACKEND = Object.freeze({
   requireAvailable: vi.fn(async () => undefined),
@@ -258,14 +258,11 @@ const fakeModelRelay = (
 ) => {
   const events: string[] = [];
   const backend = {
-    route: vi.fn(async (_gateway: unknown, effectKind: string) =>
+    route: vi.fn(async (_gateway: unknown) =>
       Object.freeze({
         gatewayUrl: "http://127.0.0.1:4010",
         token: "relay-test-token-0123456789",
-        modelId:
-          effectKind === "implement"
-            ? DEFAULT_OMP_IMPLEMENT_MODEL
-            : DEFAULT_OMP_PLAN_MODEL,
+        modelId: TEST_OMP_MODEL,
       })
     ),
     open: vi.fn(async (route: Readonly<{ modelId: string }>) =>
@@ -1047,8 +1044,7 @@ describe("OMP CLI adapter", () => {
     const modelGateway = Object.freeze({
       url: "http://127.0.0.1:4010",
       tokenFile: "/srv/gateway/token",
-      implementModel: DEFAULT_OMP_IMPLEMENT_MODEL,
-      planModel: DEFAULT_OMP_PLAN_MODEL,
+      model: TEST_OMP_MODEL,
     });
     const linuxAdapter = () =>
       createOmpCliAdapter({
@@ -1142,7 +1138,7 @@ describe("OMP CLI adapter", () => {
         expect.arrayContaining([
           "-p",
           `--cwd=${planCwd}`,
-          `--model=${DEFAULT_OMP_PLAN_MODEL}`,
+          `--model=${TEST_OMP_MODEL}`,
         ])
       );
       await planned.lifecycle!.finalize("unpersisted");
@@ -1182,9 +1178,7 @@ describe("OMP CLI adapter", () => {
           join(implementCwd, "packages/jobs")
         )
       ).toBe(true);
-      expect(implementArguments).toContain(
-        `--model=${DEFAULT_OMP_IMPLEMENT_MODEL}`
-      );
+      expect(implementArguments).toContain(`--model=${TEST_OMP_MODEL}`);
       await implemented.lifecycle!.finalize("unpersisted");
 
       await expect(
@@ -1196,12 +1190,13 @@ describe("OMP CLI adapter", () => {
           })
         )
       ).rejects.toThrow("OMP implementation scope must exist on Linux");
-      // Each run got its own model and relay; the relay closed after each run
-      // and never opened for the run that failed before starting.
+      // Every step uses the one configured model through its own relay; the
+      // relay closed after each run and never opened for the run that failed
+      // before starting.
       expect(relay.backend.route.mock.calls).toEqual([
-        [modelGateway, "plan"],
-        [modelGateway, "implement"],
-        [modelGateway, "implement"],
+        [modelGateway],
+        [modelGateway],
+        [modelGateway],
       ]);
       const routed = (model: string) =>
         `attach ${model} ${JSON.stringify({
@@ -1214,9 +1209,9 @@ describe("OMP CLI adapter", () => {
           },
         })}`;
       return expect(relay.events).toEqual([
-        routed(DEFAULT_OMP_PLAN_MODEL),
+        routed(TEST_OMP_MODEL),
         "close",
-        routed(DEFAULT_OMP_IMPLEMENT_MODEL),
+        routed(TEST_OMP_MODEL),
         "close",
       ]);
     } finally {
@@ -1364,7 +1359,7 @@ describe("OMP CLI adapter", () => {
     await writeFile(tokenFile, "gateway-token-0123456789abcdef\n", {
       mode: 0o600,
     });
-    let servedModels: readonly string[] = [DEFAULT_OMP_PLAN_MODEL];
+    let servedModels: readonly string[] = [TEST_OMP_MODEL];
     const gateway = createServer((request, response) => {
       if (request.url === "/healthz") return response.end('{"ok":true}');
       return response.end(
@@ -1384,11 +1379,7 @@ describe("OMP CLI adapter", () => {
         ...(modelGateway === undefined
           ? {}
           : {
-              modelGateway: {
-                ...modelGateway,
-                implementModel: DEFAULT_OMP_IMPLEMENT_MODEL,
-                planModel: DEFAULT_OMP_PLAN_MODEL,
-              },
+              modelGateway: { ...modelGateway, model: TEST_OMP_MODEL },
             }),
       }).execute(requestFor({ workspaceId }));
     try {
@@ -1409,11 +1400,11 @@ describe("OMP CLI adapter", () => {
           tokenFile: join(gatewayDirectory, "missing.token"),
         })
       ).rejects.toThrow("OMP model gateway token is unavailable");
-      servedModels = [DEFAULT_OMP_IMPLEMENT_MODEL];
+      servedModels = [UNSERVED_OMP_MODEL];
       await expect(run("linux-model", configured)).rejects.toThrow(
         "OMP model gateway does not serve the configured model"
       );
-      servedModels = [DEFAULT_OMP_PLAN_MODEL];
+      servedModels = [TEST_OMP_MODEL];
 
       mocks.openModelRelay = async () => {
         throw new Error("socket unavailable");
