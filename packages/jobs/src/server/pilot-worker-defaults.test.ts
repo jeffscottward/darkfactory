@@ -127,6 +127,7 @@ describe("pilot worker default dependencies", () => {
         WORKFLOW_VERIFIER_IMAGE_DIGEST: VERIFIER_IMAGE_DIGEST,
         WORKFLOW_OMP_GATEWAY_URL: "http://127.0.0.1:4010",
         WORKFLOW_OMP_GATEWAY_TOKEN_FILE: "/srv/gateway/token",
+        WORKFLOW_OMP_MODEL: "anthropic/claude-sonnet-5",
       })
     ).rejects.toBe(pollingError);
     expect(mocks.createOmpCliAdapter).toHaveBeenCalledWith(
@@ -134,8 +135,7 @@ describe("pilot worker default dependencies", () => {
         modelGateway: {
           url: "http://127.0.0.1:4010",
           tokenFile: "/srv/gateway/token",
-          implementModel: "anthropic/claude-opus-5-5",
-          planModel: "openrouter/google/gemini-3.8-flash",
+          model: "anthropic/claude-sonnet-5",
         },
       })
     );

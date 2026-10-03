@@ -26,13 +26,10 @@ import { join } from "node:path";
 import { PassThrough } from "node:stream";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
-  DEFAULT_OMP_IMPLEMENT_MODEL,
-  DEFAULT_OMP_PLAN_MODEL,
   NSENTER_EXECUTABLE,
   OMP_MODEL_RELAY_API_KEY,
   OMP_SANDBOX_MODEL_PORT,
   OmpModelRelayError,
-  ompModelForEffect,
   ompModelsConfigFor,
   openOmpModelRelay,
   parseOmpModelGatewayUrl,
@@ -45,7 +42,9 @@ import {
 } from "./model-relay.ts";
 
 const TOKEN = "gateway-token-0123456789abcdef";
-const MODEL = DEFAULT_OMP_PLAN_MODEL;
+// Any provider/model id the gateway serves; DarkFactory pins none.
+const MODEL = "openrouter/google/gemini-3.8-flash";
+const OTHER_MODEL = "anthropic/claude-opus-5-5";
 
 let directory = "";
 
@@ -173,8 +172,8 @@ const route = (gatewayUrl: string) =>
 describe("model ids and gateway settings", () => {
   it("accepts provider/model ids and loopback http gateways only", () => {
     for (const id of [
-      DEFAULT_OMP_IMPLEMENT_MODEL,
-      DEFAULT_OMP_PLAN_MODEL,
+      MODEL,
+      OTHER_MODEL,
       "openrouter/google/gemini-3.8-flash:batch",
     ]) {
       expect(parseOmpModelId(id)).toBe(id);
@@ -213,19 +212,8 @@ describe("model ids and gateway settings", () => {
     }
   });
 
-  it("gives code writing the implementation model and routes one provider", () => {
-    const gateway = {
-      url: "http://127.0.0.1:4010",
-      tokenFile: "/token",
-      implementModel: DEFAULT_OMP_IMPLEMENT_MODEL,
-      planModel: DEFAULT_OMP_PLAN_MODEL,
-    };
-    expect(ompModelForEffect(gateway, "implement")).toBe(
-      DEFAULT_OMP_IMPLEMENT_MODEL
-    );
-    expect(ompModelForEffect(gateway, "plan")).toBe(DEFAULT_OMP_PLAN_MODEL);
-    expect(ompModelForEffect(gateway, "verify")).toBe(DEFAULT_OMP_PLAN_MODEL);
-    return expect(JSON.parse(ompModelsConfigFor(MODEL))).toEqual({
+  it("routes only the provider of the run's model", () =>
+    expect(JSON.parse(ompModelsConfigFor(MODEL))).toEqual({
       providers: {
         openrouter: {
           baseUrl: `http://127.0.0.1:${OMP_SANDBOX_MODEL_PORT}`,
@@ -233,8 +221,7 @@ describe("model ids and gateway settings", () => {
           apiKey: OMP_MODEL_RELAY_API_KEY,
         },
       },
-    });
-  });
+    }));
 });
 
 describe("gateway token", () => {
@@ -381,7 +368,7 @@ describe("host relay", () => {
         [{ body: "[]" }, 403],
         [{ body: "null" }, 403],
         [{ body: JSON.stringify({ context: {} }) }, 403],
-        [{ body: modelBody({ modelId: DEFAULT_OMP_IMPLEMENT_MODEL }) }, 403],
+        [{ body: modelBody({ modelId: OTHER_MODEL }) }, 403],
         [{ body: modelBody({ model: { id: MODEL } }) }, 403],
       ] as const) {
         const refused = await viaSocket(relay.socketPath, request);
