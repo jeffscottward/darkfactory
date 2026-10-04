@@ -2,7 +2,6 @@ import type { LucideIcon } from "lucide-react";
 import {
   BookOpen,
   Boxes,
-  CircleUserRound,
   FileText,
   Gauge,
   House,
@@ -25,52 +24,56 @@ import {
 } from "../features/generated-navigation.ts";
 
 export interface NavigationItem {
-  readonly label: string;
+  readonly exact?: boolean;
   readonly href: `/${string}` | "/";
   readonly icon: LucideIcon;
-  readonly exact?: boolean;
+  readonly label: string;
 }
 
 export const PUBLIC_NAVIGATION: readonly NavigationItem[] = Object.freeze([
-  { label: "Home", href: "/", icon: House, exact: true },
-  { label: "Features", href: "/features", icon: Sparkles },
-  { label: "Solutions", href: "/solutions", icon: Boxes },
-  { label: "Resources", href: "/resources", icon: BookOpen },
-  { label: "About", href: "/about", icon: Info },
-  { label: "Sign in", href: "/sign-in", icon: LockKeyhole },
+  { exact: true, href: "/", icon: House, label: "Home" },
+  { href: "/features", icon: Sparkles, label: "Features" },
+  { href: "/solutions", icon: Boxes, label: "Solutions" },
+  { href: "/resources", icon: BookOpen, label: "Resources" },
+  { href: "/about", icon: Info, label: "About" },
+  { href: "/sign-in", icon: LockKeyhole, label: "Sign in" },
 ]);
 
 export const SUPPORT_NAVIGATION: readonly NavigationItem[] = Object.freeze([
-  { label: "Contact", href: "/contact", icon: Mail },
-  { label: "Privacy", href: "/legal/privacy", icon: FileText },
-  { label: "Terms", href: "/legal/terms", icon: FileText },
+  { href: "/contact", icon: Mail, label: "Contact" },
+  { href: "/legal/privacy", icon: FileText, label: "Privacy" },
+  { href: "/legal/terms", icon: FileText, label: "Terms" },
 ]);
 
 export const AUTH_NAVIGATION: readonly NavigationItem[] = Object.freeze([
-  { label: "Sign up", href: "/sign-up", icon: UserPlus },
-  { label: "Forgot password", href: "/forgot-password", icon: KeyRound },
-  { label: "Reset password", href: "/reset-password", icon: KeyRound },
+  { href: "/sign-up", icon: UserPlus, label: "Sign up" },
+  { href: "/forgot-password", icon: KeyRound, label: "Forgot password" },
+  { href: "/reset-password", icon: KeyRound, label: "Reset password" },
 ]);
 
+/** Core product navigation: the only links in the portal sidebar. */
 export const PORTAL_NAVIGATION: readonly NavigationItem[] = Object.freeze([
-  { label: "Overview", href: "/dashboard", icon: Gauge },
-  { label: "Feature items", href: "/feature-items", icon: LayoutList },
+  { href: "/dashboard", icon: Gauge, label: "Overview" },
+]);
+
+/** Feature destinations: listed in the user menu, not the sidebar. */
+export const FEATURE_NAVIGATION: readonly NavigationItem[] = Object.freeze([
+  { href: "/feature-items", icon: LayoutList, label: "Feature items" },
   ...GENERATED_FEATURE_NAVIGATION.map((item) => ({
     ...item,
     icon: LayoutList,
   })),
-  { label: "Account", href: "/account", icon: CircleUserRound },
 ]);
 
 export const ACCOUNT_NAVIGATION: readonly NavigationItem[] = Object.freeze([
-  { label: "Profile", href: "/account/profile", icon: UserRound },
-  { label: "Address", href: "/account/address", icon: MapPin },
-  { label: "Preferences", href: "/account/preferences", icon: Settings },
-  { label: "Security", href: "/account/security", icon: LockKeyhole },
+  { href: "/account/profile", icon: UserRound, label: "Profile" },
+  { href: "/account/address", icon: MapPin, label: "Address" },
+  { href: "/account/preferences", icon: Settings, label: "Preferences" },
+  { href: "/account/security", icon: LockKeyhole, label: "Security" },
 ]);
 
 export const ADMIN_NAVIGATION: readonly NavigationItem[] = Object.freeze([
-  { label: "Users", href: "/admin/users", icon: Wrench },
+  { href: "/admin/users", icon: Wrench, label: "Users" },
 ]);
 
 export const EXPOSED_ROUTE_PATHS = Object.freeze([
@@ -100,25 +103,25 @@ export const EXPOSED_ROUTE_PATHS = Object.freeze([
 export const ROUTE_PAGE_FILES: Readonly<Record<string, string>> = Object.freeze(
   {
     "/": "(public)/page.tsx",
-    "/features": "(public)/features/page.tsx",
-    "/solutions": "(public)/solutions/page.tsx",
-    "/resources": "(public)/resources/page.tsx",
     "/about": "(public)/about/page.tsx",
-    "/sign-in": "(auth)/sign-in/page.tsx",
-    "/contact": "(public)/contact/page.tsx",
-    "/legal/privacy": "(public)/legal/privacy/page.tsx",
-    "/legal/terms": "(public)/legal/terms/page.tsx",
-    "/sign-up": "(auth)/sign-up/page.tsx",
-    "/forgot-password": "(auth)/forgot-password/page.tsx",
-    "/reset-password": "(auth)/reset-password/page.tsx",
-    "/dashboard": "(portal)/dashboard/page.tsx",
-    "/feature-items": "(portal)/feature-items/page.tsx",
     "/account": "(portal)/account/page.tsx",
-    "/account/profile": "(portal)/account/profile/page.tsx",
     "/account/address": "(portal)/account/address/page.tsx",
     "/account/preferences": "(portal)/account/preferences/page.tsx",
+    "/account/profile": "(portal)/account/profile/page.tsx",
     "/account/security": "(portal)/account/security/page.tsx",
     "/admin/users": "(portal)/admin/users/page.tsx",
+    "/contact": "(public)/contact/page.tsx",
+    "/dashboard": "(portal)/dashboard/page.tsx",
+    "/feature-items": "(portal)/feature-items/page.tsx",
+    "/features": "(public)/features/page.tsx",
+    "/forgot-password": "(auth)/forgot-password/page.tsx",
+    "/legal/privacy": "(public)/legal/privacy/page.tsx",
+    "/legal/terms": "(public)/legal/terms/page.tsx",
+    "/reset-password": "(auth)/reset-password/page.tsx",
+    "/resources": "(public)/resources/page.tsx",
+    "/sign-in": "(auth)/sign-in/page.tsx",
+    "/sign-up": "(auth)/sign-up/page.tsx",
+    "/solutions": "(public)/solutions/page.tsx",
     ...GENERATED_FEATURE_ROUTE_PAGE_FILES,
   }
 );
@@ -128,6 +131,7 @@ export const ALL_NAVIGATION: readonly NavigationItem[] = Object.freeze([
   ...SUPPORT_NAVIGATION,
   ...AUTH_NAVIGATION,
   ...PORTAL_NAVIGATION,
+  ...FEATURE_NAVIGATION,
   ...ACCOUNT_NAVIGATION,
   ...ADMIN_NAVIGATION,
 ]);

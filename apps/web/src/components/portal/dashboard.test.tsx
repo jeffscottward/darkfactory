@@ -119,7 +119,7 @@ describe("DashboardContent", () => {
     }
   });
 
-  return it("renders honest empty data without inventing an unavailable metric", () => {
+  return it("renders no empty-state prose when there are no recent items", () => {
     const emptyHtml = renderToStaticMarkup(
       <DashboardContent
         model={toDashboardViewModel({
@@ -139,8 +139,10 @@ describe("DashboardContent", () => {
       />
     );
 
-    expect(emptyHtml).toContain("No feature items yet");
-    expect(emptyHtml).toContain("Create the first item");
+    expect(emptyHtml).not.toContain("No feature items yet");
+    expect(emptyHtml).not.toContain("Create the first item");
+    expect(emptyHtml).not.toContain('href="/feature-items/');
+    expect(emptyHtml).toContain('href="/feature-items"');
     expect(emptyHtml).toContain("0 feature items");
     return expect(emptyHtml).not.toContain("Feature data unavailable");
   });

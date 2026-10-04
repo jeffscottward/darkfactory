@@ -45,14 +45,14 @@ export default function SolutionsPage() {
       eyebrow="Solutions"
       title="Example compositions, deliberately not a business model."
     >
-      <section aria-labelledby="archetypes-title" className="py-16 md:py-20">
+      <section aria-labelledby="archetypes-title" className="py-8 md:py-10">
         <h2 className="sr-only" id="archetypes-title">
           Example solution archetypes
         </h2>
         <ol className="divide-y divide-border border-border border-y">
           {archetypes.map((archetype) => (
             <li
-              className="grid gap-6 py-10 md:grid-cols-12 md:py-12"
+              className="grid gap-6 py-6 md:grid-cols-12 md:py-12"
               key={archetype.title}
             >
               <p
@@ -70,7 +70,7 @@ export default function SolutionsPage() {
                 </h3>
               </div>
               <div className="space-y-5 md:col-span-6 md:col-start-7">
-                <p className="text-foreground text-lg leading-8">
+                <p className="text-foreground text-lg leading-7">
                   {archetype.body}
                 </p>
                 <p className="text-base text-muted-foreground leading-7">
@@ -87,7 +87,7 @@ export default function SolutionsPage() {
 
       <section
         aria-labelledby="adaptation-title"
-        className="grid gap-12 border-border border-y bg-surface py-16 md:grid-cols-12 md:py-20"
+        className="grid gap-6 border-border border-y bg-surface py-8 md:grid-cols-12 md:py-10"
       >
         <div className="md:col-span-5">
           <p className="font-semibold text-primary text-sm tracking-wide">
@@ -123,7 +123,7 @@ export default function SolutionsPage() {
 
       <section
         aria-labelledby="solutions-next-title"
-        className="grid gap-8 pt-16 md:grid-cols-12 md:items-end md:pt-20"
+        className="grid gap-5 pt-8 md:grid-cols-12 md:items-end md:pt-10"
       >
         <div className="md:col-span-7">
           <h2

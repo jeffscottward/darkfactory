@@ -4,6 +4,7 @@ import type {
   PreferencesOutput,
   PreferencesUpdateInput,
 } from "@darkfactory/api";
+import { isSameAppearance } from "@darkfactory/state";
 import { Button, buttonVariants, EmptyState, Skeleton } from "@darkfactory/ui";
 import { RotateCcw } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
@@ -38,9 +39,9 @@ export const PreferencesPageClient = () => {
     setState({ type: "loading" });
     try {
       const preferences = await gateway.getPreferences();
-      return setState({ type: "ready", preferences, version: 0 });
+      return setState({ preferences, type: "ready", version: 0 });
     } catch (error) {
-      return setState({ type: "error", kind: accountFailureKind(error) });
+      return setState({ kind: accountFailureKind(error), type: "error" });
     }
   }, [gateway]);
 
@@ -103,19 +104,22 @@ export const PreferencesPageClient = () => {
       const preferences = await gateway.updatePreferences(input);
       setState((current) =>
         current.type === "ready"
-          ? { type: "ready", preferences, version: current.version + 1 }
+          ? { preferences, type: "ready", version: current.version + 1 }
           : current
       );
-      setFeedback({ tone: "success", message: "Preferences saved." });
+      setFeedback({ message: "Preferences saved.", tone: "success" });
     } catch (error) {
       if (accountFailureKind(error) === "conflict") {
         try {
           const preferences = await gateway.getPreferences();
-          const ui = store.getState();
-          if (ui.themeMode !== preferences.themeMode)
-            ui.setThemeMode(preferences.themeMode);
-          if (ui.palette !== preferences.palette)
-            ui.setPalette(preferences.palette);
+          const appearance = {
+            density: preferences.density,
+            fontSize: preferences.fontSize,
+            radius: preferences.radius,
+            theme: preferences.theme,
+          };
+          if (!isSameAppearance(store.getState(), appearance))
+            store.setState(appearance);
           setState((current) =>
             current.type === "ready" ? { ...current, preferences } : current
           );
@@ -123,12 +127,12 @@ export const PreferencesPageClient = () => {
           // The mounted form keeps its unsaved values when reconciliation is unavailable.
         }
         setFeedback({
-          tone: "error",
           message:
             "Preferences changed elsewhere. Your choices are preserved; review them and save again.",
+          tone: "error",
         });
       } else {
-        setFeedback({ tone: "error", message: safeAccountFeedback(error) });
+        setFeedback({ message: safeAccountFeedback(error), tone: "error" });
       }
     }
   };

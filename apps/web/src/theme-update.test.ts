@@ -30,28 +30,49 @@ describe("trusted theme updates", () => {
       authorityEpoch: () => 0,
       get: async () => {
         calls.push("get");
-        return { themeMode: "system", palette: "neutral", updatedAt: versionA };
+        return {
+          density: "default",
+          fontSize: "default",
+          radius: "small",
+          theme: "system",
+          updatedAt: versionA,
+        };
       },
-      preference: { themeMode: "dark", palette: "rose" },
+      preference: {
+        density: "compact",
+        fontSize: "large",
+        radius: "none",
+        theme: "rose-pine",
+      },
       sequence: { current: 0 },
       store,
       update: async (input) => {
         calls.push("update");
         updateInput = input;
-        return { themeMode: "dark", palette: "violet", updatedAt: versionB };
+        return {
+          density: "comfortable",
+          fontSize: "small",
+          radius: "large",
+          theme: "tokyo-night",
+          updatedAt: versionB,
+        };
       },
     });
 
     expect(calls).toEqual(["get", "update"]);
     expect(updateInput).toEqual({
-      themeMode: "dark",
-      palette: "rose",
+      density: "compact",
       expectedUpdatedAt: versionA,
+      fontSize: "large",
+      radius: "none",
+      theme: "rose-pine",
     });
     expect(result).toBe("applied");
     expect(store.getState()).toMatchObject({
-      themeMode: "dark",
-      palette: "violet",
+      density: "comfortable",
+      fontSize: "small",
+      radius: "large",
+      theme: "tokyo-night",
     });
     return expect(store.getState()).not.toHaveProperty("updatedAt");
   });
@@ -60,8 +81,10 @@ describe("trusted theme updates", () => {
     const store = createUiStore();
     const failure = "primitive theme update failure";
     const get = vi.fn(async () => ({
-      themeMode: "system" as const,
-      palette: "neutral" as const,
+      density: "default" as const,
+      fontSize: "default" as const,
+      radius: "small" as const,
+      theme: "system" as const,
       updatedAt: versionA,
     }));
 
@@ -70,7 +93,12 @@ describe("trusted theme updates", () => {
         authority: () => "trusted",
         authorityEpoch: () => 0,
         get,
-        preference: { themeMode: "dark", palette: "rose" },
+        preference: {
+          density: "compact",
+          fontSize: "large",
+          radius: "none",
+          theme: "rose-pine",
+        },
         sequence: { current: 0 },
         store,
         async update() {
@@ -80,36 +108,49 @@ describe("trusted theme updates", () => {
     ).rejects.toBe(failure);
     expect(get).toHaveBeenCalledOnce();
     return expect(store.getState()).toMatchObject({
-      themeMode: "system",
-      palette: "neutral",
+      density: "default",
+      fontSize: "default",
+      radius: "small",
+      theme: "system",
     });
   });
 
   it("passes a null missing-row version as insert-only expectedUpdatedAt", async () => {
     const store = createUiStore();
     const update = vi.fn(async () => ({
-      themeMode: "dark" as const,
-      palette: "rose" as const,
+      density: "compact" as const,
+      fontSize: "large" as const,
+      radius: "none" as const,
+      theme: "rose-pine" as const,
       updatedAt: versionA,
     }));
     await updateTrustedThemePreference({
       authority: () => "trusted",
       authorityEpoch: () => 0,
       get: async () => ({
-        themeMode: "system",
-        palette: "neutral",
+        density: "default",
+        fontSize: "default",
+        radius: "small",
+        theme: "system",
         updatedAt: null,
       }),
-      preference: { themeMode: "dark", palette: "rose" },
+      preference: {
+        density: "compact",
+        fontSize: "large",
+        radius: "none",
+        theme: "rose-pine",
+      },
       sequence: { current: 0 },
       store,
       update,
     });
 
     return expect(update).toHaveBeenCalledWith({
-      themeMode: "dark",
-      palette: "rose",
+      density: "compact",
       expectedUpdatedAt: null,
+      fontSize: "large",
+      radius: "none",
+      theme: "rose-pine",
     });
   });
 
@@ -117,8 +158,10 @@ describe("trusted theme updates", () => {
     const store = createUiStore();
     const before = store.getState();
     const get = vi.fn(async () => ({
-      themeMode: "system" as const,
-      palette: "neutral" as const,
+      density: "default" as const,
+      fontSize: "default" as const,
+      radius: "small" as const,
+      theme: "system" as const,
       updatedAt: versionA,
     }));
     const update = vi.fn(async () => {
@@ -128,7 +171,12 @@ describe("trusted theme updates", () => {
       authority: () => "trusted",
       authorityEpoch: () => 0,
       get,
-      preference: { themeMode: "dark", palette: "rose" },
+      preference: {
+        density: "compact",
+        fontSize: "large",
+        radius: "none",
+        theme: "rose-pine",
+      },
       sequence: { current: 0 },
       store,
       update,
@@ -149,7 +197,12 @@ describe("trusted theme updates", () => {
       authority: () => "trusted",
       authorityEpoch: () => authorityEpoch,
       get: async () => current.promise,
-      preference: { themeMode: "dark", palette: "rose" },
+      preference: {
+        density: "compact",
+        fontSize: "large",
+        radius: "none",
+        theme: "rose-pine",
+      },
       sequence: { current: 0 },
       store,
       update,
@@ -157,16 +210,20 @@ describe("trusted theme updates", () => {
 
     authorityEpoch += 2;
     current.resolve({
-      themeMode: "system",
-      palette: "neutral",
+      density: "default",
+      fontSize: "default",
+      radius: "small",
+      theme: "system",
       updatedAt: versionA,
     });
 
     await expect(pending).resolves.toBe("superseded");
     expect(update).not.toHaveBeenCalled();
     return expect(store.getState()).toMatchObject({
-      themeMode: "system",
-      palette: "neutral",
+      density: "default",
+      fontSize: "default",
+      radius: "small",
+      theme: "system",
     });
   });
 
@@ -179,11 +236,18 @@ describe("trusted theme updates", () => {
       authority: () => "trusted",
       authorityEpoch: () => authorityEpoch,
       get: async () => ({
-        themeMode: "system",
-        palette: "neutral",
+        density: "default",
+        fontSize: "default",
+        radius: "small",
+        theme: "system",
         updatedAt: versionA,
       }),
-      preference: { themeMode: "dark", palette: "rose" },
+      preference: {
+        density: "compact",
+        fontSize: "large",
+        radius: "none",
+        theme: "rose-pine",
+      },
       sequence: { current: 0 },
       store,
       update,
@@ -191,12 +255,20 @@ describe("trusted theme updates", () => {
 
     await vi.waitFor(() => expect(update).toHaveBeenCalledOnce());
     authorityEpoch += 2;
-    saved.resolve({ themeMode: "dark", palette: "rose", updatedAt: versionB });
+    saved.resolve({
+      density: "compact",
+      fontSize: "large",
+      radius: "none",
+      theme: "rose-pine",
+      updatedAt: versionB,
+    });
 
     await expect(pending).resolves.toBe("superseded");
     return expect(store.getState()).toMatchObject({
-      themeMode: "system",
-      palette: "neutral",
+      density: "default",
+      fontSize: "default",
+      radius: "small",
+      theme: "system",
     });
   });
 
@@ -208,11 +280,18 @@ describe("trusted theme updates", () => {
       authorityEpoch: () => 0,
       get: async () =>
         ({
-          themeMode: "night",
-          palette: "neutral",
+          density: "default",
+          fontSize: "default",
+          radius: "small",
+          theme: "night",
           updatedAt: versionA,
         }) as never,
-      preference: { themeMode: "dark", palette: "rose" },
+      preference: {
+        density: "compact",
+        fontSize: "large",
+        radius: "none",
+        theme: "rose-pine",
+      },
       sequence: { current: 0 },
       store,
       update: invalidGetUpdate,
@@ -220,8 +299,10 @@ describe("trusted theme updates", () => {
     const invalidSaveGet = vi
       .fn()
       .mockResolvedValueOnce({
-        themeMode: "system",
-        palette: "neutral",
+        density: "default",
+        fontSize: "default",
+        radius: "small",
+        theme: "system",
         updatedAt: versionA,
       })
       .mockRejectedValueOnce(new Error("reconciliation unavailable"));
@@ -229,12 +310,19 @@ describe("trusted theme updates", () => {
       authority: () => "trusted",
       authorityEpoch: () => 0,
       get: invalidSaveGet,
-      preference: { themeMode: "dark", palette: "rose" },
+      preference: {
+        density: "compact",
+        fontSize: "large",
+        radius: "none",
+        theme: "rose-pine",
+      },
       sequence: { current: 0 },
       store,
       update: async () => ({
-        themeMode: "dark",
-        palette: "rose",
+        density: "compact",
+        fontSize: "large",
+        radius: "none",
+        theme: "rose-pine",
         updatedAt: new Date(Number.NaN),
       }),
     });
@@ -244,35 +332,52 @@ describe("trusted theme updates", () => {
     expect(invalidSave).toBe("unconfirmed");
     expect(invalidSaveGet).toHaveBeenCalledTimes(2);
     return expect(store.getState()).toMatchObject({
-      themeMode: "system",
-      palette: "neutral",
+      density: "default",
+      fontSize: "default",
+      radius: "small",
+      theme: "system",
     });
   });
 
   it("reconciles a PATCH that commits before its response is lost", async () => {
     const store = createUiStore();
     let remote: ThemePreferenceOutput = {
-      themeMode: "system",
-      palette: "neutral",
+      density: "default",
+      fontSize: "default",
+      radius: "small",
+      theme: "system",
       updatedAt: versionA,
     };
     const result = await updateTrustedThemePreference({
       authority: () => "trusted",
       authorityEpoch: () => 0,
       get: async () => remote,
-      preference: { themeMode: "dark", palette: "rose" },
+      preference: {
+        density: "compact",
+        fontSize: "large",
+        radius: "none",
+        theme: "rose-pine",
+      },
       sequence: { current: 0 },
       store,
       update: async () => {
-        remote = { themeMode: "dark", palette: "rose", updatedAt: versionB };
+        remote = {
+          density: "compact",
+          fontSize: "large",
+          radius: "none",
+          theme: "rose-pine",
+          updatedAt: versionB,
+        };
         throw new Error("response lost");
       },
     });
 
     expect(result).toBe("reconciled");
     return expect(store.getState()).toMatchObject({
-      themeMode: "dark",
-      palette: "rose",
+      density: "compact",
+      fontSize: "large",
+      radius: "none",
+      theme: "rose-pine",
     });
   });
 
@@ -287,10 +392,21 @@ describe("trusted theme updates", () => {
       get: async () => {
         getCount += 1;
         return getCount === 1
-          ? { themeMode: "system", palette: "neutral", updatedAt: versionA }
+          ? {
+              density: "default",
+              fontSize: "default",
+              radius: "small",
+              theme: "system",
+              updatedAt: versionA,
+            }
           : reconciliation.promise;
       },
-      preference: { themeMode: "dark", palette: "rose" },
+      preference: {
+        density: "compact",
+        fontSize: "large",
+        radius: "none",
+        theme: "rose-pine",
+      },
       sequence: { current: 0 },
       store,
       async update() {
@@ -301,15 +417,19 @@ describe("trusted theme updates", () => {
     await vi.waitFor(() => expect(getCount).toBe(2));
     authorityEpoch += 2;
     reconciliation.resolve({
-      themeMode: "dark",
-      palette: "rose",
+      density: "compact",
+      fontSize: "large",
+      radius: "none",
+      theme: "rose-pine",
       updatedAt: versionB,
     });
 
     await expect(pending).resolves.toBe("superseded");
     return expect(store.getState()).toMatchObject({
-      themeMode: "system",
-      palette: "neutral",
+      density: "default",
+      fontSize: "default",
+      radius: "small",
+      theme: "system",
     });
   });
 
@@ -318,15 +438,22 @@ describe("trusted theme updates", () => {
     const current = deferred<ThemePreferenceOutput>();
     let authority: "trusted" | "anonymous" = "trusted";
     const update = vi.fn(async () => ({
-      themeMode: "dark" as const,
-      palette: "rose" as const,
+      density: "compact" as const,
+      fontSize: "large" as const,
+      radius: "none" as const,
+      theme: "rose-pine" as const,
       updatedAt: versionB,
     }));
     const pending = updateTrustedThemePreference({
       authority: () => authority,
       authorityEpoch: () => 0,
       get: async () => current.promise,
-      preference: { themeMode: "dark", palette: "rose" },
+      preference: {
+        density: "compact",
+        fontSize: "large",
+        radius: "none",
+        theme: "rose-pine",
+      },
       sequence: { current: 0 },
       store,
       update,
@@ -334,16 +461,20 @@ describe("trusted theme updates", () => {
 
     authority = "anonymous";
     current.resolve({
-      themeMode: "system",
-      palette: "neutral",
+      density: "default",
+      fontSize: "default",
+      radius: "small",
+      theme: "system",
       updatedAt: versionA,
     });
 
     await expect(pending).resolves.toBe("superseded");
     expect(update).not.toHaveBeenCalled();
     return expect(store.getState()).toMatchObject({
-      themeMode: "system",
-      palette: "neutral",
+      density: "default",
+      fontSize: "default",
+      radius: "small",
+      theme: "system",
     });
   });
 
@@ -354,15 +485,22 @@ describe("trusted theme updates", () => {
     const secondGet = deferred<ThemePreferenceOutput>();
     const firstUpdate = vi.fn();
     const secondUpdate = vi.fn(async () => ({
-      themeMode: "light" as const,
-      palette: "blue" as const,
+      density: "comfortable" as const,
+      fontSize: "large" as const,
+      radius: "medium" as const,
+      theme: "catppuccin-latte" as const,
       updatedAt: versionB,
     }));
     const first = updateTrustedThemePreference({
       authority: () => "trusted",
       authorityEpoch: () => 0,
       get: async () => firstGet.promise,
-      preference: { themeMode: "dark", palette: "rose" },
+      preference: {
+        density: "compact",
+        fontSize: "large",
+        radius: "none",
+        theme: "rose-pine",
+      },
       sequence,
       store,
       update: firstUpdate,
@@ -371,34 +509,47 @@ describe("trusted theme updates", () => {
       authority: () => "trusted",
       authorityEpoch: () => 0,
       get: async () => secondGet.promise,
-      preference: { themeMode: "light", palette: "blue" },
+      preference: {
+        density: "comfortable",
+        fontSize: "large",
+        radius: "medium",
+        theme: "catppuccin-latte",
+      },
       sequence,
       store,
       update: secondUpdate,
     });
 
     firstGet.resolve({
-      themeMode: "system",
-      palette: "neutral",
+      density: "default",
+      fontSize: "default",
+      radius: "small",
+      theme: "system",
       updatedAt: versionA,
     });
     await expect(first).resolves.toBe("superseded");
     expect(firstUpdate).not.toHaveBeenCalled();
 
     secondGet.resolve({
-      themeMode: "system",
-      palette: "neutral",
+      density: "default",
+      fontSize: "default",
+      radius: "small",
+      theme: "system",
       updatedAt: versionA,
     });
     await expect(second).resolves.toBe("applied");
     expect(secondUpdate).toHaveBeenCalledWith({
-      themeMode: "light",
-      palette: "blue",
+      density: "comfortable",
       expectedUpdatedAt: versionA,
+      fontSize: "large",
+      radius: "medium",
+      theme: "catppuccin-latte",
     });
     return expect(store.getState()).toMatchObject({
-      themeMode: "light",
-      palette: "blue",
+      density: "comfortable",
+      fontSize: "large",
+      radius: "medium",
+      theme: "catppuccin-latte",
     });
   });
 
@@ -411,11 +562,18 @@ describe("trusted theme updates", () => {
       authority: () => "trusted",
       authorityEpoch: () => 0,
       get: async () => ({
-        themeMode: "system",
-        palette: "neutral",
+        density: "default",
+        fontSize: "default",
+        radius: "small",
+        theme: "system",
         updatedAt: versionA,
       }),
-      preference: { themeMode: "dark", palette: "rose" },
+      preference: {
+        density: "compact",
+        fontSize: "large",
+        radius: "none",
+        theme: "rose-pine",
+      },
       sequence,
       store,
       update: async () => first.promise,
@@ -424,32 +582,51 @@ describe("trusted theme updates", () => {
       authority: () => "trusted",
       authorityEpoch: () => 0,
       get: async () => ({
-        themeMode: "system",
-        palette: "neutral",
+        density: "default",
+        fontSize: "default",
+        radius: "small",
+        theme: "system",
         updatedAt: versionA,
       }),
-      preference: { themeMode: "light", palette: "blue" },
+      preference: {
+        density: "comfortable",
+        fontSize: "large",
+        radius: "medium",
+        theme: "catppuccin-latte",
+      },
       sequence,
       store,
       update: async () => second.promise,
     });
 
-    first.resolve({ themeMode: "dark", palette: "rose", updatedAt: versionB });
+    first.resolve({
+      density: "compact",
+      fontSize: "large",
+      radius: "none",
+      theme: "rose-pine",
+      updatedAt: versionB,
+    });
     await expect(firstUpdate).resolves.toBe("superseded");
     expect(store.getState()).toMatchObject({
-      themeMode: "system",
-      palette: "neutral",
+      density: "default",
+      fontSize: "default",
+      radius: "small",
+      theme: "system",
     });
 
     second.resolve({
-      themeMode: "light",
-      palette: "blue",
+      density: "comfortable",
+      fontSize: "large",
+      radius: "medium",
+      theme: "catppuccin-latte",
       updatedAt: versionB,
     });
     await expect(secondUpdate).resolves.toBe("applied");
     return expect(store.getState()).toMatchObject({
-      themeMode: "light",
-      palette: "blue",
+      density: "comfortable",
+      fontSize: "large",
+      radius: "medium",
+      theme: "catppuccin-latte",
     });
   });
 
@@ -478,9 +655,20 @@ describe("trusted theme updates", () => {
       authorityEpoch: () => 0,
       get: async () => {
         await boundedRequest("GET");
-        return { themeMode: "system", palette: "neutral", updatedAt: versionA };
+        return {
+          density: "default",
+          fontSize: "default",
+          radius: "small",
+          theme: "system",
+          updatedAt: versionA,
+        };
       },
-      preference: { themeMode: "dark", palette: "rose" },
+      preference: {
+        density: "compact",
+        fontSize: "large",
+        radius: "none",
+        theme: "rose-pine",
+      },
       sequence: { current: 0 },
       store,
       update: vi.fn(),
@@ -497,20 +685,39 @@ describe("trusted theme updates", () => {
         patchGetCount += 1;
         if (patchGetCount === 1) {
           return {
-            themeMode: "system",
-            palette: "neutral",
+            density: "default",
+            fontSize: "default",
+            radius: "small",
+            theme: "system",
             updatedAt: versionA,
           };
         }
         await boundedRequest("GET");
-        return { themeMode: "system", palette: "neutral", updatedAt: versionA };
+        return {
+          density: "default",
+          fontSize: "default",
+          radius: "small",
+          theme: "system",
+          updatedAt: versionA,
+        };
       },
-      preference: { themeMode: "dark", palette: "rose" },
+      preference: {
+        density: "compact",
+        fontSize: "large",
+        radius: "none",
+        theme: "rose-pine",
+      },
       sequence: { current: 0 },
       store,
       update: async () => {
         await boundedRequest("PATCH");
-        return { themeMode: "dark", palette: "rose", updatedAt: versionB };
+        return {
+          density: "compact",
+          fontSize: "large",
+          radius: "none",
+          theme: "rose-pine",
+          updatedAt: versionB,
+        };
       },
     });
 
@@ -519,8 +726,10 @@ describe("trusted theme updates", () => {
     await expect(patchPending).resolves.toBe("unconfirmed");
     expect(patchGetCount).toBe(2);
     expect(store.getState()).toMatchObject({
-      themeMode: "system",
-      palette: "neutral",
+      density: "default",
+      fontSize: "default",
+      radius: "small",
+      theme: "system",
     });
     return expect(vi.getTimerCount()).toBe(0);
   });
@@ -533,8 +742,8 @@ describe("bounded theme API transport", () => {
     const encoder = new TextEncoder();
     const body = new ReadableStream<Uint8Array>({
       start(controller) {
-        controller.enqueue(encoder.encode('{"themeMode":'));
-        controller.enqueue(encoder.encode('"dark"}'));
+        controller.enqueue(encoder.encode('{"theme":'));
+        controller.enqueue(encoder.encode('"nord"}'));
         return void controller.close();
       },
     });
@@ -555,7 +764,7 @@ describe("bounded theme API transport", () => {
     expect(response.status).toBe(206);
     expect(response.statusText).toBe("Partial Content");
     expect(response.headers.get("x-result")).toBe("bounded");
-    return expect(await response.text()).toBe('{"themeMode":"dark"}');
+    return expect(await response.text()).toBe('{"theme":"nord"}');
   });
 
   it("returns a bodyless response without replacing it", async () => {
@@ -591,10 +800,10 @@ describe("bounded theme API transport", () => {
       throw new Error("stream cancellation unavailable");
     });
     const streamedBody = new ReadableStream<Uint8Array>({
+      cancel: streamedCancel,
       start(controller) {
         return void controller.enqueue(new Uint8Array(16_385));
       },
-      cancel: streamedCancel,
     });
     await expect(
       fetchThemeApiRequest({
@@ -631,10 +840,10 @@ describe("bounded theme API transport", () => {
         fetchRequest: async () =>
           new Response(
             new ReadableStream<Uint8Array>({
+              cancel: streamedCancel,
               start(controller) {
                 return void controller.enqueue(new Uint8Array(16_385));
               },
-              cancel: streamedCancel,
             })
           ),
         request: new Request("https://darkfactory.example/api/orpc"),
@@ -696,7 +905,12 @@ describe("trusted theme fail-closed branches", () => {
       authority: () => "anonymous",
       authorityEpoch: () => 0,
       get,
-      preference: { themeMode: "dark", palette: "rose" },
+      preference: {
+        density: "compact",
+        fontSize: "large",
+        radius: "none",
+        theme: "rose-pine",
+      },
       sequence: { current: 0 },
       store: createUiStore(),
       update,
@@ -716,7 +930,12 @@ describe("trusted theme fail-closed branches", () => {
         authority = "anonymous";
         throw new Error("preflight unavailable");
       },
-      preference: { themeMode: "dark", palette: "rose" },
+      preference: {
+        density: "compact",
+        fontSize: "large",
+        radius: "none",
+        theme: "rose-pine",
+      },
       sequence: { current: 0 },
       store: createUiStore(),
       update: vi.fn(),
@@ -735,15 +954,22 @@ describe("trusted theme fail-closed branches", () => {
         getCount += 1;
         if (getCount === 1) {
           return {
-            themeMode: "system" as const,
-            palette: "neutral" as const,
+            density: "default" as const,
+            fontSize: "default" as const,
+            radius: "small" as const,
+            theme: "system" as const,
             updatedAt: currentVersion,
           };
         }
         authority = "anonymous";
         throw new Error("reconciliation unavailable");
       },
-      preference: { themeMode: "dark", palette: "rose" },
+      preference: {
+        density: "compact",
+        fontSize: "large",
+        radius: "none",
+        theme: "rose-pine",
+      },
       sequence: { current: 0 },
       store: createUiStore(),
       async update() {
@@ -759,8 +985,10 @@ describe("trusted theme fail-closed branches", () => {
     const get = vi
       .fn()
       .mockResolvedValueOnce({
-        themeMode: "system",
-        palette: "neutral",
+        density: "default",
+        fontSize: "default",
+        radius: "small",
+        theme: "system",
         updatedAt: currentVersion,
       })
       .mockResolvedValueOnce(null);
@@ -768,7 +996,12 @@ describe("trusted theme fail-closed branches", () => {
       authority: () => "trusted",
       authorityEpoch: () => 0,
       get,
-      preference: { themeMode: "dark", palette: "rose" },
+      preference: {
+        density: "compact",
+        fontSize: "large",
+        radius: "none",
+        theme: "rose-pine",
+      },
       sequence: { current: 0 },
       store: createUiStore(),
       update: async () => null as never,

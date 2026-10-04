@@ -112,7 +112,7 @@ export const ContactForm = ({ gateway }: ContactFormProps) => {
   return (
     <form
       aria-labelledby="contact-form-title"
-      className="relative space-y-6 border-border border-y py-8"
+      className="relative space-y-4 border-border border-y py-5"
       id="contact-form"
       noValidate
       onSubmit={(event) => {

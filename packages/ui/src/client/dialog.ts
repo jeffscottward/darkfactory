@@ -40,14 +40,14 @@ export const DialogContent = ({
       DialogPrimitive.Content,
       {
         className: cn(
-          "fixed top-1/2 left-1/2 z-modal grid max-h-[calc(100dvh-var(--space-8))] w-[calc(100%-var(--space-8))] max-w-lg -translate-x-1/2 -translate-y-1/2 gap-6 overflow-y-auto rounded-lg border border-border bg-surface-raised p-6 text-foreground shadow-lg focus:outline-none",
+          "fixed top-1/2 left-1/2 z-modal grid max-h-[calc(100dvh-var(--space-8))] w-[calc(100%-var(--space-8))] max-w-lg -translate-x-1/2 -translate-y-1/2 gap-4 overflow-y-auto rounded-lg border border-border bg-surface-raised p-4 text-foreground shadow-lg focus:outline-none",
           className
         ),
         ...props,
       },
       createElement(
         "div",
-        { className: "space-y-2 pr-10" },
+        { className: "space-y-1 pr-10" },
         createElement(
           DialogPrimitive.Title,
           { className: "font-heading text-xl font-semibold tracking-tight" },
@@ -95,7 +95,7 @@ export const DialogFooter = ({
 > => {
   return createElement("div", {
     className: cn(
-      "flex flex-col-reverse gap-3 border-border border-t pt-5 sm:flex-row sm:justify-end",
+      "flex flex-col-reverse gap-2 border-border border-t pt-3 sm:flex-row sm:justify-end",
       className
     ),
     ...props,

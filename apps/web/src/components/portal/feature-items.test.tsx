@@ -241,12 +241,13 @@ describe("feature item collection states", () => {
     return expect(html).toContain('aria-busy="true"');
   });
 
-  it("renders an instructive empty state with a valid next action", () => {
+  it("renders one compact no-items row without prose or extra actions", () => {
     const html = renderToStaticMarkup(
       <FeatureItemsCollection state={{ type: "ready", items: [] }} />
     );
-    expect(html).toContain("No feature items yet");
-    return expect(html).toContain("/feature-items/new");
+    expect(html).toContain("No feature items");
+    expect(html).not.toContain("<p");
+    return expect(html).not.toContain("/feature-items/new");
   });
 
   it("distinguishes a filtered empty result and offers reset", () => {
@@ -338,7 +339,7 @@ describe("feature item setup workflow", () => {
     );
     expect(html).toContain("Choose its starting state");
 
-    expect(html).toContain("persisted owner-scoped record");
+    expect(html).not.toContain("owner-scoped");
     actor.send({ type: "SET_PREFERENCES_COMPLETE", value: true });
     actor.send({ type: "NEXT" });
     html = renderToStaticMarkup(

@@ -65,8 +65,10 @@ const themeRepository = (
     throw new Error("Full preference update must not be called");
   }),
   upsertTheme: vi.fn(async (input) => ({
-    mode: input.mode,
-    colorScheme: input.colorScheme,
+    theme: input.theme,
+    fontSize: input.fontSize,
+    density: input.density,
+    radius: input.radius,
     updatedAt: THEME_VERSION,
   })),
   ...overrides,
@@ -164,8 +166,10 @@ describe("DF-088 theme preference service", () => {
     );
 
     await expect(service.get(memberSession.principal)).resolves.toEqual({
-      themeMode: "system",
-      palette: "neutral",
+      theme: "system",
+      fontSize: "default",
+      density: "default",
+      radius: "small",
       updatedAt: null,
     });
     return expect(findThemeByUserId).toHaveBeenCalledWith("member-1");
@@ -173,14 +177,18 @@ describe("DF-088 theme preference service", () => {
 
   it("maps projected storage fields and always derives the owner from principal", async () => {
     const stored: UserThemePreference = {
-      mode: "light",
-      colorScheme: "cyan",
+      theme: "catppuccin-latte",
+      fontSize: "small",
+      density: "default",
+      radius: "medium",
       updatedAt: THEME_VERSION,
     };
     const findThemeByUserId = vi.fn(async () => stored);
     const upsertTheme = vi.fn(async (input) => ({
-      mode: input.mode,
-      colorScheme: input.colorScheme,
+      theme: input.theme,
+      fontSize: input.fontSize,
+      density: input.density,
+      radius: input.radius,
       updatedAt: THEME_VERSION,
     }));
     const service = createThemePreferenceService(
@@ -188,25 +196,33 @@ describe("DF-088 theme preference service", () => {
     );
 
     await expect(service.get(memberSession.principal)).resolves.toEqual({
-      themeMode: "light",
-      palette: "cyan",
+      theme: "catppuccin-latte",
+      fontSize: "small",
+      density: "default",
+      radius: "medium",
       updatedAt: THEME_VERSION,
     });
     await expect(
       service.update(memberSession.principal, {
-        themeMode: "dark",
-        palette: "rose",
+        theme: "rose-pine",
+        fontSize: "large",
+        density: "compact",
+        radius: "large",
         expectedUpdatedAt: THEME_VERSION,
       })
     ).resolves.toEqual({
-      themeMode: "dark",
-      palette: "rose",
+      theme: "rose-pine",
+      fontSize: "large",
+      density: "compact",
+      radius: "large",
       updatedAt: THEME_VERSION,
     });
     return expect(upsertTheme).toHaveBeenCalledWith({
       userId: "member-1",
-      mode: "dark",
-      colorScheme: "rose",
+      theme: "rose-pine",
+      fontSize: "large",
+      density: "compact",
+      radius: "large",
       expectedUpdatedAt: THEME_VERSION,
     });
   });
@@ -254,8 +270,10 @@ describe("DF-088 theme preference service", () => {
 
       return await expect(
         service.update(memberSession.principal, {
-          themeMode: "dark",
-          palette: "violet",
+          theme: "nord",
+          fontSize: "large",
+          density: "comfortable",
+          radius: "medium",
           expectedUpdatedAt: THEME_VERSION,
         })
       ).rejects.toMatchObject({
@@ -305,8 +323,10 @@ describe("DF-088 authenticated theme preference router", () => {
     );
     return await expectError(
       clientFor(null).preferences.theme.update({
-        themeMode: "dark",
-        palette: "violet",
+        theme: "nord",
+        fontSize: "large",
+        density: "comfortable",
+        radius: "medium",
         expectedUpdatedAt: null,
       }),
       "UNAUTHORIZED",
@@ -316,48 +336,62 @@ describe("DF-088 authenticated theme preference router", () => {
 
   it("reads defaults and persists exact canonical input for the principal", async () => {
     const upsertTheme = vi.fn(async (input) => ({
-      mode: input.mode,
-      colorScheme: input.colorScheme,
+      theme: input.theme,
+      fontSize: input.fontSize,
+      density: input.density,
+      radius: input.radius,
       updatedAt: THEME_VERSION,
     }));
     const client = clientFor(memberSession, themeRepository({ upsertTheme }));
 
     await expect(client.preferences.theme.get({})).resolves.toEqual({
-      themeMode: "system",
-      palette: "neutral",
+      theme: "system",
+      fontSize: "default",
+      density: "default",
+      radius: "small",
       updatedAt: null,
     });
     await expect(
       client.preferences.theme.update({
-        themeMode: "dark",
-        palette: "violet",
+        theme: "nord",
+        fontSize: "large",
+        density: "comfortable",
+        radius: "medium",
         expectedUpdatedAt: null,
       })
     ).resolves.toEqual({
-      themeMode: "dark",
-      palette: "violet",
+      theme: "nord",
+      fontSize: "large",
+      density: "comfortable",
+      radius: "medium",
       updatedAt: THEME_VERSION,
     });
     return expect(upsertTheme).toHaveBeenCalledWith({
       userId: "member-1",
-      mode: "dark",
-      colorScheme: "violet",
+      theme: "nord",
+      fontSize: "large",
+      density: "comfortable",
+      radius: "medium",
       expectedUpdatedAt: null,
     });
   });
 
   it("rejects non-canonical and owner-bearing update payloads before persistence", async () => {
     const upsertTheme = vi.fn(async (input) => ({
-      mode: input.mode,
-      colorScheme: input.colorScheme,
+      theme: input.theme,
+      fontSize: input.fontSize,
+      density: input.density,
+      radius: input.radius,
       updatedAt: THEME_VERSION,
     }));
     const client = clientFor(memberSession, themeRepository({ upsertTheme }));
 
     await expectError(
       client.preferences.theme.update({
-        themeMode: "sepia",
-        palette: "violet",
+        theme: "sepia",
+        fontSize: "large",
+        density: "comfortable",
+        radius: "medium",
         expectedUpdatedAt: null,
       } as never),
       "BAD_REQUEST",
@@ -365,8 +399,10 @@ describe("DF-088 authenticated theme preference router", () => {
     );
     await expectError(
       client.preferences.theme.update({
-        themeMode: "dark",
-        palette: "violet",
+        theme: "nord",
+        fontSize: "large",
+        density: "comfortable",
+        radius: "medium",
         expectedUpdatedAt: null,
         ownerId: "victim-user",
       } as never),
@@ -384,13 +420,17 @@ describe("DF-088 authenticated theme preference router", () => {
         themeRepository(),
         recording.port
       ).preferences.theme.update({
-        themeMode: "dark",
-        palette: "violet",
+        theme: "nord",
+        fontSize: "large",
+        density: "comfortable",
+        radius: "medium",
         expectedUpdatedAt: null,
       })
     ).resolves.toEqual({
-      themeMode: "dark",
-      palette: "violet",
+      theme: "nord",
+      fontSize: "large",
+      density: "comfortable",
+      radius: "medium",
       updatedAt: THEME_VERSION,
     });
 
@@ -413,8 +453,10 @@ describe("DF-088 authenticated theme preference router", () => {
       /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/
     );
     expect(recording.events[0]?.eventId).not.toBe("request-theme-1");
-    expect(JSON.stringify(recording.events[0])).not.toContain("violet");
-    return expect(JSON.stringify(recording.events[0])).not.toContain("dark");
+    expect(JSON.stringify(recording.events[0])).not.toContain("nord");
+    return expect(JSON.stringify(recording.events[0])).not.toContain(
+      "comfortable"
+    );
   });
 
   it("emits one sanitized failure event without replaying the update", async () => {
@@ -429,8 +471,10 @@ describe("DF-088 authenticated theme preference router", () => {
         themeRepository({ upsertTheme }),
         recording.port
       ).preferences.theme.update({
-        themeMode: "light",
-        palette: "amber",
+        theme: "everforest",
+        fontSize: "default",
+        density: "comfortable",
+        radius: "none",
         expectedUpdatedAt: null,
       }),
       "STORAGE_ERROR",
@@ -451,8 +495,10 @@ describe("DF-088 authenticated theme preference router", () => {
 
   return it("does not change a successful update when observability fails", async () => {
     const upsertTheme = vi.fn(async (input) => ({
-      mode: input.mode,
-      colorScheme: input.colorScheme,
+      theme: input.theme,
+      fontSize: input.fontSize,
+      density: input.density,
+      radius: input.radius,
       updatedAt: THEME_VERSION,
     }));
     const semanticEvents: SemanticEventPort = {
@@ -467,13 +513,17 @@ describe("DF-088 authenticated theme preference router", () => {
         themeRepository({ upsertTheme }),
         semanticEvents
       ).preferences.theme.update({
-        themeMode: "system",
-        palette: "green",
+        theme: "system",
+        fontSize: "small",
+        density: "compact",
+        radius: "small",
         expectedUpdatedAt: null,
       })
     ).resolves.toEqual({
-      themeMode: "system",
-      palette: "green",
+      theme: "system",
+      fontSize: "small",
+      density: "compact",
+      radius: "small",
       updatedAt: THEME_VERSION,
     });
     expect(upsertTheme).toHaveBeenCalledOnce();

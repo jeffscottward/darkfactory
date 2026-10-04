@@ -21,16 +21,20 @@ import {
   type AddressType,
   addresses,
   auditRecords,
-  COLOR_SCHEMES,
-  type ColorScheme,
+  APPEARANCE_THEMES,
+  type AppearanceTheme,
+  DENSITIES,
+  type Density,
+  FONT_SIZES,
+  type FontSize,
   type FeatureItem,
   type FeatureItemMetadata,
   type FeatureItemStatus,
   featureItems,
   type JsonValue,
   outboxEvents,
-  PREFERENCE_MODES,
-  type PreferenceMode,
+  RADII,
+  type Radius,
   type Profile,
   type ProfileVisibility,
   profiles,
@@ -871,8 +875,10 @@ export const createAddressRepository = (
 
 export type UpsertUserPreferencesInput = Readonly<{
   userId: string;
-  mode: PreferenceMode;
-  colorScheme: ColorScheme;
+  theme: AppearanceTheme;
+  fontSize: FontSize;
+  density: Density;
+  radius: Radius;
   emailNotifications: boolean;
   productUpdates: boolean;
   analyticsConsent: boolean;
@@ -891,13 +897,18 @@ export type OptimisticUserPreferencesInput = Readonly<{
 
 export type UpsertUserThemeInput = Readonly<{
   userId: string;
-  mode: PreferenceMode;
+  theme: AppearanceTheme;
+  fontSize: FontSize;
+  density: Density;
+  radius: Radius;
   expectedUpdatedAt: Date | null;
-  colorScheme: ColorScheme;
 }>;
 
 export type UserThemePreference = Readonly<
-  Pick<UserPreferences, "mode" | "colorScheme" | "updatedAt">
+  Pick<
+    UserPreferences,
+    "theme" | "fontSize" | "density" | "radius" | "updatedAt"
+  >
 >;
 
 export type UserPreferencesRepository = Readonly<{
@@ -909,6 +920,16 @@ export type UserPreferencesRepository = Readonly<{
     input: OptimisticUserPreferencesInput
   ) => Promise<UserPreferences>;
 }>;
+
+const requireCanonical = (
+  values: readonly string[],
+  value: string,
+  field: string
+): void => {
+  if (!values.includes(value)) {
+    throw new InvalidRepositoryInputError(`${field} must be canonical`);
+  }
+};
 
 export const createUserPreferencesRepository = (
   database: DatabaseExecutor,
@@ -922,8 +943,10 @@ export const createUserPreferencesRepository = (
       try {
         const [preference] = await database
           .select({
-            mode: userPreferences.mode,
-            colorScheme: userPreferences.colorScheme,
+            theme: userPreferences.theme,
+            fontSize: userPreferences.fontSize,
+            density: userPreferences.density,
+            radius: userPreferences.radius,
             updatedAt: userPreferences.updatedAt,
           })
           .from(userPreferences)
@@ -946,12 +969,10 @@ export const createUserPreferencesRepository = (
 
     upsertTheme: async (input) => {
       requireNonBlank(input.userId, "userId");
-      if (!(PREFERENCE_MODES as readonly string[]).includes(input.mode)) {
-        throw new InvalidRepositoryInputError("mode must be canonical");
-      }
-      if (!(COLOR_SCHEMES as readonly string[]).includes(input.colorScheme)) {
-        throw new InvalidRepositoryInputError("colorScheme must be canonical");
-      }
+      requireCanonical(APPEARANCE_THEMES, input.theme, "theme");
+      requireCanonical(FONT_SIZES, input.fontSize, "fontSize");
+      requireCanonical(DENSITIES, input.density, "density");
+      requireCanonical(RADII, input.radius, "radius");
 
       try {
         const updatedAt =
@@ -964,21 +985,27 @@ export const createUserPreferencesRepository = (
                 .insert(userPreferences)
                 .values({
                   userId: input.userId,
-                  mode: input.mode,
-                  colorScheme: input.colorScheme,
+                  theme: input.theme,
+                  fontSize: input.fontSize,
+                  density: input.density,
+                  radius: input.radius,
                   updatedAt,
                 })
                 .onConflictDoNothing()
                 .returning({
-                  mode: userPreferences.mode,
-                  colorScheme: userPreferences.colorScheme,
+                  theme: userPreferences.theme,
+                  fontSize: userPreferences.fontSize,
+                  density: userPreferences.density,
+                  radius: userPreferences.radius,
                   updatedAt: userPreferences.updatedAt,
                 })
             : await database
                 .update(userPreferences)
                 .set({
-                  mode: input.mode,
-                  colorScheme: input.colorScheme,
+                  theme: input.theme,
+                  fontSize: input.fontSize,
+                  density: input.density,
+                  radius: input.radius,
                   updatedAt,
                 })
                 .where(
@@ -988,8 +1015,10 @@ export const createUserPreferencesRepository = (
                   )
                 )
                 .returning({
-                  mode: userPreferences.mode,
-                  colorScheme: userPreferences.colorScheme,
+                  theme: userPreferences.theme,
+                  fontSize: userPreferences.fontSize,
+                  density: userPreferences.density,
+                  radius: userPreferences.radius,
                   updatedAt: userPreferences.updatedAt,
                 });
         if (preference === undefined) {
@@ -1015,8 +1044,10 @@ export const createUserPreferencesRepository = (
         .onConflictDoUpdate({
           target: userPreferences.userId,
           set: {
-            mode: input.mode,
-            colorScheme: input.colorScheme,
+            theme: input.theme,
+            fontSize: input.fontSize,
+            density: input.density,
+            radius: input.radius,
             emailNotifications: input.emailNotifications,
             productUpdates: input.productUpdates,
             analyticsConsent: input.analyticsConsent,

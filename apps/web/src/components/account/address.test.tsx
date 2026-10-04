@@ -279,8 +279,8 @@ describe("address book states and actions", () => {
       'href="/sign-in?callbackURL=%2Faccount%2Faddress"',
       "Sign in",
     ],
-    ["forbidden", 'href="/account"', "Back to account"],
-    ["not-found", 'href="/account"', "Back to account"],
+    ["forbidden", 'href="/account/profile"', "Back to account"],
+    ["not-found", 'href="/account/profile"', "Back to account"],
     ["conflict", "Try again", "Try again"],
     ["retryable", "Try again", "Try again"],
   ] as const)(

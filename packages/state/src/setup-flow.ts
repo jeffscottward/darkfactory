@@ -2,9 +2,9 @@ import { assign, createActor, setup } from "xstate";
 
 export interface SetupFlowContext {
   readonly detailsComplete: boolean;
+  readonly error: string | null;
   readonly preferencesComplete: boolean;
   readonly submissionAttempts: number;
-  readonly error: string | null;
 }
 
 export type SetupFlowEvent =
@@ -18,15 +18,17 @@ export type SetupFlowEvent =
   | { readonly type: "RETRY" };
 
 const setupFlow = setup({
-  types: {} as {
-    context: SetupFlowContext;
-    events: SetupFlowEvent;
-  },
-  guards: {
-    detailsAreComplete: ({ context }) => context.detailsComplete,
-    preferencesAreComplete: ({ context }) => context.preferencesComplete,
-  },
   actions: {
+    clearFailure: assign(({ context }) => ({ ...context, error: null })),
+    prepareSubmission: assign(({ context }) => ({
+      ...context,
+      error: null,
+      submissionAttempts: context.submissionAttempts + 1,
+    })),
+    recordFailure: assign(({ context, event }) => {
+      if (event.type !== "FAIL") return context;
+      return { ...context, error: event.message };
+    }),
     setDetailsComplete: assign(({ context, event }) => {
       if (event.type !== "SET_DETAILS_COMPLETE") return context;
       return { ...context, detailsComplete: event.value };
@@ -37,76 +39,74 @@ const setupFlow = setup({
       }
       return { ...context, preferencesComplete: event.value };
     }),
-    prepareSubmission: assign(({ context }) => ({
-      ...context,
-      submissionAttempts: context.submissionAttempts + 1,
-      error: null,
-    })),
-    recordFailure: assign(({ context, event }) => {
-      if (event.type !== "FAIL") return context;
-      return { ...context, error: event.message };
-    }),
-    clearFailure: assign(({ context }) => ({ ...context, error: null })),
+  },
+  guards: {
+    detailsAreComplete: ({ context }) => context.detailsComplete,
+    preferencesAreComplete: ({ context }) => context.preferencesComplete,
+  },
+  types: {} as {
+    context: SetupFlowContext;
+    events: SetupFlowEvent;
   },
 });
 
 export const setupFlowMachine = setupFlow.createMachine({
-  id: "darkfactory-setup-flow",
-  initial: "details",
   context: () => ({
     detailsComplete: false,
+    error: null,
     preferencesComplete: false,
     submissionAttempts: 0,
-    error: null,
   }),
+  id: "darkfactory-setup-flow",
+  initial: "details",
   states: {
     details: {
       on: {
-        SET_DETAILS_COMPLETE: { actions: "setDetailsComplete" },
         NEXT: {
           guard: "detailsAreComplete",
           target: "preferences",
+        },
+        SET_DETAILS_COMPLETE: { actions: "setDetailsComplete" },
+      },
+    },
+    failure: {
+      on: {
+        BACK: {
+          actions: "clearFailure",
+          target: "review",
+        },
+        RETRY: {
+          actions: "prepareSubmission",
+          target: "submitting",
         },
       },
     },
     preferences: {
       on: {
-        SET_PREFERENCES_COMPLETE: { actions: "setPreferencesComplete" },
         BACK: { target: "details" },
         NEXT: {
           guard: "preferencesAreComplete",
           target: "review",
         },
+        SET_PREFERENCES_COMPLETE: { actions: "setPreferencesComplete" },
       },
     },
     review: {
       on: {
         BACK: { target: "preferences" },
         SUBMIT: {
-          target: "submitting",
           actions: "prepareSubmission",
+          target: "submitting",
         },
       },
     },
     submitting: {
       on: {
-        SUCCEED: { target: "success" },
         FAIL: {
-          target: "failure",
           actions: "recordFailure",
+          target: "failure",
         },
-      },
-    },
-    failure: {
-      on: {
-        BACK: {
-          target: "review",
-          actions: "clearFailure",
-        },
-        RETRY: {
-          target: "submitting",
-          actions: "prepareSubmission",
-        },
+        SUCCEED: { target: "success" },
       },
     },
     success: { type: "final" },

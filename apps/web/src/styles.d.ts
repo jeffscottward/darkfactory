@@ -1,23 +1,15 @@
 import "vinext/types";
 
+import type { AppearancePreference } from "@darkfactory/state";
+
 declare module "*.css";
 
 declare global {
   interface Window {
-    __DARKFACTORY_THEME__?: Readonly<{
-      palette:
-        | "neutral"
-        | "slate"
-        | "blue"
-        | "cyan"
-        | "green"
-        | "amber"
-        | "orange"
-        | "red"
-        | "rose"
-        | "violet";
-      source: "cookie" | "localStorage" | "server";
-      themeMode: "light" | "dark" | "system";
-    }>;
+    __DARKFACTORY_THEME__?: Readonly<
+      AppearancePreference & {
+        source: "cookie" | "localStorage" | "server";
+      }
+    >;
   }
 }

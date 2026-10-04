@@ -55,12 +55,9 @@ export const CreateWorkflowStep = ({
     return (
       <div>
         <p className="font-semibold text-primary text-sm">Step 1 of 3</p>
-        <h2 className="mt-2 font-heading font-semibold text-foreground text-xl tracking-tight">
+        <h2 className="font-heading font-semibold text-base text-foreground tracking-tight">
           Describe the item
         </h2>
-        <p className="mt-2 max-w-reading text-muted-foreground text-sm leading-6">
-          Give this neutral starter record a clear name and useful context.
-        </p>
       </div>
     );
   }
@@ -68,13 +65,9 @@ export const CreateWorkflowStep = ({
     return (
       <div>
         <p className="font-semibold text-primary text-sm">Step 2 of 3</p>
-        <h2 className="mt-2 font-heading font-semibold text-foreground text-xl tracking-tight">
+        <h2 className="font-heading font-semibold text-base text-foreground tracking-tight">
           Choose its starting state
         </h2>
-        <p className="mt-2 max-w-reading text-muted-foreground text-sm leading-6">
-          Draft creates a persisted owner-scoped record that remains editable.
-          Active marks it ready for use.
-        </p>
       </div>
     );
   }
@@ -82,10 +75,10 @@ export const CreateWorkflowStep = ({
     return (
       <div>
         <p className="font-semibold text-primary text-sm">Step 3 of 3</p>
-        <h2 className="mt-2 font-heading font-semibold text-foreground text-xl tracking-tight">
+        <h2 className="font-heading font-semibold text-base text-foreground tracking-tight">
           Review before creating
         </h2>
-        <dl className="mt-4 grid min-w-0 gap-3 text-sm sm:grid-cols-2">
+        <dl className="mt-2 grid min-w-0 gap-2 text-sm sm:grid-cols-2">
           <div className="min-w-0">
             <dt className="text-muted-foreground">Name</dt>
             <dd
@@ -120,12 +113,9 @@ export const CreateWorkflowStep = ({
         <p className="font-semibold text-primary text-sm">
           Saving through oRPC
         </p>
-        <h2 className="mt-2 font-heading font-semibold text-foreground text-xl tracking-tight">
+        <h2 className="font-heading font-semibold text-base text-foreground tracking-tight">
           Creating the feature item
         </h2>
-        <p className="mt-2 text-muted-foreground text-sm">
-          Keep this page open while the owner-scoped request completes.
-        </p>
       </div>
     );
   }
@@ -138,26 +128,22 @@ export const CreateWorkflowStep = ({
     return (
       <div role="alert">
         <p className="font-semibold text-destructive text-sm">{title}</p>
-        <h2 className="mt-2 font-heading font-semibold text-foreground text-xl tracking-tight">
+        <h2 className="font-heading font-semibold text-base text-foreground tracking-tight">
           {partialCreated
             ? "The persisted draft is still available"
             : "Your entries are still here"}
         </h2>
-        <p className="mt-2 text-muted-foreground text-sm">
+        <p className="mt-1 text-muted-foreground text-sm">
           {error ?? "The request could not be completed."}
         </p>
         {creationOutcomeUnknown ? (
-          <p className="mt-2 font-medium text-foreground text-sm">
+          <p className="mt-1 font-medium text-foreground text-sm">
             Check the feature item list before trying again to avoid a
             duplicate.
           </p>
-        ) : (
-          <p className="mt-2 font-medium text-foreground text-sm">
-            Try again or return to review.
-          </p>
-        )}
+        ) : null}
         {partialCreated ? (
-          <dl className="mt-4 min-w-0 text-sm">
+          <dl className="mt-2 min-w-0 text-sm">
             <dt className="text-muted-foreground">Current description</dt>
             <dd
               className="mt-1 whitespace-pre-wrap text-foreground"
@@ -173,7 +159,7 @@ export const CreateWorkflowStep = ({
   return (
     <div role="status">
       <p className="font-semibold text-sm text-success-foreground">Created</p>
-      <h2 className="mt-2 font-heading font-semibold text-foreground text-xl tracking-tight">
+      <h2 className="font-heading font-semibold text-base text-foreground tracking-tight">
         The feature item is ready
       </h2>
     </div>
@@ -322,7 +308,7 @@ export const FeatureItemCreateWorkflow = ({
   };
 
   return (
-    <section className="space-y-8 border-border border-t pt-8">
+    <section className="space-y-4 border-border border-t pt-4">
       <div className="outline-none" ref={stepRef} tabIndex={-1}>
         <CreateWorkflowStep
           creationOutcomeUnknown={creationOutcomeUnknown}
@@ -336,16 +322,16 @@ export const FeatureItemCreateWorkflow = ({
       </div>
 
       {stateName === "details" ? (
-        <div className="max-w-reading space-y-5">
-          <div className="space-y-2">
+        <div className="max-w-reading space-y-3">
+          <div className="space-y-1">
             <Label htmlFor="feature-name">
               Name <span className="text-muted-foreground">(required)</span>
             </Label>
             <Input
               aria-describedby={
                 showValidation && !detailsComplete
-                  ? "feature-name-help feature-name-error"
-                  : "feature-name-help"
+                  ? "feature-name-error"
+                  : undefined
               }
               aria-errormessage={
                 showValidation && !detailsComplete
@@ -359,9 +345,6 @@ export const FeatureItemCreateWorkflow = ({
               ref={nameInputRef}
               value={name}
             />
-            <p className="text-muted-foreground text-sm" id="feature-name-help">
-              Use a concise label that explains the record.
-            </p>
             {showValidation && name.trim().length === 0 ? (
               <p
                 className="text-destructive text-sm"
@@ -372,21 +355,14 @@ export const FeatureItemCreateWorkflow = ({
               </p>
             ) : null}
           </div>
-          <div className="space-y-2">
+          <div className="space-y-1">
             <Label htmlFor="feature-description">Description</Label>
             <Textarea
-              aria-describedby="feature-description-help"
               id="feature-description"
               maxLength={10_000}
               onChange={(event) => updateDescription(event.currentTarget.value)}
               value={description}
             />
-            <p
-              className="text-muted-foreground text-sm"
-              id="feature-description-help"
-            >
-              Optional context remains owner scoped.
-            </p>
           </div>
           <Button onClick={continueFromDetails}>
             Continue
@@ -396,8 +372,8 @@ export const FeatureItemCreateWorkflow = ({
       ) : null}
 
       {stateName === "preferences" ? (
-        <div className="max-w-reading space-y-5">
-          <div className="space-y-2">
+        <div className="max-w-reading space-y-3">
+          <div className="space-y-1">
             <Label htmlFor="feature-status">Starting state</Label>
             <select
               className="min-h-11 w-full rounded-md border border-border-strong bg-surface px-3 font-body text-base text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"

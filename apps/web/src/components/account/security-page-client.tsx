@@ -100,23 +100,19 @@ export const SecurityPageClient = () => {
   };
 
   return (
-    <div className="space-y-12">
-      <SecurityPanel
-        feedback={sessionFeedback}
-        isRevoking={isRevoking}
-        onRetry={() => void load()}
-        onRevokeOthers={() => void revokeOthers()}
-        state={state}
-      />
-      <section
-        aria-labelledby="change-password"
-        className="space-y-6 border-border border-t pt-8"
-      >
-        <SectionHeader
-          description="Changing the password requires the current password. Password values are never displayed after entry."
-          id="change-password"
-          title="Change password"
+    <div className="space-y-6">
+      <section aria-labelledby="active-sessions" className="space-y-3">
+        <SectionHeader id="active-sessions" title="Active sessions" />
+        <SecurityPanel
+          feedback={sessionFeedback}
+          isRevoking={isRevoking}
+          onRetry={() => void load()}
+          onRevokeOthers={() => void revokeOthers()}
+          state={state}
         />
+      </section>
+      <section aria-labelledby="change-password" className="space-y-3">
+        <SectionHeader id="change-password" title="Change password" />
         <PasswordForm
           feedback={passwordFeedback}
           key={passwordVersion}

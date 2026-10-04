@@ -4,37 +4,20 @@
 import { oc } from "@orpc/contract";
 import { z } from "zod";
 import { accountContract, preferencesContract } from "./contracts/account.ts";
+import { AppearanceFieldsSchema } from "./contracts/appearance.ts";
 import { adminUsersContract } from "./contracts/admin-users.ts";
 import { contactContract } from "./contracts/contact.ts";
 import { createDashboardContract } from "./contracts/dashboard.ts";
 import { generatedFeatureContracts } from "./generated/contract-registry.ts";
 
 export const FEATURE_ITEM_STATUSES = ["draft", "active", "archived"] as const;
-export const THEME_MODES = ["light", "dark", "system"] as const;
-export const THEME_PALETTES = [
-  "neutral",
-  "slate",
-  "blue",
-  "cyan",
-  "green",
-  "amber",
-  "orange",
-  "red",
-  "rose",
-  "violet",
-] as const;
-
-export const ThemeModeSchema = z.enum(THEME_MODES);
-export const ThemePaletteSchema = z.enum(THEME_PALETTES);
 export const ThemePreferenceSchema = z.object({
-  themeMode: ThemeModeSchema,
-  palette: ThemePaletteSchema,
+  ...AppearanceFieldsSchema.shape,
   updatedAt: z.date().nullable(),
 });
 export const UpdateThemePreferenceSchema = z
   .object({
-    themeMode: ThemeModeSchema,
-    palette: ThemePaletteSchema,
+    ...AppearanceFieldsSchema.shape,
     expectedUpdatedAt: z.date().nullable(),
   })
   .strict();
@@ -259,8 +242,6 @@ export type AdminFeatureItemListInput = z.input<
   typeof AdminFeatureItemListInputSchema
 >;
 
-export type ThemeMode = z.infer<typeof ThemeModeSchema>;
-export type ThemePalette = z.infer<typeof ThemePaletteSchema>;
 export type ThemePreferenceOutput = z.infer<typeof ThemePreferenceSchema>;
 export type UpdateThemePreferenceInput = z.input<
   typeof UpdateThemePreferenceSchema
@@ -312,5 +293,22 @@ export {
   ContactSubmitInputSchema,
   ContactSubmitOutputSchema,
 } from "./contracts/contact.ts";
+export type {
+  Density,
+  FontSize,
+  Radius,
+  ThemeName,
+} from "./contracts/appearance.ts";
+export {
+  AppearanceFieldsSchema,
+  DENSITIES,
+  DensitySchema,
+  FONT_SIZES,
+  FontSizeSchema,
+  RADII,
+  RadiusSchema,
+  THEME_NAMES,
+  ThemeNameSchema,
+} from "./contracts/appearance.ts";
 export type { CapabilityProjection } from "./contracts/dashboard.ts";
 export { CapabilityProjectionSchema } from "./contracts/dashboard.ts";

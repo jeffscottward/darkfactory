@@ -56,7 +56,7 @@ Use concise declarative copy. Prefer “Trace a complete request from UI to Post
 
 ## 2. Unified Aesthetic Direction
 
-The shared visual language is **engineered editorial**: warm tinted neutrals, strong sans-serif typography, disciplined rules, restrained color, and generous negative space.
+The shared visual language is **engineered editorial**: quiet neutrals, strong sans-serif typography, disciplined rules, restrained color, and generous negative space.
 
 ### Shared DNA
 
@@ -105,14 +105,16 @@ Do not use Libre Bodoni or any other serif. Do not use Inter, Roboto, Arial, or 
 
 #### Type scale
 
+Every step is multiplied by `--font-scale`. The user sets it with **Appearance → Font size** (`data-font-size` on `<html>`): Small `0.875`, Default `0.9375`, Large `1.0625`. The table shows the base values (scale 1).
+
 | Token | Size / line-height | Intended use |
 | --- | --- | --- |
 | `--text-xs` | `0.75rem / 1rem` | Metadata only; never primary instructions |
-| `--text-sm` | `0.875rem / 1.25rem` | Secondary UI, table metadata |
+| `--text-sm` | `0.875rem / 1.25rem` | Secondary UI, table metadata, most portal text |
 | `--text-base` | `1rem / 1.5rem` | Default body and controls |
-| `--text-lg` | `1.125rem / 1.75rem` | Lead copy |
-| `--text-xl` | `1.25rem / 1.75rem` | Small section heading |
-| `--text-2xl` | `1.5rem / 2rem` | Portal page title |
+| `--text-lg` | `1.125rem / 1.625rem` | Lead copy |
+| `--text-xl` | `1.25rem / 1.75rem` | Portal page title |
+| `--text-2xl` | `1.5rem / 2rem` | Large numbers |
 | `--text-3xl` | `1.875rem / 2.25rem` | Public subsection title |
 | `--text-4xl` | `clamp(2.25rem, 1.85rem + 2vw, 3.5rem) / 1.05` | Public page title |
 | `--text-display` | `clamp(3rem, 2rem + 4vw, 6.5rem) / 0.96` | Public hero only |
@@ -124,91 +126,84 @@ Do not use Libre Bodoni or any other serif. Do not use Inter, Roboto, Arial, or 
 - Public hero copy should usually stay under 12 words; supporting copy under three lines at its target width.
 - Portal body text remains at least `--text-sm`; controls and form fields remain at least `--text-base`.
 
-### 3.2 Semantic color system
+### 3.2 Themes and semantic color
 
-Components consume semantic tokens only. Palette values are defined centrally; pages and components must not introduce one-off hex values.
+Components consume semantic tokens only (`--background`, `--surface`, `--primary`, `--sidebar`, `--chart-1` and the rest). Pages and components must not introduce one-off hex values.
 
-#### Neutral foundation
+The token values live in one place: `packages/ui/src/theme-tokens.ts`. Its `renderThemeCss()` generates `packages/ui/src/themes.css`, which `styles.css` imports. Do not edit `themes.css` by hand. After a token change, regenerate it:
 
-| Semantic token | Light | Dark | Purpose |
-| --- | --- | --- | --- |
-| `--background` | `#F6F2EA` | `#171715` | Page canvas |
-| `--foreground` | `#211F1B` | `#F1EDE5` | Primary text |
-| `--surface` | `#FBF9F4` | `#1D1C19` | Default grouped surface |
-| `--surface-raised` | `#FEFCF7` | `#25231F` | Popover, menu, raised region |
-| `--muted` | `#EEE9DF` | `#2D2A25` | Quiet fills |
-| `--muted-foreground` | `#615D55` | `#B9B1A5` | Secondary text |
-| `--border` | `#D6D0C4` | `#3D3933` | Passive separators |
-| `--border-strong` | `#938B7F` | `#6D665B` | Inputs and meaningful boundaries |
-| `--accent` | `#E6DFD3` | `#37332C` | Hover and selected-neutral fill |
-| `--accent-foreground` | `#26231F` | `#F1EDE5` | Text on accent |
-| `--destructive` | `#B42318` | `#FF9389` | Destructive actions and errors |
-| `--destructive-foreground` | `#FFF7F5` | `#410E0A` | Text on destructive |
-| `--ring` | `#6F675B` | `#B9A98F` | Keyboard focus |
+```sh
+mise exec -- bun -e 'import { renderThemeCss } from "./packages/ui/src/theme-tokens.ts"; await Bun.write("packages/ui/src/themes.css", renderThemeCss());'
+```
 
-The neutral foundation is intentionally warm. Avoid pure `#000000`, pure `#FFFFFF`, blue-gray default canvases, and gray text placed directly on colored surfaces.
+`styles.contract.test.ts` fails when the file is stale.
 
-#### Ten selectable palettes
+#### Theme catalog
 
-Mode and palette are independent. The mode control offers **light**, **dark**, and **system**. The palette control offers exactly ten schemes:
+The root element carries `data-theme`. `:root` without the attribute uses Default Light. **System** uses Default Light, or Default Dark under `prefers-color-scheme: dark`.
 
-| Palette | Light primary / foreground | Dark primary / foreground |
-| --- | --- | --- |
-| Neutral | `#3D3933 / #FAF7F0` | `#D8D1C5 / #1B1A17` |
-| Slate | `#334155 / #F8FAFC` | `#CBD5E1 / #18202B` |
-| Blue | `#1D4ED8 / #F7FAFF` | `#9DB8FF / #102452` |
-| Cyan | `#0E7490 / #F4FCFD` | `#67D0E7 / #082E38` |
-| Green | `#18733C / #F6FCF7` | `#72D99A / #0B321C` |
-| Amber | `#8A5A00 / #FFF9EB` | `#F0C15B / #382500` |
-| Orange | `#B54708 / #FFF8F2` | `#FFAA72 / #421B07` |
-| Red | `#B42318 / #FFF7F5` | `#FF9389 / #410E0A` |
-| Rose | `#AE124C / #FFF7FA` | `#F793B8 / #3E0C20` |
-| Violet | `#6941C6 / #FBF9FF` | `#B7A0F4 / #251648` |
+| Theme | Scheme | Background | Surface | Foreground | Primary | Source |
+| --- | --- | --- | --- | --- | --- | --- |
+| Default Dark | dark | `#333333` | `#3a3a3a` | `#ededed` | `#7ab0ff` | DarkFactory (neutral gray, r=g=b) |
+| Default Light | light | `#f5f5f5` | `#fafafa` | `#1f1f1f` | `#1d4ed8` | DarkFactory (neutral gray, r=g=b) |
+| Tokyo Night | dark | `#1a1b26` | `#1f2335` | `#c0caf5` | `#7aa2f7` | [folke/tokyonight.nvim](https://github.com/folke/tokyonight.nvim) night |
+| Catppuccin Mocha | dark | `#1e1e2e` | `#181825` | `#cdd6f4` | `#cba6f7` | [catppuccin/palette](https://github.com/catppuccin/palette) |
+| Catppuccin Latte | light | `#e6e9ef` | `#eff1f5` | `#4c4f69` | `#8738ed` | [catppuccin/palette](https://github.com/catppuccin/palette) |
+| Gruvbox Dark | dark | `#282828` | `#32302f` | `#ebdbb2` | `#fe8019` | [morhetz/gruvbox](https://github.com/morhetz/gruvbox) dark medium |
+| Nord | dark | `#2e3440` | `#3b4252` | `#eceff4` | `#88c0d0` | [nordtheme.com](https://www.nordtheme.com/docs/colors-and-palettes) |
+| Everforest | dark | `#2d353b` | `#343f44` | `#d3c6aa` | `#a7c080` | [sainnhe/everforest](https://github.com/sainnhe/everforest) dark medium |
+| Rosé Pine | dark | `#191724` | `#1f1d2e` | `#e0def4` | `#ebbcba` | [rosepinetheme.com](https://rosepinetheme.com/palette/ingredients/) main |
+| Kanagawa | dark | `#1f1f28` | `#2a2a37` | `#dcd7ba` | `#7e9cd8` | [rebelot/kanagawa.nvim](https://github.com/rebelot/kanagawa.nvim) wave |
 
-Each row maps to `--primary` and `--primary-foreground`. Derive selected fills, chart colors, and quiet accents centrally from the same palette. Cyan and violet are valid user-selected accents, but neither may define the default brand aesthetic, pair into a gradient, or create an “AI glow.”
+`accent` is the neutral hover and selected fill. `primary` is the theme's main color for buttons, links and active navigation. Subtle fills (`*-subtle`) are blends of the color into the surface.
 
-All listed primary/foreground pairs meet at least WCAG AA for normal text. Validate derived tokens independently in both modes.
+#### Contrast
+
+Published colors are used as given when they pass. When a published color fails WCAG AA for its role, the builder moves it toward white (dark themes) or black (light themes) in 1% steps until it passes, and records the change in the theme's `adjustments` list. `theme-tokens.test.ts` checks every pair:
+
+- 4.5:1 for text: foreground, muted, sidebar, accent, primary, destructive and status text on their backgrounds, and primary and destructive on the page and surface.
+- 3:1 for boundaries: ring, `border-strong`, `primary-border`, status borders, chart colors and disabled text.
+
+Themes must also stay perceptually distinct (Lab distance of background and primary).
 
 #### Status colors
 
-Success, warning, info, and destructive styles must include an icon or text label in addition to color. Keep status tokens independent from the selected theme so changing a palette never changes meaning.
+Success, warning, info, and destructive styles must include an icon or text label in addition to color. Status tokens keep their meaning in every theme: red for destructive, green or teal for success, yellow for warning, blue for info.
 
-### 3.3 Spacing
+#### Swatches
 
-Use a 4px/8px-based scale only.
+`<span class="theme-swatch" data-theme-swatch="<theme>">` renders a 1.25rem (20px) circle split diagonally into the theme's background and primary. The System swatch shows the Default Light and Default Dark backgrounds.
 
-| Token | Value | Typical use |
+### 3.3 Spacing and density
+
+Density is one variable. Tailwind spacing utilities (`p-*`, `m-*`, `gap-*`, `w-*`, `h-*`) compute `calc(var(--spacing) * n)`, and **Appearance → Density** (`data-density` on `<html>`) sets `--spacing`:
+
+| Density | `--spacing` | `p-4` |
 | --- | --- | --- |
-| `--space-0` | `0` | Reset |
-| `--space-1` | `0.25rem` | Tight optical adjustment |
-| `--space-2` | `0.5rem` | Icon-to-label gap |
-| `--space-3` | `0.75rem` | Compact control gap |
-| `--space-4` | `1rem` | Default component gap |
-| `--space-5` | `1.25rem` | Dense surface inset |
-| `--space-6` | `1.5rem` | Standard surface inset |
-| `--space-8` | `2rem` | Group separation |
-| `--space-10` | `2.5rem` | Page gutter tier |
-| `--space-12` | `3rem` | Section separation |
-| `--space-16` | `4rem` | Large section separation |
-| `--space-20` | `5rem` | Public section rhythm |
-| `--space-24` | `6rem` | Public large-screen rhythm |
-| `--space-32` | `8rem` | Public hero breathing room |
+| Compact | `0.1875rem` | 12px |
+| Default | `0.21875rem` | 14px |
+| Comfortable | `0.25rem` | 16px |
 
-Public pages may use the upper tiers. Portal components should usually stay between `--space-2` and `--space-8`.
+- Steps 11 and 12 (`--spacing-11: 2.75rem`, `--spacing-12: 3rem`) are fixed. They are the 44px and 48px touch-target sizes, so `min-h-11` and `size-11` never shrink.
+- `--space-N` equals `calc(var(--spacing) * N)` for CSS outside Tailwind.
+- Shell tokens: `--header-height: 3rem`, `--sidebar-width: 13rem`, `--target-min: 2.75rem`.
+- Portal pages: stack sections with `gap-4` or `space-y-4`, pad cards and tables with `p-3` or `p-4`, and do not use `py-10` or larger.
 
 ### 3.4 Radius, borders, and elevation
 
 | Token | Value | Use |
 | --- | --- | --- |
-| `--radius-xs` | `0.25rem` | Code chips and compact tags |
-| `--radius-sm` | `0.375rem` | Inputs and compact controls |
-| `--radius-md` | `0.5rem` | Buttons and menus |
-| `--radius-lg` | `0.75rem` | Grouped portal surfaces |
-| `--radius-xl` | `1rem` | Rare public media frames |
-| `--radius-pill` | `9999px` | Status pills only |
-| `--shadow-sm` | `0 1px 2px rgb(33 31 27 / 0.08)` | Menus and subtle lift |
-| `--shadow-md` | `0 8px 24px rgb(33 31 27 / 0.10)` | Popovers and dialogs |
-| `--shadow-lg` | `0 20px 48px rgb(33 31 27 / 0.14)` | Rare high-priority overlay |
+| `--radius-xs` | `0.25rem × scale` | Code chips and compact tags |
+| `--radius-sm` | `0.375rem × scale` | Inputs and compact controls |
+| `--radius-md` | `0.5rem × scale` | Buttons and menus |
+| `--radius-lg` | `0.75rem × scale` | Grouped portal surfaces |
+| `--radius-xl` | `1rem × scale` | Rare public media frames |
+| `--radius-pill` | `9999px` | Status pills, avatars and swatches (never scaled) |
+| `--shadow-sm` | `0 1px 2px rgb(0 0 0 / 0.08)` | Menus and subtle lift |
+| `--shadow-md` | `0 8px 24px rgb(0 0 0 / 0.12)` | Popovers and dialogs |
+| `--shadow-lg` | `0 20px 48px rgb(0 0 0 / 0.16)` | Rare high-priority overlay |
+
+`scale` is `--radius-scale`, set by **Appearance → Roundness** (`data-radius`): None `0`, Small `0.5` (default), Medium `1`, Large `1.5`.
 
 - Borders and whitespace establish hierarchy before shadows.
 - Cards are not the default container. Prefer flat composition with section spacing.
@@ -265,13 +260,11 @@ Use mobile-first styles. Content must remain usable between targets, not only at
 | `--content-reading` | `45rem` | Long-form copy |
 | `--content-portal` | `80rem` | Portal content maximum |
 | `--content-public` | `90rem` | Public composition maximum |
-| `--gutter-mobile` | `1rem` | 375px horizontal gutter |
-| `--gutter-tablet` | `1.5rem` | 768px horizontal gutter |
-| `--gutter-desktop` | `2.5rem` | 1024px+ horizontal gutter |
-| `--header-public` | `4.5rem` | Public header height |
-| `--header-portal` | `4rem` | Portal top bar height |
-| `--sidebar-expanded` | `16rem` | Portal desktop sidebar |
-| `--sidebar-collapsed` | `4rem` | Optional portal compact sidebar |
+| `--gutter-mobile` | `--spacing × 3` | 375px horizontal gutter |
+| `--gutter-tablet` | `--spacing × 4` | 768px horizontal gutter |
+| `--gutter-desktop` | `--spacing × 6` | 1024px+ horizontal gutter |
+| `--header-height` | `3rem` | Portal top bar and sidebar brand row |
+| `--sidebar-width` | `13rem` | Portal desktop sidebar |
 
 ### Responsive rules
 
@@ -291,7 +284,7 @@ Use mobile-first styles. Content must remain usable between targets, not only at
 
 Use Squarespace as a reference for editorial restraint: strong type, exact spacing, asymmetric rhythm, generous negative space, and confident image placement. Do not copy its branding, navigation, copy, layouts, or assets.
 
-The default public mode is light with warm tinted neutrals. Dark mode remains complete and accessible.
+The default theme is System: Default Light, or Default Dark when the OS prefers dark. Every theme remains complete and accessible.
 
 ### Composition
 
@@ -338,17 +331,17 @@ Use [shadcn blocks](https://ui.shadcn.com/blocks) as the continual composition r
 
 ### Portal shell
 
-- Desktop: persistent left sidebar, quiet top bar, breadcrumb or page context, and a bounded content column.
-- Tablet: compact sidebar or drawer selected according to available width and task density.
-- Mobile: modal navigation drawer with focus trapping, escape-to-close, and focus return.
-- Group navigation by user goal, not by package or framework name.
-- A suggested neutral hierarchy is: Overview, Feature Items, Architecture, Account, and Admin when authorized.
+- Desktop: a narrow left sidebar with **core product navigation only** (in the template: Overview), a 3rem top bar, and a bounded content column.
+- Below 1024px: the sidebar becomes a popover drawer opened from the top bar.
+- Everything else lives in **one user menu** at the top right. Its trigger is the avatar initials and the user name. Order: Features (Feature items and generated features), Account (Profile, Address, Preferences, Security — a flat list, no account hub page), Administration (admins only), Appearance (Theme, Font size, Density, Roundness submenus), Sign out.
+- `/account` redirects to `/account/profile`. Do not add hub pages that only list links.
+- The user menu uses the Radix dropdown primitive (`packages/ui/src/client/dropdown-menu.ts`): arrow keys move, Enter or ArrowRight opens a submenu, Escape closes and returns focus to the trigger.
 - Show active navigation with icon, text, and selected treatment; never color alone.
-- Keep theme and account controls discoverable without making them the primary hierarchy.
 
 ### Information hierarchy
 
-- Portal page title: Manrope `--text-2xl`; short supporting copy: Public Sans `--text-sm` or `--text-base`.
+- Portal page header: title and actions only (`PageHeader` without `description` or `eyebrow`; the type rejects them unless `variant="public"`). Title: Manrope `--text-xl`.
+- No filler text in the portal: no subtitles that restate the title, no explanatory paragraphs, no empty-state prose. Keep data, actions, labels, error messages and required safety or legal notices.
 - Use section headings before adding containers.
 - Prefer one dominant page task and a small number of secondary actions.
 - Do not use oversized “hero metrics” or decorative dashboard charts.
@@ -381,20 +374,21 @@ Use [shadcn blocks](https://ui.shadcn.com/blocks) as the continual composition r
 Every portal feature must design:
 
 1. **Initial loading:** geometry-preserving skeleton or progress indicator with a status label.
-2. **Empty:** explain what belongs here and provide the next valid action.
+2. **Empty:** render nothing, or one compact "No items" row where a table must stay. Keep the primary action in the page header.
 3. **Filtered empty:** show that filters caused the result and offer a clear reset.
 4. **Error:** explain what failed, preserve context, and offer a relevant retry or recovery.
 5. **Success:** confirm completion without blocking the next task.
 6. **Unauthorized or forbidden:** explain the boundary without exposing sensitive detail.
 7. **Offline or interrupted:** preserve unsaved input where feasible and state what will happen next.
 
-Avoid empty states that only say “Nothing here.”
+Public pages may use longer empty-state copy; the portal does not.
 
 ### Theme controls
 
-- Offer mode choices: light, dark, and system.
-- Offer the ten palettes defined in Section 3.2.
-- Show palette swatches with text names and selected semantics.
+- Offer the System option and the ten themes defined in Section 3.2, plus Font size, Density and Roundness.
+- In the portal the controls are the Appearance submenus of the user menu. Public and auth pages use the standalone "Appearance settings" menu (`ThemeMenu`).
+- Each theme option shows a 1.25rem (20px) swatch circle (background and primary), a fixed 0.75rem (12px) gap, then the name. Selection uses radio-item semantics.
+- Persistence: a `darkfactory-theme=<theme>:<fontSize>:<density>:<radius>` cookie for server rendering without a flash, localStorage `darkfactory.anonymous-ui.v2` for anonymous visitors, and the `user_preferences` row (`theme`, `font_size`, `density`, `radius`) for signed-in users.
 - Theme changes update color only; they must not move, resize, or reflow controls.
 - Authenticated preferences may persist according to application architecture, but reduced motion remains OS/CSS driven only.
 
@@ -507,7 +501,7 @@ Never use:
 - [ ] Manrope is used for all headings and Public Sans for body/interface text.
 - [ ] No forbidden fonts or serif typography appear.
 - [ ] Every color and spacing value comes from a defined token.
-- [ ] Light, dark, and all ten palettes are coherent and accessible.
+- [ ] System and all ten themes are coherent and accessible.
 - [ ] Public and portal surfaces visibly belong to one system.
 
 ### Public
@@ -522,7 +516,7 @@ Never use:
 - [ ] Shell and navigation hierarchy remain clear at every target width.
 - [ ] Forms include labels, help, validation, disabled, submission, success, and error states.
 - [ ] Tables include loading, empty, filtered-empty, error, narrow-screen, and row-action behavior.
-- [ ] Theme controls offer ten palettes plus light, dark, and system modes.
+- [ ] Theme controls offer System plus the ten themes.
 
 ### Accessibility and responsive behavior
 

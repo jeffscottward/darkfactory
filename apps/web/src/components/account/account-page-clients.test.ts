@@ -1,5 +1,6 @@
 import type { AddressOutput } from "@darkfactory/api";
-import type { EffectCallback, ReactElement } from "react";
+import type { AppearancePreference } from "@darkfactory/state";
+import { createElement, type EffectCallback, type ReactElement } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 const hookRuntime = vi.hoisted(() => {
@@ -170,7 +171,7 @@ import { ProfileForm } from "./profile-form.tsx";
 import { ProfilePageClient } from "./profile-page-client.tsx";
 import { SecurityPageClient } from "./security-page-client.tsx";
 import { PasswordForm, SecurityPanel } from "./security-panel.tsx";
-import { SignOutAction, SignOutActionView } from "./sign-out-action.tsx";
+import { SignOutMenuItem, useSignOutAction } from "./sign-out-action.tsx";
 
 interface ElementRecord {
   readonly key: null | string;
@@ -264,17 +265,17 @@ const deferred = <Value>() => {
 
 const updatedAt = new Date("2026-01-02T00:00:00.000Z");
 const profile = {
-  firstName: "Alice",
-  lastName: "Adams",
-  displayName: "Alice A.",
   avatarUrl: "https://placehold.co/96x96",
-  phone: "+1 202-555-0100",
-  businessName: "Alice & Co.",
-  jobTitle: "Builder",
   biography: "Maintains an owner-visible example profile.",
-  timezone: "America/New_York",
-  locale: "en-US",
+  businessName: "Alice & Co.",
   dateOfBirth: "1990-01-02",
+  displayName: "Alice A.",
+  firstName: "Alice",
+  jobTitle: "Builder",
+  lastName: "Adams",
+  locale: "en-US",
+  phone: "+1 202-555-0100",
+  timezone: "America/New_York",
   updatedAt,
 };
 const account = {
@@ -282,58 +283,64 @@ const account = {
   profile,
 };
 const preferences = {
-  themeMode: "system" as const,
-  palette: "neutral" as const,
-  emailNotifications: true,
-  productUpdates: false,
   analyticsConsent: false,
+  density: "default" as const,
+  emailNotifications: true,
+  fontSize: "default" as const,
   personalizationConsent: true,
+  productUpdates: false,
   profileVisibility: "private" as const,
+  radius: "small" as const,
+  theme: "system" as const,
   updatedAt,
 };
 const address = {
+  city: "Example City",
+  country: "US",
+  createdAt: new Date("2026-01-01T00:00:00.000Z"),
   id: "address-1",
-  type: "work" as const,
+  isPrimary: true,
   line1: "100 Example Avenue",
   line2: "Suite 200",
-  city: "Example City",
-  region: "DC",
   postalCode: "20001",
-  country: "US",
-  isPrimary: true,
-  createdAt: new Date("2026-01-01T00:00:00.000Z"),
+  region: "DC",
+  type: "work" as const,
   updatedAt,
 };
 const secondAddress = {
   ...address,
   id: "address-2",
-  type: "home" as const,
+  isPrimary: false,
   line1: "200 Example Street",
   line2: null,
-  isPrimary: false,
+  type: "home" as const,
 };
 
 const gatewayWith = (overrides: Record<string, unknown> = {}) => ({
-  getProfile: vi.fn(async () => account),
-  updateProfile: vi.fn(async () => account),
-  listAddresses: vi.fn(async () => [address]),
   createAddress: vi.fn(async () => address),
-  updateAddress: vi.fn(async () => address),
+  getPreferences: vi.fn(async () => preferences),
+  getProfile: vi.fn(async () => account),
+  listAddresses: vi.fn(async () => [address]),
   removeAddress: vi.fn(async () => ({ removed: true as const })),
   setPrimaryAddress: vi.fn(async () => address),
-  getPreferences: vi.fn(async () => preferences),
+  updateAddress: vi.fn(async () => address),
   updatePreferences: vi.fn(async () => preferences),
+  updateProfile: vi.fn(async () => account),
   ...overrides,
 });
 
-const uiStore = (themeMode = "dark", palette = "rose") => {
-  const setThemeMode = vi.fn();
-  const setPalette = vi.fn();
-  return {
-    getState: () => ({ themeMode, palette, setThemeMode, setPalette }),
-    setPalette,
-    setThemeMode,
-  };
+const ROSE_PINE_APPEARANCE: Readonly<AppearancePreference> = {
+  density: "compact",
+  fontSize: "large",
+  radius: "none",
+  theme: "rose-pine",
+};
+
+const uiStore = (
+  appearance: Readonly<AppearancePreference> = ROSE_PINE_APPEARANCE
+) => {
+  const setState = vi.fn();
+  return { getState: () => appearance, setState };
 };
 
 const invoke = <Result>(
@@ -417,8 +424,8 @@ describe("profile page client", () => {
     expect(updateProfile).toHaveBeenCalledWith(input);
     expect(form.props["initialProfile"]).toBe(updatedAccount.profile);
     expect(form.props["feedback"]).toEqual({
-      tone: "success",
       message: "Profile saved.",
+      tone: "success",
     });
     return expect(form.key).toBe("1");
   });
@@ -449,7 +456,7 @@ describe("profile page client", () => {
         tree,
         (element) => element.props["title"] === "Profile unavailable"
       );
-      expect(emptyState?.props["description"]).toBe(description);
+      expect(emptyState?.props["message"]).toBe(description);
       return expect(
         findElement(tree, (element) => element.props["href"] === href)
       ).toBeDefined();
@@ -470,7 +477,7 @@ describe("profile page client", () => {
       findElement(
         tree,
         (element) =>
-          element.props["description"] ===
+          element.props["message"] ===
           "Your profile could not be loaded. No fields were changed."
       )
     ).toBeDefined();
@@ -502,17 +509,17 @@ describe("profile page client", () => {
     const originalForm = component(tree, ProfileForm);
 
     await invoke<Promise<void>>(originalForm, "onSave", {
-      expectedUpdatedAt: profile.updatedAt,
       displayName: "Unsaved owner choice",
+      expectedUpdatedAt: profile.updatedAt,
     });
     tree = mounted.render();
     const reconciledForm = component(tree, ProfileForm);
     expect(reconciledForm.props["initialProfile"]).toBe(refreshed.profile);
     expect(reconciledForm.key).toBe(originalForm.key);
     return expect(reconciledForm.props["feedback"]).toEqual({
-      tone: "error",
       message:
         "This profile changed elsewhere. Your entries are preserved; review them and save again.",
+      tone: "error",
     });
   });
 
@@ -550,8 +557,8 @@ describe("profile page client", () => {
     tree = mounted.render();
     form = component(tree, ProfileForm);
     return expect(form.props["feedback"]).toEqual({
-      tone: "error",
       message: "The request could not be completed. Try again.",
+      tone: "error",
     });
   });
 
@@ -580,9 +587,9 @@ describe("profile page client", () => {
     const preservedForm = component(tree, ProfileForm);
     expect(preservedForm.props["initialProfile"]).toBe(profile);
     return expect(preservedForm.props["feedback"]).toEqual({
-      tone: "error",
       message:
         "This profile changed elsewhere. Your entries are preserved; review them and save again.",
+      tone: "error",
     });
   });
 
@@ -614,8 +621,8 @@ describe("profile page client", () => {
       component(tree, ProfileForm),
       "onSave",
       {
-        expectedUpdatedAt: profile.updatedAt,
         displayName: "Saved owner",
+        expectedUpdatedAt: profile.updatedAt,
       }
     );
 
@@ -664,8 +671,8 @@ describe("profile page client", () => {
       component(tree, ProfileForm),
       "onSave",
       {
-        expectedUpdatedAt: profile.updatedAt,
         displayName: "Owner draft",
+        expectedUpdatedAt: profile.updatedAt,
       }
     );
     await flushMicrotasks();
@@ -722,8 +729,8 @@ describe("preferences page client", () => {
     expect(form.props["initialPreferences"]).toBe(saved);
     expect(form.key).toBe("1");
     return expect(form.props["feedback"]).toEqual({
-      tone: "success",
       message: "Preferences saved.",
+      tone: "success",
     });
   });
 
@@ -788,8 +795,10 @@ describe("preferences page client", () => {
   it("reconciles conflicting theme authority without remounting preserved choices", async () => {
     const refreshed = {
       ...preferences,
-      themeMode: "light" as const,
-      palette: "rose" as const,
+      density: "compact" as const,
+      fontSize: "default" as const,
+      radius: "medium" as const,
+      theme: "gruvbox-dark" as const,
     };
     const getPreferences = vi
       .fn()
@@ -798,7 +807,7 @@ describe("preferences page client", () => {
     const updatePreferences = vi.fn(async () =>
       Promise.reject({ code: "CONFLICT" })
     );
-    const store = uiStore("dark", "rose");
+    const store = uiStore(ROSE_PINE_APPEARANCE);
     gatewayRuntime.current = gatewayWith({ getPreferences, updatePreferences });
     storeRuntime.current = store;
     const mounted = mount(() => PreferencesPageClient());
@@ -813,8 +822,13 @@ describe("preferences page client", () => {
     });
     tree = mounted.render();
     const reconciledForm = component(tree, PreferencesForm);
-    expect(store.setThemeMode).toHaveBeenCalledWith("light");
-    expect(store.setPalette).not.toHaveBeenCalled();
+    expect(store.setState).toHaveBeenCalledOnce();
+    expect(store.setState).toHaveBeenCalledWith({
+      density: "compact",
+      fontSize: "default",
+      radius: "medium",
+      theme: "gruvbox-dark",
+    });
     expect(reconciledForm.props["initialPreferences"]).toBe(refreshed);
     expect(reconciledForm.key).toBe(originalForm.key);
     return expect(
@@ -857,8 +871,8 @@ describe("preferences page client", () => {
     tree = mounted.render();
     form = component(tree, PreferencesForm);
     return expect(form.props["feedback"]).toEqual({
-      tone: "error",
       message: "The request could not be completed. Try again.",
+      tone: "error",
     });
   });
 
@@ -890,9 +904,9 @@ describe("preferences page client", () => {
     const preservedForm = component(tree, PreferencesForm);
     expect(preservedForm.props["initialPreferences"]).toBe(preferences);
     return expect(preservedForm.props["feedback"]).toEqual({
-      tone: "error",
       message:
         "Preferences changed elsewhere. Your choices are preserved; review them and save again.",
+      tone: "error",
     });
   });
 
@@ -1023,22 +1037,22 @@ describe("address page client", () => {
     await flushMicrotasks();
     tree = mounted.render();
     expect(component(tree, AddressBook).props["state"]).toEqual({
-      type: "ready",
       addresses: [],
+      type: "ready",
     });
 
     invoke(component(tree, AddressBook), "onCreate");
     tree = mounted.render();
     const form = component(tree, AddressForm);
     const input = {
-      type: address.type,
-      line1: address.line1,
-      line2: address.line2,
       city: address.city,
-      region: address.region,
-      postalCode: address.postalCode,
       country: address.country,
       isPrimary: address.isPrimary,
+      line1: address.line1,
+      line2: address.line2,
+      postalCode: address.postalCode,
+      region: address.region,
+      type: address.type,
     };
     const firstSave = invoke<Promise<void>>(form, "onSave", input);
     const duplicateSave = invoke<Promise<void>>(form, "onSave", input);
@@ -1052,20 +1066,20 @@ describe("address page client", () => {
       findElement(tree, (element) => element.type === AddressForm)
     ).toBeUndefined();
     expect(component(tree, AddressBook).props["state"]).toEqual({
-      type: "ready",
       addresses: [address],
+      type: "ready",
     });
     expect(component(tree, AddressBook).props["feedback"]).toEqual({
-      tone: "success",
       message: "Address created.",
+      tone: "success",
     });
 
     refresh.resolve([authoritative]);
     await flushMicrotasks();
     tree = mounted.render();
     return expect(component(tree, AddressBook).props["state"]).toEqual({
-      type: "ready",
       addresses: [authoritative],
+      type: "ready",
     });
   });
 
@@ -1093,18 +1107,18 @@ describe("address page client", () => {
     const originalForm = component(tree, AddressForm);
 
     await invoke<Promise<void>>(originalForm, "onSave", {
-      id: address.id,
-      expectedUpdatedAt: address.updatedAt,
       city: "Unsaved owner city",
+      expectedUpdatedAt: address.updatedAt,
+      id: address.id,
     });
     tree = mounted.render();
     const reconciledForm = component(tree, AddressForm);
     expect(reconciledForm.props["initialAddress"]).toBe(authoritative);
     expect(reconciledForm.key).toBe(originalForm.key);
     return expect(reconciledForm.props["feedback"]).toEqual({
-      tone: "error",
       message:
         "This address changed elsewhere. Your entries are preserved; review them and save again.",
+      tone: "error",
     });
   });
 
@@ -1126,27 +1140,27 @@ describe("address page client", () => {
     tree = mounted.render();
 
     await invoke<Promise<void>>(component(tree, AddressForm), "onSave", {
-      type: address.type,
-      line1: address.line1,
-      line2: address.line2,
       city: address.city,
-      region: address.region,
-      postalCode: address.postalCode,
       country: address.country,
       isPrimary: true,
+      line1: address.line1,
+      line2: address.line2,
+      postalCode: address.postalCode,
+      region: address.region,
+      type: address.type,
     });
     tree = mounted.render();
     expect(
       findElement(tree, (element) => element.type === AddressForm)
     ).toBeUndefined();
     expect(component(tree, AddressBook).props["state"]).toEqual({
-      type: "ready",
       addresses: [address],
+      type: "ready",
     });
     return expect(component(tree, AddressBook).props["feedback"]).toEqual({
-      tone: "info",
       message:
         "The address creation outcome could not be confirmed. Review the refreshed list before creating another.",
+      tone: "info",
     });
   });
 
@@ -1187,10 +1201,10 @@ describe("address page client", () => {
     tree = mounted.render();
     book = component(tree, AddressBook);
     expect(removeAddress).toHaveBeenCalledWith(address.id, address.updatedAt);
-    expect(book.props["state"]).toEqual({ type: "ready", addresses: [] });
+    expect(book.props["state"]).toEqual({ addresses: [], type: "ready" });
     expect(book.props["feedback"]).toEqual({
-      tone: "success",
       message: "Address removed.",
+      tone: "success",
     });
     expect(addAddress.focus).toHaveBeenCalledOnce();
     refresh.resolve([]);
@@ -1234,8 +1248,8 @@ describe("address page client", () => {
       ]
     );
     expect(book.props["feedback"]).toEqual({
-      tone: "success",
       message: "Primary address updated.",
+      tone: "success",
     });
     refresh.resolve([{ ...address, isPrimary: false }, primaryResult]);
     return await flushMicrotasks();
@@ -1255,27 +1269,27 @@ describe("security panel interaction", () => {
     let isRevoking = false;
     const sessions = [
       {
-        id: "session-current",
         createdAt: new Date("2026-01-01T00:00:00.000Z"),
-        updatedAt,
         expiresAt: new Date("2026-02-01T00:00:00.000Z"),
-        userAgent: "Current Browser",
+        id: "session-current",
         isCurrent: true,
+        updatedAt,
+        userAgent: "Current Browser",
       },
       {
-        id: "session-other",
         createdAt: new Date("2026-01-01T00:00:00.000Z"),
-        updatedAt,
         expiresAt: new Date("2026-02-01T00:00:00.000Z"),
-        userAgent: "Other Browser",
+        id: "session-other",
         isCurrent: false,
+        updatedAt,
+        userAgent: "Other Browser",
       },
     ];
     const mounted = mount(() =>
       SecurityPanel({
         isRevoking,
         onRevokeOthers,
-        state: { type: "ready", sessions },
+        state: { sessions, type: "ready" },
       })
     );
 
@@ -1328,24 +1342,24 @@ describe("security panel interaction", () => {
     const trigger = { focus: vi.fn() };
     const sessions = [
       {
-        id: "session-current",
         createdAt: new Date("2026-01-01T00:00:00.000Z"),
-        updatedAt,
         expiresAt: new Date("2026-02-01T00:00:00.000Z"),
-        userAgent: "Current Browser",
+        id: "session-current",
         isCurrent: true,
+        updatedAt,
+        userAgent: "Current Browser",
       },
       {
-        id: "session-other",
         createdAt: new Date("2026-01-01T00:00:00.000Z"),
-        updatedAt,
         expiresAt: new Date("2026-02-01T00:00:00.000Z"),
-        userAgent: "Other Browser",
+        id: "session-other",
         isCurrent: false,
+        updatedAt,
+        userAgent: "Other Browser",
       },
     ];
     const mounted = mount(() =>
-      SecurityPanel({ state: { type: "ready", sessions } })
+      SecurityPanel({ state: { sessions, type: "ready" } })
     );
     let tree = mounted.render();
     invoke(controlByText(tree, "Sign out other sessions"), "onClick", {
@@ -1377,27 +1391,27 @@ describe("security panel interaction", () => {
 
 const securitySessions = [
   {
-    id: "session-current",
     createdAt: new Date("2026-01-01T00:00:00.000Z"),
-    updatedAt,
     expiresAt: new Date("2026-02-01T00:00:00.000Z"),
-    userAgent: "Current Browser",
+    id: "session-current",
     isCurrent: true,
+    updatedAt,
+    userAgent: "Current Browser",
   },
   {
-    id: "session-other",
     createdAt: new Date("2026-01-01T00:00:00.000Z"),
-    updatedAt,
     expiresAt: new Date("2026-02-01T00:00:00.000Z"),
-    userAgent: "Other Browser",
+    id: "session-other",
     isCurrent: false,
+    updatedAt,
+    userAgent: "Other Browser",
   },
 ] as const;
 
 const securityGatewayWith = (overrides: Record<string, unknown> = {}) => ({
+  changePassword: vi.fn(async () => undefined),
   listSessions: vi.fn(async () => ({ sessions: securitySessions })),
   revokeOtherSessions: vi.fn(async () => undefined),
-  changePassword: vi.fn(async () => undefined),
   ...overrides,
 });
 
@@ -1418,9 +1432,9 @@ describe("security page client", () => {
     tree = mounted.render();
     let panel = component(tree, SecurityPanel);
     expect(panel.props["state"]).toEqual({
-      type: "error",
       kind: "unauthorized",
       message: "Your session ended. Sign in again to continue.",
+      type: "error",
     });
 
     invoke(panel, "onRetry");
@@ -1432,8 +1446,8 @@ describe("security page client", () => {
     tree = mounted.render();
     panel = component(tree, SecurityPanel);
     expect(panel.props["state"]).toEqual({
-      type: "ready",
       sessions: securitySessions,
+      type: "ready",
     });
     return expect(listSessions).toHaveBeenCalledTimes(2);
   });
@@ -1468,12 +1482,12 @@ describe("security page client", () => {
     panel = component(tree, SecurityPanel);
     expect(panel.props["isRevoking"]).toBe(false);
     expect(panel.props["state"]).toEqual({
-      type: "ready",
       sessions: currentOnly,
+      type: "ready",
     });
     return expect(panel.props["feedback"]).toEqual({
-      tone: "success",
       message: "Other sessions signed out.",
+      tone: "success",
     });
   });
 
@@ -1499,17 +1513,17 @@ describe("security page client", () => {
     await flushMicrotasks();
     tree = mounted.render();
     expect(component(tree, SecurityPanel).props["feedback"]).toEqual({
-      tone: "info",
       message:
         "Other sessions were signed out, but the session list could not be refreshed.",
+      tone: "info",
     });
 
     invoke(component(tree, SecurityPanel), "onRevokeOthers");
     await flushMicrotasks();
     tree = mounted.render();
     return expect(component(tree, SecurityPanel).props["feedback"]).toEqual({
-      tone: "error",
       message: "This security action is not permitted for the current account.",
+      tone: "error",
     });
   });
 
@@ -1546,12 +1560,12 @@ describe("security page client", () => {
     expect(changePassword).toHaveBeenCalledWith(input);
     expect(form.key).toBe("1");
     expect(form.props["feedback"]).toEqual({
-      tone: "success",
       message: "Password changed.",
+      tone: "success",
     });
     expect(component(tree, SecurityPanel).props["state"]).toEqual({
-      type: "ready",
       sessions: currentOnly,
+      type: "ready",
     });
 
     await invoke<Promise<void>>(form, "onSave", input);
@@ -1559,8 +1573,8 @@ describe("security page client", () => {
     form = component(tree, PasswordForm);
     expect(form.key).toBe("2");
     expect(component(tree, SecurityPanel).props["feedback"]).toEqual({
-      tone: "info",
       message: "Password changed, but the session list could not be refreshed.",
+      tone: "info",
     });
 
     await invoke<Promise<void>>(form, "onSave", input);
@@ -1568,8 +1582,8 @@ describe("security page client", () => {
     form = component(tree, PasswordForm);
     expect(form.key).toBe("2");
     return expect(form.props["feedback"]).toEqual({
-      tone: "error",
       message: "The security request could not be completed. Try again.",
+      tone: "error",
     });
   });
 });
@@ -1580,19 +1594,22 @@ describe("mounted sign-out action", () => {
     vi.stubGlobal("window", { location: { replace } });
     const result = deferred<{ readonly ok: true }>();
     const signOut = vi.fn(() => result.promise);
-    const mounted = mount(() => SignOutAction({ gateway: { signOut } }));
+    const mounted = mount(() =>
+      createElement(SignOutMenuItem, useSignOutAction({ gateway: { signOut } }))
+    );
 
     let tree = mounted.render();
-    expect(component(tree, SignOutActionView).props["isHydrated"]).toBe(false);
+    expect(component(tree, SignOutMenuItem).props["isHydrated"]).toBe(false);
     tree = mounted.render();
-    let view = component(tree, SignOutActionView);
-    expect(view.props["isHydrated"]).toBe(true);
+    let item = component(tree, SignOutMenuItem);
+    expect(item.props["isHydrated"]).toBe(true);
+    expect(item.props["state"]).toEqual({ type: "idle" });
 
-    invoke(view, "onSignOut");
+    invoke(item, "onSignOut");
     tree = mounted.render();
-    view = component(tree, SignOutActionView);
-    expect(view.props["state"]).toEqual({ type: "pending" });
-    invoke(view, "onSignOut");
+    item = component(tree, SignOutMenuItem);
+    expect(item.props["state"]).toEqual({ type: "pending" });
+    invoke(item, "onSignOut");
     expect(signOut).toHaveBeenCalledOnce();
 
     result.resolve({ ok: true });
@@ -1602,27 +1619,31 @@ describe("mounted sign-out action", () => {
 
   return it("commits an accessible retry state when current-session revocation is uncertain", async () => {
     const replace = vi.fn();
+    const signOut = vi.fn(async () => ({
+      message: "Sign out could not be confirmed.",
+      ok: false as const,
+    }));
     const mounted = mount(() =>
-      SignOutAction({
-        gateway: {
-          signOut: vi.fn(async () => ({
-            ok: false as const,
-            message: "Sign out could not be confirmed.",
-          })),
-        },
-        replace,
-      })
+      createElement(
+        SignOutMenuItem,
+        useSignOutAction({ gateway: { signOut }, replace })
+      )
     );
     mounted.render();
     let tree = mounted.render();
-    invoke(component(tree, SignOutActionView), "onSignOut");
+    invoke(component(tree, SignOutMenuItem), "onSignOut");
     await flushMicrotasks();
     tree = mounted.render();
-    const view = component(tree, SignOutActionView);
-    expect(view.props["state"]).toEqual({
-      type: "error",
+    const item = component(tree, SignOutMenuItem);
+    expect(item.props["state"]).toEqual({
       message: "Sign out could not be confirmed.",
+      type: "error",
     });
+    expect(item.props["isHydrated"]).toBe(true);
+
+    invoke(item, "onSignOut");
+    await flushMicrotasks();
+    expect(signOut).toHaveBeenCalledTimes(2);
     return expect(replace).not.toHaveBeenCalled();
   });
 });
@@ -1637,8 +1658,8 @@ describe("security panel exceptional dismissal", () =>
     });
     const mounted = mount(() =>
       SecurityPanel({
-        feedback: { tone: "info", message: "Review active sessions." },
-        state: { type: "ready", sessions: securitySessions },
+        feedback: { message: "Review active sessions.", tone: "info" },
+        state: { sessions: securitySessions, type: "ready" },
       })
     );
     let tree = mounted.render();
@@ -1698,28 +1719,28 @@ describe("address page exceptional mutations", () => {
     invoke(component(tree, AddressBook), "onEdit", address);
     tree = mounted.render();
     await invoke<Promise<void>>(component(tree, AddressForm), "onSave", {
-      id: address.id,
-      expectedUpdatedAt: address.updatedAt,
       city: updatedAddress.city,
+      expectedUpdatedAt: address.updatedAt,
+      id: address.id,
     });
     tree = mounted.render();
     book = component(tree, AddressBook);
     expect(book.props["state"]).toEqual({
-      type: "ready",
       addresses: [updatedAddress],
+      type: "ready",
     });
     expect(book.props["feedback"]).toEqual({
-      tone: "success",
       message: "Address updated.",
+      tone: "success",
     });
 
     refresh.reject(new Error("refresh unavailable"));
     await flushMicrotasks();
     tree = mounted.render();
     return expect(component(tree, AddressBook).props["feedback"]).toEqual({
-      tone: "info",
       message:
         "The change was saved, but the address list could not be refreshed.",
+      tone: "info",
     });
   });
 
@@ -1743,24 +1764,24 @@ describe("address page exceptional mutations", () => {
     tree = mounted.render();
 
     await invoke<Promise<void>>(component(tree, AddressForm), "onSave", {
-      type: address.type,
-      line1: address.line1,
-      line2: address.line2,
       city: address.city,
-      region: address.region,
-      postalCode: address.postalCode,
       country: address.country,
       isPrimary: false,
+      line1: address.line1,
+      line2: address.line2,
+      postalCode: address.postalCode,
+      region: address.region,
+      type: address.type,
     });
     tree = mounted.render();
     expect(
       findElement(tree, (element) => element.type === AddressForm)
     ).toBeUndefined();
     return expect(component(tree, AddressBook).props["state"]).toEqual({
-      type: "error",
       kind: "retryable",
       message:
         "The address creation outcome is unknown. Reload the address list before creating another.",
+      type: "error",
     });
   });
 
@@ -1781,17 +1802,17 @@ describe("address page exceptional mutations", () => {
     const originalForm = component(tree, AddressForm);
 
     await invoke<Promise<void>>(originalForm, "onSave", {
-      id: address.id,
-      expectedUpdatedAt: address.updatedAt,
       city: "Rejected City",
+      expectedUpdatedAt: address.updatedAt,
+      id: address.id,
     });
     tree = mounted.render();
     const preservedForm = component(tree, AddressForm);
     expect(preservedForm.key).toBe(originalForm.key);
     expect(preservedForm.props["initialAddress"]).toBe(address);
     return expect(preservedForm.props["feedback"]).toEqual({
-      tone: "error",
       message: "Check the highlighted fields and try again.",
+      tone: "error",
     });
   });
 
@@ -1824,8 +1845,8 @@ describe("address page exceptional mutations", () => {
     tree = mounted.render();
     let book = component(tree, AddressBook);
     expect(book.props["state"]).toEqual({
-      type: "ready",
       addresses: authoritative,
+      type: "ready",
     });
     expect((book.props["feedback"] as { message: string }).message).toContain(
       "changed elsewhere"
@@ -1837,8 +1858,8 @@ describe("address page exceptional mutations", () => {
     book = component(tree, AddressBook);
     expect(setPrimaryAddress).toHaveBeenCalledTimes(2);
     return expect(book.props["feedback"]).toEqual({
-      tone: "error",
       message: "Check the highlighted fields and try again.",
+      tone: "error",
     });
   });
 
@@ -1870,8 +1891,8 @@ describe("address page exceptional mutations", () => {
     tree = mounted.render();
     let book = component(tree, AddressBook);
     expect(book.props["state"]).toEqual({
-      type: "ready",
       addresses: [address],
+      type: "ready",
     });
     expect((book.props["feedback"] as { message: string }).message).toContain(
       "changed elsewhere"
@@ -1883,8 +1904,8 @@ describe("address page exceptional mutations", () => {
     book = component(tree, AddressBook);
     expect(removeAddress).toHaveBeenCalledTimes(2);
     return expect(book.props["feedback"]).toEqual({
-      tone: "error",
       message: "Check the highlighted fields and try again.",
+      tone: "error",
     });
   });
 
@@ -1915,9 +1936,9 @@ describe("address page exceptional mutations", () => {
     invoke(component(tree, AddressBook), "onEdit", address);
     tree = mounted.render();
     await invoke<Promise<void>>(component(tree, AddressForm), "onSave", {
-      id: address.id,
-      expectedUpdatedAt: address.updatedAt,
       city: edited.city,
+      expectedUpdatedAt: address.updatedAt,
+      id: address.id,
     });
     tree = mounted.render();
     invoke(component(tree, AddressBook), "onSetPrimary", secondAddress);
@@ -1929,24 +1950,31 @@ describe("address page exceptional mutations", () => {
     await flushMicrotasks();
     tree = mounted.render();
     return expect(component(tree, AddressBook).props["state"]).toEqual({
-      type: "ready",
       addresses: authoritative,
+      type: "ready",
     });
   });
 });
 
-describe("preferences palette reconciliation", () =>
-  it("leaves an already-authoritative mode untouched while applying a conflicting palette", async () => {
+describe("preferences appearance reconciliation", () =>
+  it("leaves an already-authoritative appearance untouched while refreshing the form", async () => {
     const refreshed = {
       ...preferences,
-      themeMode: "light" as const,
-      palette: "rose" as const,
+      density: "compact" as const,
+      fontSize: "default" as const,
+      radius: "medium" as const,
+      theme: "gruvbox-dark" as const,
     };
     const getPreferences = vi
       .fn()
       .mockResolvedValueOnce(preferences)
       .mockResolvedValueOnce(refreshed);
-    const store = uiStore("light", "neutral");
+    const store = uiStore({
+      density: "compact",
+      fontSize: "default",
+      radius: "medium",
+      theme: "gruvbox-dark",
+    });
     gatewayRuntime.current = gatewayWith({
       getPreferences,
       updatePreferences: vi.fn(async () =>
@@ -1964,8 +1992,7 @@ describe("preferences palette reconciliation", () =>
       profileVisibility: "public",
     });
     tree = mounted.render();
-    expect(store.setThemeMode).not.toHaveBeenCalled();
-    expect(store.setPalette).toHaveBeenCalledWith("rose");
+    expect(store.setState).not.toHaveBeenCalled();
     return expect(
       component(tree, PreferencesForm).props["initialPreferences"]
     ).toBe(refreshed);
@@ -1996,8 +2023,8 @@ describe("address request ordering", () => {
     await flushMicrotasks();
     tree = mounted.render();
     expect(component(tree, AddressBook).props["state"]).toEqual({
-      type: "ready",
       addresses: [secondAddress],
+      type: "ready",
     });
     return expect(listAddresses).toHaveBeenCalledTimes(3);
   });
@@ -2023,16 +2050,16 @@ describe("address request ordering", () => {
     await flushMicrotasks();
     tree = mounted.render();
     expect(component(tree, AddressBook).props["state"]).toEqual({
-      type: "ready",
       addresses: [secondAddress],
+      type: "ready",
     });
 
     olderRetry.resolve([address]);
     await flushMicrotasks();
     tree = mounted.render();
     expect(component(tree, AddressBook).props["state"]).toEqual({
-      type: "ready",
       addresses: [secondAddress],
+      type: "ready",
     });
     return expect(listAddresses).toHaveBeenCalledTimes(3);
   });
@@ -2056,15 +2083,15 @@ describe("address request ordering", () => {
     const originalForm = component(tree, AddressForm);
 
     await invoke<Promise<void>>(originalForm, "onSave", {
-      id: address.id,
-      expectedUpdatedAt: address.updatedAt,
       city: "Owner draft",
+      expectedUpdatedAt: address.updatedAt,
+      id: address.id,
     });
     tree = mounted.render();
     const preservedForm = component(tree, AddressForm);
     expect(component(tree, AddressBook).props["state"]).toEqual({
-      type: "ready",
       addresses: [],
+      type: "ready",
     });
     expect(preservedForm.props["initialAddress"]).toBe(address);
     return expect(preservedForm.key).toBe(originalForm.key);
@@ -2089,9 +2116,9 @@ describe("address request ordering", () => {
     invoke(component(tree, AddressBook), "onEdit", address);
     tree = mounted.render();
     await invoke<Promise<void>>(component(tree, AddressForm), "onSave", {
-      id: address.id,
-      expectedUpdatedAt: address.updatedAt,
       city: refreshedAddress.city,
+      expectedUpdatedAt: address.updatedAt,
+      id: address.id,
     });
     tree = mounted.render();
     invoke(controlByText(tree, "Add an address"), "onClick");
@@ -2103,8 +2130,8 @@ describe("address request ordering", () => {
     tree = mounted.render();
     expect(component(tree, AddressForm).props["initialAddress"]).toBeNull();
     expect(component(tree, AddressBook).props["state"]).toEqual({
-      type: "ready",
       addresses: [refreshedAddress],
+      type: "ready",
     });
     return invoke(component(tree, AddressForm), "onCancel");
   });
@@ -2131,16 +2158,16 @@ describe("account page mutation recovery", () => {
     let tree = mounted.render();
     let form = component(tree, ProfileForm);
     const input = {
-      expectedUpdatedAt: profile.updatedAt,
       displayName: "Recovered profile",
+      expectedUpdatedAt: profile.updatedAt,
     };
 
     await invoke<Promise<void>>(form, "onSave", input);
     tree = mounted.render();
     form = component(tree, ProfileForm);
     expect(form.props["feedback"]).toEqual({
-      tone: "error",
       message: "Check the highlighted fields and try again.",
+      tone: "error",
     });
 
     await invoke<Promise<void>>(form, "onSave", input);
@@ -2148,8 +2175,8 @@ describe("account page mutation recovery", () => {
     form = component(tree, ProfileForm);
     expect(form.props["initialProfile"]).toBe(saved.profile);
     expect(form.props["feedback"]).toEqual({
-      tone: "success",
       message: "Profile saved.",
+      tone: "success",
     });
     return expect(form.key).toBe("1");
   });
@@ -2180,8 +2207,8 @@ describe("account page mutation recovery", () => {
     tree = mounted.render();
     form = component(tree, PreferencesForm);
     expect(form.props["feedback"]).toEqual({
-      tone: "error",
       message: "Account storage is temporarily unavailable. Try again.",
+      tone: "error",
     });
 
     await invoke<Promise<void>>(form, "onSave", input);
@@ -2189,8 +2216,8 @@ describe("account page mutation recovery", () => {
     form = component(tree, PreferencesForm);
     expect(form.props["initialPreferences"]).toBe(saved);
     expect(form.props["feedback"]).toEqual({
-      tone: "success",
       message: "Preferences saved.",
+      tone: "success",
     });
     return expect(form.key).toBe("1");
   });

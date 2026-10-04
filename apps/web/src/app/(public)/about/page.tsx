@@ -33,14 +33,14 @@ export default function AboutPage() {
       eyebrow="About"
       title="A foundation should make change easier to reason about."
     >
-      <section aria-labelledby="principles-title" className="py-16 md:py-20">
+      <section aria-labelledby="principles-title" className="py-8 md:py-10">
         <h2 className="sr-only" id="principles-title">
           DarkFactory principles
         </h2>
         <ol className="divide-y divide-border border-border border-y">
           {principles.map((principle, index) => (
             <li
-              className="grid gap-6 py-10 md:grid-cols-12 md:py-12"
+              className="grid gap-6 py-6 md:grid-cols-12 md:py-12"
               key={principle.title}
             >
               <p
@@ -52,7 +52,7 @@ export default function AboutPage() {
               <h3 className="font-heading font-semibold text-3xl text-foreground tracking-tight md:col-span-4">
                 {principle.title}
               </h3>
-              <p className="text-lg text-muted-foreground leading-8 md:col-span-6 md:col-start-7">
+              <p className="text-lg text-muted-foreground leading-7 md:col-span-6 md:col-start-7">
                 {principle.body}
               </p>
             </li>
@@ -62,7 +62,7 @@ export default function AboutPage() {
 
       <section
         aria-labelledby="classification-title"
-        className="grid gap-12 border-border border-y bg-surface py-16 md:grid-cols-12 md:py-20"
+        className="grid gap-6 border-border border-y bg-surface py-8 md:grid-cols-12 md:py-10"
       >
         <div className="md:col-span-5">
           <p className="font-semibold text-primary text-sm tracking-wide">
@@ -74,7 +74,7 @@ export default function AboutPage() {
           >
             Every decision declares what kind of decision it is.
           </h2>
-          <p className="mt-5 text-base text-muted-foreground leading-7">
+          <p className="mt-3 text-base text-muted-foreground leading-7">
             The classification prevents today’s provider or file layout from
             becoming tomorrow’s accidental architecture.
           </p>
@@ -121,7 +121,7 @@ export default function AboutPage() {
 
       <section
         aria-labelledby="about-next-title"
-        className="grid gap-8 pt-16 md:grid-cols-12 md:items-end md:pt-20"
+        className="grid gap-5 pt-8 md:grid-cols-12 md:items-end md:pt-10"
       >
         <div className="md:col-span-7">
           <h2

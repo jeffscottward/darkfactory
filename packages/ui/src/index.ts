@@ -30,13 +30,6 @@ export type { InputProps } from "./input.tsx";
 export { Input } from "./input.tsx";
 export type { LabelProps } from "./label.tsx";
 export { Label } from "./label.tsx";
-export type { PaletteName, ThemeAttributes, ThemeMode } from "./palettes.ts";
-export {
-  DEFAULT_PALETTE,
-  PALETTE_NAMES,
-  THEME_MODES,
-  themeAttributes,
-} from "./palettes.ts";
 export type { SeparatorProps } from "./separator.tsx";
 export { Separator } from "./separator.tsx";
 export type { SkeletonGroupProps, SkeletonProps } from "./skeleton.tsx";
@@ -47,4 +40,28 @@ export type { StatusBadgeProps } from "./status-badge.tsx";
 export { StatusBadge, statusBadgeVariants } from "./status-badge.tsx";
 export type { TextareaProps } from "./textarea.tsx";
 export { Textarea } from "./textarea.tsx";
+export type {
+  Appearance,
+  AppearanceAttributes,
+  AppearanceOption,
+  DensityName,
+  FontSizeName,
+  RadiusName,
+  ThemeName,
+} from "./themes.ts";
+export {
+  appearanceAttributes,
+  DEFAULT_APPEARANCE,
+  DEFAULT_THEME,
+  DENSITY_NAMES,
+  DENSITY_OPTIONS,
+  FONT_SIZE_NAMES,
+  FONT_SIZE_OPTIONS,
+  optionLabel,
+  RADIUS_NAMES,
+  RADIUS_OPTIONS,
+  THEME_NAMES,
+  THEME_OPTIONS,
+  themeColorScheme,
+} from "./themes.ts";
 export { cn } from "./utilities.ts";

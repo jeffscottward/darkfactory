@@ -94,8 +94,10 @@ const preferences = (
   overrides: Partial<UserPreferences> = {}
 ): UserPreferences => ({
   userId: "member-1",
-  mode: "system",
-  colorScheme: "neutral",
+  theme: "system",
+  fontSize: "default",
+  density: "default",
+  radius: "small",
   emailNotifications: true,
   productUpdates: true,
   analyticsConsent: false,
@@ -127,8 +129,10 @@ const accountRepositories = () => {
     findByUserId: vi.fn(async () => null),
     findThemeByUserId: vi.fn(async () => null),
     upsertTheme: vi.fn(async () => ({
-      mode: "system" as const,
-      colorScheme: "neutral" as const,
+      theme: "system" as const,
+      fontSize: "default" as const,
+      density: "default" as const,
+      radius: "small" as const,
       updatedAt: new Date("2026-01-01T00:00:00.000Z"),
     })),
     upsert: vi.fn(async (input) => preferences(input)),
@@ -234,8 +238,10 @@ describe("account service", () => {
     const repositories = accountRepositories();
     const service = createAccountService(repositories);
     await expect(service.getPreferences(principal)).resolves.toEqual({
-      themeMode: "system",
-      palette: "neutral",
+      theme: "system",
+      fontSize: "default",
+      density: "default",
+      radius: "small",
       emailNotifications: true,
       productUpdates: true,
       analyticsConsent: false,
@@ -423,8 +429,10 @@ describe("account service", () => {
     const expectedUpdatedAt = new Date("2026-01-01T00:00:00.000Z");
     vi.mocked(repositories.userPreferences.findByUserId).mockResolvedValue(
       preferences({
-        mode: "dark",
-        colorScheme: "violet",
+        theme: "nord",
+        fontSize: "large",
+        density: "comfortable",
+        radius: "medium",
         emailNotifications: false,
         productUpdates: false,
         analyticsConsent: true,
@@ -436,8 +444,10 @@ describe("account service", () => {
     const service = createAccountService(repositories);
 
     await expect(service.getPreferences(principal)).resolves.toEqual({
-      themeMode: "dark",
-      palette: "violet",
+      theme: "nord",
+      fontSize: "large",
+      density: "comfortable",
+      radius: "medium",
       emailNotifications: false,
       productUpdates: false,
       analyticsConsent: true,

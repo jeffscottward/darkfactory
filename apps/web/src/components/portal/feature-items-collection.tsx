@@ -3,13 +3,13 @@ import {
   Button,
   buttonVariants,
   cn,
-  EmptyState,
   Skeleton,
   StatusBadge,
 } from "@darkfactory/ui";
-import { Archive, FilePlus2, RotateCcw } from "lucide-react";
+import { Archive } from "lucide-react";
 import type { FeatureFailureKind } from "./feature-items-client.ts";
 import { FeatureRecoveryAction } from "./feature-recovery-action.tsx";
+import { InlineNotice } from "../inline-notice.tsx";
 
 export type FeatureItemsCollectionState =
   | Readonly<{ type: "loading" }>
@@ -42,18 +42,15 @@ const statusLabel = (status: FeatureItemStatus): string => {
 };
 
 const LoadingCollection = () => (
-  <div aria-busy="true" aria-live="polite" className="space-y-3" role="status">
+  <div aria-busy="true" aria-live="polite" className="space-y-1" role="status">
     <span className="sr-only">Loading feature items</span>
     {["one", "two", "three"].map((key) => (
       <div
-        className="grid gap-4 border-border border-b py-5 sm:grid-cols-[minmax(0,1fr)_8rem]"
+        className="flex items-center justify-between gap-3 border-border border-b py-2"
         key={key}
       >
-        <div className="space-y-3">
-          <Skeleton className="h-5 w-48 max-w-full" />
-          <Skeleton className="h-4 w-80 max-w-full" />
-        </div>
-        <Skeleton className="h-6 w-20 sm:justify-self-end" />
+        <Skeleton className="h-5 w-48 max-w-full" />
+        <Skeleton className="h-6 w-20" />
       </div>
     ))}
   </div>
@@ -72,7 +69,7 @@ export const FeatureItemsCollection = ({
 
   if (state.type === "error") {
     return (
-      <EmptyState
+      <InlineNotice
         action={
           <FeatureRecoveryAction
             kind={state.kind}
@@ -80,8 +77,7 @@ export const FeatureItemsCollection = ({
             returnHref="/feature-items"
           />
         }
-        description={state.message}
-        icon={<RotateCcw />}
+        message={state.message}
         title="Feature items could not be loaded"
       />
     );
@@ -89,36 +85,19 @@ export const FeatureItemsCollection = ({
 
   if (state.items.length === 0 && isFiltered) {
     return (
-      <EmptyState
+      <InlineNotice
         action={
-          <Button onClick={onResetFilters} variant="secondary">
+          <Button onClick={onResetFilters} size="compact" variant="secondary">
             Reset filters
           </Button>
         }
-        description="The current search and status filter returned no owner-scoped records."
-        icon={<RotateCcw />}
         title="No matching feature items"
       />
     );
   }
 
   if (state.items.length === 0) {
-    return (
-      <EmptyState
-        action={
-          <a
-            className={buttonVariants({ variant: "primary" })}
-            href="/feature-items/new"
-          >
-            <FilePlus2 aria-hidden="true" className="size-4" />
-            Create the first item
-          </a>
-        }
-        description="Feature items demonstrate a complete owner-scoped request from this portal through oRPC and PostgreSQL."
-        icon={<FilePlus2 />}
-        title="No feature items yet"
-      />
-    );
+    return <InlineNotice title="No feature items" />;
   }
 
   return (
@@ -127,14 +106,14 @@ export const FeatureItemsCollection = ({
         const isArchiving = archivingId === item.id;
         return (
           <article
-            className="grid gap-4 py-5 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center"
+            className="grid gap-2 py-2 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center"
             key={item.id}
             role="listitem"
           >
-            <div className="min-w-0 space-y-2">
-              <div className="flex flex-wrap items-center gap-3">
+            <div className="min-w-0">
+              <div className="flex flex-wrap items-center gap-2">
                 <h2
-                  className="min-w-0 font-heading font-semibold text-foreground text-lg tracking-tight"
+                  className="min-w-0 font-heading font-semibold text-base text-foreground tracking-tight"
                   style={{ overflowWrap: "anywhere" }}
                 >
                   {item.name}
@@ -142,21 +121,21 @@ export const FeatureItemsCollection = ({
                 <StatusBadge status={statusTone(item.status)}>
                   {statusLabel(item.status)}
                 </StatusBadge>
+                <span className="text-muted-foreground text-xs">
+                  Updated{" "}
+                  {item.updatedAt.toLocaleDateString("en-US", {
+                    dateStyle: "medium",
+                  })}
+                </span>
               </div>
-              <p
-                className="max-w-reading text-muted-foreground text-sm leading-6"
-                style={{ overflowWrap: "anywhere" }}
-              >
-                {item.description.length > 0
-                  ? item.description
-                  : "No description provided."}
-              </p>
-              <p className="text-muted-foreground text-xs">
-                Updated{" "}
-                {item.updatedAt.toLocaleDateString("en-US", {
-                  dateStyle: "medium",
-                })}
-              </p>
+              {item.description.length > 0 ? (
+                <p
+                  className="max-w-reading text-muted-foreground text-sm"
+                  style={{ overflowWrap: "anywhere" }}
+                >
+                  {item.description}
+                </p>
+              ) : null}
             </div>
             <div className="flex flex-wrap gap-2 sm:justify-end">
               <a

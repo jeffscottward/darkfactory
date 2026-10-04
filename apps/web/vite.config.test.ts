@@ -2,7 +2,7 @@ import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import ts from "typescript-api";
 import { describe, expect, it, vi } from "vitest";
-import viteConfig from "./vite.config";
+import viteConfig, { keepFontFilesExternal } from "./vite.config";
 
 const LINE_BREAK_PATTERN = /\r?\n/u;
 
@@ -162,7 +162,10 @@ describe("Vite application plugin contract", () => {
     expect(clientEnvironment.optimizeDeps.include).toContain(
       "@tanstack/react-form"
     );
-    expect(clientEnvironment.optimizeDeps.exclude).toContain("lucide-react");
+    expect(clientEnvironment.optimizeDeps.include).toContain("lucide-react");
+    expect(clientEnvironment.optimizeDeps.exclude).not.toContain(
+      "lucide-react"
+    );
     expect(new Set(clientEnvironment.optimizeDeps.include).size).toBe(
       clientEnvironment.optimizeDeps.include.length
     );
@@ -192,10 +195,26 @@ describe("Vite application plugin contract", () => {
     });
   });
 
-  it("pretransforms the protected portal client boundary during dev startup", () => {
+  it("pretransforms the portal and public client boundaries during dev startup", () => {
     expect(viteConfig.server?.warmup?.clientFiles).toEqual([
       "./src/components/portal-shell.tsx",
+      "./src/components/public-shell.tsx",
     ]);
+  });
+
+  it("never inlines font files as base64 assets", () => {
+    expect(viteConfig.build?.assetsInlineLimit).toBe(keepFontFilesExternal);
+    for (const file of [
+      "/fonts/manrope-cyrillic-ext-wght-normal.woff2",
+      "/fonts/legacy.WOFF",
+      "/fonts/display.ttf",
+      "/fonts/display.otf",
+      "/fonts/display.eot",
+    ]) {
+      expect(keepFontFilesExternal(file)).toBe(false);
+    }
+    expect(keepFontFilesExternal("/images/favicon.svg")).toBeUndefined();
+    expect(keepFontFilesExternal("/fonts/notes.woff2.txt")).toBeUndefined();
   });
 
   it("keeps Worker dev-var files out of source control", async () => {

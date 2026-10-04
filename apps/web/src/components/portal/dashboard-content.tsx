@@ -1,5 +1,5 @@
 import { buttonVariants, StatusBadge } from "@darkfactory/ui";
-import { ArrowRight, FilePlus2 } from "lucide-react";
+import { ArrowRight } from "lucide-react";
 
 import type { DashboardViewModel } from "../../features/dashboard/view-model.ts";
 
@@ -7,80 +7,60 @@ export interface DashboardContentProps {
   readonly model: DashboardViewModel;
 }
 
+const SECTION_TITLE_CLASS =
+  "font-heading font-semibold text-base text-foreground tracking-tight";
+
 export const DashboardContent = ({ model }: DashboardContentProps) => {
   const ready = model.type === "ready" ? model : null;
 
   return (
-    <div className="space-y-12">
-      <section className="grid gap-8 border-border border-y py-8 md:grid-cols-[minmax(0,1.4fr)_minmax(16rem,0.6fr)] md:items-end">
-        <div className="min-w-0">
-          {ready === null ? (
-            <>
-              <p className="font-semibold text-primary text-sm">
-                Dashboard unavailable
-              </p>
-              <h2 className="mt-3 min-w-0 font-heading font-semibold text-2xl text-foreground tracking-tight">
+    <div className="space-y-6">
+      <section className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1 border-border border-b pb-3">
+        {ready === null ? (
+          <>
+            <div className="min-w-0">
+              <h2 className="font-heading font-semibold text-foreground text-lg tracking-tight">
                 Dashboard data unavailable
               </h2>
-              <p className="mt-3 max-w-reading text-base text-muted-foreground leading-7">
+              <p className="text-muted-foreground text-sm">
                 Account details are not shown when the dashboard summary cannot
                 be loaded.
               </p>
-            </>
-          ) : (
-            <>
-              <p className="font-semibold text-primary text-sm">
-                {ready.accessLabel}
-              </p>
+            </div>
+            <p className="font-medium text-foreground text-sm">
+              Feature data unavailable
+            </p>
+          </>
+        ) : (
+          <>
+            <div className="flex min-w-0 flex-wrap items-baseline gap-x-3">
               <h2
-                className="mt-3 min-w-0 font-heading font-semibold text-2xl text-foreground tracking-tight"
+                className="min-w-0 font-heading font-semibold text-foreground text-lg tracking-tight"
                 style={{ overflowWrap: "anywhere" }}
               >
                 {ready.greeting}
               </h2>
-              <p className="mt-3 max-w-reading text-base text-muted-foreground leading-7">
-                This overview reports only authoritative owner-scoped data
-                returned for the current session.
+              <p className="text-muted-foreground text-sm">
+                {ready.accessLabel}
               </p>
-            </>
-          )}
-        </div>
-        <div className="md:text-right">
-          {ready === null ? (
-            <>
-              <p className="font-heading font-semibold text-foreground text-xl">
-                Feature data unavailable
-              </p>
-              <p className="mt-1 text-muted-foreground text-sm">
-                No count is shown when the summary cannot be verified.
-              </p>
-            </>
-          ) : (
-            <>
-              <p className="font-heading font-semibold text-foreground text-xl">
-                {ready.totalLabel}
-              </p>
-              <p className="mt-1 text-muted-foreground text-sm">
-                Authoritative owner-scoped total
-              </p>
-            </>
-          )}
-        </div>
+            </div>
+            <p className="font-medium text-foreground text-sm">
+              {ready.totalLabel}
+            </p>
+          </>
+        )}
       </section>
 
       {ready === null ? null : (
         <section aria-labelledby="feature-status-counts-title">
-          <h2
-            className="font-heading font-semibold text-foreground text-xl tracking-tight"
-            id="feature-status-counts-title"
-          >
+          <h2 className={SECTION_TITLE_CLASS} id="feature-status-counts-title">
             Feature status
           </h2>
-          <dl className="mt-5 grid divide-y divide-border border-border border-y sm:grid-cols-3 sm:divide-x sm:divide-y-0">
+          <dl className="mt-2 grid grid-cols-3 divide-x divide-border border-border border-y">
             {ready.statusCounts.map(({ label, count }) => (
-              <div className="py-4 sm:px-5 sm:first:pl-0" key={label}>
-                <dt className="text-muted-foreground text-sm">{label}</dt>
-                <dd className="mt-1 font-heading font-semibold text-foreground text-xl">
+              <div className="px-3 py-2 first:pl-0" key={label}>
+                <dt className="text-muted-foreground text-xs">{label}</dt>
+                <dd className="font-heading font-semibold text-foreground text-lg">
                   {count}
                 </dd>
               </div>
@@ -90,45 +70,38 @@ export const DashboardContent = ({ model }: DashboardContentProps) => {
       )}
 
       <section aria-labelledby="dashboard-capabilities-title">
-        <div className="mb-5">
-          <h2
-            className="font-heading font-semibold text-foreground text-xl tracking-tight"
-            id="dashboard-capabilities-title"
-          >
-            Request and capability status
-          </h2>
-          <p className="mt-2 text-muted-foreground text-sm leading-6">
-            {ready === null
-              ? "Request-scoped capability information could not be loaded."
-              : "Better Auth session authority and server-projected capability availability."}
-          </p>
-        </div>
-        <dl className="divide-y divide-border border-border border-y">
+        <h2 className={SECTION_TITLE_CLASS} id="dashboard-capabilities-title">
+          Capabilities
+        </h2>
+        <dl className="mt-2 divide-y divide-border border-border border-y text-sm">
           {ready === null ? (
-            <div className="py-4">
+            <div className="flex items-center justify-between gap-3 py-2">
               <dt className="font-medium text-foreground">
                 Capability summary
               </dt>
-              <dd className="mt-1 text-muted-foreground text-sm">
+              <dd className="text-muted-foreground">
                 Unavailable on this request
               </dd>
             </div>
           ) : (
             <>
-              <div className="py-4">
+              <div className="flex items-center justify-between gap-3 py-2">
                 <dt className="font-medium text-foreground">
                   Session authority
                 </dt>
-                <dd className="mt-1 flex items-center justify-between gap-3 text-muted-foreground text-sm">
+                <dd className="flex items-center gap-3 text-muted-foreground">
                   <span>Verified by Better Auth</span>
                   <StatusBadge status="success">Active</StatusBadge>
                 </dd>
               </div>
               {ready.capabilities.map(
                 ({ key, label, available, statusLabel }) => (
-                  <div className="py-4" key={key}>
+                  <div
+                    className="flex items-center justify-between gap-3 py-2"
+                    key={key}
+                  >
                     <dt className="font-medium text-foreground">{label}</dt>
-                    <dd className="mt-1 flex items-center justify-between gap-3 text-muted-foreground text-sm">
+                    <dd>
                       <StatusBadge status={available ? "success" : "neutral"}>
                         {statusLabel}
                       </StatusBadge>
@@ -142,18 +115,10 @@ export const DashboardContent = ({ model }: DashboardContentProps) => {
       </section>
 
       <section aria-labelledby="recent-feature-items-title">
-        <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
-          <div>
-            <h2
-              className="font-heading font-semibold text-foreground text-xl tracking-tight"
-              id="recent-feature-items-title"
-            >
-              Recent feature items
-            </h2>
-            <p className="mt-2 text-muted-foreground text-sm leading-6">
-              Up to five recent owner-scoped records from the dashboard summary.
-            </p>
-          </div>
+        <div className="flex items-center justify-between gap-3">
+          <h2 className={SECTION_TITLE_CLASS} id="recent-feature-items-title">
+            Recent feature items
+          </h2>
           <a
             className={buttonVariants({
               variant: "secondary",
@@ -166,48 +131,27 @@ export const DashboardContent = ({ model }: DashboardContentProps) => {
         </div>
 
         {ready === null ? (
-          <div className="mt-6 border-border border-y py-8">
-            <p className="font-medium text-foreground">
-              Recent items could not be loaded.
-            </p>
-            <p className="mt-2 text-muted-foreground text-sm">
-              Open Feature Items to retry a bounded typed API request.
-            </p>
-          </div>
-        ) : ready.recentItems.length === 0 ? (
-          <div className="mt-6 border-border border-y py-8">
-            <p className="font-medium text-foreground">No feature items yet</p>
-            <p className="mt-2 max-w-reading text-muted-foreground text-sm leading-6">
-              Create the first item to exercise the complete starter vertical.
-            </p>
-            <a
-              className={`${buttonVariants({ variant: "primary", size: "compact" })} mt-5`}
-              href="/feature-items/new"
-            >
-              <FilePlus2 aria-hidden="true" className="size-4" />
-              Create the first item
-            </a>
-          </div>
-        ) : (
-          <div className="mt-6 divide-y divide-border border-border border-y">
+          <p className="mt-2 border-border border-y py-2 text-foreground text-sm">
+            Recent items could not be loaded.
+          </p>
+        ) : ready.recentItems.length === 0 ? null : (
+          <div className="mt-2 divide-y divide-border border-border border-y">
             {ready.recentItems.map((item) => (
               <a
-                className="flex min-h-16 items-center justify-between gap-4 py-4 text-foreground transition-colors duration-base ease-out hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                className="flex min-h-11 items-center justify-between gap-3 py-2 text-foreground text-sm transition-colors duration-base ease-out hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
                 href={item.href}
                 key={item.id}
               >
-                <span className="min-w-0">
-                  <span
-                    className="block font-medium"
-                    style={{ overflowWrap: "anywhere" }}
-                  >
-                    {item.name}
-                  </span>
-                  <span className="mt-1 block text-muted-foreground text-sm">
-                    {item.statusLabel}
-                  </span>
+                <span
+                  className="min-w-0 font-medium"
+                  style={{ overflowWrap: "anywhere" }}
+                >
+                  {item.name}
                 </span>
-                <ArrowRight aria-hidden="true" className="size-4 shrink-0" />
+                <span className="flex shrink-0 items-center gap-2 text-muted-foreground">
+                  {item.statusLabel}
+                  <ArrowRight aria-hidden="true" className="size-4" />
+                </span>
               </a>
             ))}
           </div>

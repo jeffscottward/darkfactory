@@ -34,7 +34,7 @@ export const PublicPage = ({
   eyebrow,
   title,
 }: PublicPageProps) => (
-  <div className="df-container py-16 md:py-20 lg:py-24">
+  <div className="df-container py-8 md:py-10 lg:py-12">
     <PageHeader
       actions={actions}
       description={description}

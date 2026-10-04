@@ -98,24 +98,34 @@ export const selectThemeMenuPreference = async ({
     return;
   switch (result) {
     case "failed": {
-      setError("Could not save theme settings. Try again.");
+      setError("Could not save appearance settings. Try again.");
       break;
     }
     case "reconciled": {
       setError(
-        "Theme settings were refreshed from your account. Review them before trying again."
+        "Appearance settings were refreshed from your account. Review them before trying again."
       );
       break;
     }
     case "unconfirmed": {
-      setError("Could not confirm theme save. Reload before retrying.");
+      setError(
+        "Could not confirm the appearance save. Reload before retrying."
+      );
       break;
     }
   }
   setPending(false);
 };
 
-export const ThemeMenu = () => {
+export interface AppearanceSelection {
+  readonly disabled: boolean;
+  readonly error: string | null;
+  readonly select: (nextPreference: Readonly<AnonymousThemePreference>) => void;
+  readonly statusMessage: string | null;
+  readonly triggerLabel: string;
+}
+
+export const useAppearanceSelection = (): AppearanceSelection => {
   const store = useUiStoreApi();
   const authority = useThemeAuthority();
   const authorityRef = useRef(authority);
@@ -138,11 +148,8 @@ export const ThemeMenu = () => {
     };
     return invalidate;
   }, []);
-  const controlsEnabled = authority !== "indeterminate" && !pending;
 
-  const selectPreference = (
-    nextPreference: Readonly<AnonymousThemePreference>
-  ): void => {
+  const select = (nextPreference: Readonly<AnonymousThemePreference>): void => {
     const selection = selectThemeMenuPreference({
       authority,
       authorityEpoch: () => authorityEpoch.current,
@@ -161,29 +168,36 @@ export const ThemeMenu = () => {
     void selection;
   };
 
-  const triggerLabel =
-    authority === "indeterminate"
-      ? "Theme settings unavailable"
-      : pending
-        ? "Saving theme settings"
-        : "Theme settings";
-  const ownershipMessage =
-    authority === "trusted"
-      ? pending
-        ? "Saving this preference to your account."
-        : "These preferences are saved to your account."
-      : authority === "indeterminate"
-        ? "Theme preferences are temporarily unavailable. Changes are disabled."
-        : null;
+  return {
+    disabled: authority === "indeterminate" || pending,
+    error,
+    select,
+    statusMessage:
+      authority === "indeterminate"
+        ? "Appearance settings are unavailable."
+        : pending
+          ? "Saving appearance settings."
+          : null,
+    triggerLabel:
+      authority === "indeterminate"
+        ? "Appearance settings unavailable"
+        : pending
+          ? "Saving appearance settings"
+          : "Appearance settings",
+  };
+};
 
+/** Standalone appearance menu for shells without a user menu (public and auth pages). */
+export const ThemeMenu = () => {
+  const selection = useAppearanceSelection();
   return (
     <ThemePicker
-      disabled={!controlsEnabled}
-      error={error}
+      disabled={selection.disabled}
+      error={selection.error}
       idPrefix="application-theme"
-      onPreferenceChange={selectPreference}
-      statusMessage={ownershipMessage}
-      triggerLabel={triggerLabel}
+      onPreferenceChange={selection.select}
+      statusMessage={selection.statusMessage}
+      triggerLabel={selection.triggerLabel}
     />
   );
 };

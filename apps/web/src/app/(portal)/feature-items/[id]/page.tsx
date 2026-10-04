@@ -14,7 +14,7 @@ export default async function FeatureItemPage({
 }: FeatureItemPageProps) {
   const { id } = await params;
   return (
-    <div className="space-y-10">
+    <div className="space-y-4">
       <PageHeader
         actions={
           <a
@@ -25,8 +25,6 @@ export default async function FeatureItemPage({
             Back to feature items
           </a>
         }
-        description="Inspect this owner-scoped record. Available actions reflect its lifecycle state."
-        eyebrow="Feature items"
         title="Feature item details"
       />
       <FeatureItemEditor id={id} />

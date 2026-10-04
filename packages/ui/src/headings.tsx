@@ -2,14 +2,26 @@ import type { ComponentPropsWithRef, JSX, ReactNode } from "react";
 
 import { cn } from "./utilities.ts";
 
-export interface PageHeaderProps
+interface PageHeaderBaseProps
   extends Omit<ComponentPropsWithRef<"header">, "title"> {
+  actions?: ReactNode;
   title: ReactNode;
+}
+
+/** Portal headers carry a title and actions only; descriptions are public-site copy. */
+export interface PortalPageHeaderProps extends PageHeaderBaseProps {
+  description?: never;
+  eyebrow?: never;
+  variant?: "portal";
+}
+
+export interface PublicPageHeaderProps extends PageHeaderBaseProps {
   description?: ReactNode;
   eyebrow?: ReactNode;
-  actions?: ReactNode;
-  variant?: "portal" | "public";
+  variant: "public";
 }
+
+export type PageHeaderProps = PortalPageHeaderProps | PublicPageHeaderProps;
 
 export const PageHeader = ({
   actions,
@@ -23,13 +35,14 @@ export const PageHeader = ({
   <header
     {...props}
     className={cn(
-      "grid gap-6 border-border border-b md:grid-cols-[minmax(0,1fr)_auto] md:items-end",
-      variant === "public" ? "pb-10" : "pb-6",
+      variant === "public"
+        ? "grid gap-4 border-border border-b pb-8 md:grid-cols-[minmax(0,1fr)_auto] md:items-end"
+        : "flex flex-wrap items-center justify-between gap-2",
       className
     )}
     data-variant={variant}
   >
-    <div className="min-w-0 space-y-3">
+    <div className={cn("min-w-0", variant === "public" && "space-y-3")}>
       {eyebrow === undefined ? null : (
         <p className="font-body font-semibold text-primary text-xs uppercase tracking-wide">
           {eyebrow}
@@ -38,24 +51,19 @@ export const PageHeader = ({
       <h1
         className={cn(
           "font-heading font-semibold text-foreground tracking-tight",
-          variant === "public" ? "text-4xl" : "text-2xl"
+          variant === "public" ? "text-4xl" : "text-xl"
         )}
       >
         {title}
       </h1>
       {description === undefined ? null : (
-        <p
-          className={cn(
-            "max-w-reading text-muted-foreground",
-            variant === "public" ? "text-lg leading-7" : "text-base leading-6"
-          )}
-        >
+        <p className="max-w-reading text-lg text-muted-foreground leading-7">
           {description}
         </p>
       )}
     </div>
     {actions === undefined ? null : (
-      <div className="flex flex-wrap items-center gap-3 md:justify-end">
+      <div className="flex flex-wrap items-center gap-2 md:justify-end">
         {actions}
       </div>
     )}
@@ -66,16 +74,14 @@ export type SectionHeadingLevel = 2 | 3 | 4 | 5 | 6;
 
 export interface SectionHeaderProps
   extends Omit<ComponentPropsWithRef<"div">, "title"> {
-  title: ReactNode;
-  description?: ReactNode;
   actions?: ReactNode;
   headingLevel?: SectionHeadingLevel;
+  title: ReactNode;
 }
 
 export const SectionHeader = ({
   actions,
   className,
-  description,
   headingLevel = 2,
   title,
   ...props
@@ -88,23 +94,16 @@ export const SectionHeader = ({
   return (
     <div
       className={cn(
-        "flex flex-col gap-4 border-border border-b pb-4 sm:flex-row sm:items-end sm:justify-between",
+        "flex flex-wrap items-center justify-between gap-2 border-border border-b pb-2",
         className
       )}
       {...props}
     >
-      <div className="min-w-0 space-y-1">
-        <Heading className="font-heading font-semibold text-foreground text-xl tracking-tight">
-          {title}
-        </Heading>
-        {description === undefined ? null : (
-          <p className="max-w-reading text-muted-foreground text-sm leading-5">
-            {description}
-          </p>
-        )}
-      </div>
+      <Heading className="min-w-0 font-heading font-semibold text-base text-foreground tracking-tight">
+        {title}
+      </Heading>
       {actions === undefined ? null : (
-        <div className="flex shrink-0 flex-wrap gap-3">{actions}</div>
+        <div className="flex shrink-0 flex-wrap gap-2">{actions}</div>
       )}
     </div>
   );

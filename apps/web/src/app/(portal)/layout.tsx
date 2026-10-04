@@ -39,6 +39,7 @@ export default async function PortalLayout({
     <PortalShell
       availableRoutes={isAdmin ? ADMIN_PORTAL_ROUTES : MEMBER_PORTAL_ROUTES}
       isAdmin={isAdmin}
+      userName={session.name}
     >
       {children}
     </PortalShell>

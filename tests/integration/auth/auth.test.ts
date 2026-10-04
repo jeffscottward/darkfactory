@@ -257,8 +257,10 @@ describe("DF-041 through DF-045 Better Auth integration", {
       timezone: string;
       locale: string;
       date_of_birth: string | null;
-      mode: string;
-      color_scheme: string;
+      theme: string;
+      font_size: string;
+      density: string;
+      radius: string;
       email_notifications: boolean;
       product_updates: boolean;
       analytics_consent: boolean;
@@ -268,7 +270,8 @@ describe("DF-041 through DF-045 Better Auth integration", {
       `SELECT
          p.first_name, p.last_name, p.display_name, p.avatar_url, p.phone,
          p.business_name, p.job_title, p.biography, p.timezone, p.locale,
-         p.date_of_birth, preferences.mode, preferences.color_scheme,
+         p.date_of_birth, preferences.theme, preferences.font_size,
+         preferences.density, preferences.radius,
          preferences.email_notifications, preferences.product_updates,
          preferences.analytics_consent, preferences.personalization_consent,
          preferences.profile_visibility
@@ -287,8 +290,10 @@ describe("DF-041 through DF-045 Better Auth integration", {
       timezone: "UTC",
       locale: "en",
       date_of_birth: null,
-      mode: "system",
-      color_scheme: "neutral",
+      theme: "system",
+      font_size: "default",
+      density: "default",
+      radius: "small",
       email_notifications: true,
       product_updates: true,
       analytics_consent: false,

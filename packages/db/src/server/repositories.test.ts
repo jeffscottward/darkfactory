@@ -6,10 +6,12 @@ import {
   type Address,
   addresses,
   auditRecords,
-  COLOR_SCHEMES,
+  APPEARANCE_THEMES,
+  DENSITIES,
+  FONT_SIZES,
   featureItems,
   outboxEvents,
-  PREFERENCE_MODES,
+  RADII,
   profiles,
   userPreferences,
 } from "../schema/index.ts";
@@ -490,8 +492,10 @@ const ADDRESS_ROW = {
 
 const PREFERENCES_ROW = {
   userId: "user_alice",
-  mode: "system" as const,
-  colorScheme: "neutral" as const,
+  theme: "system" as const,
+  fontSize: "default" as const,
+  density: "default" as const,
+  radius: "small" as const,
   emailNotifications: true,
   productUpdates: false,
   analyticsConsent: false,
@@ -965,8 +969,10 @@ describe("feature item mutation repository", () => {
       repository.findThemeByUserId("user_alice")
     ).resolves.toBeNull();
     expect(select).toHaveBeenCalledWith({
-      mode: userPreferences.mode,
-      colorScheme: userPreferences.colorScheme,
+      theme: userPreferences.theme,
+      fontSize: userPreferences.fontSize,
+      density: userPreferences.density,
+      radius: userPreferences.radius,
       updatedAt: userPreferences.updatedAt,
     });
     expect(from).toHaveBeenCalledWith(userPreferences);
@@ -976,8 +982,10 @@ describe("feature item mutation repository", () => {
   it("creates versioned theme fields without touching unrelated preferences", async () => {
     const returning = vi.fn(async () => [
       {
-        mode: "dark" as const,
-        colorScheme: "violet" as const,
+        theme: "nord" as const,
+        fontSize: "large" as const,
+        density: "comfortable" as const,
+        radius: "medium" as const,
         updatedAt: FIXED_NOW,
       },
     ]);
@@ -992,26 +1000,34 @@ describe("feature item mutation repository", () => {
     await expect(
       repository.upsertTheme({
         userId: "user_alice",
-        mode: "dark",
-        colorScheme: "violet",
+        theme: "nord",
+        fontSize: "large",
+        density: "comfortable",
+        radius: "medium",
         expectedUpdatedAt: null,
       })
     ).resolves.toEqual({
-      mode: "dark",
-      colorScheme: "violet",
+      theme: "nord",
+      fontSize: "large",
+      density: "comfortable",
+      radius: "medium",
       updatedAt: FIXED_NOW,
     });
     expect(insert).toHaveBeenCalledWith(userPreferences);
     expect(values).toHaveBeenCalledWith({
       userId: "user_alice",
-      mode: "dark",
-      colorScheme: "violet",
+      theme: "nord",
+      fontSize: "large",
+      density: "comfortable",
+      radius: "medium",
       updatedAt: FIXED_NOW,
     });
     expect(onConflictDoNothing).toHaveBeenCalledOnce();
     return expect(returning).toHaveBeenCalledWith({
-      mode: userPreferences.mode,
-      colorScheme: userPreferences.colorScheme,
+      theme: userPreferences.theme,
+      fontSize: userPreferences.fontSize,
+      density: userPreferences.density,
+      radius: userPreferences.radius,
       updatedAt: userPreferences.updatedAt,
     });
   });
@@ -1020,10 +1036,19 @@ describe("feature item mutation repository", () => {
     const insert = vi.fn();
     const database = { insert } as unknown as Database;
     const repository = createUserPreferencesRepository(database);
+    const valid = {
+      userId: "user_alice",
+      theme: "nord",
+      fontSize: "default",
+      density: "default",
+      radius: "small",
+    };
     const invalidInputs = [
-      { userId: " ", mode: "dark", colorScheme: "violet" },
-      { userId: "user_alice", mode: "sepia", colorScheme: "violet" },
-      { userId: "user_alice", mode: "dark", colorScheme: "purple" },
+      { ...valid, userId: " " },
+      { ...valid, theme: "dark" },
+      { ...valid, fontSize: "huge" },
+      { ...valid, density: "dense" },
+      { ...valid, radius: "round" },
     ];
 
     for (const input of invalidInputs) {
@@ -1033,19 +1058,22 @@ describe("feature item mutation repository", () => {
     }
 
     expect(insert).not.toHaveBeenCalled();
-    expect(PREFERENCE_MODES).toEqual(["light", "dark", "system"]);
-    return expect(COLOR_SCHEMES).toEqual([
-      "neutral",
-      "slate",
-      "blue",
-      "cyan",
-      "green",
-      "amber",
-      "orange",
-      "red",
-      "rose",
-      "violet",
+    expect(APPEARANCE_THEMES).toEqual([
+      "system",
+      "default-dark",
+      "default-light",
+      "tokyo-night",
+      "catppuccin-mocha",
+      "catppuccin-latte",
+      "gruvbox-dark",
+      "nord",
+      "everforest",
+      "rose-pine",
+      "kanagawa",
     ]);
+    expect(FONT_SIZES).toEqual(["small", "default", "large"]);
+    expect(DENSITIES).toEqual(["compact", "default", "comfortable"]);
+    return expect(RADII).toEqual(["none", "small", "medium", "large"]);
   });
 
   return it("constructs the complete repository set without exposing drivers", () => {
@@ -2303,8 +2331,10 @@ describe("user preferences repository", () => {
 
   it("advances and user-scopes an optimistic theme update", async () => {
     const updatedTheme = {
-      mode: "light" as const,
-      colorScheme: "blue" as const,
+      theme: "tokyo-night" as const,
+      fontSize: "small" as const,
+      density: "compact" as const,
+      radius: "none" as const,
       updatedAt: NEXT_VERSION,
     };
     const double = createQueryDatabaseDouble({
@@ -2317,8 +2347,10 @@ describe("user preferences repository", () => {
     await expect(
       repository.upsertTheme({
         userId: "user_alice",
-        mode: "light",
-        colorScheme: "blue",
+        theme: "tokyo-night",
+        fontSize: "small",
+        density: "compact",
+        radius: "none",
         expectedUpdatedAt: FIXED_NOW,
       })
     ).resolves.toEqual(updatedTheme);
@@ -2328,15 +2360,19 @@ describe("user preferences repository", () => {
       kind: "update",
       table: "user_preferences",
       value: {
-        mode: "light",
-        colorScheme: "blue",
+        theme: "tokyo-night",
+        fontSize: "small",
+        density: "compact",
+        radius: "none",
         updatedAt: NEXT_VERSION,
       },
     });
     expect(queryParameters(update)).toEqual(["user_alice", FIXED_NOW]);
     return expect(update.returning).toEqual({
-      mode: userPreferences.mode,
-      colorScheme: userPreferences.colorScheme,
+      theme: userPreferences.theme,
+      fontSize: userPreferences.fontSize,
+      density: userPreferences.density,
+      radius: userPreferences.radius,
       updatedAt: userPreferences.updatedAt,
     });
   });
@@ -2350,8 +2386,10 @@ describe("user preferences repository", () => {
     await expect(
       initialRepository.upsertTheme({
         userId: "user_alice",
-        mode: "dark",
-        colorScheme: "violet",
+        theme: "nord",
+        fontSize: "large",
+        density: "comfortable",
+        radius: "medium",
         expectedUpdatedAt: null,
       })
     ).rejects.toBeInstanceOf(OptimisticConcurrencyError);
@@ -2369,8 +2407,10 @@ describe("user preferences repository", () => {
     await expect(
       staleRepository.upsertTheme({
         userId: "user_alice",
-        mode: "dark",
-        colorScheme: "violet",
+        theme: "nord",
+        fontSize: "large",
+        density: "comfortable",
+        radius: "medium",
         expectedUpdatedAt: PREVIOUS_VERSION,
       })
     ).rejects.toBeInstanceOf(OptimisticConcurrencyError);
@@ -2392,8 +2432,10 @@ describe("user preferences repository", () => {
     try {
       await repository.upsertTheme({
         userId: "user_alice",
-        mode: "dark",
-        colorScheme: "violet",
+        theme: "nord",
+        fontSize: "large",
+        density: "comfortable",
+        radius: "medium",
         expectedUpdatedAt: null,
       });
     } catch (error) {
@@ -2408,8 +2450,10 @@ describe("user preferences repository", () => {
   it("upserts all preference and consent fields on the user conflict", async () => {
     const input = {
       userId: "user_alice",
-      mode: "system" as const,
-      colorScheme: "neutral" as const,
+      theme: "system" as const,
+      fontSize: "default" as const,
+      density: "default" as const,
+      radius: "small" as const,
       emailNotifications: true,
       productUpdates: false,
       analyticsConsent: false,
@@ -2430,8 +2474,10 @@ describe("user preferences repository", () => {
     return expect(insertion.conflict).toMatchObject({
       target: userPreferences.userId,
       set: {
-        mode: "system",
-        colorScheme: "neutral",
+        theme: "system",
+        fontSize: "default",
+        density: "default",
+        radius: "small",
         emailNotifications: true,
         productUpdates: false,
         analyticsConsent: false,
@@ -2477,10 +2523,9 @@ describe("user preferences repository", () => {
       },
       conflict: "nothing",
     });
-    expect(createdDouble.operations[0]!.value).not.toHaveProperty("mode");
-    expect(createdDouble.operations[0]!.value).not.toHaveProperty(
-      "colorScheme"
-    );
+    for (const field of ["theme", "fontSize", "density", "radius"]) {
+      expect(createdDouble.operations[0]!.value).not.toHaveProperty(field);
+    }
 
     const conflictDouble = createQueryDatabaseDouble({ insert: [[]] });
     const conflictRepository = createUserPreferencesRepository(
@@ -2559,8 +2604,10 @@ describe("user preferences repository", () => {
     await expect(
       blankRepository.upsert({
         userId: " ",
-        mode: "system",
-        colorScheme: "neutral",
+        theme: "system",
+        fontSize: "default",
+        density: "default",
+        radius: "small",
         emailNotifications: true,
         productUpdates: false,
         analyticsConsent: false,
@@ -3251,8 +3298,10 @@ describe("repository residual boundaries", () => {
     return await expect(
       repository.upsertTheme({
         userId: "user_alice",
-        mode: "dark",
-        colorScheme: "blue",
+        theme: "gruvbox-dark",
+        fontSize: "default",
+        density: "compact",
+        radius: "large",
         expectedUpdatedAt: null,
       })
     ).rejects.toBe(providerFailure);
@@ -3278,8 +3327,10 @@ describe("repository residual boundaries", () => {
     });
 
     const theme = {
-      mode: "dark" as const,
-      colorScheme: "violet" as const,
+      theme: "nord" as const,
+      fontSize: "large" as const,
+      density: "comfortable" as const,
+      radius: "medium" as const,
       updatedAt: FIXED_NOW,
     };
     const preferencesDouble = createQueryDatabaseDouble({
@@ -3292,8 +3343,10 @@ describe("repository residual boundaries", () => {
     await expect(
       preferencesRepository.upsertTheme({
         userId: "user_alice",
-        mode: "dark",
-        colorScheme: "violet",
+        theme: "nord",
+        fontSize: "large",
+        density: "comfortable",
+        radius: "medium",
         expectedUpdatedAt: PREVIOUS_VERSION,
       })
     ).resolves.toEqual(theme);

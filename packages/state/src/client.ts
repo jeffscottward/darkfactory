@@ -5,33 +5,39 @@ import { createStore, type StoreApi } from "zustand/vanilla";
 import {
   type ConsentState,
   DEFAULT_UI_PREFERENCES,
+  type Density,
+  type FontSize,
   isConsentState,
-  isPalette,
-  isThemeMode,
-  type Palette,
+  isDensity,
+  isFontSize,
+  isRadius,
+  isTheme,
+  type Radius,
   type SidebarState,
-  type ThemeMode,
+  type Theme,
   type UiPreferences,
 } from "./index.ts";
 
-export const UI_STATE_VERSION = 1 as const;
+export const UI_STATE_VERSION = 2 as const;
 
 export interface UiStateSnapshot {
-  readonly version: typeof UI_STATE_VERSION;
   readonly state: Readonly<UiPreferences>;
+  readonly version: typeof UI_STATE_VERSION;
 }
 
 export interface UiState extends UiPreferences {
-  readonly setSidebar: (sidebar: SidebarState) => void;
-  readonly toggleSidebar: () => void;
-  readonly setMobileNavigationOpen: (isOpen: boolean) => void;
   readonly closeMobileNavigation: () => void;
-  readonly setThemeMode: (themeMode: ThemeMode) => void;
-  readonly setPalette: (palette: Palette) => void;
-  readonly setConsent: (consent: ConsentState) => void;
-  readonly reset: () => void;
-  readonly hydrate: (snapshot: unknown) => boolean;
   readonly dehydrate: () => UiStateSnapshot;
+  readonly hydrate: (snapshot: unknown) => boolean;
+  readonly reset: () => void;
+  readonly setConsent: (consent: ConsentState) => void;
+  readonly setDensity: (density: Density) => void;
+  readonly setFontSize: (fontSize: FontSize) => void;
+  readonly setMobileNavigationOpen: (isOpen: boolean) => void;
+  readonly setRadius: (radius: Radius) => void;
+  readonly setSidebar: (sidebar: SidebarState) => void;
+  readonly setTheme: (theme: Theme) => void;
+  readonly toggleSidebar: () => void;
 }
 
 export type UiStore = StoreApi<UiState>;
@@ -42,8 +48,10 @@ const snapshotKeys = Object.freeze(["version", "state"] as const);
 const preferenceKeys = Object.freeze([
   "sidebar",
   "mobileNavigationOpen",
-  "themeMode",
-  "palette",
+  "theme",
+  "fontSize",
+  "density",
+  "radius",
   "consent",
 ] as const);
 
@@ -81,28 +89,34 @@ const parseJsonSnapshot = (value: unknown): UiStateSnapshot | null => {
 
   const sidebar = state["sidebar"];
   const mobileNavigationOpen = state["mobileNavigationOpen"];
-  const themeMode = state["themeMode"];
-  const palette = state["palette"];
+  const theme = state["theme"];
+  const fontSize = state["fontSize"];
+  const density = state["density"];
+  const radius = state["radius"];
   const consent = state["consent"];
 
   if (
     !isSidebarState(sidebar) ||
     typeof mobileNavigationOpen !== "boolean" ||
-    !isThemeMode(themeMode) ||
-    !isPalette(palette) ||
+    !isTheme(theme) ||
+    !isFontSize(fontSize) ||
+    !isDensity(density) ||
+    !isRadius(radius) ||
     !isConsentState(consent)
   )
     return null;
 
   return {
-    version: UI_STATE_VERSION,
     state: {
-      sidebar,
-      mobileNavigationOpen,
-      themeMode,
-      palette,
       consent,
+      density,
+      fontSize,
+      mobileNavigationOpen,
+      radius,
+      sidebar,
+      theme,
     },
+    version: UI_STATE_VERSION,
   };
 };
 
@@ -122,44 +136,23 @@ export const parseUiStateSnapshot = (
 const copyPreferences = (
   preferences: Readonly<UiPreferences>
 ): UiPreferences => ({
-  sidebar: preferences.sidebar,
-  mobileNavigationOpen: preferences.mobileNavigationOpen,
-  themeMode: preferences.themeMode,
-  palette: preferences.palette,
   consent: preferences.consent,
+  density: preferences.density,
+  fontSize: preferences.fontSize,
+  mobileNavigationOpen: preferences.mobileNavigationOpen,
+  radius: preferences.radius,
+  sidebar: preferences.sidebar,
+  theme: preferences.theme,
 });
 
 export const createUiStore = (): UiStore =>
   createStore<UiState>()((set, get) => ({
     ...copyPreferences(DEFAULT_UI_PREFERENCES),
-    setSidebar: (sidebar) => {
-      if (isSidebarState(sidebar)) return set({ sidebar });
-      return;
-    },
-    toggleSidebar: () =>
-      set((state) => ({
-        sidebar: state.sidebar === "expanded" ? "collapsed" : "expanded",
-      })),
-    setMobileNavigationOpen: (mobileNavigationOpen) => {
-      if (typeof mobileNavigationOpen === "boolean") {
-        return set({ mobileNavigationOpen });
-      }
-      return;
-    },
     closeMobileNavigation: () => set({ mobileNavigationOpen: false }),
-    setThemeMode: (themeMode) => {
-      if (isThemeMode(themeMode)) return set({ themeMode });
-      return;
-    },
-    setPalette: (palette) => {
-      if (isPalette(palette)) return set({ palette });
-      return;
-    },
-    setConsent: (consent) => {
-      if (isConsentState(consent)) return set({ consent });
-      return;
-    },
-    reset: () => set(copyPreferences(DEFAULT_UI_PREFERENCES)),
+    dehydrate: () => ({
+      state: copyPreferences(get()),
+      version: UI_STATE_VERSION,
+    }),
     hydrate: (serializedSnapshot) => {
       const snapshot = parseUiStateSnapshot(serializedSnapshot);
       if (snapshot === null) {
@@ -168,8 +161,39 @@ export const createUiStore = (): UiStore =>
       set(copyPreferences(snapshot.state));
       return true;
     },
-    dehydrate: () => ({
-      version: UI_STATE_VERSION,
-      state: copyPreferences(get()),
-    }),
+    reset: () => set(copyPreferences(DEFAULT_UI_PREFERENCES)),
+    setConsent: (consent) => {
+      if (isConsentState(consent)) return set({ consent });
+      return;
+    },
+    setDensity: (density) => {
+      if (isDensity(density)) return set({ density });
+      return;
+    },
+    setFontSize: (fontSize) => {
+      if (isFontSize(fontSize)) return set({ fontSize });
+      return;
+    },
+    setMobileNavigationOpen: (mobileNavigationOpen) => {
+      if (typeof mobileNavigationOpen === "boolean") {
+        return set({ mobileNavigationOpen });
+      }
+      return;
+    },
+    setRadius: (radius) => {
+      if (isRadius(radius)) return set({ radius });
+      return;
+    },
+    setSidebar: (sidebar) => {
+      if (isSidebarState(sidebar)) return set({ sidebar });
+      return;
+    },
+    setTheme: (theme) => {
+      if (isTheme(theme)) return set({ theme });
+      return;
+    },
+    toggleSidebar: () =>
+      set((state) => ({
+        sidebar: state.sidebar === "expanded" ? "collapsed" : "expanded",
+      })),
   }));

@@ -3,7 +3,6 @@
 import type { FeatureItemOutput, FeatureItemStatus } from "@darkfactory/api";
 import {
   Button,
-  EmptyState,
   Input,
   Label,
   Skeleton,
@@ -26,6 +25,7 @@ import {
   type FeatureItemGateway,
 } from "./feature-items-client.ts";
 import { FeatureRecoveryAction } from "./feature-recovery-action.tsx";
+import { InlineNotice } from "../inline-notice.tsx";
 
 type EditorState =
   | Readonly<{ type: "loading" }>
@@ -63,36 +63,31 @@ export const createEditorMutationGuard = (): EditorMutationGuard => {
   };
 };
 export const ArchivedFeatureItemNotice = () => (
-  <div className="border-border border-y py-4" role="note">
-    <p className="font-medium text-foreground">
-      Archived records cannot be edited.
-    </p>
-    <p className="mt-1 text-muted-foreground text-sm leading-6">
-      This detail view is read-only and preserves the stored record.
-    </p>
-  </div>
+  <p
+    className="border-border border-y py-2 font-medium text-foreground text-sm"
+    role="note"
+  >
+    Archived records cannot be edited.
+  </p>
 );
 export const ArchivedFeatureItemDetails = ({
   item,
 }: Readonly<{ item: FeatureItemOutput }>) => (
-  <div className="max-w-reading space-y-6">
+  <div className="max-w-reading space-y-3">
     <ArchivedFeatureItemNotice />
-    <dl className="grid divide-y divide-border border-border border-y sm:grid-cols-2">
-      <div className="py-4 sm:col-span-2">
-        <dt className="font-medium text-muted-foreground text-sm">Name</dt>
-        <dd
-          className="mt-1 text-base text-foreground"
-          style={{ overflowWrap: "anywhere" }}
-        >
+    <dl className="grid divide-y divide-border border-border border-y text-sm sm:grid-cols-2">
+      <div className="py-2 sm:col-span-2">
+        <dt className="font-medium text-muted-foreground text-xs">Name</dt>
+        <dd className="text-foreground" style={{ overflowWrap: "anywhere" }}>
           {item.name}
         </dd>
       </div>
-      <div className="py-4 sm:col-span-2">
-        <dt className="font-medium text-muted-foreground text-sm">
+      <div className="py-2 sm:col-span-2">
+        <dt className="font-medium text-muted-foreground text-xs">
           Description
         </dt>
         <dd
-          className="mt-1 whitespace-pre-wrap text-base text-foreground leading-7"
+          className="whitespace-pre-wrap text-foreground"
           style={{ overflowWrap: "anywhere" }}
         >
           {item.description.length > 0
@@ -100,17 +95,17 @@ export const ArchivedFeatureItemDetails = ({
             : "No description provided."}
         </dd>
       </div>
-      <div className="py-4">
-        <dt className="font-medium text-muted-foreground text-sm">Status</dt>
-        <dd className="mt-1">
+      <div className="py-2">
+        <dt className="font-medium text-muted-foreground text-xs">Status</dt>
+        <dd>
           <StatusBadge status="warning">Archived</StatusBadge>
         </dd>
       </div>
-      <div className="py-4 sm:text-right">
-        <dt className="font-medium text-muted-foreground text-sm">
+      <div className="py-2 sm:text-right">
+        <dt className="font-medium text-muted-foreground text-xs">
           Last updated
         </dt>
-        <dd className="mt-1 text-foreground text-sm">
+        <dd className="text-foreground">
           {item.updatedAt.toLocaleDateString("en-US", { dateStyle: "medium" })}
         </dd>
       </div>
@@ -133,16 +128,12 @@ export const EditorNameField = ({
   onChange,
   value,
 }: EditorNameFieldProps) => (
-  <div className="space-y-2">
+  <div className="space-y-1">
     <Label htmlFor="edit-feature-name">
       Name <span className="text-muted-foreground">(required)</span>
     </Label>
     <Input
-      aria-describedby={
-        error === null
-          ? "edit-feature-name-help"
-          : "edit-feature-name-help edit-feature-name-error"
-      }
+      aria-describedby={error === null ? undefined : "edit-feature-name-error"}
       aria-errormessage={error === null ? undefined : "edit-feature-name-error"}
       aria-invalid={error === null ? undefined : true}
       disabled={disabled}
@@ -152,9 +143,6 @@ export const EditorNameField = ({
       ref={inputRef}
       value={value}
     />
-    <p className="text-muted-foreground text-sm" id="edit-feature-name-help">
-      Use a concise label for this owner-scoped record.
-    </p>
     {error === null ? null : (
       <p
         className="text-destructive text-sm"
@@ -357,7 +345,7 @@ export const FeatureItemEditor = ({
 
   if (state.type === "loading") {
     return (
-      <div aria-busy="true" className="max-w-reading space-y-6" role="status">
+      <div aria-busy="true" className="max-w-reading space-y-3" role="status">
         <span className="sr-only">Loading feature item</span>
         <Skeleton className="h-11 w-full" />
         <Skeleton className="h-28 w-full" />
@@ -368,7 +356,7 @@ export const FeatureItemEditor = ({
 
   if (state.type === "error") {
     return (
-      <EmptyState
+      <InlineNotice
         action={
           <FeatureRecoveryAction
             kind={state.failure.kind}
@@ -376,7 +364,7 @@ export const FeatureItemEditor = ({
             returnHref="/feature-items"
           />
         }
-        description={state.failure.message}
+        message={state.failure.message}
         title="Feature item unavailable"
       />
     );
@@ -385,11 +373,11 @@ export const FeatureItemEditor = ({
   if (state.item.status === "archived")
     return <ArchivedFeatureItemDetails item={state.item} />;
   return (
-    <div className="grid gap-10 lg:grid-cols-[minmax(0,42rem)_minmax(14rem,1fr)]">
-      <div className="min-w-0 space-y-6">
+    <div className="grid gap-6 lg:grid-cols-[minmax(0,42rem)_minmax(14rem,1fr)]">
+      <div className="min-w-0 space-y-3">
         <div
           aria-live="polite"
-          className="min-h-6 text-muted-foreground text-sm outline-none"
+          className="text-muted-foreground text-sm outline-none"
           ref={feedbackRef}
           tabIndex={-1}
         >
@@ -415,7 +403,7 @@ export const FeatureItemEditor = ({
           }}
           value={name}
         />
-        <div className="space-y-2">
+        <div className="space-y-1">
           <Label htmlFor="edit-feature-description">Description</Label>
           <Textarea
             disabled={isMutating}
@@ -438,9 +426,9 @@ export const FeatureItemEditor = ({
 
       <aside
         aria-label="Feature item status and archive actions"
-        className="min-w-0 space-y-6 border-border border-t pt-6 lg:border-t-0 lg:border-l lg:pt-0 lg:pl-8"
+        className="min-w-0 space-y-3 border-border border-t pt-3 lg:border-t-0 lg:border-l lg:pt-0 lg:pl-4"
       >
-        <div className="space-y-3">
+        <div className="space-y-2">
           <div className="flex items-center justify-between gap-4">
             <h2 className="font-heading font-semibold text-base text-foreground">
               Status
@@ -464,7 +452,7 @@ export const FeatureItemEditor = ({
           </select>
         </div>
 
-        <div className="border-border border-t pt-6">
+        <div className="border-border border-t pt-3">
           {confirmArchive ? (
             // biome-ignore lint/a11y/noNoninteractiveElementInteractions: Escape handling for key events that bubble from the confirmation buttons.
             <section
@@ -483,12 +471,12 @@ export const FeatureItemEditor = ({
                 Archive this item?
               </h2>
               <p
-                className="mt-2 text-muted-foreground text-sm leading-6"
+                className="mt-1 text-muted-foreground text-sm"
                 id="editor-archive-description"
               >
                 The record remains available in archived views.
               </p>
-              <div className="mt-3 flex flex-wrap gap-2">
+              <div className="mt-2 flex flex-wrap gap-2">
                 <Button
                   disabled={isMutating}
                   onClick={closeArchiveConfirmation}

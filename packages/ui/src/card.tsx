@@ -20,7 +20,7 @@ export const CardHeader = ({
   ...props
 }: ComponentPropsWithRef<"div">) => (
   <div
-    className={cn("space-y-2 border-border border-b p-6", className)}
+    className={cn("space-y-1 border-border border-b p-4", className)}
     {...props}
   />
 );
@@ -66,7 +66,7 @@ export const CardContent = ({
   className,
   ...props
 }: ComponentPropsWithRef<"div">) => (
-  <div className={cn("p-6", className)} {...props} />
+  <div className={cn("p-4", className)} {...props} />
 );
 
 export const CardFooter = ({
@@ -75,7 +75,7 @@ export const CardFooter = ({
 }: ComponentPropsWithRef<"div">) => (
   <div
     className={cn(
-      "flex flex-wrap items-center gap-3 border-border border-t p-6",
+      "flex flex-wrap items-center gap-2 border-border border-t p-4",
       className
     )}
     {...props}

@@ -25,22 +25,30 @@ export type UserStatus = (typeof USER_STATUSES)[number];
 export const ADDRESS_TYPES = ["home", "work", "other"] as const;
 export type AddressType = (typeof ADDRESS_TYPES)[number];
 
-export const PREFERENCE_MODES = ["light", "dark", "system"] as const;
-export type PreferenceMode = (typeof PREFERENCE_MODES)[number];
-
-export const COLOR_SCHEMES = [
-  "neutral",
-  "slate",
-  "blue",
-  "cyan",
-  "green",
-  "amber",
-  "orange",
-  "red",
-  "rose",
-  "violet",
+// Canonical appearance values. Keep in sync with packages/state and packages/ui/src/themes.ts.
+export const APPEARANCE_THEMES = [
+  "system",
+  "default-dark",
+  "default-light",
+  "tokyo-night",
+  "catppuccin-mocha",
+  "catppuccin-latte",
+  "gruvbox-dark",
+  "nord",
+  "everforest",
+  "rose-pine",
+  "kanagawa",
 ] as const;
-export type ColorScheme = (typeof COLOR_SCHEMES)[number];
+export type AppearanceTheme = (typeof APPEARANCE_THEMES)[number];
+
+export const FONT_SIZES = ["small", "default", "large"] as const;
+export type FontSize = (typeof FONT_SIZES)[number];
+
+export const DENSITIES = ["compact", "default", "comfortable"] as const;
+export type Density = (typeof DENSITIES)[number];
+
+export const RADII = ["none", "small", "medium", "large"] as const;
+export type Radius = (typeof RADII)[number];
 
 export const PROFILE_VISIBILITIES = ["private", "members", "public"] as const;
 export type ProfileVisibility = (typeof PROFILE_VISIBILITIES)[number];
@@ -259,11 +267,10 @@ export const userPreferences = pgTable(
     userId: text("user_id")
       .primaryKey()
       .references(() => users.id, { onDelete: "cascade" }),
-    mode: text("mode").$type<PreferenceMode>().default("system").notNull(),
-    colorScheme: text("color_scheme")
-      .$type<ColorScheme>()
-      .default("neutral")
-      .notNull(),
+    theme: text("theme").$type<AppearanceTheme>().default("system").notNull(),
+    fontSize: text("font_size").$type<FontSize>().default("default").notNull(),
+    density: text("density").$type<Density>().default("default").notNull(),
+    radius: text("radius").$type<Radius>().default("small").notNull(),
     emailNotifications: boolean("email_notifications").default(true).notNull(),
     productUpdates: boolean("product_updates").default(true).notNull(),
     analyticsConsent: boolean("analytics_consent").default(false).notNull(),
@@ -279,15 +286,24 @@ export const userPreferences = pgTable(
   },
   (table) => [
     check(
-      "user_preferences_mode_check",
-      sql`${table.mode} in ('light', 'dark', 'system')`
+      "user_preferences_theme_check",
+      sql`${table.theme} in (
+        'system', 'default-dark', 'default-light', 'tokyo-night',
+        'catppuccin-mocha', 'catppuccin-latte', 'gruvbox-dark', 'nord',
+        'everforest', 'rose-pine', 'kanagawa'
+      )`
     ),
     check(
-      "user_preferences_color_scheme_check",
-      sql`${table.colorScheme} in (
-        'neutral', 'slate', 'blue', 'cyan', 'green',
-        'amber', 'orange', 'red', 'rose', 'violet'
-      )`
+      "user_preferences_font_size_check",
+      sql`${table.fontSize} in ('small', 'default', 'large')`
+    ),
+    check(
+      "user_preferences_density_check",
+      sql`${table.density} in ('compact', 'default', 'comfortable')`
+    ),
+    check(
+      "user_preferences_radius_check",
+      sql`${table.radius} in ('none', 'small', 'medium', 'large')`
     ),
     check(
       "user_preferences_profile_visibility_check",

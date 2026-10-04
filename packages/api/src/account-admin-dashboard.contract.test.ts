@@ -231,8 +231,10 @@ describe("account, preferences, dashboard, and admin contracts", () => {
 
   it("requires authoritative versions and strict dirty preference patches", () => {
     const preference = {
-      themeMode: "system",
-      palette: "neutral",
+      theme: "system",
+      fontSize: "default",
+      density: "default",
+      radius: "small",
       emailNotifications: true,
       productUpdates: true,
       analyticsConsent: false,
@@ -254,16 +256,23 @@ describe("account, preferences, dashboard, and admin contracts", () => {
       PreferencesUpdateSchema.parse({ expectedUpdatedAt: null })
     ).toThrow();
     expect(() =>
-      PreferencesUpdateSchema.parse({
-        expectedUpdatedAt: null,
-        themeMode: "dark",
-      })
+      PreferencesSchema.parse({ ...preference, theme: "dark" })
     ).toThrow();
+    for (const field of [
+      ["theme", "nord"],
+      ["fontSize", "large"],
+      ["density", "compact"],
+      ["radius", "none"],
+    ] as const) {
+      expect(() =>
+        PreferencesUpdateSchema.parse({
+          expectedUpdatedAt: null,
+          [field[0]]: field[1],
+        })
+      ).toThrow();
+    }
     return expect(() =>
-      PreferencesUpdateSchema.parse({
-        expectedUpdatedAt: null,
-        palette: "violet",
-      })
+      PreferencesUpdateSchema.parse({ expectedUpdatedAt: null, mode: "dark" })
     ).toThrow();
   });
 

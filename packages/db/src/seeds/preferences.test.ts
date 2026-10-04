@@ -97,16 +97,36 @@ describe("development preference seeds", () => {
     ]);
     return expect(
       DEVELOPMENT_PREFERENCES.map(
-        ({ mode, colorScheme, profileVisibility }) => ({
-          mode,
-          colorScheme,
+        ({ theme, fontSize, density, radius, profileVisibility }) => ({
+          theme,
+          fontSize,
+          density,
+          radius,
           profileVisibility,
         })
       )
     ).toEqual([
-      { mode: "system", colorScheme: "neutral", profileVisibility: "private" },
-      { mode: "dark", colorScheme: "violet", profileVisibility: "members" },
-      { mode: "light", colorScheme: "blue", profileVisibility: "members" },
+      {
+        theme: "system",
+        fontSize: "default",
+        density: "default",
+        radius: "small",
+        profileVisibility: "private",
+      },
+      {
+        theme: "nord",
+        fontSize: "large",
+        density: "comfortable",
+        radius: "medium",
+        profileVisibility: "members",
+      },
+      {
+        theme: "tokyo-night",
+        fontSize: "small",
+        density: "compact",
+        radius: "none",
+        profileVisibility: "members",
+      },
     ]);
   });
 
@@ -145,8 +165,10 @@ describe("development preference seeds", () => {
   });
 
   return it.each([
-    ["mode", "light"],
-    ["colorScheme", "blue"],
+    ["theme", "nord"],
+    ["fontSize", "large"],
+    ["density", "compact"],
+    ["radius", "none"],
     ["emailNotifications", true],
     ["productUpdates", true],
     ["analyticsConsent", true],

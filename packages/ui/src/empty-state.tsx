@@ -35,7 +35,7 @@ export const EmptyState = ({
       {...props}
       aria-labelledby={titleId}
       className={cn(
-        "mx-auto flex max-w-reading flex-col items-start gap-4 border-border border-y py-10 text-left",
+        "mx-auto flex max-w-reading flex-col items-start gap-2 border-border border-y py-4 text-left",
         className
       )}
       role="region"
@@ -48,7 +48,7 @@ export const EmptyState = ({
           {icon}
         </span>
       )}
-      <div className="space-y-2">
+      <div className="space-y-1">
         <Heading
           className="font-heading font-semibold text-2xl text-foreground tracking-tight"
           id={titleId}
@@ -59,7 +59,7 @@ export const EmptyState = ({
           {description}
         </p>
       </div>
-      {action === undefined ? null : <div className="pt-2">{action}</div>}
+      {action === undefined ? null : <div className="pt-1">{action}</div>}
     </section>
   );
 };

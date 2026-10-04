@@ -1,12 +1,17 @@
 "use client";
 
-import { isPalette, isThemeMode } from "@darkfactory/state";
+import {
+  isSameAppearance,
+  parseAppearancePreference,
+} from "@darkfactory/state";
 import type { UiStore } from "@darkfactory/state/client";
 import { ThemeProvider } from "@darkfactory/ui/client/theme";
-import { Toaster } from "@darkfactory/ui/client/toaster";
+import { themeColorScheme } from "@darkfactory/ui/themes";
 import {
   createContext,
+  lazy,
   type ReactNode,
+  Suspense,
   useCallback,
   useContext,
   useEffect,
@@ -29,18 +34,29 @@ import {
   useUiStoreApi,
 } from "../lib/ui-store.tsx";
 
+// Sonner and its styles load after hydration so public pages do not pay for an unused toaster.
+const LazyToaster = lazy(async () => {
+  const module = await import("@darkfactory/ui/client/toaster");
+  return { default: module.Toaster };
+});
+
+const appearanceOf = (store: UiStore): AnonymousThemePreference => {
+  const { density, fontSize, radius, theme } = store.getState();
+  return { density, fontSize, radius, theme };
+};
+
 const applyTheme = (store: UiStore): void => {
-  const { palette, themeMode } = store.getState();
-  const attributes = themeDomAttributes({ palette, themeMode });
+  const attributes = themeDomAttributes(appearanceOf(store));
   const root = document.documentElement;
-  root.dataset["mode"] = attributes["data-mode"];
-  root.dataset["palette"] = attributes["data-palette"];
+  root.dataset["theme"] = attributes["data-theme"];
+  root.dataset["fontSize"] = attributes["data-font-size"];
+  root.dataset["density"] = attributes["data-density"];
+  root.dataset["radius"] = attributes["data-radius"];
 };
 
 const persistThemeState = (store: UiStore, authority: ThemeAuthority): void => {
   if (authority === "indeterminate") return;
-  const { palette, themeMode } = store.getState();
-  const preference = { palette, themeMode };
+  const preference = appearanceOf(store);
   if (authority === "anonymous") {
     try {
       localStorage.setItem(
@@ -95,13 +111,7 @@ export const reconcileThemeAuthorityTransition = ({
   onAuthorityChange(authority);
   unsubscribe?.();
   const bootstrap = authority === "anonymous" ? bootstrapPreference : undefined;
-  const validatedBootstrap =
-    bootstrap &&
-    typeof bootstrap === "object" &&
-    isThemeMode((bootstrap as { themeMode?: unknown }).themeMode) &&
-    isPalette((bootstrap as { palette?: unknown }).palette)
-      ? (bootstrap as Readonly<AnonymousThemePreference>)
-      : undefined;
+  const validatedBootstrap = parseAppearancePreference(bootstrap) ?? undefined;
   if (
     authority === "anonymous" &&
     previousAuthority === "anonymous" &&
@@ -109,11 +119,13 @@ export const reconcileThemeAuthorityTransition = ({
   )
     return;
   const preference = validatedBootstrap ?? initialPreference;
-  const state = store.getState();
-  if (state.themeMode !== preference.themeMode)
-    state.setThemeMode(preference.themeMode);
-  if (state.palette !== preference.palette)
-    state.setPalette(preference.palette);
+  if (!isSameAppearance(store.getState(), preference))
+    store.setState({
+      density: preference.density,
+      fontSize: preference.fontSize,
+      radius: preference.radius,
+      theme: preference.theme,
+    });
 };
 
 const ThemeEffects = ({
@@ -124,7 +136,7 @@ const ThemeEffects = ({
   readonly themeAuthority: ThemeAuthority;
 }) => {
   const store = useUiStoreApi();
-  const themeMode = useUiState((state) => state.themeMode);
+  const theme = useUiState((state) => state.theme);
   const [reconciliationVersion, setReconciliationVersion] = useState(0);
   const authorityRef = useRef(themeAuthority);
   const reconciledAuthorityRef = useRef<ThemeAuthority | undefined>(undefined);
@@ -175,7 +187,12 @@ const ThemeEffects = ({
     };
   }, [reconciliationVersion, store]);
 
-  return <Toaster theme={themeMode} />;
+  if (reconciliationVersion === 0) return null;
+  return (
+    <Suspense fallback={null}>
+      <LazyToaster theme={themeColorScheme(theme)} />
+    </Suspense>
+  );
 };
 
 const SemanticThemeProvider = ({
@@ -186,8 +203,10 @@ const SemanticThemeProvider = ({
   readonly themeAuthority: ThemeAuthority;
 }) => {
   const store = useUiStoreApi();
-  const palette = useUiState((state) => state.palette);
-  const themeMode = useUiState((state) => state.themeMode);
+  const theme = useUiState((state) => state.theme);
+  const fontSize = useUiState((state) => state.fontSize);
+  const density = useUiState((state) => state.density);
+  const radius = useUiState((state) => state.radius);
   const onPreferenceChange = useCallback(
     (preference: AnonymousThemePreference) => {
       if (themeAuthority !== "anonymous") return;
@@ -199,7 +218,7 @@ const SemanticThemeProvider = ({
   return (
     <ThemeProvider
       onPreferenceChange={onPreferenceChange}
-      preference={{ palette, themeMode }}
+      preference={{ density, fontSize, radius, theme }}
     >
       {children}
     </ThemeProvider>

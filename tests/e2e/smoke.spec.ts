@@ -1,6 +1,12 @@
 import { expect, expectHydrated, test } from "./fixtures.ts";
 
-const THEME_TRIGGER_NAME = "Theme settings";
+const THEME_TRIGGER_NAME = "Appearance settings";
+const APPEARANCE_SUBMENU_NAMES = [
+  /^Theme/u,
+  /^Font size/u,
+  /^Density/u,
+  /^Roundness/u,
+] as const;
 
 const viewportCases = [
   { height: 812, name: "mobile", width: 375 },
@@ -23,7 +29,7 @@ test("home page exposes its foundation identity and journey", async ({
   await expect(
     page
       .getByRole("banner")
-      .getByRole("link", { name: "DarkFactory", exact: true })
+      .getByRole("link", { exact: true, name: "DarkFactory" })
   ).toBeVisible();
   await expect(
     page.getByRole("heading", {
@@ -96,6 +102,7 @@ for (const viewport of viewportCases) {
     }
 
     const themeTrigger = page.getByRole("button", {
+      exact: true,
       name: THEME_TRIGGER_NAME,
     });
     await expect(themeTrigger).toBeVisible();
@@ -103,7 +110,18 @@ for (const viewport of viewportCases) {
     await themeTrigger.focus();
     await expect(themeTrigger).toBeFocused();
     await themeTrigger.press("ArrowDown");
-    await expect(page.getByRole("menu")).toBeVisible();
+    const appearanceMenu = page.getByRole("menu");
+    await expect(appearanceMenu).toBeVisible();
+    const submenuTriggers = appearanceMenu.getByRole("menuitem");
+    await expect(submenuTriggers).toHaveCount(APPEARANCE_SUBMENU_NAMES.length);
+    for (const [index, name] of APPEARANCE_SUBMENU_NAMES.entries()) {
+      await expect(submenuTriggers.nth(index)).toHaveAccessibleName(name);
+      await expect(submenuTriggers.nth(index)).toHaveAttribute(
+        "aria-haspopup",
+        "menu"
+      );
+    }
+    await expect(submenuTriggers.first()).toBeFocused();
     await page.keyboard.press("Escape");
     await expect(page.getByRole("menu")).toBeHidden();
     await expect(themeTrigger).toBeFocused();

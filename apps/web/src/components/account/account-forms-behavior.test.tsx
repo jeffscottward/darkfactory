@@ -65,10 +65,10 @@ const formRuntime = vi.hoisted(() => {
   };
 
   const validatorContext = (name: string): ValidatorContext => ({
-    value: values[name],
     fieldApi: {
       form: { getFieldValue: (fieldName) => values[fieldName] },
     },
+    value: values[name],
   });
 
   const validate = (name: string, trigger: "onBlur" | "onSubmit"): void => {
@@ -216,7 +216,7 @@ const formRuntime = vi.hoisted(() => {
       config = nextConfig;
       controls.clear();
       buttons.clear();
-      return { Field, Subscribe, handleSubmit: submit };
+      return { Field, handleSubmit: submit, Subscribe };
     },
   };
 });
@@ -230,40 +230,42 @@ import { PasswordForm } from "./security-panel.tsx";
 
 const updatedAt = new Date("2026-01-02T00:00:00.000Z");
 const address = {
+  city: "Example City",
+  country: "US",
+  createdAt: new Date("2026-01-01T00:00:00.000Z"),
   id: "address-1",
-  type: "work" as const,
+  isPrimary: true,
   line1: "100 Example Avenue",
   line2: "Suite 200",
-  city: "Example City",
-  region: "DC",
   postalCode: "20001",
-  country: "US",
-  isPrimary: true,
-  createdAt: new Date("2026-01-01T00:00:00.000Z"),
+  region: "DC",
+  type: "work" as const,
   updatedAt,
 };
 const profile = {
-  firstName: "Alice",
-  lastName: "Adams",
-  displayName: "Alice A.",
   avatarUrl: "https://placehold.co/96x96",
-  phone: "+1 202-555-0100",
-  businessName: "Alice & Co.",
-  jobTitle: "Builder",
   biography: "Maintains an owner-visible example profile.",
-  timezone: "America/New_York",
-  locale: "en-US",
+  businessName: "Alice & Co.",
   dateOfBirth: "1990-01-02",
+  displayName: "Alice A.",
+  firstName: "Alice",
+  jobTitle: "Builder",
+  lastName: "Adams",
+  locale: "en-US",
+  phone: "+1 202-555-0100",
+  timezone: "America/New_York",
   updatedAt,
 };
 const preferences = {
-  themeMode: "system" as const,
-  palette: "neutral" as const,
-  emailNotifications: true,
-  productUpdates: false,
   analyticsConsent: false,
+  density: "default" as const,
+  emailNotifications: true,
+  fontSize: "default" as const,
   personalizationConsent: true,
+  productUpdates: false,
   profileVisibility: "private" as const,
+  radius: "small" as const,
+  theme: "system" as const,
   updatedAt,
 };
 
@@ -374,14 +376,14 @@ describe("address form behavior", () => {
 
     await formRuntime.submit();
     return expect(onSave).toHaveBeenCalledWith({
-      type: "work",
-      line1: "100 Example Avenue",
-      line2: "Suite 200",
       city: "Example City",
-      region: "DC",
-      postalCode: "20001",
       country: "US",
       isPrimary: true,
+      line1: "100 Example Avenue",
+      line2: "Suite 200",
+      postalCode: "20001",
+      region: "DC",
+      type: "work",
     });
   });
 
@@ -405,10 +407,10 @@ describe("address form behavior", () => {
     formRuntime.changeText("line2", "");
     await formRuntime.submit();
     return expect(onSave).toHaveBeenCalledWith({
-      id: address.id,
-      expectedUpdatedAt: address.updatedAt,
-      line2: null,
       city: "Changed City",
+      expectedUpdatedAt: address.updatedAt,
+      id: address.id,
+      line2: null,
     });
   });
 
@@ -515,13 +517,13 @@ describe("profile form behavior", () => {
     formRuntime.changeText("dateOfBirth", "");
     await formRuntime.submit();
     return expect(onSave).toHaveBeenCalledWith({
-      expectedUpdatedAt: profile.updatedAt,
-      firstName: null,
       avatarUrl: null,
       biography: "Updated owner biography.",
-      timezone: "UTC",
-      locale: "en-GB",
       dateOfBirth: null,
+      expectedUpdatedAt: profile.updatedAt,
+      firstName: null,
+      locale: "en-GB",
+      timezone: "UTC",
     });
   });
 
@@ -687,15 +689,15 @@ describe("native account form submission", () => {
   it("initializes every nullable profile field, focuses invalid required input, and submits through the native boundary", async () => {
     const nullableProfile = {
       ...profile,
-      firstName: null,
-      lastName: null,
-      displayName: null,
       avatarUrl: null,
-      phone: null,
-      businessName: null,
-      jobTitle: null,
       biography: null,
+      businessName: null,
       dateOfBirth: null,
+      displayName: null,
+      firstName: null,
+      jobTitle: null,
+      lastName: null,
+      phone: null,
     };
     const focus = vi.fn();
     const querySelector = vi
@@ -776,17 +778,16 @@ describe("native account form submission", () => {
 });
 
 describe("preferences form behavior", () =>
-  it("updates every owner choice, preserves accessible help, and exposes native pending state", async () => {
+  it("updates every owner choice without appearance controls and exposes native pending state", async () => {
     const save = deferred<void>();
     const onSave = vi.fn(() => save.promise);
     let tree = PreferencesForm({ initialPreferences: preferences, onSave });
     let html = renderToStaticMarkup(tree);
-    expect(html).toContain(
-      "Current appearance: System mode with the Neutral palette."
-    );
+    expect(html).not.toContain("Current appearance");
+    expect(html).toContain("Notifications and consent");
     expect(
       formRuntime.control("profileVisibility").props["aria-describedby"]
-    ).toBe("profileVisibility-help");
+    ).toBeUndefined();
     expect(formRuntime.button("Save preferences").props["disabled"]).toBe(true);
 
     formRuntime.changeChecked("emailNotifications", false);
@@ -813,11 +814,11 @@ describe("preferences form behavior", () =>
     expect(event.preventDefault).toHaveBeenCalledOnce();
     expect(event.stopPropagation).toHaveBeenCalledOnce();
     expect(onSave).toHaveBeenCalledWith({
-      expectedUpdatedAt: preferences.updatedAt,
-      emailNotifications: false,
-      productUpdates: true,
       analyticsConsent: true,
+      emailNotifications: false,
+      expectedUpdatedAt: preferences.updatedAt,
       personalizationConsent: false,
+      productUpdates: true,
       profileVisibility: "public",
     });
     tree = PreferencesForm({ initialPreferences: preferences, onSave });

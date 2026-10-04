@@ -13,13 +13,13 @@ vi.mock("../features/generated-navigation.ts", () => ({
 
 import {
   EXPOSED_ROUTE_PATHS,
-  PORTAL_NAVIGATION,
+  FEATURE_NAVIGATION,
   ROUTE_PAGE_FILES,
 } from "./navigation.ts";
 
 describe("navigation composition", () => {
   it("projects generated destinations into portal and route manifests", () => {
-    expect(PORTAL_NAVIGATION).toContainEqual({
+    expect(FEATURE_NAVIGATION).toContainEqual({
       label: "Generated reports",
       href: "/reports",
       icon: LayoutList,
@@ -31,7 +31,7 @@ describe("navigation composition", () => {
   });
 
   return it("keeps the local operator outside product navigation", () => {
-    expect(PORTAL_NAVIGATION.some((item) => item.href === "/operator")).toBe(
+    expect(FEATURE_NAVIGATION.some((item) => item.href === "/operator")).toBe(
       false
     );
     expect(EXPOSED_ROUTE_PATHS).not.toContain("/operator");

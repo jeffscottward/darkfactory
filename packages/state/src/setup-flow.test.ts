@@ -90,9 +90,9 @@ describe("setupFlowMachine", () => {
   it("preserves context when the preferences assignment receives another event", () => {
     const context: SetupFlowContext = {
       detailsComplete: true,
+      error: null,
       preferencesComplete: false,
       submissionAttempts: 0,
-      error: null,
     };
     const action = setupFlowMachine.implementations.actions[
       "setPreferencesComplete"
@@ -116,9 +116,9 @@ describe("setupFlowMachine", () => {
     (name) => {
       const context: SetupFlowContext = {
         detailsComplete: true,
+        error: null,
         preferencesComplete: false,
         submissionAttempts: 0,
-        error: null,
       };
       const action = setupFlowMachine.implementations.actions[
         name
@@ -142,7 +142,7 @@ describe("setupFlowMachine", () => {
     const actor = startFlow();
 
     actor.send({ type: "SUCCEED" });
-    actor.send({ type: "FAIL", message: "must be ignored" });
+    actor.send({ message: "must be ignored", type: "FAIL" });
 
     expect(actor.getSnapshot().value).toBe("details");
     expect(actor.getSnapshot().context.error).toBeNull();
@@ -158,14 +158,14 @@ describe("setupFlowMachine", () => {
     actor.send({ type: "SET_PREFERENCES_COMPLETE", value: true });
     actor.send({ type: "NEXT" });
     actor.send({ type: "SUBMIT" });
-    actor.send({ type: "FAIL", message: "Connection interrupted" });
+    actor.send({ message: "Connection interrupted", type: "FAIL" });
 
     expect(actor.getSnapshot().value).toBe("failure");
     expect(actor.getSnapshot().context).toEqual({
       detailsComplete: true,
+      error: "Connection interrupted",
       preferencesComplete: true,
       submissionAttempts: 1,
-      error: "Connection interrupted",
     });
 
     actor.send({ type: "RETRY" });
@@ -174,7 +174,7 @@ describe("setupFlowMachine", () => {
     expect(actor.getSnapshot().context.submissionAttempts).toBe(2);
     expect(actor.getSnapshot().context.error).toBeNull();
 
-    actor.send({ type: "FAIL", message: "Still unavailable" });
+    actor.send({ message: "Still unavailable", type: "FAIL" });
     actor.send({ type: "BACK" });
     expect(actor.getSnapshot().value).toBe("review");
     expect(actor.getSnapshot().context.error).toBeNull();

@@ -14,7 +14,7 @@ export default async function OperatorRunPage({
 }: OperatorRunPageProps) {
   const { id } = await params;
   return (
-    <div className="space-y-10">
+    <div className="space-y-4">
       <PageHeader
         actions={
           <a className={buttonVariants({ variant: "ghost" })} href="/operator">
@@ -22,8 +22,6 @@ export default async function OperatorRunPage({
             Back to operator
           </a>
         }
-        description="Review the conversation and latest plan. Request changes or approve before code work begins."
-        eyebrow="Operator"
         title="Review plan and monitor work"
       />
       <OperatorRunDetail id={id} />

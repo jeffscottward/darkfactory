@@ -59,8 +59,10 @@ const DEFAULT_PROFILE: ProfileOutput = Object.freeze({
   updatedAt: null,
 });
 const DEFAULT_PREFERENCES: PreferencesOutput = Object.freeze({
-  themeMode: "system",
-  palette: "neutral",
+  theme: "system",
+  fontSize: "default",
+  density: "default",
+  radius: "small",
   emailNotifications: true,
   productUpdates: true,
   analyticsConsent: false,
@@ -84,8 +86,10 @@ const toProfileOutput = (profile: Profile): ProfileOutput => ({
   updatedAt: profile.updatedAt,
 });
 const toPreferencesOutput = (value: UserPreferences): PreferencesOutput => ({
-  themeMode: value.mode,
-  palette: value.colorScheme,
+  theme: value.theme,
+  fontSize: value.fontSize,
+  density: value.density,
+  radius: value.radius,
   emailNotifications: value.emailNotifications,
   productUpdates: value.productUpdates,
   analyticsConsent: value.analyticsConsent,

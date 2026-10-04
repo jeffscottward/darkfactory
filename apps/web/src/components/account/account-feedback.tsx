@@ -15,7 +15,7 @@ export const AccountFeedbackMessage = ({
     <p
       aria-live="polite"
       className={cn(
-        "border-l-2 py-2 pl-3 text-sm",
+        "border-l-2 py-1 pl-3 text-sm",
         feedback.tone === "error" && "border-destructive text-destructive",
         feedback.tone === "success" && "border-primary text-foreground",
         feedback.tone === "info" && "border-border-strong text-muted-foreground"

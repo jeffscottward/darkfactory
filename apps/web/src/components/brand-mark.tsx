@@ -4,7 +4,7 @@ import type { ComponentPropsWithRef } from "react";
 const BrandMark = ({ className, ...props }: ComponentPropsWithRef<"svg">) => (
   <svg
     aria-hidden="true"
-    className={cn("size-6 shrink-0", className)}
+    className={cn("size-5 shrink-0", className)}
     fill="none"
     viewBox="0 0 32 32"
     xmlns="http://www.w3.org/2000/svg"
@@ -20,7 +20,7 @@ const BrandMark = ({ className, ...props }: ComponentPropsWithRef<"svg">) => (
 export const BrandLink = ({ className }: { readonly className?: string }) => (
   <a
     className={cn(
-      "inline-flex min-h-11 items-center gap-3 rounded-md font-heading font-semibold text-base text-foreground tracking-tight transition-colors duration-base ease-out hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background",
+      "inline-flex min-h-11 items-center gap-2 rounded-md font-heading font-semibold text-base text-foreground tracking-tight transition-colors duration-base ease-out hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background",
       className
     )}
     href="/"

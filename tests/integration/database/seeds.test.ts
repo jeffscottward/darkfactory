@@ -294,15 +294,17 @@ describe("DF-040 and DF-046 through DF-050 development seeds", {
     ]);
 
     const preferences = await testDatabase.query(
-      `SELECT user_id, mode, color_scheme, email_notifications, product_updates,
+      `SELECT user_id, theme, font_size, density, radius, email_notifications, product_updates,
               analytics_consent, personalization_consent, profile_visibility
        FROM user_preferences ORDER BY user_id`
     );
     expect(preferences).toEqual([
       {
         user_id: IDS.users[0],
-        mode: "system",
-        color_scheme: "neutral",
+        theme: "system",
+        font_size: "default",
+        density: "default",
+        radius: "small",
         email_notifications: false,
         product_updates: false,
         analytics_consent: false,
@@ -311,8 +313,10 @@ describe("DF-040 and DF-046 through DF-050 development seeds", {
       },
       {
         user_id: IDS.users[1],
-        mode: "dark",
-        color_scheme: "violet",
+        theme: "nord",
+        font_size: "large",
+        density: "comfortable",
+        radius: "medium",
         email_notifications: true,
         product_updates: true,
         analytics_consent: true,
@@ -321,8 +325,10 @@ describe("DF-040 and DF-046 through DF-050 development seeds", {
       },
       {
         user_id: IDS.users[2],
-        mode: "light",
-        color_scheme: "blue",
+        theme: "tokyo-night",
+        font_size: "small",
+        density: "compact",
+        radius: "none",
         email_notifications: false,
         product_updates: true,
         analytics_consent: false,
@@ -485,8 +491,8 @@ describe("DF-040 and DF-046 through DF-050 development seeds", {
       ["Drifted", IDS.users[0]]
     );
     await testDatabase.query(
-      "UPDATE user_preferences SET mode = $1 WHERE user_id = $2",
-      ["dark", IDS.users[0]]
+      "UPDATE user_preferences SET theme = $1 WHERE user_id = $2",
+      ["nord", IDS.users[0]]
     );
     await testDatabase.query("UPDATE addresses SET city = $1 WHERE id = $2", [
       "Drifted",
@@ -499,7 +505,7 @@ describe("DF-040 and DF-046 through DF-050 development seeds", {
 
     await seed();
     const [repaired] = await testDatabase.query(
-      `SELECT u.name, u.role, u.status, p.business_name, preferences.mode,
+      `SELECT u.name, u.role, u.status, p.business_name, preferences.theme,
               address.city, item.status AS feature_status
        FROM "user" AS u
        JOIN profiles AS p ON p.user_id = u.id
@@ -514,7 +520,7 @@ describe("DF-040 and DF-046 through DF-050 development seeds", {
       role: "admin",
       status: "active",
       business_name: "Example Operations",
-      mode: "system",
+      theme: "system",
       city: "Example City",
       feature_status: "active",
     });

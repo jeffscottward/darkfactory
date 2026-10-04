@@ -66,7 +66,7 @@ export const PublicHeader = ({
       className="sticky top-0 z-overlay border-border border-b bg-background"
       ref={headerRef}
     >
-      <div className="df-container flex min-h-18 items-center justify-between gap-4">
+      <div className="df-container flex min-h-14 items-center justify-between gap-4">
         <BrandLink />
         {navigation.showNavigation ? (
           <nav aria-label="Primary navigation" className="hidden lg:block">
@@ -131,8 +131,8 @@ export const PublicFooter = ({
 }: PublicNavigationProps) => {
   const navigation = getPublicNavigationModel(availableRoutes);
   return (
-    <footer className="border-border border-t py-10">
-      <div className="df-container flex flex-col gap-8 lg:flex-row lg:items-end lg:justify-between">
+    <footer className="border-border border-t py-6">
+      <div className="df-container flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
         <div className="max-w-md space-y-3">
           <BrandLink />
           <p className="text-muted-foreground text-sm leading-6">

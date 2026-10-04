@@ -1,17 +1,34 @@
-export const PALETTES = Object.freeze([
-  "neutral",
-  "slate",
-  "blue",
-  "cyan",
-  "green",
-  "amber",
-  "orange",
-  "red",
-  "rose",
-  "violet",
+// What: Canonical appearance identifiers (theme, font size, density, roundness) and UI preference defaults.
+// Used by: packages/state/src/client.ts, apps/web/src/lib/theme.ts.
+// See: packages/ui/src/themes.ts; packages/db/src/schema/index.ts#APPEARANCE_THEMES.
+export const THEMES = Object.freeze([
+  "system",
+  "default-dark",
+  "default-light",
+  "tokyo-night",
+  "catppuccin-mocha",
+  "catppuccin-latte",
+  "gruvbox-dark",
+  "nord",
+  "everforest",
+  "rose-pine",
+  "kanagawa",
 ] as const);
 
-export const THEME_MODES = Object.freeze(["light", "dark", "system"] as const);
+export const FONT_SIZES = Object.freeze(["small", "default", "large"] as const);
+
+export const DENSITIES = Object.freeze([
+  "compact",
+  "default",
+  "comfortable",
+] as const);
+
+export const RADII = Object.freeze([
+  "none",
+  "small",
+  "medium",
+  "large",
+] as const);
 
 export const CONSENT_STATES = Object.freeze([
   "granted",
@@ -19,39 +36,82 @@ export const CONSENT_STATES = Object.freeze([
   "unknown",
 ] as const);
 
-export type Palette = (typeof PALETTES)[number];
-export type ThemeMode = (typeof THEME_MODES)[number];
+export type Theme = (typeof THEMES)[number];
+export type FontSize = (typeof FONT_SIZES)[number];
+export type Density = (typeof DENSITIES)[number];
+export type Radius = (typeof RADII)[number];
 export type ConsentState = (typeof CONSENT_STATES)[number];
 export type SidebarState = "expanded" | "collapsed";
 
-export interface UiPreferences {
-  readonly sidebar: SidebarState;
-  readonly mobileNavigationOpen: boolean;
-  readonly themeMode: ThemeMode;
-  readonly palette: Palette;
-  readonly consent: ConsentState;
+export interface AppearancePreference {
+  readonly density: Density;
+  readonly fontSize: FontSize;
+  readonly radius: Radius;
+  readonly theme: Theme;
 }
 
-const paletteNames: ReadonlySet<string> = new Set(PALETTES);
-const themeModeNames: ReadonlySet<string> = new Set(THEME_MODES);
-const consentStateNames: ReadonlySet<string> = new Set(CONSENT_STATES);
+export interface UiPreferences extends AppearancePreference {
+  readonly consent: ConsentState;
+  readonly mobileNavigationOpen: boolean;
+  readonly sidebar: SidebarState;
+}
 
-export const isPalette = (value: unknown): value is Palette => {
-  return typeof value === "string" && paletteNames.has(value);
+const isMember =
+  <Value extends string>(values: readonly Value[]) =>
+  (value: unknown): value is Value =>
+    typeof value === "string" && (values as readonly string[]).includes(value);
+
+export const isTheme = isMember(THEMES);
+export const isFontSize = isMember(FONT_SIZES);
+export const isDensity = isMember(DENSITIES);
+export const isRadius = isMember(RADII);
+export const isConsentState = isMember(CONSENT_STATES);
+
+export const APPEARANCE_KEYS = Object.freeze([
+  "theme",
+  "fontSize",
+  "density",
+  "radius",
+] as const);
+
+/** Returns a copy with only the four appearance fields, or null when any field is not canonical. */
+export const parseAppearancePreference = (
+  value: unknown
+): AppearancePreference | null => {
+  if (typeof value !== "object" || value === null) return null;
+  const theme = Reflect.get(value, "theme");
+  const fontSize = Reflect.get(value, "fontSize");
+  const density = Reflect.get(value, "density");
+  const radius = Reflect.get(value, "radius");
+  if (
+    !(
+      isTheme(theme) &&
+      isFontSize(fontSize) &&
+      isDensity(density) &&
+      isRadius(radius)
+    )
+  )
+    return null;
+  return { density, fontSize, radius, theme };
 };
 
-export const isThemeMode = (value: unknown): value is ThemeMode => {
-  return typeof value === "string" && themeModeNames.has(value);
-};
+export const isSameAppearance = (
+  left: Readonly<AppearancePreference>,
+  right: Readonly<AppearancePreference>
+): boolean => APPEARANCE_KEYS.every((key) => left[key] === right[key]);
 
-export const isConsentState = (value: unknown): value is ConsentState => {
-  return typeof value === "string" && consentStateNames.has(value);
-};
+export const DEFAULT_APPEARANCE: Readonly<AppearancePreference> = Object.freeze(
+  {
+    density: "default",
+    fontSize: "default",
+    radius: "small",
+    theme: "system",
+  }
+);
 
 export const DEFAULT_UI_PREFERENCES: Readonly<UiPreferences> = Object.freeze({
-  sidebar: "expanded",
   mobileNavigationOpen: false,
-  themeMode: "system",
-  palette: "neutral",
+  sidebar: "expanded",
+  ...DEFAULT_APPEARANCE,
   consent: "unknown",
 });

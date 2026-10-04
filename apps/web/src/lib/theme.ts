@@ -1,15 +1,14 @@
 import {
-  DEFAULT_UI_PREFERENCES,
-  isPalette,
-  isThemeMode,
-  type Palette,
-  type ThemeMode,
+  type AppearancePreference,
+  DEFAULT_APPEARANCE,
+  DENSITIES,
+  FONT_SIZES,
+  parseAppearancePreference,
+  RADII,
+  THEMES,
 } from "@darkfactory/state";
 
-export interface AnonymousThemePreference {
-  readonly themeMode: ThemeMode;
-  readonly palette: Palette;
-}
+export type AnonymousThemePreference = AppearancePreference;
 export type ThemeAuthority = "indeterminate" | "anonymous" | "trusted";
 
 export const shouldPersistAnonymousLocalState = (
@@ -17,16 +16,13 @@ export const shouldPersistAnonymousLocalState = (
 ): boolean => authority === "anonymous";
 
 export const DEFAULT_ANONYMOUS_THEME: Readonly<AnonymousThemePreference> =
-  Object.freeze({
-    themeMode: DEFAULT_UI_PREFERENCES.themeMode,
-    palette: DEFAULT_UI_PREFERENCES.palette,
-  });
+  DEFAULT_APPEARANCE;
 
-export const THEME_STORAGE_KEY = "darkfactory.anonymous-ui.v1" as const;
+export const THEME_STORAGE_KEY = "darkfactory.anonymous-ui.v2" as const;
 export const MAX_ANONYMOUS_THEME_SNAPSHOT_LENGTH = 128 as const;
 const THEME_COOKIE_NAME = "darkfactory-theme" as const;
 export const MAX_COOKIE_HEADER_LENGTH = 32_768 as const;
-export const MAX_THEME_COOKIE_VALUE_LENGTH = 64 as const;
+export const MAX_THEME_COOKIE_VALUE_LENGTH = 96 as const;
 
 export type ThemeCookieParseResult =
   | Readonly<{ status: "missing" }>
@@ -79,14 +75,17 @@ export const parseThemeCookieHeader = (
     return { status: "invalid" };
 
   try {
-    const [themeMode, palette, extra] =
+    const [theme, fontSize, density, radius, extra] =
       decodeURIComponent(encodedValue).split(":");
-    if (extra !== undefined || !isThemeMode(themeMode) || !isPalette(palette))
+    const preference = parseAppearancePreference({
+      density,
+      fontSize,
+      radius,
+      theme,
+    });
+    if (extra !== undefined || preference === null)
       return { status: "invalid" };
-    return {
-      status: "valid",
-      preference: { themeMode, palette },
-    };
+    return { preference, status: "valid" };
   } catch {
     return { status: "invalid" };
   }
@@ -96,26 +95,31 @@ export const themeDomAttributes = (
   preference: Readonly<AnonymousThemePreference>
 ) =>
   ({
-    "data-mode": preference.themeMode,
-    "data-palette": preference.palette,
-    colorScheme:
-      preference.themeMode === "system" ? "light dark" : preference.themeMode,
+    "data-density": preference.density,
+    "data-font-size": preference.fontSize,
+    "data-radius": preference.radius,
+    "data-theme": preference.theme,
   }) as const;
 
 export const serializeThemeCookie = (
   preference: Readonly<AnonymousThemePreference>
 ): string =>
-  `${THEME_COOKIE_NAME}=${encodeURIComponent(`${preference.themeMode}:${preference.palette}`)}; Path=/; Max-Age=31536000; SameSite=Lax; Secure`;
+  `${THEME_COOKIE_NAME}=${encodeURIComponent(`${preference.theme}:${preference.fontSize}:${preference.density}:${preference.radius}`)}; Path=/; Max-Age=31536000; SameSite=Lax; Secure`;
 
 export const THEME_BOOTSTRAP_PATH = "/theme-bootstrap.js" as const;
+
+const json = (value: unknown): string => JSON.stringify(value);
 
 export const THEME_BOOTSTRAP_SCRIPT = `(() => {
   const root = document.documentElement;
   const authority = root.dataset.themeAuthority;
-  const fallback = {
-    themeMode: root.dataset.mode === "light" || root.dataset.mode === "dark" ? root.dataset.mode : "system",
-    palette: ["neutral", "slate", "blue", "cyan", "green", "amber", "orange", "red", "rose", "violet"].includes(root.dataset.palette) ? root.dataset.palette : "neutral"
-  };
+  const lists = { theme: ${json(THEMES)}, fontSize: ${json(FONT_SIZES)}, density: ${json(DENSITIES)}, radius: ${json(RADII)} };
+  const defaults = ${json(DEFAULT_APPEARANCE)};
+  const fallback = {};
+  for (const key of Object.keys(lists)) {
+    const value = root.dataset[key];
+    fallback[key] = lists[key].includes(value) ? value : defaults[key];
+  }
   let preference = fallback;
   const cookieStatus = root.dataset.themeCookieStatus;
   let source = authority === "anonymous" && cookieStatus === "valid" ? "cookie" : "server";
@@ -126,18 +130,16 @@ export const THEME_BOOTSTRAP_SCRIPT = `(() => {
         const snapshot = JSON.parse(serialized);
         if (
           snapshot
-          && Object.keys(snapshot).length === 3
-          && snapshot.version === 1
-          && ["light", "dark", "system"].includes(snapshot.themeMode)
-          && ["neutral", "slate", "blue", "cyan", "green", "amber", "orange", "red", "rose", "violet"].includes(snapshot.palette)
+          && Object.keys(snapshot).length === 5
+          && snapshot.version === 2
+          && Object.keys(lists).every((key) => lists[key].includes(snapshot[key]))
         ) {
-          preference = { themeMode: snapshot.themeMode, palette: snapshot.palette };
+          preference = { theme: snapshot.theme, fontSize: snapshot.fontSize, density: snapshot.density, radius: snapshot.radius };
           source = "localStorage";
         }
       }
     } catch {}
   }
-  root.dataset.mode = preference.themeMode;
-  root.dataset.palette = preference.palette;
+  for (const key of Object.keys(lists)) root.dataset[key] = preference[key];
   window.__DARKFACTORY_THEME__ = Object.freeze({ ...preference, source });
 })();`;

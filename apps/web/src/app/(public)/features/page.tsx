@@ -50,7 +50,7 @@ export default function FeaturesPage() {
     >
       <section
         aria-labelledby="core-capabilities-title"
-        className="grid gap-12 py-16 md:grid-cols-12 md:py-20"
+        className="grid gap-6 py-8 md:grid-cols-12 md:py-10"
       >
         <div className="md:col-span-4">
           <h2
@@ -67,7 +67,7 @@ export default function FeaturesPage() {
         <dl className="divide-y divide-border border-border border-y md:col-span-7 md:col-start-6">
           {coreCapabilities.map((capability) => (
             <div
-              className="grid gap-3 py-8 sm:grid-cols-5"
+              className="grid gap-3 py-5 sm:grid-cols-5"
               key={capability.title}
             >
               <dt className="font-heading font-semibold text-foreground text-xl tracking-tight sm:col-span-2">
@@ -83,9 +83,9 @@ export default function FeaturesPage() {
 
       <section
         aria-labelledby="operations-title"
-        className="border-border border-y bg-surface py-16 md:py-20"
+        className="border-border border-y bg-surface py-8 md:py-10"
       >
-        <div className="grid gap-10 md:grid-cols-12">
+        <div className="grid gap-6 md:grid-cols-12">
           <div className="md:col-span-5">
             <p className="font-semibold text-primary text-sm tracking-wide">
               Operational confidence
@@ -97,7 +97,7 @@ export default function FeaturesPage() {
               Evidence without provider lock-in.
             </h2>
           </div>
-          <div className="grid gap-8 md:col-span-6 md:col-start-7">
+          <div className="grid gap-5 md:col-span-6 md:col-start-7">
             {operationalCapabilities.map((capability) => (
               <article key={capability.title}>
                 <h3 className="font-heading font-semibold text-foreground text-xl tracking-tight">
@@ -114,7 +114,7 @@ export default function FeaturesPage() {
 
       <section
         aria-labelledby="generator-title"
-        className="grid gap-12 py-16 md:grid-cols-12 md:py-20"
+        className="grid gap-6 py-8 md:grid-cols-12 md:py-10"
       >
         <div className="md:col-span-5">
           <p className="font-semibold text-primary text-sm tracking-wide">
@@ -126,7 +126,7 @@ export default function FeaturesPage() {
           >
             A safe workflow, not a string-replacement shortcut.
           </h2>
-          <p className="mt-5 text-base text-muted-foreground leading-7">
+          <p className="mt-3 text-base text-muted-foreground leading-7">
             The generator contract updates the feature name, contracts, routes,
             database plan, tests, exports, documentation, and repository graph
             together. Existing targets are never silently overwritten.
@@ -150,7 +150,7 @@ export default function FeaturesPage() {
               )
             )}
           </ol>
-          <p className="mt-5 text-muted-foreground text-sm leading-6">
+          <p className="mt-3 text-muted-foreground text-sm leading-6">
             The CLI delegates to these composed stages; business and filesystem
             rules do not accumulate in the command handler.
           </p>
@@ -159,7 +159,7 @@ export default function FeaturesPage() {
 
       <section
         aria-labelledby="features-next-title"
-        className="grid gap-8 border-border border-t pt-12 md:grid-cols-12 md:items-end"
+        className="grid gap-5 border-border border-t pt-6 md:grid-cols-12 md:items-end"
       >
         <div className="md:col-span-7">
           <h2

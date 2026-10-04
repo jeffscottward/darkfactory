@@ -1,13 +1,8 @@
 import type { AddressOutput } from "@darkfactory/api";
-import {
-  Button,
-  buttonVariants,
-  EmptyState,
-  Skeleton,
-  StatusBadge,
-} from "@darkfactory/ui";
-import { MapPin, Plus, RotateCcw } from "lucide-react";
+import { Button, buttonVariants, Skeleton, StatusBadge } from "@darkfactory/ui";
+import { Plus, RotateCcw } from "lucide-react";
 
+import { InlineNotice } from "../inline-notice.tsx";
 import type { AccountFailureKind } from "./account-client.ts";
 import {
   type AccountFeedback,
@@ -37,13 +32,12 @@ const addressLabel = (address: AddressOutput): string =>
   `${address.type} address`;
 
 const LoadingAddresses = () => (
-  <div aria-busy="true" aria-live="polite" className="space-y-4" role="status">
+  <div aria-busy="true" aria-live="polite" className="space-y-1" role="status">
     <span className="sr-only">Loading addresses</span>
     {["one", "two"].map((key) => (
-      <div className="space-y-3 border-border border-b py-5" key={key}>
+      <div className="space-y-1 border-border border-b py-2" key={key}>
         <Skeleton className="h-5 w-32" />
         <Skeleton className="h-4 w-72 max-w-full" />
-        <Skeleton className="h-11 w-48 max-w-full" />
       </div>
     ))}
   </div>
@@ -66,31 +60,33 @@ export const AddressBook = ({
   if (state.type === "error") {
     return (
       <div aria-live="assertive" role="alert">
-        <EmptyState
+        <InlineNotice
           action={
             state.kind === "unauthorized" ? (
               <a
-                className={buttonVariants()}
+                className={buttonVariants({ size: "compact" })}
                 href="/sign-in?callbackURL=%2Faccount%2Faddress"
               >
                 Sign in
               </a>
             ) : state.kind === "forbidden" || state.kind === "not-found" ? (
               <a
-                className={buttonVariants({ variant: "secondary" })}
-                href="/account"
+                className={buttonVariants({
+                  size: "compact",
+                  variant: "secondary",
+                })}
+                href="/account/profile"
               >
                 Back to account
               </a>
             ) : (
-              <Button onClick={onRetry} variant="secondary">
+              <Button onClick={onRetry} size="compact" variant="secondary">
                 <RotateCcw aria-hidden="true" className="size-4" />
                 Try again
               </Button>
             )
           }
-          description={state.message}
-          icon={<RotateCcw />}
+          message={state.message}
           title="Addresses could not be loaded"
         />
       </div>
@@ -98,17 +94,15 @@ export const AddressBook = ({
   }
   if (state.addresses.length === 0) {
     return (
-      <div aria-live="polite" className="space-y-4" role="status">
+      <div aria-live="polite" className="space-y-3" role="status">
         <AccountFeedbackMessage feedback={feedback} />
-        <EmptyState
+        <InlineNotice
           action={
-            <Button id="add-address" onClick={onCreate}>
+            <Button id="add-address" onClick={onCreate} size="compact">
               <Plus aria-hidden="true" className="size-4" />
               Add an address
             </Button>
           }
-          description="Save a home, work, or other address, then choose one primary address."
-          icon={<MapPin />}
           title="No addresses saved"
         />
       </div>
@@ -116,7 +110,7 @@ export const AddressBook = ({
   }
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-3">
       <AccountFeedbackMessage feedback={feedback} />
       <div
         className="divide-y divide-border border-border border-y"
@@ -129,20 +123,20 @@ export const AddressBook = ({
           const isConfirming = confirmingRemoveId === address.id;
           return (
             <article
-              className="grid min-w-0 gap-4 py-5 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-start"
+              className="grid min-w-0 gap-2 py-2 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-start"
               key={address.id}
               role="listitem"
             >
-              <div className="min-w-0 space-y-2">
-                <div className="flex flex-wrap items-center gap-3">
-                  <h2 className="font-heading font-semibold text-foreground text-lg capitalize">
+              <div className="min-w-0 space-y-1">
+                <div className="flex flex-wrap items-center gap-2">
+                  <h2 className="font-heading font-semibold text-base text-foreground capitalize">
                     {address.type}
                   </h2>
                   {address.isPrimary ? (
                     <StatusBadge status="success">Primary</StatusBadge>
                   ) : null}
                 </div>
-                <address className="break-words text-muted-foreground text-sm not-italic leading-6">
+                <address className="break-words text-muted-foreground text-sm not-italic">
                   <span className="block">{address.line1}</span>
                   {address.line2 === null ? null : (
                     <span className="block">{address.line2}</span>
@@ -156,7 +150,7 @@ export const AddressBook = ({
               {isConfirming ? (
                 <div
                   aria-label={`Confirm removal of ${label}`}
-                  className="max-w-sm space-y-3 border-destructive border-l-2 pl-4"
+                  className="max-w-sm space-y-2 border-destructive border-l-2 pl-3"
                   role="alertdialog"
                 >
                   <p className="font-medium text-foreground text-sm">

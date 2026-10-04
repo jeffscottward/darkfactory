@@ -244,7 +244,7 @@ export const AddressPageClient = () => {
   };
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-3">
       {state.type === "ready" &&
       state.addresses.length > 0 &&
       formTarget === null ? (

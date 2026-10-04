@@ -155,13 +155,13 @@ export const FeatureItemsWorkspace = ({
   };
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-3">
       <form
-        className="grid gap-4 border-border border-b pb-6 sm:grid-cols-[minmax(0,1fr)_12rem_auto]"
+        className="grid gap-3 border-border border-b pb-3 sm:grid-cols-[minmax(0,1fr)_12rem_auto]"
         onSubmit={applyFilters}
         role="search"
       >
-        <div className="space-y-2">
+        <div className="space-y-1">
           <Label htmlFor="feature-items-query">Search feature items</Label>
           <Input
             disabled={archivingId !== null}
@@ -172,7 +172,7 @@ export const FeatureItemsWorkspace = ({
             value={query}
           />
         </div>
-        <div className="space-y-2">
+        <div className="space-y-1">
           <Label htmlFor="feature-items-status">Status</Label>
           <select
             className="min-h-11 w-full rounded-md border border-border-strong bg-surface px-3 font-body text-base text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
@@ -205,14 +205,10 @@ export const FeatureItemsWorkspace = ({
           ) : null}
         </div>
       </form>
-      <p className="text-muted-foreground text-xs">
-        Showing up to 50 matching owner-scoped records.
-      </p>
-
       <div
         aria-atomic="true"
         aria-live="polite"
-        className="min-h-6 text-muted-foreground text-sm outline-none"
+        className="text-muted-foreground text-sm outline-none"
         ref={feedbackRef}
         tabIndex={-1}
       >
@@ -232,7 +228,7 @@ export const FeatureItemsWorkspace = ({
         <section
           aria-describedby="archive-confirmation-description"
           aria-labelledby="archive-confirmation-title"
-          className="flex flex-col gap-4 border-warning-border border-y bg-warning-subtle px-4 py-4 sm:flex-row sm:items-center sm:justify-between"
+          className="flex flex-col gap-3 border-warning-border border-y bg-warning-subtle px-3 py-2 sm:flex-row sm:items-center sm:justify-between"
           onKeyDown={(event) => {
             if (event.key === "Escape") return cancelArchive();
             return;

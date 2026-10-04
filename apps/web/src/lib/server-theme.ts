@@ -1,3 +1,5 @@
+import { parseAppearancePreference } from "@darkfactory/state";
+
 import {
   type AnonymousThemePreference,
   DEFAULT_ANONYMOUS_THEME,
@@ -8,6 +10,14 @@ import {
 export type TrustedThemePreferenceLoader = () => Promise<unknown>;
 export const INDETERMINATE_THEME = Symbol("indeterminate-theme");
 
+const TRUSTED_KEYS = Object.freeze([
+  "theme",
+  "fontSize",
+  "density",
+  "radius",
+  "updatedAt",
+]);
+
 const parseTrustedPreference = (
   value: unknown
 ): Readonly<AnonymousThemePreference> | null => {
@@ -15,39 +25,17 @@ const parseTrustedPreference = (
     return null;
   const record = value as Record<string, unknown>;
   const keys = Object.keys(record);
-  const themeMode = record["themeMode"];
-  const palette = record["palette"];
   const updatedAt = record["updatedAt"];
   if (
-    keys.length !== 3 ||
-    !keys.every(
-      (key) => key === "themeMode" || key === "palette" || key === "updatedAt"
-    ) ||
-    typeof themeMode !== "string" ||
-    typeof palette !== "string" ||
-    !["light", "dark", "system"].includes(themeMode) ||
-    ![
-      "neutral",
-      "slate",
-      "blue",
-      "cyan",
-      "green",
-      "amber",
-      "orange",
-      "red",
-      "rose",
-      "violet",
-    ].includes(palette) ||
+    keys.length !== TRUSTED_KEYS.length ||
+    !keys.every((key) => TRUSTED_KEYS.includes(key)) ||
     !(
       updatedAt === null ||
       (updatedAt instanceof Date && Number.isFinite(updatedAt.getTime()))
     )
   )
     return null;
-  return {
-    themeMode: themeMode as AnonymousThemePreference["themeMode"],
-    palette: palette as AnonymousThemePreference["palette"],
-  };
+  return parseAppearancePreference(record);
 };
 
 export interface ResolvedRequestTheme {

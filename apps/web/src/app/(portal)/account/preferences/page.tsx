@@ -1,23 +1,12 @@
-import { PageHeader, SectionHeader } from "@darkfactory/ui";
+import { PageHeader } from "@darkfactory/ui";
 
 import { PreferencesPageClient } from "../../../../components/account/preferences-page-client.tsx";
 
 export default function PreferencesPage() {
   return (
-    <div className="space-y-10">
-      <PageHeader
-        description="Control account appearance, notifications, consent, and profile visibility."
-        eyebrow="Account"
-        title="Preferences"
-      />
-      <section aria-labelledby="account-preferences" className="space-y-6">
-        <SectionHeader
-          description="Update how the portal looks and how your account communicates with you."
-          id="account-preferences"
-          title="Account preferences"
-        />
-        <PreferencesPageClient />
-      </section>
+    <div className="space-y-4">
+      <PageHeader title="Preferences" />
+      <PreferencesPageClient />
     </div>
   );
 }

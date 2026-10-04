@@ -170,7 +170,7 @@ export const AddressForm = ({
 
   return (
     <form
-      className="space-y-6 border-border border-y py-6"
+      className="space-y-3 border-border border-y py-3"
       id="address-form"
       noValidate
       onSubmit={(event) => {
@@ -184,19 +184,16 @@ export const AddressForm = ({
       }}
     >
       <div>
-        <h2 className="font-heading font-semibold text-foreground text-lg">
+        <h2 className="font-heading font-semibold text-base text-foreground">
           {isEditing ? "Edit address" : "Add an address"}
         </h2>
-        <p className="mt-1 text-muted-foreground text-sm">
-          Required fields are marked in their labels.
-        </p>
       </div>
       <AccountFeedbackMessage feedback={feedback} />
-      <div className="grid gap-5 sm:grid-cols-2">
+      <div className="grid gap-3 sm:grid-cols-2">
         <form.Field name="type">
           {(field) => {
             return (
-              <div className="space-y-2">
+              <div className="space-y-1">
                 <Label htmlFor="type">Address type (required)</Label>
                 <select
                   aria-required="true"
@@ -253,8 +250,8 @@ export const AddressForm = ({
                   <div
                     className={
                       definition.name === "line1" || definition.name === "line2"
-                        ? "space-y-2 sm:col-span-2"
-                        : "space-y-2"
+                        ? "space-y-1 sm:col-span-2"
+                        : "space-y-1"
                     }
                   >
                     <Label htmlFor={field.name}>

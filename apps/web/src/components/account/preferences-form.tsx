@@ -19,32 +19,28 @@ const labelFor = (value: string): string =>
 
 const preferenceToggles = [
   {
-    name: "emailNotifications",
     label: "Email notifications",
-    help: "Receive account and security notices by email.",
+    name: "emailNotifications",
   },
   {
-    name: "productUpdates",
     label: "Product updates",
-    help: "Receive release and starter maintenance updates.",
+    name: "productUpdates",
   },
   {
-    name: "analyticsConsent",
     label: "Analytics consent",
-    help: "Allow privacy-aware product analytics for this account.",
+    name: "analyticsConsent",
   },
   {
-    name: "personalizationConsent",
     label: "Personalization consent",
-    help: "Allow saved preferences to tailor the portal experience.",
+    name: "personalizationConsent",
   },
 ] as const;
 
 const preferencesDefaults = (preferences: PreferencesOutput) => ({
-  emailNotifications: preferences.emailNotifications,
-  productUpdates: preferences.productUpdates,
   analyticsConsent: preferences.analyticsConsent,
+  emailNotifications: preferences.emailNotifications,
   personalizationConsent: preferences.personalizationConsent,
+  productUpdates: preferences.productUpdates,
   profileVisibility: preferences.profileVisibility,
 });
 
@@ -83,7 +79,7 @@ export const PreferencesForm = ({
 
   return (
     <form
-      className="space-y-8"
+      className="space-y-4"
       noValidate
       onSubmit={(event) => {
         event.preventDefault();
@@ -92,49 +88,28 @@ export const PreferencesForm = ({
       }}
     >
       <AccountFeedbackMessage feedback={feedback} />
-      <section aria-labelledby="appearance-summary" className="space-y-2">
-        <h2
-          className="font-heading font-semibold text-foreground text-lg"
-          id="appearance-summary"
-        >
-          Appearance
-        </h2>
-        <p className="text-foreground text-sm">
-          Current appearance: {labelFor(initialPreferences.themeMode)} mode with
-          the {labelFor(initialPreferences.palette)} palette.
-        </p>
-        <p className="max-w-reading text-muted-foreground text-sm">
-          Use Theme settings in the top bar to change mode or palette.
-        </p>
-      </section>
-
-      <fieldset className="space-y-3 border-border border-t pt-6">
-        <legend className="font-heading font-semibold text-foreground text-lg">
+      <fieldset className="space-y-1">
+        <legend className="mb-1 font-heading font-semibold text-base text-foreground">
           Notifications and consent
         </legend>
         {preferenceToggles.map((definition) => (
           <form.Field key={definition.name} name={definition.name}>
             {(field) => (
               <label
-                className="flex min-h-11 cursor-pointer items-start gap-3 py-2"
+                className="flex min-h-11 cursor-pointer items-center gap-2"
                 htmlFor={definition.name}
               >
                 <input
                   checked={field.state.value}
-                  className="mt-1 size-5 accent-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                  className="size-4 accent-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
                   id={definition.name}
                   name={definition.name}
                   onBlur={field.handleBlur}
                   onChange={(event) => field.handleChange(event.target.checked)}
                   type="checkbox"
                 />
-                <span>
-                  <span className="block font-medium text-foreground text-sm">
-                    {definition.label}
-                  </span>
-                  <span className="block text-muted-foreground text-sm">
-                    {definition.help}
-                  </span>
+                <span className="font-medium text-foreground text-sm">
+                  {definition.label}
                 </span>
               </label>
             )}
@@ -144,16 +119,9 @@ export const PreferencesForm = ({
 
       <form.Field name="profileVisibility">
         {(field) => (
-          <div className="max-w-md space-y-2 border-border border-t pt-6">
+          <div className="max-w-md space-y-1 border-border border-t pt-3">
             <Label htmlFor="profileVisibility">Profile visibility</Label>
-            <p
-              className="text-muted-foreground text-sm"
-              id="profileVisibility-help"
-            >
-              Choose who may see your non-sensitive profile summary.
-            </p>
             <select
-              aria-describedby="profileVisibility-help"
               className="min-h-11 w-full rounded-sm border border-border-strong bg-surface px-3 text-base text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
               id="profileVisibility"
               name="profileVisibility"

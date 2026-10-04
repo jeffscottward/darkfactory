@@ -1,6 +1,8 @@
 import { readFile } from "node:fs/promises";
 
 import AxeBuilder from "@axe-core/playwright";
+import { createApiClient } from "@darkfactory/api";
+import { type Appearance, THEME_NAMES } from "@darkfactory/ui/themes";
 import type { BrowserContext, Cookie, Page, TestInfo } from "@playwright/test";
 
 import {
@@ -52,7 +54,7 @@ const AXE_VIEWPORTS = [
   { height: 900, name: "desktop", width: 1440 },
 ] as const;
 
-const THEME_TRIGGER_NAME = /^Theme settings(?: unavailable)?$/;
+const THEME_TRIGGER_NAME = /^Appearance settings(?: unavailable)?$/;
 const FONT_RESOURCE_PATTERN_SOURCE = String.raw`\.(?:woff2?|ttf)(?:\?|$)`;
 interface AxeRuleRecord {
   readonly description: string;
@@ -136,9 +138,19 @@ const waitForStableDocument = async (page: Page): Promise<void> => {
     ]);
     await document.fonts.ready;
   });
-  await expect(
-    page.getByRole("button", { name: "Theme settings", exact: true })
-  ).toBeVisible();
+  // Public and auth shells expose the standalone picker; the portal folds it into the user menu.
+  const appearanceControl = page
+    .locator("#application-theme-trigger, #user-menu-trigger")
+    .first();
+  await expect(appearanceControl).toBeVisible();
+  if ((await appearanceControl.getAttribute("id")) === "user-menu-trigger") {
+    await expect(appearanceControl).toHaveAttribute(
+      "data-hydration-state",
+      "ready"
+    );
+  } else {
+    await expect(appearanceControl).toHaveAccessibleName("Appearance settings");
+  }
   await page.evaluate(
     () =>
       new Promise<void>((resolve) => {
@@ -561,7 +573,11 @@ test("@a11y keyboard skip link, focus order, mobile dialog, theme menu, and cont
   await themeTrigger.press("ArrowDown");
   const themeMenu = page.getByRole("menu");
   await expect(themeMenu).toBeVisible();
-  await expect(page.getByRole("menuitemradio").first()).toBeFocused();
+  await expect(page.getByRole("menuitem").first()).toBeFocused();
+  await expect(page.getByRole("menuitem").first()).toHaveAttribute(
+    "aria-haspopup",
+    "menu"
+  );
   await page.keyboard.press("Escape");
   await expect(themeMenu).toBeHidden();
   await expect(themeTrigger).toBeFocused();
@@ -663,9 +679,10 @@ const AUTHENTICATED_SURFACES = [
     path: "/dashboard",
   },
   {
-    heading: "Your account",
+    expectedPath: "/account/profile",
+    heading: "Profile",
     identity: E2E_IDENTITIES.alice,
-    name: "account",
+    name: "account-redirect",
     path: "/account",
   },
   {
@@ -752,14 +769,16 @@ for (const surface of AUTHENTICATED_SURFACES) {
       await page.emulateMedia({ reducedMotion: "reduce" });
       await page.setViewportSize(viewport);
       await ensureAuthenticated(context, page, surface.identity);
-      if (new URL(page.url()).pathname !== surface.path) {
+      const expectedPath =
+        "expectedPath" in surface ? surface.expectedPath : surface.path;
+      if (new URL(page.url()).pathname !== expectedPath) {
         await page.goto(surface.path);
       }
       await waitForStableDocument(page);
-      expect(new URL(page.url()).pathname).toBe(surface.path);
-      await expect(
-        page.getByRole("button", { name: "Sign out", exact: true })
-      ).toBeVisible();
+      expect(new URL(page.url()).pathname).toBe(expectedPath);
+      await expect(page.locator("#user-menu-trigger")).toHaveAccessibleName(
+        surface.identity.name
+      );
       await expect(
         page.getByRole("heading", { level: 1, name: surface.heading })
       ).toBeVisible();
@@ -777,4 +796,164 @@ for (const surface of AUTHENTICATED_SURFACES) {
       );
     });
   }
+}
+
+// Every concrete theme must pass the same WCAG AA axe gate as the default.
+// Anonymous surfaces read the theme cookie; the trusted portal reads the DB preference.
+const CONCRETE_THEMES = THEME_NAMES.filter((theme) => theme !== "system");
+const THEME_COOKIE_NAME = "darkfactory-theme";
+// Bob's seeded preference (packages/db/src/seeds/preferences.ts); restored after each theme.
+const BOB_SEED_APPEARANCE: Appearance = {
+  density: "compact",
+  fontSize: "small",
+  radius: "none",
+  theme: "tokyo-night",
+};
+
+const themeApiFor = (context: BrowserContext, baseURL: string) =>
+  createApiClient({
+    baseUrl: baseURL,
+    fetch: async (request: Request): Promise<Response> => {
+      const method = request.method.toUpperCase();
+      const response = await context.request.fetch(request.url, {
+        data:
+          method === "GET" || method === "HEAD"
+            ? undefined
+            : Buffer.from(await request.arrayBuffer()),
+        failOnStatusCode: false,
+        headers: {
+          ...Object.fromEntries(request.headers.entries()),
+          origin: new URL(request.url).origin,
+          "sec-fetch-site": "same-origin",
+        },
+        method,
+        timeout: 10_000,
+      });
+      return new Response(Uint8Array.from(await response.body()), {
+        headers: response.headers(),
+        status: response.status(),
+        statusText: response.statusText(),
+      });
+    },
+  });
+
+const storeTrustedAppearance = async (
+  context: BrowserContext,
+  baseURL: string,
+  appearance: Appearance
+): Promise<void> => {
+  const api = themeApiFor(context, baseURL);
+  const current = await api.preferences.theme.get({});
+  await api.preferences.theme.update({
+    ...appearance,
+    expectedUpdatedAt: current.updatedAt,
+  });
+};
+
+for (const theme of CONCRETE_THEMES) {
+  test(`@a11y ${theme} theme has no WCAG violations on home, sign-in, dashboard, and the open user menu`, async ({
+    baseURL,
+    context,
+    page,
+  }, testInfo) => {
+    if (baseURL === undefined) {
+      throw new Error("Theme accessibility evidence requires baseURL.");
+    }
+    const appearance: Appearance = {
+      density: "default",
+      fontSize: "default",
+      radius: "small",
+      theme,
+    };
+    const root = page.locator("html");
+    await page.emulateMedia({ reducedMotion: "reduce" });
+    await page.setViewportSize({ height: 900, width: 1440 });
+    await context.addCookies([
+      {
+        name: THEME_COOKIE_NAME,
+        url: baseURL,
+        value: encodeURIComponent(
+          `${appearance.theme}:${appearance.fontSize}:${appearance.density}:${appearance.radius}`
+        ),
+      },
+    ]);
+
+    for (const route of [
+      { name: "home", path: "/", publicLandmarks: true },
+      { name: "sign-in", path: "/sign-in", publicLandmarks: false },
+    ] as const) {
+      const response = await page.goto(route.path);
+      expect(response?.status()).toBe(200);
+      await waitForStableDocument(page);
+      await expect(root).toHaveAttribute("data-theme", theme);
+      await expect(root).toHaveAttribute("data-theme-authority", "anonymous");
+      await assertDocumentContracts(page, route.publicLandmarks);
+      await runAxe(page, testInfo, `theme-${theme}-${route.name}`);
+    }
+
+    await ensureAuthenticated(context, page, E2E_IDENTITIES.bob);
+    let failure: unknown;
+    try {
+      await storeTrustedAppearance(context, baseURL, appearance);
+      await page.goto("/dashboard");
+      await waitForStableDocument(page);
+      await expect(root).toHaveAttribute("data-theme-authority", "trusted");
+      await expect(root).toHaveAttribute("data-theme", theme);
+      await expect(
+        page.getByRole("heading", { level: 1, name: "Dashboard" })
+      ).toBeVisible();
+      await assertDocumentContracts(page, false);
+      await runAxe(page, testInfo, `theme-${theme}-dashboard`, true);
+
+      const userMenuTrigger = page.locator("#user-menu-trigger");
+      await userMenuTrigger.focus();
+      await userMenuTrigger.press("Enter");
+      const userMenu = page.locator("#user-menu-content");
+      await expect(userMenu).toBeVisible();
+      const themeSubmenuTrigger = page.locator("#user-menu-theme-trigger");
+      await themeSubmenuTrigger.focus();
+      await themeSubmenuTrigger.press("ArrowRight");
+      const themeOptions = page.getByRole("group", {
+        exact: true,
+        name: "Theme",
+      });
+      await expect(
+        themeOptions.getByRole("menuitemradio", { checked: true })
+      ).toHaveAttribute("data-state", "checked");
+      await expect(
+        themeOptions.locator(`.theme-swatch[data-theme-swatch="${theme}"]`)
+      ).toBeVisible();
+      // Every popup reference on the open menu must resolve to a rendered menu.
+      expect(
+        await page.evaluate(() =>
+          [
+            ...document.querySelectorAll(
+              '[aria-haspopup="menu"][aria-controls]'
+            ),
+          ].flatMap((element) => {
+            const target = document.getElementById(
+              element.getAttribute("aria-controls") ?? ""
+            );
+            return target?.getAttribute("role") === "menu"
+              ? []
+              : [element.id || element.tagName];
+          })
+        )
+      ).toEqual([]);
+      await runAxe(page, testInfo, `theme-${theme}-user-menu-open`, true);
+      await page.keyboard.press("Escape");
+      await page.keyboard.press("Escape");
+      await expect(userMenu).toBeHidden();
+    } catch (error) {
+      failure = error;
+    }
+    try {
+      await storeTrustedAppearance(context, baseURL, BOB_SEED_APPEARANCE);
+    } catch (error) {
+      failure ??= error;
+    }
+    if (failure !== undefined) {
+      throw failure;
+    }
+  });
 }

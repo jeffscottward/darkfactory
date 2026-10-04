@@ -21,8 +21,7 @@ describe("standalone operator app pages", () => {
     const markup = renderToStaticMarkup(<OperatorPage />);
     expect(operatorMetadata).toEqual({ title: "Operator" });
     expect(markup).toContain("Plan and monitor work");
-    expect(markup).toContain(">Operator<");
-    expect(markup).toContain("Start with a Wayfinder plan");
+    expect(markup).not.toContain("Start with a Wayfinder plan");
     return expect(markup).toContain('data-testid="operator-workspace"');
   });
 
@@ -34,6 +33,6 @@ describe("standalone operator app pages", () => {
     expect(runMetadata).toEqual({ title: "Workflow run" });
     expect(markup).toContain('href="/operator"');
     expect(markup).toContain('data-run-id="run/deep-link"');
-    return expect(markup).toContain("Review the conversation and latest plan");
+    return expect(markup).toContain("Review plan and monitor work");
   });
 });

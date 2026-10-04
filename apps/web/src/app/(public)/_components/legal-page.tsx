@@ -93,7 +93,7 @@ export const LegalPage = ({ kind }: LegalPageProps) => {
     >
       <aside
         aria-labelledby={`${kind}-legal-status-title`}
-        className="my-12 border-border-strong border-y bg-muted py-8 md:my-16"
+        className="my-6 border-border-strong border-y bg-muted py-5 md:my-8"
       >
         <div className="max-w-reading">
           <h2
@@ -113,7 +113,7 @@ export const LegalPage = ({ kind }: LegalPageProps) => {
 
       <article
         aria-labelledby={`${kind}-review-outline-title`}
-        className="grid gap-10 md:grid-cols-12"
+        className="grid gap-6 md:grid-cols-12"
       >
         <div className="md:col-span-4">
           <h2
@@ -131,7 +131,7 @@ export const LegalPage = ({ kind }: LegalPageProps) => {
           {sections.map((section, index) => (
             <section
               aria-labelledby={`${kind}-section-${index + 1}`}
-              className="py-8"
+              className="py-5"
               key={section.title}
             >
               <p className="font-semibold text-muted-foreground text-sm">
@@ -153,7 +153,7 @@ export const LegalPage = ({ kind }: LegalPageProps) => {
 
       <section
         aria-labelledby={`${kind}-before-publishing-title`}
-        className="mt-16 border-border border-t pt-12 md:mt-20"
+        className="mt-16 border-border border-t pt-6 md:mt-20"
       >
         <h2
           className="font-heading font-semibold text-3xl text-foreground tracking-tight"
@@ -161,7 +161,7 @@ export const LegalPage = ({ kind }: LegalPageProps) => {
         >
           Before publishing
         </h2>
-        <ul className="mt-6 grid gap-4 text-base text-muted-foreground leading-7 md:grid-cols-2">
+        <ul className="mt-4 grid gap-4 text-base text-muted-foreground leading-7 md:grid-cols-2">
           <li className="border-border border-t pt-4">
             Verify every statement against configured behavior and data flows.
           </li>

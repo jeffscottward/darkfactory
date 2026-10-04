@@ -229,8 +229,10 @@ const cookieFrom = (response: Response): string => {
 
 type ThemeRpcPayload = Readonly<{
   json: Readonly<{
-    themeMode: string;
-    palette: string;
+    theme: string;
+    fontSize: string;
+    density: string;
+    radius: string;
     updatedAt: string;
   }>;
   meta: readonly (readonly [1, "updatedAt"])[];
@@ -367,8 +369,10 @@ describe("Vinext Cloudflare Worker node-postgres runtime", {
     const initialPayload = (await initial.json()) as ThemeRpcPayload;
     expect(initialPayload).toEqual({
       json: {
-        themeMode: "system",
-        palette: "neutral",
+        theme: "system",
+        fontSize: "default",
+        density: "default",
+        radius: "small",
         updatedAt: expect.stringMatching(
           /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/
         ),
@@ -379,8 +383,10 @@ describe("Vinext Cloudflare Worker node-postgres runtime", {
     const updated = await rpc(
       "preferences/theme/update",
       {
-        themeMode: "dark",
-        palette: "violet",
+        theme: "nord",
+        fontSize: "large",
+        density: "comfortable",
+        radius: "medium",
         expectedUpdatedAt: initialPayload.json.updatedAt,
       },
       cookie,
@@ -390,8 +396,10 @@ describe("Vinext Cloudflare Worker node-postgres runtime", {
     const updatedPayload = (await updated.json()) as ThemeRpcPayload;
     expect(updatedPayload).toEqual({
       json: {
-        themeMode: "dark",
-        palette: "violet",
+        theme: "nord",
+        fontSize: "large",
+        density: "comfortable",
+        radius: "medium",
         updatedAt: expect.stringMatching(
           /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/
         ),
@@ -407,13 +415,22 @@ describe("Vinext Cloudflare Worker node-postgres runtime", {
     await expect(reloaded.json()).resolves.toEqual(updatedPayload);
 
     const stored = await database.query<{
-      mode: string;
-      color_scheme: string;
+      theme: string;
+      font_size: string;
+      density: string;
+      radius: string;
     }>(
-      'SELECT mode, color_scheme FROM user_preferences WHERE user_id = (SELECT id FROM "user" WHERE email = $1)',
+      'SELECT theme, font_size, density, radius FROM user_preferences WHERE user_id = (SELECT id FROM "user" WHERE email = $1)',
       [email]
     );
-    expect(stored).toEqual([{ mode: "dark", color_scheme: "violet" }]);
+    expect(stored).toEqual([
+      {
+        theme: "nord",
+        font_size: "large",
+        density: "comfortable",
+        radius: "medium",
+      },
+    ]);
 
     const openWorkerConnections = await database.query<{ count: number }>(
       "SELECT count(*)::int AS count FROM pg_stat_activity WHERE datname = current_database() AND pid <> pg_backend_pid()"

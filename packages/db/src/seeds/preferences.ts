@@ -9,8 +9,10 @@ export const DEVELOPMENT_PREFERENCES: readonly UpsertUserPreferencesInput[] =
   Object.freeze([
     Object.freeze({
       userId: "00000000-0000-4000-8000-000000000001",
-      mode: "system",
-      colorScheme: "neutral",
+      theme: "system",
+      fontSize: "default",
+      density: "default",
+      radius: "small",
       emailNotifications: false,
       productUpdates: false,
       analyticsConsent: false,
@@ -19,8 +21,10 @@ export const DEVELOPMENT_PREFERENCES: readonly UpsertUserPreferencesInput[] =
     }),
     Object.freeze({
       userId: "00000000-0000-4000-8000-000000000002",
-      mode: "dark",
-      colorScheme: "violet",
+      theme: "nord",
+      fontSize: "large",
+      density: "comfortable",
+      radius: "medium",
       emailNotifications: true,
       productUpdates: true,
       analyticsConsent: true,
@@ -29,8 +33,10 @@ export const DEVELOPMENT_PREFERENCES: readonly UpsertUserPreferencesInput[] =
     }),
     Object.freeze({
       userId: "00000000-0000-4000-8000-000000000003",
-      mode: "light",
-      colorScheme: "blue",
+      theme: "tokyo-night",
+      fontSize: "small",
+      density: "compact",
+      radius: "none",
       emailNotifications: false,
       productUpdates: true,
       analyticsConsent: false,
@@ -44,8 +50,10 @@ const matchesPreferences = (
   expected: UpsertUserPreferencesInput
 ): boolean => {
   return (
-    current.mode === expected.mode &&
-    current.colorScheme === expected.colorScheme &&
+    current.theme === expected.theme &&
+    current.fontSize === expected.fontSize &&
+    current.density === expected.density &&
+    current.radius === expected.radius &&
     current.emailNotifications === expected.emailNotifications &&
     current.productUpdates === expected.productUpdates &&
     current.analyticsConsent === expected.analyticsConsent &&

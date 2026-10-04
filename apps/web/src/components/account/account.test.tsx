@@ -7,10 +7,6 @@ import type {
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
 
-vi.mock("next/navigation", () => ({
-  usePathname: () => "/account/security",
-}));
-
 import {
   accountFailureKind,
   createAccountGateway,
@@ -20,8 +16,6 @@ import {
   safeAccountFeedback,
 } from "./account-client.ts";
 import { AccountFeedbackMessage } from "./account-feedback.tsx";
-import { AccountNavigation } from "./account-navigation.tsx";
-import { AccountNavigationClient } from "./account-navigation-client.tsx";
 import {
   changedPreferencesInput,
   PreferencesForm,
@@ -30,79 +24,46 @@ import { changedProfileInput, ProfileForm } from "./profile-form.tsx";
 import { ProfilePageClient } from "./profile-page-client.tsx";
 
 const profile = {
-  firstName: "Alice",
-  lastName: "Adams",
-  displayName: "Alice A.",
   avatarUrl: "https://placehold.co/96x96",
-  phone: "+1 202-555-0100",
-  businessName: "Alice & Co.",
-  jobTitle: "Builder",
   biography: "Maintains a domain-neutral example profile.",
-  timezone: "America/New_York",
-  locale: "en-US",
+  businessName: "Alice & Co.",
   dateOfBirth: "1990-01-02",
+  displayName: "Alice A.",
+  firstName: "Alice",
+  jobTitle: "Builder",
+  lastName: "Adams",
+  locale: "en-US",
+  phone: "+1 202-555-0100",
+  timezone: "America/New_York",
   updatedAt: new Date("2026-01-02T00:00:00.000Z"),
 };
 
 const preferences = {
-  themeMode: "system" as const,
-  palette: "neutral" as const,
-  emailNotifications: true,
-  productUpdates: false,
   analyticsConsent: false,
+  density: "default" as const,
+  emailNotifications: true,
+  fontSize: "default" as const,
   personalizationConsent: true,
+  productUpdates: false,
   profileVisibility: "private" as const,
+  radius: "small" as const,
+  theme: "system" as const,
   updatedAt: new Date("2026-01-02T00:00:00.000Z"),
 };
 
 const address = {
+  city: "Example City",
+  country: "US",
+  createdAt: new Date("2026-01-01T00:00:00.000Z"),
   id: "address-1",
-  type: "work" as const,
+  isPrimary: false,
   line1: "100 Example Avenue",
   line2: "Suite 200",
-  city: "Example City",
-  region: "DC",
   postalCode: "20001",
-  country: "US",
-  isPrimary: false,
-  createdAt: new Date("2026-01-01T00:00:00.000Z"),
+  region: "DC",
+  type: "work" as const,
   updatedAt: new Date("2026-01-02T00:00:00.000Z"),
 };
-
-describe("account navigation", () => {
-  it("links the summary to every distinct account task", () => {
-    const html = renderToStaticMarkup(
-      <AccountNavigation currentPath="/account" />
-    );
-    for (const href of [
-      "/account/profile",
-      "/account/address",
-      "/account/preferences",
-      "/account/security",
-    ])
-      expect(html).toContain(`href="${href}"`);
-    expect(html).toContain("Profile");
-    expect(html).toContain("Addresses");
-    expect(html).toContain("Preferences");
-    return expect(html).toContain("Security");
-  });
-
-  it("keeps every touch-sized destination visible and exposes the active destination without relying on color", () => {
-    const html = renderToStaticMarkup(
-      <AccountNavigation currentPath="/account/profile" />
-    );
-    expect(html).toContain('aria-current="page"');
-    expect(html).toContain("flex-wrap");
-    expect(html).not.toContain("overflow-x-auto");
-    return expect(html).not.toContain("min-w-max");
-  });
-
-  return it("binds the client navigation to the current pathname accessibly", () => {
-    const html = renderToStaticMarkup(<AccountNavigationClient />);
-    expect(html).toContain('href="/account/security"');
-    return expect(html).toContain('aria-current="page"');
-  });
-});
 
 describe("typed account gateway", () => {
   it("constructs and server-renders loading state without a browser window", () => {
@@ -129,16 +90,16 @@ describe("typed account gateway", () => {
     const updatedPreferences = { ...preferences, productUpdates: true };
     const listedAddresses = [address];
     const account = {
+      addresses: {
+        create: vi.fn(async () => createdAddress),
+        list: vi.fn(async () => listedAddresses),
+        remove: vi.fn(async () => removed),
+        setPrimary: vi.fn(async () => primaryAddress),
+        update: vi.fn(async () => updatedAddress),
+      },
       profile: {
         get: vi.fn(async () => accountProfile),
         update: vi.fn(async () => updatedAccountProfile),
-      },
-      addresses: {
-        list: vi.fn(async () => listedAddresses),
-        create: vi.fn(async () => createdAddress),
-        update: vi.fn(async () => updatedAddress),
-        remove: vi.fn(async () => removed),
-        setPrimary: vi.fn(async () => primaryAddress),
       },
     };
     const apiPreferences = {
@@ -162,19 +123,19 @@ describe("typed account gateway", () => {
       jobTitle: "Maintainer",
     };
     const addressCreateInput: AddressCreateInput = {
-      type: address.type,
-      line1: address.line1,
-      line2: address.line2,
       city: address.city,
-      region: address.region,
-      postalCode: address.postalCode,
       country: address.country,
       isPrimary: false,
+      line1: address.line1,
+      line2: address.line2,
+      postalCode: address.postalCode,
+      region: address.region,
+      type: address.type,
     };
     const addressUpdateInput: AddressUpdateInput = {
-      id: address.id,
-      expectedUpdatedAt: address.updatedAt,
       city: updatedAddress.city,
+      expectedUpdatedAt: address.updatedAt,
+      id: address.id,
     };
     const preferencesInput: PreferencesUpdateInput = {
       expectedUpdatedAt: preferences.updatedAt,
@@ -217,12 +178,12 @@ describe("typed account gateway", () => {
     expect(account.addresses.create).toHaveBeenCalledWith(addressCreateInput);
     expect(account.addresses.update).toHaveBeenCalledWith(addressUpdateInput);
     expect(account.addresses.remove).toHaveBeenCalledWith({
-      id: address.id,
       expectedUpdatedAt: address.updatedAt,
+      id: address.id,
     });
     expect(account.addresses.setPrimary).toHaveBeenCalledWith({
-      id: address.id,
       expectedUpdatedAt: address.updatedAt,
+      id: address.id,
     });
     expect(apiPreferences.get).toHaveBeenCalledWith({});
     return expect(apiPreferences.update).toHaveBeenCalledWith(preferencesInput);
@@ -261,16 +222,16 @@ describe("typed account gateway", () => {
       profile,
     };
     const account = {
+      addresses: {
+        create: vi.fn(),
+        list: vi.fn(async () => []),
+        remove: vi.fn(),
+        setPrimary: vi.fn(),
+        update: vi.fn(),
+      },
       profile: {
         get: vi.fn(async () => accountProfile),
         update: vi.fn(async () => accountProfile),
-      },
-      addresses: {
-        list: vi.fn(async () => []),
-        create: vi.fn(),
-        update: vi.fn(),
-        remove: vi.fn(),
-        setPrimary: vi.fn(),
       },
     };
     const apiPreferences = {
@@ -292,7 +253,8 @@ describe("typed account gateway", () => {
       })
     ).resolves.toMatchObject({ profile: { businessName: "Alice & Co." } });
     await expect(gateway.getPreferences()).resolves.toMatchObject({
-      themeMode: "system",
+      radius: "small",
+      theme: "system",
     });
     await expect(
       gateway.updatePreferences({
@@ -406,22 +368,22 @@ describe("persisted account forms", () => {
     expect(
       changedProfileInput(profile, {
         ...profile,
-        firstName: "   ",
-        lastName: "  Adams  ",
         avatarUrl: "",
         biography: "  Updated owner biography.  ",
-        timezone: "  UTC  ",
-        locale: "  en-GB  ",
         dateOfBirth: "",
+        firstName: "   ",
+        lastName: "  Adams  ",
+        locale: "  en-GB  ",
+        timezone: "  UTC  ",
       })
     ).toEqual({
-      expectedUpdatedAt: profile.updatedAt,
-      firstName: null,
       avatarUrl: null,
       biography: "Updated owner biography.",
-      timezone: "UTC",
-      locale: "en-GB",
       dateOfBirth: null,
+      expectedUpdatedAt: profile.updatedAt,
+      firstName: null,
+      locale: "en-GB",
+      timezone: "UTC",
     });
     return expect(
       changedProfileInput(profile, {
@@ -446,9 +408,16 @@ describe("persisted account forms", () => {
       "profileVisibility",
     ])
       expect(html).toContain(`name="${field}"`);
-    expect(html).not.toContain('name="themeMode"');
-    expect(html).not.toContain('name="palette"');
-    expect(html).toContain("Use Theme settings in the top bar");
+    for (const appearanceField of [
+      "theme",
+      "fontSize",
+      "density",
+      "radius",
+      "themeMode",
+      "palette",
+    ])
+      expect(html).not.toContain(`name="${appearanceField}"`);
+    expect(html).not.toContain("Appearance");
     expect(html).not.toContain("reducedMotion");
     expect(html).not.toContain("Reduced motion");
     expect(html).toContain("Save preferences");
@@ -472,7 +441,7 @@ describe("account feedback accessibility", () =>
 
     const error = renderToStaticMarkup(
       <AccountFeedbackMessage
-        feedback={{ tone: "error", message: "Save failed." }}
+        feedback={{ message: "Save failed.", tone: "error" }}
       />
     );
     expect(error).toContain('role="alert"');
@@ -480,7 +449,7 @@ describe("account feedback accessibility", () =>
 
     const success = renderToStaticMarkup(
       <AccountFeedbackMessage
-        feedback={{ tone: "success", message: "Saved." }}
+        feedback={{ message: "Saved.", tone: "success" }}
       />
     );
     expect(success).toContain('role="status"');
@@ -488,7 +457,7 @@ describe("account feedback accessibility", () =>
 
     const info = renderToStaticMarkup(
       <AccountFeedbackMessage
-        feedback={{ tone: "info", message: "Review this change." }}
+        feedback={{ message: "Review this change.", tone: "info" }}
       />
     );
     expect(info).toContain('role="status"');

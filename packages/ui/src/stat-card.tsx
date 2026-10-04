@@ -4,9 +4,9 @@ import { cn } from "./utilities.ts";
 
 export interface StatCardProps
   extends Omit<ComponentPropsWithRef<"dl">, "title"> {
+  description?: ReactNode;
   label: ReactNode;
   value: ReactNode;
-  description?: ReactNode;
 }
 
 export const StatCard = ({
@@ -18,7 +18,7 @@ export const StatCard = ({
 }: StatCardProps) => (
   <dl
     className={cn(
-      "grid min-w-0 gap-2 border-primary border-l-2 pl-4 text-left",
+      "grid min-w-0 gap-1 border-primary border-l-2 pl-3 text-left",
       className
     )}
     {...props}
