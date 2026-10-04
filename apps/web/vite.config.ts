@@ -29,6 +29,8 @@ if (isIP(host) === 0 && !isHostname) {
   );
 }
 
+// Pre-bundle lucide-react. When it is excluded, its barrel export makes the
+// dev browser fetch about 1,900 icon modules (12 MB) on each cold page load.
 const CLIENT_OPTIMIZE_DEPS_INCLUDE = [
   "@tanstack/react-form",
   "@darkfactory/auth > better-auth/client",
@@ -37,9 +39,10 @@ const CLIENT_OPTIMIZE_DEPS_INCLUDE = [
   "@darkfactory/state > xstate",
   "@darkfactory/ui > radix-ui",
   "@darkfactory/ui > sonner",
+  "lucide-react",
   "next/router",
 ] as const;
-const CLIENT_OPTIMIZE_DEPS_EXCLUDE = ["lucide-react", "next/link"] as const;
+const CLIENT_OPTIMIZE_DEPS_EXCLUDE = ["next/link"] as const;
 const SERVER_OPTIMIZE_DEPS_INCLUDE = [
   "@darkfactory/auth > @better-auth/drizzle-adapter",
   "@darkfactory/auth > better-auth",
@@ -58,6 +61,13 @@ const mergeOptimizerEntries = (
   existing: readonly string[] | undefined,
   required: readonly string[]
 ): string[] => [...new Set([...(existing ?? []), ...required])];
+
+const FONT_FILE_PATTERN = /\.(?:woff2?|ttf|otf|eot)$/iu;
+
+// Never inline font files as base64. An inlined subset is downloaded with
+// every stylesheet, even when its unicode-range never matches the page text.
+export const keepFontFilesExternal = (filePath: string): false | undefined =>
+  FONT_FILE_PATTERN.test(filePath) ? false : undefined;
 
 const environmentOptimizerPolicy = (): Plugin => ({
   name: "darkfactory:environment-optimizer-policy",
@@ -100,6 +110,9 @@ const environmentOptimizerPolicy = (): Plugin => ({
 });
 
 export default defineConfig({
+  build: {
+    assetsInlineLimit: keepFontFilesExternal,
+  },
   resolve: {
     dedupe: [
       "react",
@@ -114,7 +127,10 @@ export default defineConfig({
     strictPort: true,
     // Reduces dev transform latency; the native popover remains the SSR fallback.
     warmup: {
-      clientFiles: ["./src/components/portal-shell.tsx"],
+      clientFiles: [
+        "./src/components/portal-shell.tsx",
+        "./src/components/public-shell.tsx",
+      ],
     },
   },
   preview: {

@@ -64,12 +64,14 @@ describe("resolved Vite environment optimizer contract", () => {
         "@darkfactory/auth > better-auth/client",
         "@darkfactory/auth > better-auth/client/plugins",
         "@darkfactory/ui > sonner",
+        "lucide-react",
         "next/router",
       ])
     );
     expect(client?.exclude).toEqual(
-      expect.arrayContaining(["vinext", "lucide-react", "next/link"])
+      expect.arrayContaining(["vinext", "next/link"])
     );
+    expect(client?.exclude).not.toContain("lucide-react");
     expect(new Set(client?.include).size).toBe(client?.include?.length);
     expect(new Set(client?.exclude).size).toBe(client?.exclude?.length);
     expect(resolved.environments["rsc"]?.build.sourcemap).toBe(true);
