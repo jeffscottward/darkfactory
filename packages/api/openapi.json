@@ -9518,21 +9518,22 @@
                     "analyticsConsent": {
                       "type": "boolean"
                     },
+                    "density": {
+                      "enum": [
+                        "compact",
+                        "default",
+                        "comfortable"
+                      ],
+                      "type": "string"
+                    },
                     "emailNotifications": {
                       "type": "boolean"
                     },
-                    "palette": {
+                    "fontSize": {
                       "enum": [
-                        "neutral",
-                        "slate",
-                        "blue",
-                        "cyan",
-                        "green",
-                        "amber",
-                        "orange",
-                        "red",
-                        "rose",
-                        "violet"
+                        "small",
+                        "default",
+                        "large"
                       ],
                       "type": "string"
                     },
@@ -9550,11 +9551,28 @@
                       ],
                       "type": "string"
                     },
-                    "themeMode": {
+                    "radius": {
                       "enum": [
-                        "light",
-                        "dark",
-                        "system"
+                        "none",
+                        "small",
+                        "medium",
+                        "large"
+                      ],
+                      "type": "string"
+                    },
+                    "theme": {
+                      "enum": [
+                        "system",
+                        "default-dark",
+                        "default-light",
+                        "tokyo-night",
+                        "catppuccin-mocha",
+                        "catppuccin-latte",
+                        "gruvbox-dark",
+                        "nord",
+                        "everforest",
+                        "rose-pine",
+                        "kanagawa"
                       ],
                       "type": "string"
                     },
@@ -9572,8 +9590,10 @@
                     }
                   },
                   "required": [
-                    "themeMode",
-                    "palette",
+                    "theme",
+                    "fontSize",
+                    "density",
+                    "radius",
                     "emailNotifications",
                     "productUpdates",
                     "analyticsConsent",
@@ -10073,21 +10093,22 @@
                     "analyticsConsent": {
                       "type": "boolean"
                     },
+                    "density": {
+                      "enum": [
+                        "compact",
+                        "default",
+                        "comfortable"
+                      ],
+                      "type": "string"
+                    },
                     "emailNotifications": {
                       "type": "boolean"
                     },
-                    "palette": {
+                    "fontSize": {
                       "enum": [
-                        "neutral",
-                        "slate",
-                        "blue",
-                        "cyan",
-                        "green",
-                        "amber",
-                        "orange",
-                        "red",
-                        "rose",
-                        "violet"
+                        "small",
+                        "default",
+                        "large"
                       ],
                       "type": "string"
                     },
@@ -10105,11 +10126,28 @@
                       ],
                       "type": "string"
                     },
-                    "themeMode": {
+                    "radius": {
                       "enum": [
-                        "light",
-                        "dark",
-                        "system"
+                        "none",
+                        "small",
+                        "medium",
+                        "large"
+                      ],
+                      "type": "string"
+                    },
+                    "theme": {
+                      "enum": [
+                        "system",
+                        "default-dark",
+                        "default-light",
+                        "tokyo-night",
+                        "catppuccin-mocha",
+                        "catppuccin-latte",
+                        "gruvbox-dark",
+                        "nord",
+                        "everforest",
+                        "rose-pine",
+                        "kanagawa"
                       ],
                       "type": "string"
                     },
@@ -10127,8 +10165,10 @@
                     }
                   },
                   "required": [
-                    "themeMode",
-                    "palette",
+                    "theme",
+                    "fontSize",
+                    "density",
+                    "radius",
                     "emailNotifications",
                     "productUpdates",
                     "analyticsConsent",
@@ -10579,26 +10619,44 @@
               "application/json": {
                 "schema": {
                   "properties": {
-                    "palette": {
+                    "density": {
                       "enum": [
-                        "neutral",
-                        "slate",
-                        "blue",
-                        "cyan",
-                        "green",
-                        "amber",
-                        "orange",
-                        "red",
-                        "rose",
-                        "violet"
+                        "compact",
+                        "default",
+                        "comfortable"
                       ],
                       "type": "string"
                     },
-                    "themeMode": {
+                    "fontSize": {
                       "enum": [
-                        "light",
-                        "dark",
-                        "system"
+                        "small",
+                        "default",
+                        "large"
+                      ],
+                      "type": "string"
+                    },
+                    "radius": {
+                      "enum": [
+                        "none",
+                        "small",
+                        "medium",
+                        "large"
+                      ],
+                      "type": "string"
+                    },
+                    "theme": {
+                      "enum": [
+                        "system",
+                        "default-dark",
+                        "default-light",
+                        "tokyo-night",
+                        "catppuccin-mocha",
+                        "catppuccin-latte",
+                        "gruvbox-dark",
+                        "nord",
+                        "everforest",
+                        "rose-pine",
+                        "kanagawa"
                       ],
                       "type": "string"
                     },
@@ -10616,8 +10674,10 @@
                     }
                   },
                   "required": [
-                    "themeMode",
-                    "palette",
+                    "theme",
+                    "fontSize",
+                    "density",
+                    "radius",
                     "updatedAt"
                   ],
                   "type": "object"
@@ -11000,6 +11060,14 @@
               "schema": {
                 "additionalProperties": false,
                 "properties": {
+                  "density": {
+                    "enum": [
+                      "compact",
+                      "default",
+                      "comfortable"
+                    ],
+                    "type": "string"
+                  },
                   "expectedUpdatedAt": {
                     "anyOf": [
                       {
@@ -11012,33 +11080,45 @@
                       }
                     ]
                   },
-                  "palette": {
+                  "fontSize": {
                     "enum": [
-                      "neutral",
-                      "slate",
-                      "blue",
-                      "cyan",
-                      "green",
-                      "amber",
-                      "orange",
-                      "red",
-                      "rose",
-                      "violet"
+                      "small",
+                      "default",
+                      "large"
                     ],
                     "type": "string"
                   },
-                  "themeMode": {
+                  "radius": {
                     "enum": [
-                      "light",
-                      "dark",
-                      "system"
+                      "none",
+                      "small",
+                      "medium",
+                      "large"
+                    ],
+                    "type": "string"
+                  },
+                  "theme": {
+                    "enum": [
+                      "system",
+                      "default-dark",
+                      "default-light",
+                      "tokyo-night",
+                      "catppuccin-mocha",
+                      "catppuccin-latte",
+                      "gruvbox-dark",
+                      "nord",
+                      "everforest",
+                      "rose-pine",
+                      "kanagawa"
                     ],
                     "type": "string"
                   }
                 },
                 "required": [
-                  "themeMode",
-                  "palette",
+                  "theme",
+                  "fontSize",
+                  "density",
+                  "radius",
                   "expectedUpdatedAt"
                 ],
                 "type": "object"
@@ -11053,26 +11133,44 @@
               "application/json": {
                 "schema": {
                   "properties": {
-                    "palette": {
+                    "density": {
                       "enum": [
-                        "neutral",
-                        "slate",
-                        "blue",
-                        "cyan",
-                        "green",
-                        "amber",
-                        "orange",
-                        "red",
-                        "rose",
-                        "violet"
+                        "compact",
+                        "default",
+                        "comfortable"
                       ],
                       "type": "string"
                     },
-                    "themeMode": {
+                    "fontSize": {
                       "enum": [
-                        "light",
-                        "dark",
-                        "system"
+                        "small",
+                        "default",
+                        "large"
+                      ],
+                      "type": "string"
+                    },
+                    "radius": {
+                      "enum": [
+                        "none",
+                        "small",
+                        "medium",
+                        "large"
+                      ],
+                      "type": "string"
+                    },
+                    "theme": {
+                      "enum": [
+                        "system",
+                        "default-dark",
+                        "default-light",
+                        "tokyo-night",
+                        "catppuccin-mocha",
+                        "catppuccin-latte",
+                        "gruvbox-dark",
+                        "nord",
+                        "everforest",
+                        "rose-pine",
+                        "kanagawa"
                       ],
                       "type": "string"
                     },
@@ -11090,8 +11188,10 @@
                     }
                   },
                   "required": [
-                    "themeMode",
-                    "palette",
+                    "theme",
+                    "fontSize",
+                    "density",
+                    "radius",
                     "updatedAt"
                   ],
                   "type": "object"

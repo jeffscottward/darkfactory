@@ -2,7 +2,10 @@ import type {
   ThemePreferenceOutput,
   UpdateThemePreferenceInput,
 } from "@darkfactory/api";
-import { isPalette, isThemeMode } from "@darkfactory/state";
+import {
+  isSameAppearance,
+  parseAppearancePreference,
+} from "@darkfactory/state";
 import type { UiStore } from "@darkfactory/state/client";
 
 import type { AnonymousThemePreference, ThemeAuthority } from "./theme.ts";
@@ -21,17 +24,15 @@ export type ThemeUpdateResult =
 const validatedThemePreference = (
   value: unknown
 ): ThemePreferenceOutput | null => {
-  if (typeof value !== "object" || value === null) return null;
-  const themeMode = Reflect.get(value, "themeMode");
-  const palette = Reflect.get(value, "palette");
-  const updatedAt = Reflect.get(value, "updatedAt");
+  const appearance = parseAppearancePreference(value);
+  if (appearance === null) return null;
+  const updatedAt = Reflect.get(value as object, "updatedAt");
   if (
-    !(isThemeMode(themeMode) && isPalette(palette)) ||
-    (updatedAt !== null &&
-      !(updatedAt instanceof Date && Number.isFinite(updatedAt.getTime())))
+    updatedAt !== null &&
+    !(updatedAt instanceof Date && Number.isFinite(updatedAt.getTime()))
   )
     return null;
-  return { themeMode, palette, updatedAt };
+  return { ...appearance, updatedAt };
 };
 
 const isCurrentTrustedRequest = ({
@@ -58,15 +59,14 @@ const applyThemePreference = (
   store: UiStore,
   preference: ThemePreferenceOutput
 ): void => {
-  const state = store.getState();
-  if (
-    state.themeMode !== preference.themeMode ||
-    state.palette !== preference.palette
-  ) {
-    store.setState({
-      themeMode: preference.themeMode,
-      palette: preference.palette,
-    });
+  const appearance = {
+    density: preference.density,
+    fontSize: preference.fontSize,
+    radius: preference.radius,
+    theme: preference.theme,
+  };
+  if (!isSameAppearance(store.getState(), appearance)) {
+    store.setState(appearance);
   }
 };
 
@@ -115,9 +115,11 @@ export const updateTrustedThemePreference = async ({
   try {
     saved = validatedThemePreference(
       await update({
-        themeMode: preference.themeMode,
-        palette: preference.palette,
+        density: preference.density,
         expectedUpdatedAt: current.updatedAt,
+        fontSize: preference.fontSize,
+        radius: preference.radius,
+        theme: preference.theme,
       })
     );
   } catch (error) {

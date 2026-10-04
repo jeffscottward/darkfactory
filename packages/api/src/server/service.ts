@@ -284,16 +284,20 @@ export type ThemePreferenceService = Readonly<{
 }>;
 
 const DEFAULT_THEME_PREFERENCE: ThemePreferenceOutput = {
-  themeMode: "system",
-  palette: "neutral",
+  theme: "system",
+  fontSize: "default",
+  density: "default",
+  radius: "small",
   updatedAt: null,
 };
 
 const toThemePreferenceOutput = (
   preference: UserThemePreference
 ): ThemePreferenceOutput => ({
-  themeMode: preference.mode,
-  palette: preference.colorScheme,
+  theme: preference.theme,
+  fontSize: preference.fontSize,
+  density: preference.density,
+  radius: preference.radius,
   updatedAt: preference.updatedAt,
 });
 
@@ -347,8 +351,10 @@ export const createThemePreferenceService = (
     const operation = (): Promise<UserThemePreference> => {
       return repository.upsertTheme({
         userId: principal.userId,
-        mode: input.themeMode,
-        colorScheme: input.palette,
+        theme: input.theme,
+        fontSize: input.fontSize,
+        density: input.density,
+        radius: input.radius,
         expectedUpdatedAt: input.expectedUpdatedAt,
       });
     };

@@ -8,16 +8,18 @@ import {
 } from "./client.ts";
 
 const hydratedPreferences = {
-  sidebar: "collapsed" as const,
-  mobileNavigationOpen: true,
-  themeMode: "dark" as const,
-  palette: "blue" as const,
   consent: "granted" as const,
+  density: "compact" as const,
+  fontSize: "large" as const,
+  mobileNavigationOpen: true,
+  radius: "none" as const,
+  sidebar: "collapsed" as const,
+  theme: "nord" as const,
 };
 
 const hydratedSnapshot = {
-  version: UI_STATE_VERSION,
   state: hydratedPreferences,
+  version: UI_STATE_VERSION,
 };
 
 const hydratedSnapshotJson = JSON.stringify(hydratedSnapshot);
@@ -39,22 +41,26 @@ describe("createUiStore", () => {
     return expect(store.getState().mobileNavigationOpen).toBe(false);
   });
 
-  it("updates theme mode, palette, and consent immutably", () => {
+  it("updates appearance and consent immutably", () => {
     const store = createUiStore();
     const initialState = store.getState();
 
-    initialState.setThemeMode("dark");
+    initialState.setTheme("kanagawa");
     const themedState = store.getState();
-    themedState.setPalette("violet");
-    const paletteState = store.getState();
-    paletteState.setConsent("denied");
+    themedState.setFontSize("small");
+    themedState.setDensity("comfortable");
+    themedState.setRadius("large");
+    const appearanceState = store.getState();
+    appearanceState.setConsent("denied");
     const consentState = store.getState();
 
     expect(themedState).not.toBe(initialState);
-    expect(paletteState).not.toBe(themedState);
-    expect(consentState).not.toBe(paletteState);
-    expect(consentState.themeMode).toBe("dark");
-    expect(consentState.palette).toBe("violet");
+    expect(appearanceState).not.toBe(themedState);
+    expect(consentState).not.toBe(appearanceState);
+    expect(consentState.theme).toBe("kanagawa");
+    expect(consentState.fontSize).toBe("small");
+    expect(consentState.density).toBe("comfortable");
+    expect(consentState.radius).toBe("large");
     return expect(consentState.consent).toBe("denied");
   });
 
@@ -67,14 +73,16 @@ describe("createUiStore", () => {
 
     expect(store.getState()).not.toBe(hydratedState);
     return expect(store.getState().dehydrate()).toEqual({
-      version: 1,
       state: {
-        sidebar: "expanded",
-        mobileNavigationOpen: false,
-        themeMode: "system",
-        palette: "neutral",
         consent: "unknown",
+        density: "default",
+        fontSize: "default",
+        mobileNavigationOpen: false,
+        radius: "small",
+        sidebar: "expanded",
+        theme: "system",
       },
+      version: 2,
     });
   });
 
@@ -97,31 +105,39 @@ describe("createUiStore", () => {
       {},
       "{",
       " ".repeat(MAX_UI_STATE_SNAPSHOT_LENGTH + 1),
-      JSON.stringify({ version: 2, state: validState }),
-      JSON.stringify({ version: 1 }),
-      JSON.stringify({ version: 1, state: null }),
-      JSON.stringify({ version: 1, state: { ...validState, sidebar: "open" } }),
+      JSON.stringify({ state: validState, version: 1 }),
+      JSON.stringify({ version: 2 }),
+      JSON.stringify({ state: null, version: 2 }),
+      JSON.stringify({ state: { ...validState, sidebar: "open" }, version: 2 }),
       JSON.stringify({
-        version: 1,
         state: { ...validState, mobileNavigationOpen: "true" },
+        version: 2,
       }),
       JSON.stringify({
-        version: 1,
-        state: { ...validState, themeMode: "auto" },
+        state: { ...validState, theme: "solarized" },
+        version: 2,
       }),
       JSON.stringify({
-        version: 1,
-        state: { ...validState, palette: "studio" },
+        state: { ...validState, fontSize: "huge" },
+        version: 2,
       }),
       JSON.stringify({
-        version: 1,
+        state: { ...validState, density: "airy" },
+        version: 2,
+      }),
+      JSON.stringify({
+        state: { ...validState, radius: "round" },
+        version: 2,
+      }),
+      JSON.stringify({
         state: { ...validState, consent: "pending" },
+        version: 2,
       }),
       JSON.stringify({
-        version: 1,
         state: { ...validState, serverRecords: [] },
+        version: 2,
       }),
-      JSON.stringify({ version: 1, state: validState, extra: true }),
+      JSON.stringify({ extra: true, state: validState, version: 2 }),
     ];
 
     for (const malformed of malformedSnapshots) {
@@ -164,10 +180,10 @@ describe("createUiStore", () => {
       previousState: typeof initialState;
     }> = [];
     const unsubscribe = store.subscribe((state, previousState) => {
-      return updates.push({ state, previousState });
+      return updates.push({ previousState, state });
     });
 
-    store.getState().setPalette("blue");
+    store.getState().setTheme("nord");
 
     expect(updates).toHaveLength(1);
     expect(updates[0]?.previousState).toBe(initialState);
@@ -175,7 +191,7 @@ describe("createUiStore", () => {
     expect(updates[0]?.state).not.toBe(initialState);
 
     unsubscribe();
-    store.getState().setPalette("slate");
+    store.getState().setTheme("nord");
     return expect(updates).toHaveLength(1);
   });
 
@@ -187,7 +203,7 @@ describe("createUiStore", () => {
     expect(second).toEqual(hydratedSnapshot);
     expect(first).not.toBe(second);
     expect(first?.state).not.toBe(second?.state);
-    return expect(UI_STATE_VERSION).toBe(1);
+    return expect(UI_STATE_VERSION).toBe(2);
   });
 
   return it("toggles from both sidebar states and ignores invalid runtime setter input", () => {
@@ -201,8 +217,10 @@ describe("createUiStore", () => {
 
     store.getState().setSidebar("open" as never);
     store.getState().setMobileNavigationOpen("true" as never);
-    store.getState().setThemeMode("auto" as never);
-    store.getState().setPalette("studio" as never);
+    store.getState().setTheme("solarized" as never);
+    store.getState().setFontSize("huge" as never);
+    store.getState().setDensity("airy" as never);
+    store.getState().setRadius("round" as never);
     store.getState().setConsent("pending" as never);
 
     return expect(store.getState().dehydrate()).toEqual(initialSnapshot);

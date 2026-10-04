@@ -185,7 +185,7 @@ export const ProfileForm = ({
 
   return (
     <form
-      className="space-y-8"
+      className="space-y-4"
       id="profile-form"
       noValidate
       onSubmit={(event) => {
@@ -199,7 +199,7 @@ export const ProfileForm = ({
       }}
     >
       <AccountFeedbackMessage feedback={feedback} />
-      <div className="grid gap-x-6 gap-y-5 md:grid-cols-2">
+      <div className="grid gap-x-4 gap-y-3 md:grid-cols-2">
         {profileFields.map((definition) => (
           <form.Field
             key={definition.name}
@@ -217,8 +217,8 @@ export const ProfileForm = ({
                 <div
                   className={
                     definition.multiline === true
-                      ? "space-y-2 md:col-span-2"
-                      : "space-y-2"
+                      ? "space-y-1 md:col-span-2"
+                      : "space-y-1"
                   }
                 >
                   <Label htmlFor={field.name}>

@@ -5,7 +5,7 @@ export default function PublicLoading() {
     <section
       aria-labelledby="public-loading-title"
       aria-live="polite"
-      className="df-container py-16 md:py-20 lg:py-24"
+      className="df-container py-8 md:py-10 lg:py-12"
       role="status"
     >
       <p className="font-semibold text-primary text-sm tracking-wide">
@@ -22,7 +22,7 @@ export default function PublicLoading() {
       </p>
       <div
         aria-hidden="true"
-        className="mt-12 grid gap-8 border-border border-y py-10 md:grid-cols-12"
+        className="mt-6 grid gap-5 border-border border-y py-6 md:grid-cols-12"
       >
         <div className="space-y-4 md:col-span-4">
           <Skeleton className="h-6 w-32" />

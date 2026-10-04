@@ -1,12 +1,15 @@
+import { DropdownMenuItem } from "@darkfactory/ui/client/dropdown-menu";
+import type { ReactElement, ReactNode } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
 import {
   completeCurrentSessionSignOut,
   createSignOutActionController,
-  restoreSignOutFocusAfterCommit,
+  SIGN_OUT_ERROR_ID,
   SIGNED_OUT_DESTINATION,
-  SignOutAction,
-  SignOutActionView,
+  type SignOutActionBinding,
+  SignOutError,
+  SignOutMenuItem,
 } from "./sign-out-action.tsx";
 import {
   browserCurrentSessionGateway,
@@ -74,8 +77,8 @@ describe("current-session sign-out client boundary", () => {
     );
 
     return await expect(gateway.signOut()).resolves.toEqual({
-      ok: false,
       message: SIGN_OUT_FAILED_MESSAGE,
+      ok: false,
     });
   });
 
@@ -85,8 +88,8 @@ describe("current-session sign-out client boundary", () => {
     );
 
     await expect(gateway.signOut()).resolves.toEqual({
-      ok: false,
       message: SIGN_OUT_FAILED_MESSAGE,
+      ok: false,
     });
     return expect(SIGN_OUT_FAILED_MESSAGE).toBe(
       "Sign out could not be confirmed. Your session may still be active. Try again."
@@ -110,7 +113,7 @@ describe("current-session sign-out workflow", () => {
 
   it("keeps the user in place when revocation was not confirmed", async () => {
     const replace = vi.fn();
-    const failure = { ok: false as const, message: SIGN_OUT_FAILED_MESSAGE };
+    const failure = { message: SIGN_OUT_FAILED_MESSAGE, ok: false as const };
     const result = await completeCurrentSessionSignOut(
       { signOut: vi.fn().mockResolvedValue(failure) },
       replace
@@ -137,12 +140,12 @@ describe("current-session sign-out workflow", () => {
     expect(setState).toHaveBeenCalledOnce();
     expect(setState).toHaveBeenLastCalledWith({ type: "pending" });
 
-    first.resolve({ ok: false, message: SIGN_OUT_FAILED_MESSAGE });
+    first.resolve({ message: SIGN_OUT_FAILED_MESSAGE, ok: false });
     await request;
 
     expect(setState).toHaveBeenLastCalledWith({
-      type: "error",
       message: SIGN_OUT_FAILED_MESSAGE,
+      type: "error",
     });
 
     await controller.activate(setState);
@@ -150,81 +153,113 @@ describe("current-session sign-out workflow", () => {
     expect(signOut).toHaveBeenCalledTimes(2);
     return expect(replace).toHaveBeenCalledWith(SIGNED_OUT_DESTINATION);
   });
-
-  return it("restores the concrete button target only after an error commit", () => {
-    const button = { focus: vi.fn() };
-
-    restoreSignOutFocusAfterCommit({ type: "pending" }, button);
-    expect(button.focus).not.toHaveBeenCalled();
-
-    restoreSignOutFocusAfterCommit(
-      { type: "error", message: SIGN_OUT_FAILED_MESSAGE },
-      button
-    );
-    return expect(button.focus).toHaveBeenCalledOnce();
-  });
 });
 
-describe("portal sign-out action", () => {
-  it("keeps the server-rendered action inert until React hydration", () => {
-    const html = renderToStaticMarkup(
-      <SignOutAction
-        gateway={{ signOut: vi.fn().mockResolvedValue({ ok: true }) }}
-        replace={vi.fn()}
-      />
-    );
+type SignOutMenuItemElement = ReactElement<{
+  readonly "aria-busy"?: string;
+  readonly "aria-describedby"?: string;
+  readonly children?: ReactNode;
+  readonly "data-hydration-state"?: string;
+  readonly disabled?: boolean;
+  readonly onSelect?: (event: Event) => void;
+}>;
 
-    expect(html).toContain('data-hydration-state="pending"');
-    return expect(html).toMatch(/<button[^>]*\sdisabled(?:=|>|\s)/);
+const signOutMenuItem = (
+  binding: SignOutActionBinding
+): SignOutMenuItemElement => {
+  const element: SignOutMenuItemElement = SignOutMenuItem(binding);
+  expect(element.type).toBe(DropdownMenuItem);
+  return element;
+};
+
+const menuItemLabel = (element: SignOutMenuItemElement): string =>
+  renderToStaticMarkup(element.props.children);
+
+describe("portal sign-out menu item", () => {
+  it("keeps the server-rendered menu item inert until React hydration", () => {
+    const onSignOut = vi.fn();
+    const item = signOutMenuItem({
+      isHydrated: false,
+      onSignOut,
+      state: { type: "idle" },
+    });
+
+    expect(item.props.disabled).toBe(true);
+    expect(item.props["data-hydration-state"]).toBe("pending");
+    expect(item.props["aria-busy"]).toBeUndefined();
+    expect(item.props["aria-describedby"]).toBeUndefined();
+    expect(menuItemLabel(item)).toContain("<span>Sign out</span>");
+    return expect(onSignOut).not.toHaveBeenCalled();
   });
 
-  it("renders a keyboard-native E2E-addressable action instead of a GET mutation", () => {
-    const html = renderToStaticMarkup(
-      <SignOutActionView
-        isHydrated
-        onSignOut={vi.fn()}
-        state={{ type: "idle" }}
-      />
-    );
+  it("wires the hydrated menu selection to the sign-out action", () => {
+    const onSignOut = vi.fn();
+    const item = signOutMenuItem({
+      isHydrated: true,
+      onSignOut,
+      state: { type: "idle" },
+    });
 
-    expect(html).toContain("<button");
-    expect(html).toContain('type="button"');
-    expect(html).toContain('data-hydration-state="ready"');
-    expect(html).toContain("Sign out");
-    expect(html).toContain("min-h-11");
-    expect(html).not.toContain("<a");
-    expect(html).not.toContain("href=");
-    return expect(html).not.toContain("formaction=");
+    expect(item.props.disabled).toBe(false);
+    expect(item.props["data-hydration-state"]).toBe("ready");
+    expect(item.props.onSelect).toBe(onSignOut);
+    item.props.onSelect?.(new Event("select"));
+    expect(onSignOut).toHaveBeenCalledOnce();
+    const label = menuItemLabel(item);
+    expect(label).toContain('aria-hidden="true"');
+    expect(label).not.toContain("href=");
+    return expect(label).toContain("<span>Sign out</span>");
   });
 
   it("disables repeat activation and announces pending work", () => {
-    const html = renderToStaticMarkup(
-      <SignOutActionView
-        isHydrated
-        onSignOut={vi.fn()}
-        state={{ type: "pending" }}
-      />
-    );
+    const item = signOutMenuItem({
+      isHydrated: true,
+      onSignOut: vi.fn(),
+      state: { type: "pending" },
+    });
 
-    expect(html).toContain("disabled");
-    expect(html).toContain('aria-busy="true"');
-    expect(html).toContain("Signing out");
-    return expect(html).not.toContain('role="alert"');
+    expect(item.props.disabled).toBe(true);
+    expect(item.props["aria-busy"]).toBe("true");
+    expect(item.props["aria-describedby"]).toBeUndefined();
+    return expect(menuItemLabel(item)).toContain("<span>Signing out</span>");
   });
 
-  return it("keeps the retry action enabled and exposes truthful failure feedback", () => {
+  return it("keeps the retry action enabled and points it at the failure feedback", () => {
+    const item = signOutMenuItem({
+      isHydrated: true,
+      onSignOut: vi.fn(),
+      state: { message: SIGN_OUT_FAILED_MESSAGE, type: "error" },
+    });
+
+    expect(item.props.disabled).toBe(false);
+    expect(item.props["aria-busy"]).toBeUndefined();
+    expect(item.props["aria-describedby"]).toBe(SIGN_OUT_ERROR_ID);
+    expect(item.props["data-hydration-state"]).toBe("ready");
+    return expect(menuItemLabel(item)).toContain("<span>Sign out</span>");
+  });
+});
+
+describe("portal sign-out failure feedback", () => {
+  it("renders nothing while sign-out is idle or pending", () => {
+    expect(
+      renderToStaticMarkup(<SignOutError state={{ type: "idle" }} />)
+    ).toBe("");
+    return expect(
+      renderToStaticMarkup(<SignOutError state={{ type: "pending" }} />)
+    ).toBe("");
+  });
+
+  return it("announces only the truthful failure message as an alert", () => {
     const html = renderToStaticMarkup(
-      <SignOutActionView
-        isHydrated
-        onSignOut={vi.fn()}
-        state={{ type: "error", message: SIGN_OUT_FAILED_MESSAGE }}
+      <SignOutError
+        state={{ message: SIGN_OUT_FAILED_MESSAGE, type: "error" }}
       />
     );
 
-    expect(html).toContain('aria-describedby="portal-sign-out-error"');
-    expect(html).toContain('data-hydration-state="ready"');
     expect(html).toContain('role="alert"');
+    expect(html).toContain('aria-live="assertive"');
+    expect(html).toContain(`id="${SIGN_OUT_ERROR_ID}"`);
     expect(html).toContain(SIGN_OUT_FAILED_MESSAGE);
-    return expect(html).not.toMatch(/<button[^>]*\sdisabled(?:=|>|\s)/);
+    return expect(html.endsWith(`>${SIGN_OUT_FAILED_MESSAGE}</p>`)).toBe(true);
   });
 });

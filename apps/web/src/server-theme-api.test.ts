@@ -24,14 +24,14 @@ describe("server theme API forwarding", () => {
       return new Response(null, { status: 204 });
     };
     const request = new Request("https://darkfactory.example/api/orpc", {
-      method: "POST",
+      body: "{}",
       headers: {
         authorization: "Bearer untrusted",
-        cookie: "session=untrusted",
         "content-type": "application/json",
+        cookie: "session=untrusted",
         "x-orpc-procedure": "preferences.theme.get",
       },
-      body: "{}",
+      method: "POST",
     });
 
     await forwardThemeApiRequest({
@@ -59,12 +59,12 @@ describe("server theme API forwarding", () => {
   it("rebuilds structurally compatible Worker requests from their URL", async () => {
     let forwarded: Request | undefined;
     const source = new Request("https://darkfactory.example/api/orpc", {
-      method: "POST",
+      body: '{"json":{"theme":"nord"}}',
       headers: {
         "content-type": "application/json",
         "x-orpc-procedure": "preferences.theme.set",
       },
-      body: '{"json":{"themeMode":"dark"}}',
+      method: "POST",
     });
     const workerRequest = {
       body: source.body,
@@ -86,9 +86,7 @@ describe("server theme API forwarding", () => {
 
     expect(forwarded?.url).toBe(source.url);
     expect(forwarded?.method).toBe("POST");
-    return expect(await forwarded?.text()).toBe(
-      '{"json":{"themeMode":"dark"}}'
-    );
+    return expect(await forwarded?.text()).toBe('{"json":{"theme":"nord"}}');
   });
 
   it("aborts a stalled request and clears its timeout", async () => {
@@ -113,8 +111,8 @@ describe("server theme API forwarding", () => {
       fetchRequest,
       request: new Request("https://darkfactory.example/api/orpc"),
       requestId: null,
-      trustedOrigin: "https://darkfactory.example",
       timeoutMs: 25,
+      trustedOrigin: "https://darkfactory.example",
     });
     const rejection = expect(pending).rejects.toMatchObject({
       name: "TimeoutError",
@@ -147,11 +145,11 @@ describe("server theme API forwarding", () => {
   it("cancels an oversized chunked theme response", async () => {
     const cancel = vi.fn();
     const body = new ReadableStream<Uint8Array>({
+      cancel,
       start: (controller) => {
         controller.enqueue(new Uint8Array(10_000));
         return controller.enqueue(new Uint8Array(10_000));
       },
-      cancel,
     });
     const fetchRequest = vi.fn(async () => new Response(body));
     await expect(
@@ -204,15 +202,22 @@ describe("server theme API forwarding", () => {
 
     await expect(
       load(async () => {
-        throw { status: 401, code: "UNAUTHORIZED" };
+        throw { code: "UNAUTHORIZED", status: 401 };
       })
     ).resolves.toBeUndefined();
     await expect(
       load(async () => ({
-        themeMode: "dark",
-        palette: "rose",
+        density: "compact",
+        fontSize: "large",
+        radius: "none",
+        theme: "rose-pine",
       }))
-    ).resolves.toEqual({ themeMode: "dark", palette: "rose" });
+    ).resolves.toEqual({
+      density: "compact",
+      fontSize: "large",
+      radius: "none",
+      theme: "rose-pine",
+    });
     return await expect(
       load(async () => {
         throw new Error("upstream unavailable");
@@ -246,8 +251,10 @@ describe("server theme API forwarding", () => {
       expect(request.headers.get("cookie")).toBe(SECURE_SESSION_COOKIE);
       expect(request.headers.get("x-request-id")).toBe("request-transport");
       return Response.json({
-        themeMode: "dark",
-        palette: "rose",
+        density: "compact",
+        fontSize: "large",
+        radius: "none",
+        theme: "rose-pine",
         updatedAt: null,
       });
     });
@@ -281,8 +288,10 @@ describe("server theme API forwarding", () => {
         requestId: "request-transport",
       })
     ).resolves.toEqual({
-      themeMode: "dark",
-      palette: "rose",
+      density: "compact",
+      fontSize: "large",
+      radius: "none",
+      theme: "rose-pine",
       updatedAt: null,
     });
     return expect(fetchRequest).toHaveBeenCalledOnce();
@@ -307,8 +316,8 @@ describe("server theme API forwarding", () => {
 
     for (const failure of [
       null,
-      { status: 401, code: "OTHER" },
-      { status: 403, code: "UNAUTHORIZED" },
+      { code: "OTHER", status: 401 },
+      { code: "UNAUTHORIZED", status: 403 },
     ]) {
       await expect(load(failure)).resolves.toBe(INDETERMINATE_THEME);
     }
@@ -320,12 +329,18 @@ describe("trusted theme load under request-database capacity", () => {
 
   const capacityResponse = (): Response =>
     Response.json(
-      { error: "Service temporarily at capacity", code: "DATABASE_CAPACITY" },
-      { status: 503, headers: { "retry-after": "1" } }
+      { code: "DATABASE_CAPACITY", error: "Service temporarily at capacity" },
+      { headers: { "retry-after": "1" }, status: 503 }
     );
   const themeResponse = (): Response =>
     Response.json({
-      json: { themeMode: "dark", palette: "rose", updatedAt: null },
+      json: {
+        density: "compact",
+        fontSize: "large",
+        radius: "none",
+        theme: "rose-pine",
+        updatedAt: null,
+      },
     });
   const resolveTheme = (fetch: typeof globalThis.fetch) =>
     resolveRequestTheme({
@@ -352,7 +367,12 @@ describe("trusted theme load under request-database capacity", () => {
     await vi.advanceTimersByTimeAsync(1);
     await expect(theme).resolves.toMatchObject({
       authority: "trusted",
-      preference: { themeMode: "dark", palette: "rose" },
+      preference: {
+        density: "compact",
+        fontSize: "large",
+        radius: "none",
+        theme: "rose-pine",
+      },
     });
     expect(fetchRequest).toHaveBeenCalledTimes(2);
     expect(vi.getTimerCount()).toBe(0);

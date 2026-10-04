@@ -7,7 +7,7 @@ export const metadata = { title: "Create feature item" };
 
 export default function NewFeatureItemPage() {
   return (
-    <div className="space-y-8">
+    <div className="space-y-4">
       <PageHeader
         actions={
           <a
@@ -18,8 +18,6 @@ export default function NewFeatureItemPage() {
             Back to feature items
           </a>
         }
-        description="A guarded three-step setup flow creates an owner-scoped record through the typed API."
-        eyebrow="Feature items"
         title="Create feature item"
       />
       <FeatureItemCreateWorkflow />

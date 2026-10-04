@@ -253,7 +253,7 @@ export const SignUpForm = ({
       <p className="text-center text-muted-foreground text-sm">
         Already have an account?{" "}
         <Link
-          className="inline-flex min-h-11 items-center font-semibold text-foreground underline underline-offset-4 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          className="inline-flex min-h-11 min-w-11 items-center justify-center font-semibold text-foreground underline underline-offset-4 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           href="/sign-in"
         >
           Sign in

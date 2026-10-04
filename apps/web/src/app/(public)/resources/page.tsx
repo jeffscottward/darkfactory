@@ -45,17 +45,17 @@ export default function ResourcesPage() {
       eyebrow="Resources"
       title="Start from source, not a marketing claim."
     >
-      <section aria-labelledby="source-index-title" className="py-16 md:py-20">
+      <section aria-labelledby="source-index-title" className="py-8 md:py-10">
         <h2
           className="font-heading font-semibold text-3xl text-foreground tracking-tight"
           id="source-index-title"
         >
           Stable source index
         </h2>
-        <ul className="mt-8 divide-y divide-border border-border border-y">
+        <ul className="mt-5 divide-y divide-border border-border border-y">
           {resources.map((resource) => (
             <li
-              className="grid gap-5 py-8 md:grid-cols-12"
+              className="grid gap-5 py-5 md:grid-cols-12"
               key={resource.title}
             >
               <div className="md:col-span-4">
@@ -87,7 +87,7 @@ export default function ResourcesPage() {
 
       <section
         aria-labelledby="example-labels-title"
-        className="grid gap-12 border-border border-y bg-surface py-16 md:grid-cols-12 md:py-20"
+        className="grid gap-6 border-border border-y bg-surface py-8 md:grid-cols-12 md:py-10"
       >
         <div className="md:col-span-5">
           <p className="font-semibold text-primary text-sm tracking-wide">
@@ -135,7 +135,7 @@ export default function ResourcesPage() {
 
       <section
         aria-labelledby="resources-next-title"
-        className="grid gap-8 pt-16 md:grid-cols-12 md:items-end md:pt-20"
+        className="grid gap-5 pt-8 md:grid-cols-12 md:items-end md:pt-10"
       >
         <div className="md:col-span-7">
           <h2

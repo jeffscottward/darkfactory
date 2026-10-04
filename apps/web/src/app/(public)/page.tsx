@@ -55,9 +55,9 @@ export default function HomePage() {
     <>
       <section
         aria-labelledby="home-title"
-        className="df-container grid gap-12 py-20 md:grid-cols-12 md:items-end md:py-24 lg:py-32"
+        className="df-container grid gap-6 py-10 md:grid-cols-12 md:items-end md:py-12 lg:py-14"
       >
-        <div className="space-y-8 md:col-span-7">
+        <div className="space-y-5 md:col-span-7">
           <p className="font-semibold text-primary text-sm tracking-wide">
             Domain-neutral application foundation
           </p>
@@ -67,7 +67,7 @@ export default function HomePage() {
           >
             Build the product. Keep the foundation legible.
           </h1>
-          <p className="max-w-reading text-lg text-muted-foreground leading-8">
+          <p className="max-w-reading text-lg text-muted-foreground leading-7">
             DarkFactory connects a refined public surface, an authenticated
             portal, typed contracts, PostgreSQL persistence, and observable
             operations. The seams stay explicit so a team can adapt the system
@@ -82,7 +82,7 @@ export default function HomePage() {
         </div>
         <aside
           aria-label="Foundation posture"
-          className="border-border border-y py-8 md:col-span-4 md:col-start-9"
+          className="border-border border-y py-5 md:col-span-4 md:col-start-9"
         >
           <p className="font-heading font-semibold text-2xl text-foreground tracking-tight">
             Opinionated about structure. Quiet about your domain.
@@ -92,7 +92,7 @@ export default function HomePage() {
             Example product language is kept neutral and labeled for what it is.
           </p>
           <a
-            className="mt-6 inline-flex min-h-11 items-center font-semibold text-primary underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+            className="mt-4 inline-flex min-h-11 items-center font-semibold text-primary underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
             href="/about"
           >
             Read the design posture
@@ -106,7 +106,7 @@ export default function HomePage() {
         id="foundation-capabilities"
         tabIndex={-1}
       >
-        <div className="df-container grid gap-12 py-20 md:grid-cols-12 md:py-24">
+        <div className="df-container grid gap-6 py-10 md:grid-cols-12 md:py-12">
           <div className="md:col-span-4">
             <p className="font-semibold text-primary text-sm tracking-wide">
               The capability story
@@ -117,7 +117,7 @@ export default function HomePage() {
             >
               A small core with visible extension points.
             </h2>
-            <p className="mt-5 text-base text-muted-foreground leading-7">
+            <p className="mt-3 text-base text-muted-foreground leading-7">
               The architecture distinguishes what every project needs from what
               a particular deployment may enable.
             </p>
@@ -128,7 +128,7 @@ export default function HomePage() {
           <dl className="divide-y divide-border border-border border-y md:col-span-7 md:col-start-6">
             {foundationLayers.map((layer, index) => (
               <div
-                className="grid gap-4 py-8 sm:grid-cols-12"
+                className="grid gap-4 py-5 sm:grid-cols-12"
                 key={layer.title}
               >
                 <dt className="sm:col-span-5">
@@ -161,11 +161,11 @@ export default function HomePage() {
 
       <section
         aria-labelledby="request-path-title"
-        className="df-container py-20 md:py-24 lg:py-32"
+        className="df-container py-10 md:py-12 lg:py-14"
         id="request-path"
         tabIndex={-1}
       >
-        <div className="grid gap-12 md:grid-cols-12">
+        <div className="grid gap-6 md:grid-cols-12">
           <div className="md:col-span-5">
             <p className="font-semibold text-primary text-sm tracking-wide">
               One vertical, end to end
@@ -176,12 +176,12 @@ export default function HomePage() {
             >
               Follow behavior instead of guessing at wiring.
             </h2>
-            <p className="mt-5 max-w-reading text-base text-muted-foreground leading-7">
+            <p className="mt-3 max-w-reading text-base text-muted-foreground leading-7">
               The neutral slice is not a product recommendation. It is working
               evidence of the boundaries a real feature will cross.
             </p>
           </div>
-          <ol className="grid gap-8 md:col-span-6 md:col-start-7">
+          <ol className="grid gap-5 md:col-span-6 md:col-start-7">
             {requestPath.map((step, index) => (
               <li className="grid grid-cols-[auto_1fr] gap-4" key={step.label}>
                 <span
@@ -208,9 +208,9 @@ export default function HomePage() {
         aria-labelledby="home-next-title"
         className="border-border border-t bg-muted"
       >
-        <div className="df-container grid gap-8 py-16 md:grid-cols-12 md:items-end md:py-20">
+        <div className="df-container grid gap-5 py-8 md:grid-cols-12 md:items-end md:py-10">
           <div className="md:col-span-7">
-            <p className="font-semibold text-primary text-sm tracking-wide">
+            <p className="font-semibold text-foreground text-sm tracking-wide">
               Start with evidence
             </p>
             <h2

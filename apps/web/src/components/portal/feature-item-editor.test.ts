@@ -717,7 +717,6 @@ describe("feature item editor", () => {
 
     expect(archived).toContain('role="note"');
     expect(archived).toContain("Archived records cannot be edited.");
-    expect(archived).toContain("read-only");
     expect(archived).toContain(archivedName);
     expect(archived).toContain("No description provided.");
     expect(archived).toContain("Archived");

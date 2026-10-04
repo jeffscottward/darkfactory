@@ -84,8 +84,10 @@ const storedAddress: Address = {
 };
 const storedPreferences: UserPreferences = {
   userId: "member-1",
-  mode: "dark",
-  colorScheme: "violet",
+  theme: "nord",
+  fontSize: "large",
+  density: "comfortable",
+  radius: "medium",
   emailNotifications: false,
   productUpdates: false,
   analyticsConsent: true,
@@ -115,13 +117,17 @@ const repositories = (): Repositories => ({
   userPreferences: {
     findByUserId: vi.fn(async () => storedPreferences),
     findThemeByUserId: vi.fn(async () => ({
-      mode: "dark" as const,
-      colorScheme: "violet" as const,
+      theme: "nord" as const,
+      fontSize: "large" as const,
+      density: "comfortable" as const,
+      radius: "medium" as const,
       updatedAt: storedPreferences.updatedAt,
     })),
     upsertTheme: vi.fn(async () => ({
-      mode: "dark" as const,
-      colorScheme: "violet" as const,
+      theme: "nord" as const,
+      fontSize: "large" as const,
+      density: "comfortable" as const,
+      radius: "medium" as const,
       updatedAt: storedPreferences.updatedAt,
     })),
     upsert: vi.fn(async (input) => ({ ...storedPreferences, ...input })),

@@ -34,7 +34,7 @@ export const PublicErrorContent = ({ reset }: PublicErrorContentProps) => (
     <section
       aria-labelledby="public-error-actions-title"
       autoFocus
-      className="grid gap-8 py-16 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 focus:ring-offset-background md:grid-cols-12 md:py-20"
+      className="grid gap-5 py-8 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 focus:ring-offset-background md:grid-cols-12 md:py-10"
       ref={focusErrorActions}
       tabIndex={-1}
     >

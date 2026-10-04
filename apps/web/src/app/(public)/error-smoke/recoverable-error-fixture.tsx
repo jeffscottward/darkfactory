@@ -31,7 +31,7 @@ export const RecoverableErrorFixture = () => {
       eyebrow="E2E fixture"
       title="The error fixture recovered."
     >
-      <p className="py-16 text-base text-muted-foreground leading-7">
+      <p className="py-8 text-base text-muted-foreground leading-7">
         Recovery completed without submitting data or changing an account.
       </p>
     </PublicPage>

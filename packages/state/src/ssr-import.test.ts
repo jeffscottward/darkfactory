@@ -18,7 +18,7 @@ describe("client entrypoint SSR safety", () =>
       const clientModule = await import("@darkfactory/state/client");
       const store = clientModule.createUiStore();
 
-      return expect(store.getState().palette).toBe("neutral");
+      return expect(store.getState().theme).toBe("system");
     } finally {
       if (existingDescriptor) {
         Object.defineProperty(globalThis, "localStorage", existingDescriptor);

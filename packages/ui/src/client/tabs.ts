@@ -22,7 +22,7 @@ export const TabsList = ({
 }: ComponentPropsWithRef<typeof TabsPrimitive.List>) => {
   return createElement(TabsPrimitive.List, {
     className: cn(
-      "flex min-h-11 w-full items-end gap-5 overflow-x-auto border-border border-b",
+      "flex min-h-11 w-full items-end gap-3 overflow-x-auto border-border border-b",
       className
     ),
     ...props,

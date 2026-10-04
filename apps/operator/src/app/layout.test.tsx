@@ -7,12 +7,12 @@ describe("operator document layout", () => {
   it("publishes the standalone operator metadata", () => {
     expect(metadata).toEqual({
       applicationName: "DarkFactory Operator",
+      description:
+        "A local-only control plane for bounded DarkFactory workflow runs.",
       title: {
         default: "Operator",
         template: "%s | DarkFactory Operator",
       },
-      description:
-        "A local-only control plane for bounded DarkFactory workflow runs.",
     });
     return expect(viewport).toEqual({ colorScheme: "light dark" });
   });
@@ -24,7 +24,7 @@ describe("operator document layout", () => {
       </RootLayout>
     );
     expect(markup).toContain(
-      '<html data-mode="system" data-palette="neutral" lang="en">'
+      '<html data-density="default" data-font-size="default" data-radius="small" data-theme="system" lang="en">'
     );
     expect(markup).toContain(
       '<a class="skip-link" href="#main-content">Skip to main content</a>'

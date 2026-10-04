@@ -179,12 +179,8 @@ export default async function DashboardPage() {
   }
 
   return (
-    <div className="space-y-10">
-      <PageHeader
-        description="Current-user session authority, owner-scoped feature records, and observed request capability state."
-        eyebrow="Overview"
-        title="Dashboard"
-      />
+    <div className="space-y-4">
+      <PageHeader title="Dashboard" />
       <DashboardContent model={toDashboardViewModel(summaryState)} />
     </div>
   );

@@ -103,7 +103,7 @@ const signInThroughUi = async ({
   await page.getByLabel("Email address", { exact: true }).fill(email);
   await page.getByLabel("Password", { exact: true }).fill(password);
   const responsePromise = waitForAuthResponse(page, "/api/auth/sign-in/email");
-  await page.getByRole("button", { name: "Sign in", exact: true }).click();
+  await page.getByRole("button", { exact: true, name: "Sign in" }).click();
   const response = await responsePromise;
   expectBrowserResponse(response, "/api/auth/sign-in/email", 200);
   const sessionCookie = await expectCanonicalSessionCookie(page, response);
@@ -208,9 +208,9 @@ const expectDashboardFor = async (
   } catch (error) {
     const diagnostic = await page.evaluate(async () => {
       const response = await fetch("/api/orpc/dashboard/summary", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
         body: JSON.stringify({ json: {} }),
+        headers: { "content-type": "application/json" },
+        method: "POST",
       });
       await response.body?.cancel();
       return {
@@ -234,9 +234,28 @@ const expectDashboardFor = async (
       { exact: true }
     )
   ).toBeVisible();
-  await expect(
-    page.getByRole("navigation", { name: "Administration navigation" })
-  ).toHaveCount(identity.role === "admin" ? 1 : 0);
+  // Administration lives in the portal user menu, shown only to admins.
+  const userMenuTrigger = page.locator("#user-menu-trigger");
+  await expect(userMenuTrigger).toHaveAccessibleName(identity.name);
+  await expect(userMenuTrigger).toHaveAttribute(
+    "data-hydration-state",
+    "ready"
+  );
+  await userMenuTrigger.click();
+  const userMenu = page.locator("#user-menu-content");
+  await expect(userMenu).toBeVisible();
+  const administration = userMenu.getByRole("group", {
+    exact: true,
+    name: "Administration",
+  });
+  await expect(administration).toHaveCount(identity.role === "admin" ? 1 : 0);
+  if (identity.role === "admin") {
+    await expect(
+      administration.getByRole("menuitem", { exact: true, name: "Users" })
+    ).toHaveAttribute("href", "/admin/users");
+  }
+  await page.keyboard.press("Escape");
+  await expect(userMenu).toBeHidden();
 };
 
 test.use({ screenshot: "off", trace: "off", video: "off" });
@@ -275,8 +294,8 @@ test.describe("DF-113 auth browser journeys", () => {
       for (const state of states) {
         await page.goto(state.path);
         const submit = page.getByRole("button", {
-          name: state.submit,
           exact: true,
+          name: state.submit,
         });
         await expect(submit).toBeVisible({ timeout: 30_000 });
         const layout = await page.evaluate(() => ({
@@ -303,8 +322,8 @@ test.describe("DF-113 auth browser journeys", () => {
 
       await page.goto("/reset-password");
       const recoveryLink = page.getByRole("link", {
-        name: "Request a new link",
         exact: true,
+        name: "Request a new link",
       });
       await expect(recoveryLink).toBeVisible();
       const recoveryLayout = await recoveryLink.evaluate((element) => {
@@ -343,12 +362,12 @@ test.describe("DF-113 auth browser journeys", () => {
     const signUpPassword = page.getByLabel("Password", { exact: true });
     const signUpConfirm = page.getByLabel("Confirm password", { exact: true });
     const passwordToggles = page.getByRole("button", {
-      name: "Show password",
       exact: true,
+      name: "Show password",
     });
     const createAccount = page.getByRole("button", {
-      name: "Create account",
       exact: true,
+      name: "Create account",
     });
     await signUpName.focus();
     await page.keyboard.press("Tab");
@@ -390,7 +409,7 @@ test.describe("DF-113 auth browser journeys", () => {
       await expect(email).toBeFocused();
       await expect(page.getByText("Enter your email address.")).toBeVisible();
       await expect(
-        page.getByRole("button", { name: state.submit, exact: true })
+        page.getByRole("button", { exact: true, name: state.submit })
       ).toBeVisible();
     }
   });
@@ -459,7 +478,7 @@ test.describe("DF-113 auth browser journeys", () => {
       "/api/auth/sign-up/email"
     );
     await page
-      .getByRole("button", { name: "Create account", exact: true })
+      .getByRole("button", { exact: true, name: "Create account" })
       .click();
     const signUpResponse = await signUpResponsePromise;
     expectBrowserResponse(signUpResponse, "/api/auth/sign-up/email", 200);
@@ -557,14 +576,16 @@ test.describe("DF-113 auth browser journeys", () => {
       sessionCookie.value,
     ]);
 
-    const signOutButton = page.getByRole("button", {
-      name: "Sign out",
-      exact: true,
-    });
-    await expect(signOutButton).toHaveAttribute(
+    const userMenuTrigger = page.locator("#user-menu-trigger");
+    await expect(userMenuTrigger).toHaveAttribute(
       "data-hydration-state",
       "ready"
     );
+    await userMenuTrigger.click();
+    const signOutButton = page
+      .locator("#user-menu-content")
+      .getByRole("menuitem", { exact: true, name: "Sign out" });
+    await expect(signOutButton).toBeVisible();
     await expect(signOutButton).toBeEnabled();
 
     const signOutResponsePromise = waitForAuthResponse(
@@ -699,7 +720,7 @@ test.describe("DF-113 auth browser journeys", () => {
         "/api/auth/request-password-reset"
       );
       await page
-        .getByRole("button", { name: "Send reset link", exact: true })
+        .getByRole("button", { exact: true, name: "Send reset link" })
         .click();
       const knownResponse = await knownResponsePromise;
       expectBrowserResponse(
@@ -725,7 +746,7 @@ test.describe("DF-113 auth browser journeys", () => {
         "/api/auth/request-password-reset"
       );
       await page
-        .getByRole("button", { name: "Send reset link", exact: true })
+        .getByRole("button", { exact: true, name: "Send reset link" })
         .click();
       const unknownResponse = await unknownResponsePromise;
       expectBrowserResponse(
@@ -784,12 +805,12 @@ test.describe("DF-113 auth browser journeys", () => {
         exact: true,
       });
       const resetToggles = page.getByRole("button", {
-        name: "Show password",
         exact: true,
+        name: "Show password",
       });
       const updatePassword = page.getByRole("button", {
-        name: "Update password",
         exact: true,
+        name: "Update password",
       });
       await newPassword.focus();
       await page.keyboard.press("Tab");
@@ -822,7 +843,7 @@ test.describe("DF-113 auth browser journeys", () => {
         "/api/auth/reset-password"
       );
       await page
-        .getByRole("button", { name: "Update password", exact: true })
+        .getByRole("button", { exact: true, name: "Update password" })
         .click();
       const resetResponse = await resetResponsePromise;
       expectBrowserResponse(resetResponse, "/api/auth/reset-password", 200);
@@ -871,7 +892,7 @@ test.describe("DF-113 auth browser journeys", () => {
         page,
         "/api/auth/sign-in/email"
       );
-      await page.getByRole("button", { name: "Sign in", exact: true }).click();
+      await page.getByRole("button", { exact: true, name: "Sign in" }).click();
       const rejectedPassword = await rejectedPasswordPromise;
       expectBrowserResponse(rejectedPassword, "/api/auth/sign-in/email", 401);
       const rejectedPasswordBody = await rejectedPassword.json();
@@ -963,8 +984,8 @@ test.describe("DF-113 auth browser journeys", () => {
       ).toContainText(state.message);
       await expect(
         page.getByRole("button", {
-          name: "Send verification email",
           exact: true,
+          name: "Send verification email",
         })
       ).toBeVisible();
     }

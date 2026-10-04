@@ -22,11 +22,11 @@ export const DropdownMenuContent = ({
     DropdownMenuPrimitive.Portal,
     null,
     createElement(DropdownMenuPrimitive.Content, {
-      sideOffset,
       className: cn(
         "z-popover min-w-48 overflow-hidden rounded-md border border-border bg-surface-raised p-1 text-foreground shadow-md",
         className
       ),
+      sideOffset,
       ...props,
     })
   );
@@ -41,8 +41,8 @@ export const DropdownMenuItem = ({
 }) => {
   return createElement(DropdownMenuPrimitive.Item, {
     className: cn(
-      "relative flex min-h-11 min-w-11 cursor-default select-none items-center gap-2 rounded-sm px-3 py-2 text-sm outline-none transition-colors duration-fast ease-out focus:bg-accent focus:text-accent-foreground focus:ring-2 focus:ring-ring focus:ring-offset-1 focus:ring-offset-surface-raised data-[disabled]:pointer-events-none data-[disabled]:bg-disabled data-[disabled]:text-disabled-foreground data-[disabled]:opacity-100 [&_svg]:size-4 [&_svg]:shrink-0",
-      inset && "pl-9",
+      "relative flex min-h-11 min-w-11 cursor-default select-none items-center gap-2 rounded-sm px-3 py-1 text-sm outline-none transition-colors duration-fast ease-out focus:bg-accent focus:text-accent-foreground focus:ring-2 focus:ring-ring focus:ring-offset-1 focus:ring-offset-surface-raised data-[disabled]:pointer-events-none data-[disabled]:bg-disabled data-[disabled]:text-disabled-foreground data-[disabled]:opacity-100 [&_svg]:size-4 [&_svg]:shrink-0",
+      inset && "pl-8",
       className
     ),
     ...props,
@@ -58,7 +58,7 @@ export const DropdownMenuCheckboxItem = ({
     DropdownMenuPrimitive.CheckboxItem,
     {
       className: cn(
-        "relative flex min-h-11 min-w-11 cursor-default select-none items-center rounded-sm py-2 pr-3 pl-9 text-sm outline-none transition-colors duration-fast ease-out focus:bg-accent focus:text-accent-foreground focus:ring-2 focus:ring-ring focus:ring-offset-1 focus:ring-offset-surface-raised data-[disabled]:pointer-events-none data-[disabled]:bg-disabled data-[disabled]:text-disabled-foreground data-[disabled]:opacity-100",
+        "relative flex min-h-11 min-w-11 cursor-default select-none items-center rounded-sm py-1 pr-3 pl-8 text-sm outline-none transition-colors duration-fast ease-out focus:bg-accent focus:text-accent-foreground focus:ring-2 focus:ring-ring focus:ring-offset-1 focus:ring-offset-surface-raised data-[disabled]:pointer-events-none data-[disabled]:bg-disabled data-[disabled]:text-disabled-foreground data-[disabled]:opacity-100",
         className
       ),
       ...props,
@@ -67,7 +67,7 @@ export const DropdownMenuCheckboxItem = ({
       "span",
       {
         className:
-          "absolute left-3 inline-flex size-4 items-center justify-center",
+          "absolute left-2.5 inline-flex size-4 items-center justify-center",
       },
       createElement(
         DropdownMenuPrimitive.ItemIndicator,
@@ -88,7 +88,7 @@ export const DropdownMenuRadioItem = ({
     DropdownMenuPrimitive.RadioItem,
     {
       className: cn(
-        "relative flex min-h-11 min-w-11 cursor-default select-none items-center rounded-sm py-2 pr-3 pl-9 text-sm outline-none transition-colors duration-fast ease-out focus:bg-accent focus:text-accent-foreground focus:ring-2 focus:ring-ring focus:ring-offset-1 focus:ring-offset-surface-raised data-[disabled]:pointer-events-none data-[disabled]:bg-disabled data-[disabled]:text-disabled-foreground data-[disabled]:opacity-100",
+        "relative flex min-h-11 min-w-11 cursor-default select-none items-center rounded-sm py-1 pr-3 pl-8 text-sm outline-none transition-colors duration-fast ease-out focus:bg-accent focus:text-accent-foreground focus:ring-2 focus:ring-ring focus:ring-offset-1 focus:ring-offset-surface-raised data-[disabled]:pointer-events-none data-[disabled]:bg-disabled data-[disabled]:text-disabled-foreground data-[disabled]:opacity-100",
         className
       ),
       ...props,
@@ -97,7 +97,7 @@ export const DropdownMenuRadioItem = ({
       "span",
       {
         className:
-          "absolute left-3 inline-flex size-4 items-center justify-center",
+          "absolute left-2.5 inline-flex size-4 items-center justify-center",
       },
       createElement(
         DropdownMenuPrimitive.ItemIndicator,
@@ -121,8 +121,8 @@ export const DropdownMenuLabel = ({
 }) => {
   return createElement(DropdownMenuPrimitive.Label, {
     className: cn(
-      "px-3 py-2 font-semibold text-muted-foreground text-xs",
-      inset && "pl-9",
+      "px-3 pt-2 pb-1 font-semibold text-muted-foreground text-xs",
+      inset && "pl-8",
       className
     ),
     ...props,
@@ -151,11 +151,13 @@ export const DropdownMenuSubTrigger = ({
     DropdownMenuPrimitive.SubTrigger,
     {
       className: cn(
-        "flex min-h-11 min-w-11 cursor-default select-none items-center gap-2 rounded-sm px-3 py-2 text-sm outline-none transition-colors duration-fast ease-out focus:bg-accent focus:ring-2 focus:ring-ring focus:ring-offset-1 focus:ring-offset-surface-raised data-[disabled]:pointer-events-none data-[disabled]:bg-disabled data-[state=open]:bg-accent data-[disabled]:text-disabled-foreground data-[disabled]:opacity-100",
-        inset && "pl-9",
+        "flex min-h-11 min-w-11 cursor-default select-none items-center gap-2 rounded-sm px-3 py-1 text-sm outline-none transition-colors duration-fast ease-out focus:bg-accent focus:ring-2 focus:ring-ring focus:ring-offset-1 focus:ring-offset-surface-raised data-[disabled]:pointer-events-none data-[disabled]:bg-disabled data-[state=open]:bg-accent data-[disabled]:text-disabled-foreground data-[disabled]:opacity-100",
+        inset && "pl-8",
         className
       ),
       ...props,
+      // aria-controls is optional on submenu triggers; axe cannot verify it next to aria-haspopup.
+      "aria-controls": undefined,
     },
     children,
     createElement(ChevronRight, {
@@ -169,11 +171,15 @@ export const DropdownMenuSubContent = ({
   className,
   ...props
 }: ComponentPropsWithRef<typeof DropdownMenuPrimitive.SubContent>) => {
-  return createElement(DropdownMenuPrimitive.SubContent, {
-    className: cn(
-      "z-popover min-w-48 overflow-hidden rounded-md border border-border bg-surface-raised p-1 text-foreground shadow-md",
-      className
-    ),
-    ...props,
-  });
+  return createElement(
+    DropdownMenuPrimitive.Portal,
+    null,
+    createElement(DropdownMenuPrimitive.SubContent, {
+      className: cn(
+        "z-popover min-w-48 overflow-hidden rounded-md border border-border bg-surface-raised p-1 text-foreground shadow-md",
+        className
+      ),
+      ...props,
+    })
+  );
 };

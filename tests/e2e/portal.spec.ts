@@ -328,8 +328,8 @@ test.describe
         waitUntil: "domcontentloaded",
       });
       const navigationTrigger = page.getByRole("button", {
-        name: "Open portal navigation",
         exact: true,
+        name: "Open portal navigation",
       });
       const navigationTriggerElement = page.locator(
         'button[aria-label="Open portal navigation"]'
@@ -338,10 +338,11 @@ test.describe
         name: "Mobile portal navigation",
       });
       const overviewLink = mobileNavigation.locator('a[href="/dashboard"]');
-      const featureItemsLink = mobileNavigation.getByRole("link", {
-        name: "Feature items",
-        exact: true,
-      });
+      const userMenuTrigger = page.locator("#user-menu-trigger");
+      const userMenu = page.locator("#user-menu-content");
+      const featureItemsMenuItem = userMenu
+        .getByRole("group", { exact: true, name: "Features" })
+        .getByRole("menuitem", { exact: true, name: "Feature items" });
       const closeNavigation = page.getByRole("button", {
         name: "Close portal navigation",
       });
@@ -349,11 +350,9 @@ test.describe
       try {
         await Promise.all([coldDashboardNavigation, portalModuleRequested]);
         await expect(page).toHaveURL(new URL("/dashboard", appURL).href);
-        expect(
-          await page
-            .getByRole("button", { name: "Sign out", exact: true })
-            .getAttribute("data-hydration-state")
-        ).toBe("pending");
+        expect(await userMenuTrigger.getAttribute("data-hydration-state")).toBe(
+          "pending"
+        );
         const initialAliceItems = await listOwnerItems(page, appURL);
         expect(initialAliceItems).toContainEqual(
           expect.objectContaining({
@@ -436,22 +435,34 @@ test.describe
         portalModuleGate.emit("release");
       }
 
-      const signOutAction = page.getByRole("button", {
-        name: "Sign out",
-        exact: true,
-      });
-      await expect(signOutAction).toHaveAttribute(
+      await expect(userMenuTrigger).toHaveAttribute(
         "data-hydration-state",
         "ready",
         { timeout: 15_000 }
       );
+      await expect(userMenuTrigger).toHaveAccessibleName(
+        E2E_IDENTITIES.alice.name
+      );
       await expect(mobileNavigation).toBeVisible();
       await page.keyboard.press("Tab");
       await expect(overviewLink).toBeFocused();
-      await page.keyboard.press("Tab");
-      await expect(featureItemsLink).toBeFocused();
-      await page.keyboard.press("Enter");
+      await page.keyboard.press("Escape");
       await expect(mobileNavigation).toBeHidden();
+      await expect(navigationTrigger).toBeFocused();
+
+      // Feature routes live in the user menu: open it from the keyboard and arrow to the item.
+      await userMenuTrigger.focus();
+      await userMenuTrigger.press("Enter");
+      await expect(userMenu).toBeVisible();
+      await expect(featureItemsMenuItem).toBeFocused();
+      await page.keyboard.press("ArrowDown");
+      await expect(featureItemsMenuItem).not.toBeFocused();
+      await page.keyboard.press("ArrowUp");
+      await expect(featureItemsMenuItem).toBeFocused();
+      await expectNoHorizontalOverflow(page);
+      await page.keyboard.press("Enter");
+      await expect(userMenu).toBeHidden();
+      await expect(page).toHaveURL(FEATURE_ITEMS_URL_PATTERN);
 
       await expect(
         page.getByRole("heading", {
@@ -676,8 +687,8 @@ test.describe
         name: "Cancel",
       });
       const confirmArchive = archiveRegion.getByRole("button", {
-        name: "Archive",
         exact: true,
+        name: "Archive",
       });
       await expect(archiveRegion).toBeVisible();
       await expect(cancelArchive).toBeFocused();

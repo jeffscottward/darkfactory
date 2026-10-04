@@ -1,22 +1,17 @@
 {
   "name": "@darkfactory/ui",
-  "brick": "product",
-  "description": "Presentational React components, styles and shadcn primitives.",
   "version": "0.3.1",
-  "license": "MIT",
+  "private": true,
+  "description": "Presentational React components, styles and shadcn primitives.",
   "repository": {
     "type": "git",
     "url": "https://github.com/jeffscottward/darkfactory.git"
   },
-  "private": true,
-  "type": "module",
+  "license": "MIT",
   "sideEffects": [
     "./src/styles.css"
   ],
-  "style": "./src/styles.css",
-  "files": [
-    "src"
-  ],
+  "type": "module",
   "exports": {
     ".": {
       "import": "./src/index.ts",
@@ -58,9 +53,9 @@
       "import": "./src/label.tsx",
       "default": "./src/label.tsx"
     },
-    "./palettes": {
-      "import": "./src/palettes.ts",
-      "default": "./src/palettes.ts"
+    "./themes": {
+      "import": "./src/themes.ts",
+      "default": "./src/themes.ts"
     },
     "./separator": {
       "import": "./src/separator.tsx",
@@ -108,12 +103,13 @@
     },
     "./styles.css": "./src/styles.css"
   },
+  "style": "./src/styles.css",
+  "files": [
+    "src"
+  ],
   "scripts": {
-    "typecheck": "tsc --noEmit -p tsconfig.json",
-    "test:unit": "pnpm exec vitest run --config ../../vitest.config.ts --project unit ."
-  },
-  "engines": {
-    "node": ">=24.21.0"
+    "test:unit": "pnpm exec vitest run --config ../../vitest.config.ts --project unit .",
+    "typecheck": "tsc --noEmit -p tsconfig.json"
   },
   "dependencies": {
     "@fontsource-variable/manrope": "catalog:",
@@ -126,10 +122,6 @@
     "tailwind-merge": "catalog:",
     "tailwindcss": "catalog:"
   },
-  "peerDependencies": {
-    "react": "catalog:",
-    "react-dom": "catalog:"
-  },
   "devDependencies": {
     "@types/node": "catalog:",
     "@types/react": "catalog:",
@@ -138,5 +130,13 @@
     "react-dom": "catalog:",
     "vite": "catalog:",
     "vitest": "catalog:"
-  }
+  },
+  "peerDependencies": {
+    "react": "catalog:",
+    "react-dom": "catalog:"
+  },
+  "engines": {
+    "node": ">=24.21.0"
+  },
+  "brick": "product"
 }

@@ -1,23 +1,12 @@
-import { PageHeader, SectionHeader } from "@darkfactory/ui";
+import { PageHeader } from "@darkfactory/ui";
 
 import { SecurityPageClient } from "../../../../components/account/security-page-client.tsx";
 
 export default function SecurityPage() {
   return (
-    <div className="space-y-12">
-      <PageHeader
-        description="Review active sessions and change your account password."
-        eyebrow="Account"
-        title="Security"
-      />
-      <section aria-labelledby="active-sessions" className="space-y-6">
-        <SectionHeader
-          description="Session tokens and network addresses are never displayed."
-          id="active-sessions"
-          title="Active sessions"
-        />
-        <SecurityPageClient />
-      </section>
+    <div className="space-y-4">
+      <PageHeader title="Security" />
+      <SecurityPageClient />
     </div>
   );
 }

@@ -5,12 +5,14 @@ import {
   accounts,
   addresses,
   auditRecords,
-  COLOR_SCHEMES,
+  APPEARANCE_THEMES,
+  DENSITIES,
+  FONT_SIZES,
   contactRateLimits,
   FEATURE_ITEM_STATUSES,
   featureItems,
   outboxEvents,
-  PREFERENCE_MODES,
+  RADII,
   PROFILE_VISIBILITIES,
   profiles,
   rateLimit,
@@ -231,24 +233,29 @@ describe("DarkFactory-owned schema", () => {
   });
 
   it("persists the complete settled preference domains", () => {
-    expect(PREFERENCE_MODES).toEqual(["light", "dark", "system"]);
-    expect(COLOR_SCHEMES).toEqual([
-      "neutral",
-      "slate",
-      "blue",
-      "cyan",
-      "green",
-      "amber",
-      "orange",
-      "red",
-      "rose",
-      "violet",
+    expect(APPEARANCE_THEMES).toEqual([
+      "system",
+      "default-dark",
+      "default-light",
+      "tokyo-night",
+      "catppuccin-mocha",
+      "catppuccin-latte",
+      "gruvbox-dark",
+      "nord",
+      "everforest",
+      "rose-pine",
+      "kanagawa",
     ]);
+    expect(FONT_SIZES).toEqual(["small", "default", "large"]);
+    expect(DENSITIES).toEqual(["compact", "default", "comfortable"]);
+    expect(RADII).toEqual(["none", "small", "medium", "large"]);
     expect(PROFILE_VISIBILITIES).toEqual(["private", "members", "public"]);
     expect(columnNames(userPreferences)).toEqual([
       "user_id",
-      "mode",
-      "color_scheme",
+      "theme",
+      "font_size",
+      "density",
+      "radius",
       "email_notifications",
       "product_updates",
       "analytics_consent",
@@ -259,8 +266,10 @@ describe("DarkFactory-owned schema", () => {
     ]);
     expect(checkNames(userPreferences)).toEqual(
       expect.arrayContaining([
-        "user_preferences_mode_check",
-        "user_preferences_color_scheme_check",
+        "user_preferences_theme_check",
+        "user_preferences_font_size_check",
+        "user_preferences_density_check",
+        "user_preferences_radius_check",
         "user_preferences_profile_visibility_check",
       ])
     );

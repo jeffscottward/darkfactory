@@ -2,14 +2,14 @@ import type { AdminUserSummaryOutput } from "@darkfactory/api";
 import {
   Button,
   buttonVariants,
-  EmptyState,
   Input,
   Label,
   Skeleton,
   StatusBadge,
 } from "@darkfactory/ui";
-import { RotateCcw, Search, Users } from "lucide-react";
+import { RotateCcw, Search } from "lucide-react";
 import type { FormEvent } from "react";
+import { InlineNotice } from "../inline-notice.tsx";
 import type { AdminFailureKind } from "./admin-users-client.ts";
 
 export type AdminUsersDirectoryState =
@@ -52,7 +52,7 @@ const SearchForm = ({
   query,
 }: Pick<AdminUsersDirectoryProps, "onClearSearch" | "onSearch" | "query">) => (
   <form
-    className="flex flex-col gap-3 sm:flex-row sm:items-end"
+    className="flex flex-col gap-2 sm:flex-row sm:items-end"
     onSubmit={(event: FormEvent<HTMLFormElement>) => {
       event.preventDefault();
       const formData = new FormData(event.currentTarget);
@@ -60,7 +60,7 @@ const SearchForm = ({
     }}
     role="search"
   >
-    <div className="min-w-0 flex-1 space-y-2">
+    <div className="min-w-0 flex-1 space-y-1">
       <Label htmlFor="admin-user-query">Search users</Label>
       <Input
         defaultValue={query}
@@ -85,23 +85,58 @@ const SearchForm = ({
 );
 
 const LoadingDirectory = () => (
-  <div aria-busy="true" aria-live="polite" className="space-y-3" role="status">
+  <div aria-busy="true" aria-live="polite" className="space-y-1" role="status">
     <span className="sr-only">Loading users</span>
     {["one", "two", "three"].map((key) => (
       <div
-        className="grid gap-3 border-border border-b py-5 sm:grid-cols-[minmax(0,1fr)_auto]"
+        className="flex items-center justify-between gap-3 border-border border-b py-2"
         key={key}
       >
-        <div className="space-y-2">
-          <Skeleton className="h-5 w-40" />
-          <Skeleton className="h-4 w-64 max-w-full" />
-        </div>
+        <Skeleton className="h-5 w-40" />
         <Skeleton className="h-6 w-24" />
       </div>
     ))}
   </div>
 );
 
+const UserRow = ({ user }: { readonly user: AdminUserSummaryOutput }) => {
+  const summary = [user.profile?.jobTitle, user.profile?.businessName]
+    .filter(
+      (value) => value !== null && value !== undefined && value.length > 0
+    )
+    .join(" · ");
+  return (
+    <article
+      className="grid min-w-0 gap-2 py-2 md:grid-cols-[minmax(0,1fr)_auto] md:items-center"
+      role="listitem"
+    >
+      <div className="min-w-0 break-words">
+        <h2 className="break-words font-heading font-semibold text-foreground text-sm">
+          {titleFor(user)}
+        </h2>
+        {summary.length > 0 ? (
+          <p className="break-words text-muted-foreground text-sm">{summary}</p>
+        ) : null}
+        <p className="text-muted-foreground text-xs">
+          {user.emailVerified ? "Email verified" : "Email not verified"} ·
+          Account created{" "}
+          {user.createdAt.toLocaleDateString("en-US", {
+            dateStyle: "medium",
+            timeZone: "UTC",
+          })}
+        </p>
+      </div>
+      <div className="flex flex-wrap items-center gap-2 md:justify-end">
+        <StatusBadge status={user.role === "admin" ? "neutral" : "info"}>
+          {labelFor(user.role)}
+        </StatusBadge>
+        <StatusBadge status={statusTone(user.status)}>
+          {labelFor(user.status)}
+        </StatusBadge>
+      </div>
+    </article>
+  );
+};
 export const AdminUsersDirectory = ({
   onClearSearch,
   isLoadingMore = false,
@@ -111,7 +146,7 @@ export const AdminUsersDirectory = ({
   query,
   state,
 }: AdminUsersDirectoryProps) => (
-  <div className="space-y-6">
+  <div className="space-y-3">
     <SearchForm
       onClearSearch={onClearSearch}
       onSearch={onSearch}
@@ -121,115 +156,68 @@ export const AdminUsersDirectory = ({
       <LoadingDirectory />
     ) : state.type === "error" ? (
       <div aria-live="assertive" role="alert">
-        <EmptyState
+        <InlineNotice
           action={
             state.kind === "unauthorized" ? (
               <a
-                className={buttonVariants()}
+                className={buttonVariants({ size: "compact" })}
                 href="/sign-in?callbackURL=%2Fadmin%2Fusers"
               >
                 Sign in
               </a>
-            ) : state.kind === "forbidden" ? (
+            ) : state.kind === "forbidden" || state.kind === "not-found" ? (
               <a
-                className={buttonVariants({ variant: "secondary" })}
-                href="/dashboard"
-              >
-                Back to dashboard
-              </a>
-            ) : state.kind === "not-found" ? (
-              <a
-                className={buttonVariants({ variant: "secondary" })}
+                className={buttonVariants({
+                  size: "compact",
+                  variant: "secondary",
+                })}
                 href="/dashboard"
               >
                 Back to dashboard
               </a>
             ) : (
-              <Button onClick={onRetry} variant="secondary">
+              <Button onClick={onRetry} size="compact" variant="secondary">
                 <RotateCcw aria-hidden="true" className="size-4" />
                 Try again
               </Button>
             )
           }
-          description={state.message}
-          icon={<RotateCcw />}
+          message={state.message}
           title="User directory could not be loaded"
         />
       </div>
     ) : state.items.length === 0 ? (
       <div aria-live="polite" role="status">
-        <EmptyState
-          action={
-            query.length > 0 ? (
-              <Button onClick={onClearSearch} variant="secondary">
+        {query.length > 0 ? (
+          <InlineNotice
+            action={
+              <Button
+                onClick={onClearSearch}
+                size="compact"
+                variant="secondary"
+              >
                 Clear search
               </Button>
-            ) : undefined
-          }
-          description={
-            query.length > 0
-              ? "No users match this search. Clear it to view the full directory."
-              : "No account summaries have been returned by the directory."
-          }
-          icon={<Users />}
-          title={
-            query.length > 0
-              ? "No users match this search"
-              : "No users are available"
-          }
-        />
+            }
+            title="No users match this search"
+          />
+        ) : (
+          <InlineNotice title="No users" />
+        )}
       </div>
     ) : (
-      <div className="space-y-4">
+      <div className="space-y-2">
         <div
           className="divide-y divide-border border-border border-y"
           role="list"
         >
           {state.items.map((user) => (
-            <article
-              className="grid min-w-0 gap-4 py-5 md:grid-cols-[minmax(0,1fr)_auto] md:items-center"
-              key={user.id}
-              role="listitem"
-            >
-              <div className="min-w-0 space-y-1 break-words">
-                <h2 className="break-words font-heading font-semibold text-base text-foreground">
-                  {titleFor(user)}
-                </h2>
-                <p className="break-words text-muted-foreground text-sm">
-                  {[user.profile?.jobTitle, user.profile?.businessName]
-                    .filter(
-                      (value) =>
-                        value !== null &&
-                        value !== undefined &&
-                        value.length > 0
-                    )
-                    .join(" · ") || "No profile summary provided"}
-                </p>
-                <p className="text-muted-foreground text-xs">
-                  {user.emailVerified ? "Email verified" : "Email not verified"}{" "}
-                  · Account created{" "}
-                  {user.createdAt.toLocaleDateString("en-US", {
-                    dateStyle: "medium",
-                    timeZone: "UTC",
-                  })}
-                </p>
-              </div>
-              <div className="flex flex-wrap items-center gap-2 md:justify-end">
-                <StatusBadge
-                  status={user.role === "admin" ? "neutral" : "info"}
-                >
-                  {labelFor(user.role)}
-                </StatusBadge>
-                <StatusBadge status={statusTone(user.status)}>
-                  {labelFor(user.status)}
-                </StatusBadge>
-              </div>
-            </article>
+            <UserRow key={user.id} user={user} />
           ))}
         </div>
         <p
           aria-live="polite"
-          className="text-muted-foreground text-sm"
+          className="text-muted-foreground text-xs"
           role="status"
         >
           {state.items.length} {state.items.length === 1 ? "user" : "users"}{" "}
@@ -243,6 +231,7 @@ export const AdminUsersDirectory = ({
             loading={isLoadingMore}
             loadingLabel="Loading more users"
             onClick={onLoadMore}
+            size="compact"
             variant="secondary"
           >
             Load more

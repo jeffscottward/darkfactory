@@ -9,7 +9,7 @@ import type { ComponentPropsWithRef } from "react";
 import { cn } from "./utilities.ts";
 
 export const buttonVariants = cva(
-  "relative inline-flex min-h-11 min-w-11 items-center justify-center gap-2 rounded-md border border-transparent px-4 font-body font-semibold text-sm transition-colors duration-base ease-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:pointer-events-none disabled:border-disabled-border disabled:bg-disabled disabled:text-disabled-foreground disabled:opacity-100",
+  "relative inline-flex min-h-11 min-w-11 items-center justify-center gap-2 rounded-md border border-transparent px-3 font-body font-semibold text-sm transition-colors duration-base ease-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:pointer-events-none disabled:border-disabled-border disabled:bg-disabled disabled:text-disabled-foreground disabled:opacity-100",
   {
     variants: {
       variant: {
@@ -24,8 +24,8 @@ export const buttonVariants = cva(
       },
       size: {
         compact: "min-h-11 px-3 text-sm",
-        default: "h-11 px-4",
-        large: "h-12 px-6 text-base",
+        default: "h-11 px-3",
+        large: "h-12 px-4 text-base",
       },
       fullWidth: {
         true: "w-full",

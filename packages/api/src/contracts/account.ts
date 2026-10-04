@@ -3,6 +3,7 @@
 // See: packages/api/src/server/account-service.ts.
 import { oc } from "@orpc/contract";
 import { z } from "zod";
+import { AppearanceFieldsSchema } from "./appearance.ts";
 
 export const ADDRESS_TYPES = ["home", "work", "other"] as const;
 export const PROFILE_VISIBILITIES = ["private", "members", "public"] as const;
@@ -166,19 +167,7 @@ export const AddressIdSchema = z
 
 export const PreferenceFieldsSchema = z
   .object({
-    themeMode: z.enum(["light", "dark", "system"]),
-    palette: z.enum([
-      "neutral",
-      "slate",
-      "blue",
-      "cyan",
-      "green",
-      "amber",
-      "orange",
-      "red",
-      "rose",
-      "violet",
-    ]),
+    ...AppearanceFieldsSchema.shape,
     emailNotifications: z.boolean(),
     productUpdates: z.boolean(),
     analyticsConsent: z.boolean(),

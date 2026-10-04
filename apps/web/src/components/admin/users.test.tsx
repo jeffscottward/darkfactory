@@ -490,7 +490,8 @@ describe("admin user directory states", () => {
         state={{ type: "ready", items: [], nextCursor: null }}
       />
     );
-    expect(empty).toContain("No users are available");
+    expect(empty).toContain("No users");
+    expect(empty).not.toContain("Clear search");
     const filtered = renderToStaticMarkup(
       <AdminUsersDirectory
         query="alice"
@@ -550,7 +551,10 @@ describe("admin user directory states", () => {
       html.indexOf("Alice A.")
     );
     expect(html.indexOf("Alice A.")).toBeLessThan(html.indexOf("Bob Brown"));
-    expect(html).toContain("No profile summary provided");
+    expect(html).not.toContain("No profile summary provided");
+    expect(
+      html.match(/break-words text-muted-foreground text-sm/gu)
+    ).toHaveLength(1);
     expect(html).toContain("Email not verified");
     expect(html).toContain("Admin");
     expect(html).toContain("Suspended");

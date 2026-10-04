@@ -8,19 +8,3 @@
     text-decoration-thickness: from-font;
   }
 }
-
-@layer components {
-  .theme-palette-swatch {
-    background-color: var(--palette-primary-light);
-  }
-
-  [data-mode="dark"] .theme-palette-swatch {
-    background-color: var(--palette-primary-dark);
-  }
-
-  @media (prefers-color-scheme: dark) {
-    [data-mode="system"] .theme-palette-swatch {
-      background-color: var(--palette-primary-dark);
-    }
-  }
-}

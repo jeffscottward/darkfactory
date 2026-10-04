@@ -2,9 +2,11 @@ import { createAtomicAuthRateLimitStorage } from "@darkfactory/auth/server";
 import {
   ADDRESS_TYPES,
   addresses,
-  COLOR_SCHEMES,
+  APPEARANCE_THEMES,
+  DENSITIES,
+  FONT_SIZES,
   FEATURE_ITEM_STATUSES,
-  PREFERENCE_MODES,
+  RADII,
   PROFILE_VISIBILITIES,
   USER_ROLES,
   USER_STATUSES,
@@ -138,8 +140,6 @@ const ADDRESS_COLUMNS = [
 
 const PREFERENCE_COLUMNS = [
   "user_id",
-  "mode",
-  "color_scheme",
   "email_notifications",
   "product_updates",
   "analytics_consent",
@@ -147,6 +147,10 @@ const PREFERENCE_COLUMNS = [
   "profile_visibility",
   "created_at",
   "updated_at",
+  "theme",
+  "font_size",
+  "density",
+  "radius",
 ];
 
 const FEATURE_COLUMNS = [
@@ -577,15 +581,21 @@ describe("DF-031 through DF-039 ordinary Postgres persistence", {
     expectCheck("user_status_check", "user", USER_STATUSES);
     expectCheck("addresses_type_check", "addresses", ADDRESS_TYPES);
     expectCheck(
-      "user_preferences_mode_check",
+      "user_preferences_theme_check",
       "user_preferences",
-      PREFERENCE_MODES
+      APPEARANCE_THEMES
     );
     expectCheck(
-      "user_preferences_color_scheme_check",
+      "user_preferences_font_size_check",
       "user_preferences",
-      COLOR_SCHEMES
+      FONT_SIZES
     );
+    expectCheck(
+      "user_preferences_density_check",
+      "user_preferences",
+      DENSITIES
+    );
+    expectCheck("user_preferences_radius_check", "user_preferences", RADII);
     expectCheck(
       "user_preferences_profile_visibility_check",
       "user_preferences",
@@ -690,14 +700,17 @@ describe("DF-031 through DF-039 ordinary Postgres persistence", {
         "USA",
       ]
     );
-    await expectRejected(
-      "INSERT INTO user_preferences (user_id, mode) VALUES ($1, $2)",
-      [userId, "automatic"]
-    );
-    await expectRejected(
-      "INSERT INTO user_preferences (user_id, color_scheme) VALUES ($1, $2)",
-      [userId, "indigo"]
-    );
+    for (const [column, value] of [
+      ["theme", "dark"],
+      ["font_size", "huge"],
+      ["density", "dense"],
+      ["radius", "round"],
+    ] as const) {
+      await expectRejected(
+        `INSERT INTO user_preferences (user_id, ${column}) VALUES ($1, $2)`,
+        [userId, value]
+      );
+    }
     await expectRejected(
       "INSERT INTO user_preferences (user_id, profile_visibility) VALUES ($1, $2)",
       [userId, "secret"]
@@ -1292,16 +1305,21 @@ describe("DF-031 through DF-039 ordinary Postgres persistence", {
     );
   });
 
-  it("DF-036 persists concrete preferences and all ten settled color schemes", async () => {
+  it("DF-036 persists concrete preferences and every settled appearance value", async () => {
     const userId = "preferences-user-01";
     await createAuthUser(userId, "preferences-01@example.test");
     const repository = createUserPreferencesRepository(databaseResource.db);
 
-    for (const colorScheme of COLOR_SCHEMES) {
+    for (const [index, theme] of APPEARANCE_THEMES.entries()) {
+      const appearance = {
+        theme,
+        fontSize: FONT_SIZES[index % FONT_SIZES.length]!,
+        density: DENSITIES[index % DENSITIES.length]!,
+        radius: RADII[index % RADII.length]!,
+      };
       await repository.upsert({
         userId,
-        mode: "system",
-        colorScheme,
+        ...appearance,
         emailNotifications: true,
         productUpdates: false,
         analyticsConsent: true,
@@ -1310,8 +1328,7 @@ describe("DF-031 through DF-039 ordinary Postgres persistence", {
       });
       expect(await repository.findByUserId(userId)).toMatchObject({
         userId,
-        colorScheme,
-        mode: "system",
+        ...appearance,
         profileVisibility: "members",
       });
     }
@@ -1357,8 +1374,10 @@ describe("DF-031 through DF-039 ordinary Postgres persistence", {
     });
     await preferences.upsert({
       userId,
-      mode: "light",
-      colorScheme: "neutral",
+      theme: "default-light",
+      fontSize: "default",
+      density: "default",
+      radius: "small",
       emailNotifications: false,
       productUpdates: false,
       analyticsConsent: false,
@@ -2032,8 +2051,10 @@ describe("DF-031 through DF-039 ordinary Postgres persistence", {
     });
     const themeWinner = await preferencesRepository.upsertTheme({
       userId,
-      mode: "dark",
-      colorScheme: "violet",
+      theme: "nord",
+      fontSize: "large",
+      density: "comfortable",
+      radius: "medium",
       expectedUpdatedAt: createdPreferences.updatedAt,
     });
     expect(themeWinner.updatedAt.getTime()).toBeGreaterThan(
@@ -2042,8 +2063,10 @@ describe("DF-031 through DF-039 ordinary Postgres persistence", {
     await expect(
       preferencesRepository.upsertTheme({
         userId,
-        mode: "light",
-        colorScheme: "amber",
+        theme: "everforest",
+        fontSize: "default",
+        density: "comfortable",
+        radius: "none",
         expectedUpdatedAt: createdPreferences.updatedAt,
       })
     ).rejects.toBeInstanceOf(OptimisticConcurrencyError);
@@ -2065,8 +2088,10 @@ describe("DF-031 through DF-039 ordinary Postgres persistence", {
     ).toMatchObject({
       analyticsConsent: true,
       productUpdates: true,
-      mode: "dark",
-      colorScheme: "violet",
+      theme: "nord",
+      fontSize: "large",
+      density: "comfortable",
+      radius: "medium",
     });
   });
 });

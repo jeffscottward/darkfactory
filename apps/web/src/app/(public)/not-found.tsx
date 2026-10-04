@@ -10,7 +10,7 @@ export default function PublicNotFound() {
     >
       <section
         aria-labelledby="not-found-next-title"
-        className="grid gap-8 py-16 md:grid-cols-12 md:py-20"
+        className="grid gap-5 py-8 md:grid-cols-12 md:py-10"
       >
         <div className="md:col-span-7">
           <h2

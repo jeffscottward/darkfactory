@@ -16,12 +16,12 @@ import "./globals.css";
 
 export const metadata = {
   applicationName: "DarkFactory",
+  description: "A modular, Postgres-first, AI-native application foundation.",
+  icons: { icon: "/favicon.svg" },
   title: {
     default: "DarkFactory",
     template: "%s | DarkFactory",
   },
-  description: "A modular, Postgres-first, AI-native application foundation.",
-  icons: { icon: "/favicon.svg" },
 };
 
 export const viewport = {
@@ -34,8 +34,10 @@ export const themeRootAttributes = (
   cookieStatus: ThemeCookieStatus = "missing"
 ) =>
   ({
-    "data-mode": preference.themeMode,
-    "data-palette": preference.palette,
+    "data-density": preference.density,
+    "data-font-size": preference.fontSize,
+    "data-radius": preference.radius,
+    "data-theme": preference.theme,
     "data-theme-authority": authority,
     "data-theme-cookie-status": cookieStatus,
   }) as const;

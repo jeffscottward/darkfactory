@@ -5,15 +5,11 @@ export default function AccountLoading() {
     <div
       aria-busy="true"
       aria-live="polite"
-      className="mx-auto w-full max-w-portal space-y-8"
+      className="mx-auto w-full max-w-portal space-y-4"
       role="status"
     >
       <span className="sr-only">Loading account settings</span>
-      <Skeleton className="h-11 w-full" />
-      <div className="space-y-4">
-        <Skeleton className="h-8 w-56 max-w-full" />
-        <Skeleton className="h-5 w-96 max-w-full" />
-      </div>
+      <Skeleton className="h-7 w-40 max-w-full" />
       <Skeleton className="h-64 w-full" />
     </div>
   );

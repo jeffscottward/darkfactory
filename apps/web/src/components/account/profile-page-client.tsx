@@ -4,10 +4,11 @@ import type {
   AccountProfileOutput,
   ProfileUpdateInput,
 } from "@darkfactory/api";
-import { Button, buttonVariants, EmptyState, Skeleton } from "@darkfactory/ui";
+import { Button, buttonVariants, Skeleton } from "@darkfactory/ui";
 import { RotateCcw } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 
+import { InlineNotice } from "../inline-notice.tsx";
 import {
   type AccountFailureKind,
   accountFailureKind,
@@ -47,7 +48,7 @@ export const ProfilePageClient = () => {
       <div
         aria-busy="true"
         aria-live="polite"
-        className="grid gap-5 sm:grid-cols-2"
+        className="grid gap-3 sm:grid-cols-2"
         role="status"
       >
         <span className="sr-only">Loading profile</span>
@@ -85,9 +86,9 @@ export const ProfilePageClient = () => {
       );
     return (
       <div aria-live="assertive" role="alert">
-        <EmptyState
+        <InlineNotice
           action={action}
-          description={
+          message={
             state.kind === "unauthorized"
               ? "Sign in again to load your profile."
               : state.kind === "forbidden"
@@ -96,7 +97,6 @@ export const ProfilePageClient = () => {
                   ? "The profile is no longer available."
                   : "Your profile could not be loaded. No fields were changed."
           }
-          icon={<RotateCcw />}
           title="Profile unavailable"
         />
       </div>

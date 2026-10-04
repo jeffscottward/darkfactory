@@ -3,6 +3,7 @@ import type {
   ApiClientOptions,
   ThemePreferenceOutput,
 } from "@darkfactory/api";
+import type { AppearancePreference } from "@darkfactory/state";
 import { createUiStore, type UiStore } from "@darkfactory/state/client";
 import { useTheme } from "@darkfactory/ui/client/theme";
 import { createElement, type EffectCallback, type ReactNode } from "react";
@@ -371,8 +372,10 @@ const deferred = <Value>() => {
 const ThemeProbe = () => {
   const { preference } = useTheme();
   return createElement("output", {
-    "data-mode": preference.themeMode,
-    "data-palette": preference.palette,
+    "data-density": preference.density,
+    "data-font-size": preference.fontSize,
+    "data-radius": preference.radius,
+    "data-theme": preference.theme,
   });
 };
 
@@ -445,7 +448,7 @@ const UiStateSelectionProbe = () =>
   createElement(
     "output",
     {},
-    useUiState((state) => `${state.themeMode}:${state.palette}`)
+    useUiState((state) => `${state.theme}:${state.density}`)
   );
 
 const AuthorityProbe = () =>
@@ -496,19 +499,31 @@ describe("trusted theme controls", () => {
     const trusted = renderToStaticMarkup(
       createElement(ThemeController, {
         children: createElement(ThemeMenu),
-        initialPreference: { themeMode: "dark", palette: "rose" },
+        initialPreference: {
+          density: "compact",
+          fontSize: "large",
+          radius: "none",
+          theme: "rose-pine",
+        },
         themeAuthority: "trusted",
       })
     );
     const indeterminate = renderToStaticMarkup(
       createElement(ThemeController, {
         children: createElement(ThemeMenu),
-        initialPreference: { themeMode: "system", palette: "neutral" },
+        initialPreference: {
+          density: "default",
+          fontSize: "default",
+          radius: "small",
+          theme: "system",
+        },
         themeAuthority: "indeterminate",
       })
     );
-    expect(trusted).toContain('aria-label="Theme settings"');
-    expect(indeterminate).toContain('aria-label="Theme settings unavailable"');
+    expect(trusted).toContain('aria-label="Appearance settings"');
+    expect(indeterminate).toContain(
+      'aria-label="Appearance settings unavailable"'
+    );
     expect(trusted).not.toMatch(/<button[^>]*\sdisabled(?:=| |>)/u);
     return expect(indeterminate).not.toMatch(
       /<button[^>]*\sdisabled(?:=| |>)/u
@@ -519,25 +534,39 @@ describe("trusted theme controls", () => {
     const markup = renderToStaticMarkup(
       createElement(ThemeController, {
         children: createElement(ThemeProbe),
-        initialPreference: { themeMode: "dark", palette: "cyan" },
+        initialPreference: {
+          density: "comfortable",
+          fontSize: "default",
+          radius: "none",
+          theme: "kanagawa",
+        },
         themeAuthority: "anonymous",
       })
     );
 
-    expect(markup).toContain('data-mode="dark"');
-    return expect(markup).toContain('data-palette="cyan"');
+    expect(markup).toContain('data-theme="kanagawa"');
+    expect(markup).toContain('data-font-size="default"');
+    expect(markup).toContain('data-radius="none"');
+    return expect(markup).toContain('data-density="comfortable"');
   });
 
   it("projects the same selected state through the client external-store snapshot", () => {
     const markup = renderToStaticMarkup(
       createElement(UiStateProvider, {
         children: createElement(UiStateSelectionProbe),
-        initialPreference: { themeMode: "dark", palette: "cyan" },
+        initialPreference: {
+          density: "comfortable",
+          fontSize: "default",
+          radius: "none",
+          theme: "kanagawa",
+        },
       })
     );
 
-    expect(markup).toContain("dark:cyan");
-    return expect(themeHookRuntime.clientSnapshot()).toBe("dark:cyan");
+    expect(markup).toContain("kanagawa:comfortable");
+    return expect(themeHookRuntime.clientSnapshot()).toBe(
+      "kanagawa:comfortable"
+    );
   });
 
   it("fails closed when the semantic callback lacks anonymous authority", () => {
@@ -554,16 +583,28 @@ describe("trusted theme controls", () => {
       renderToStaticMarkup(
         createElement(ThemeController, {
           children: createElement(CaptureTheme),
-          initialPreference: { themeMode: "dark", palette: "rose" },
+          initialPreference: {
+            density: "compact",
+            fontSize: "large",
+            radius: "none",
+            theme: "rose-pine",
+          },
           themeAuthority: authority,
         })
       );
 
-      selectPreference?.({ themeMode: "light", palette: "blue" });
+      selectPreference?.({
+        density: "comfortable",
+        fontSize: "large",
+        radius: "medium",
+        theme: "catppuccin-latte",
+      });
 
       expect(store?.getState()).toMatchObject({
-        themeMode: "dark",
-        palette: "rose",
+        density: "compact",
+        fontSize: "large",
+        radius: "none",
+        theme: "rose-pine",
       });
     }
   });
@@ -579,7 +620,12 @@ describe("trusted theme controls", () => {
       authorityEpoch: () => 1,
       createClient,
       currentAuthority: () => "anonymous",
-      nextPreference: { themeMode: "dark", palette: "rose" },
+      nextPreference: {
+        density: "compact",
+        fontSize: "large",
+        radius: "none",
+        theme: "rose-pine",
+      },
       requestSequence: { current: 1 },
       setError: (message) => errors.push(message),
       setPending: (value) => pending.push(value),
@@ -590,8 +636,10 @@ describe("trusted theme controls", () => {
     expect(errors.at(-1)).toBeNull();
     expect(pending.at(-1)).toBe(false);
     return expect(store.getState()).toMatchObject({
-      themeMode: "dark",
-      palette: "rose",
+      density: "compact",
+      fontSize: "large",
+      radius: "none",
+      theme: "rose-pine",
     });
   });
 
@@ -615,8 +663,10 @@ describe("trusted theme controls", () => {
                 })
               );
               return {
-                themeMode: "system",
-                palette: "neutral",
+                density: "default",
+                fontSize: "default",
+                radius: "small",
+                theme: "system",
                 updatedAt: new Date("2026-07-23T10:00:00.000Z"),
               };
             },
@@ -627,8 +677,10 @@ describe("trusted theme controls", () => {
                 })
               );
               return {
-                themeMode: "dark",
-                palette: "rose",
+                density: "compact",
+                fontSize: "large",
+                radius: "none",
+                theme: "rose-pine",
                 updatedAt: new Date("2026-07-23T10:00:00.001Z"),
               };
             },
@@ -646,7 +698,12 @@ describe("trusted theme controls", () => {
       authorityEpoch: () => 0,
       createClient: () => client,
       currentAuthority: () => "trusted",
-      nextPreference: { themeMode: "dark", palette: "rose" },
+      nextPreference: {
+        density: "compact",
+        fontSize: "large",
+        radius: "none",
+        theme: "rose-pine",
+      },
       requestSequence: { current: 0 },
       setError: vi.fn(),
       setPending: vi.fn(),
@@ -658,8 +715,10 @@ describe("trusted theme controls", () => {
       ["PATCH", "https://darkfactory.example/api/orpc"],
     ]);
     return expect(store.getState()).toMatchObject({
-      themeMode: "dark",
-      palette: "rose",
+      density: "compact",
+      fontSize: "large",
+      radius: "none",
+      theme: "rose-pine",
     });
   });
 
@@ -676,8 +735,10 @@ describe("trusted theme controls", () => {
           getCount += 1;
           if (getCount === 1) {
             return {
-              themeMode: "system",
-              palette: "neutral",
+              density: "default",
+              fontSize: "default",
+              radius: "small",
+              theme: "system",
               updatedAt: new Date("2026-07-23T10:00:00.000Z"),
             };
           }
@@ -688,14 +749,19 @@ describe("trusted theme controls", () => {
         },
       }),
       currentAuthority: () => "trusted",
-      nextPreference: { themeMode: "dark", palette: "rose" },
+      nextPreference: {
+        density: "compact",
+        fontSize: "large",
+        radius: "none",
+        theme: "rose-pine",
+      },
       requestSequence: { current: 0 },
       setError: (message) => errors.push(message),
       setPending: (value) => pending.push(value),
       store,
     });
     expect(errors.at(-1)).toBe(
-      "Could not confirm theme save. Reload before retrying."
+      "Could not confirm the appearance save. Reload before retrying."
     );
 
     const createClient = vi.fn();
@@ -704,7 +770,12 @@ describe("trusted theme controls", () => {
       authorityEpoch: () => 1,
       createClient,
       currentAuthority: () => "anonymous",
-      nextPreference: { themeMode: "light", palette: "blue" },
+      nextPreference: {
+        density: "comfortable",
+        fontSize: "large",
+        radius: "medium",
+        theme: "catppuccin-latte",
+      },
       requestSequence: { current: 1 },
       setError: (message) => errors.push(message),
       setPending: (value) => pending.push(value),
@@ -715,8 +786,10 @@ describe("trusted theme controls", () => {
     expect(errors.at(-1)).toBeNull();
     expect(pending.at(-1)).toBe(false);
     return expect(store.getState()).toMatchObject({
-      themeMode: "light",
-      palette: "blue",
+      density: "comfortable",
+      fontSize: "large",
+      radius: "medium",
+      theme: "catppuccin-latte",
     });
   });
 
@@ -728,10 +801,7 @@ describe("trusted theme controls", () => {
     const secondGet = deferred<ThemePreferenceOutput>();
     const selection = (
       get: () => Promise<ThemePreferenceOutput>,
-      preference: Readonly<{
-        themeMode: "dark" | "light";
-        palette: "rose" | "blue";
-      }>
+      preference: Readonly<AppearancePreference>
     ) =>
       selectThemeMenuPreference({
         authority: "trusted",
@@ -739,8 +809,7 @@ describe("trusted theme controls", () => {
         createClient: () => ({
           get,
           update: async () => ({
-            themeMode: preference.themeMode,
-            palette: preference.palette,
+            ...preference,
             updatedAt: new Date("2026-07-23T10:00:00.001Z"),
           }),
         }),
@@ -753,16 +822,22 @@ describe("trusted theme controls", () => {
       });
 
     const first = selection(async () => firstGet.promise, {
-      themeMode: "dark",
-      palette: "rose",
+      density: "compact",
+      fontSize: "large",
+      radius: "none",
+      theme: "rose-pine",
     });
     const second = selection(async () => secondGet.promise, {
-      themeMode: "light",
-      palette: "blue",
+      density: "comfortable",
+      fontSize: "large",
+      radius: "medium",
+      theme: "catppuccin-latte",
     });
     firstGet.resolve({
-      themeMode: "system",
-      palette: "neutral",
+      density: "default",
+      fontSize: "default",
+      radius: "small",
+      theme: "system",
       updatedAt: new Date("2026-07-23T10:00:00.000Z"),
     });
 
@@ -770,8 +845,10 @@ describe("trusted theme controls", () => {
     expect(pending.at(-1)).toBe(true);
 
     secondGet.resolve({
-      themeMode: "system",
-      palette: "neutral",
+      density: "default",
+      fontSize: "default",
+      radius: "small",
+      theme: "system",
       updatedAt: new Date("2026-07-23T10:00:00.000Z"),
     });
     await second;
@@ -788,8 +865,18 @@ describe("trusted theme controls", () => {
 
     reconcileThemeAuthorityTransition({
       authority: "trusted",
-      bootstrapPreference: { themeMode: "light", palette: "cyan" },
-      initialPreference: { themeMode: "dark", palette: "rose" },
+      bootstrapPreference: {
+        density: "default",
+        fontSize: "large",
+        radius: "small",
+        theme: "everforest",
+      },
+      initialPreference: {
+        density: "compact",
+        fontSize: "large",
+        radius: "none",
+        theme: "rose-pine",
+      },
       onAuthorityChange: (authority) => authorityChanges.push(authority),
       store,
       unsubscribe,
@@ -798,16 +885,28 @@ describe("trusted theme controls", () => {
     expect(authorityChanges).toEqual(["trusted"]);
     expect(writes).toEqual([]);
     return expect(store.getState()).toMatchObject({
-      themeMode: "dark",
-      palette: "rose",
+      density: "compact",
+      fontSize: "large",
+      radius: "none",
+      theme: "rose-pine",
     });
   });
 
   it("consumes pre-hydration bootstrap once and never reverts a soft refresh", () => {
     const store = createUiStore();
     const consumption = { consumed: false };
-    const bootstrapA = { themeMode: "dark", palette: "blue" } as const;
-    const preferenceB = { themeMode: "light", palette: "rose" } as const;
+    const bootstrapA = {
+      density: "compact",
+      fontSize: "small",
+      radius: "medium",
+      theme: "nord",
+    } as const;
+    const preferenceB = {
+      density: "compact",
+      fontSize: "default",
+      radius: "medium",
+      theme: "gruvbox-dark",
+    } as const;
     let previousAuthority: "anonymous" | "trusted" | undefined;
     const apply = (
       authority: "anonymous" | "trusted",
@@ -848,15 +947,19 @@ describe("trusted theme controls", () => {
       const consumption = { consumed: false };
       expect(
         consumeInitialThemeBootstrap(authority, consumption, {
-          themeMode: "dark",
-          palette: "rose",
+          density: "compact",
+          fontSize: "large",
+          radius: "none",
+          theme: "rose-pine",
         })
       ).toBeUndefined();
       expect(consumption.consumed).toBe(true);
       expect(
         consumeInitialThemeBootstrap(authority, consumption, {
-          themeMode: "light",
-          palette: "blue",
+          density: "comfortable",
+          fontSize: "large",
+          radius: "medium",
+          theme: "catppuccin-latte",
         })
       ).toBeUndefined();
     }
@@ -864,8 +967,10 @@ describe("trusted theme controls", () => {
 
   it("rejects every malformed bootstrap shape and avoids redundant store writes", () => {
     const initialPreference = {
-      themeMode: "system",
-      palette: "neutral",
+      density: "default",
+      fontSize: "default",
+      radius: "small",
+      theme: "system",
     } as const;
     for (const bootstrapPreference of [
       undefined,
@@ -874,12 +979,33 @@ describe("trusted theme controls", () => {
       "dark:rose",
       [],
       {},
-      { themeMode: "invalid", palette: "rose" },
-      { themeMode: "dark", palette: "invalid" },
+      {
+        density: "default",
+        fontSize: "default",
+        radius: "small",
+        theme: "invalid",
+      },
+      {
+        density: "default",
+        fontSize: "huge",
+        radius: "small",
+        theme: "rose-pine",
+      },
+      {
+        density: "dense",
+        fontSize: "large",
+        radius: "small",
+        theme: "rose-pine",
+      },
+      {
+        density: "compact",
+        fontSize: "large",
+        radius: "round",
+        theme: "rose-pine",
+      },
     ]) {
       const store = createUiStore();
-      const setThemeMode = vi.spyOn(store.getState(), "setThemeMode");
-      const setPalette = vi.spyOn(store.getState(), "setPalette");
+      const setState = vi.spyOn(store, "setState");
       reconcileThemeAuthorityTransition({
         authority: "anonymous",
         bootstrapPreference,
@@ -889,35 +1015,53 @@ describe("trusted theme controls", () => {
         store,
       });
       expect(store.getState()).toMatchObject(initialPreference);
-      expect(setThemeMode).not.toHaveBeenCalled();
-      expect(setPalette).not.toHaveBeenCalled();
+      expect(setState).not.toHaveBeenCalled();
     }
 
     const store = createUiStore();
     reconcileThemeAuthorityTransition({
       authority: "trusted",
-      bootstrapPreference: { themeMode: "dark", palette: "rose" },
-      initialPreference: { themeMode: "light", palette: "blue" },
+      bootstrapPreference: {
+        density: "compact",
+        fontSize: "large",
+        radius: "none",
+        theme: "rose-pine",
+      },
+      initialPreference: {
+        density: "comfortable",
+        fontSize: "large",
+        radius: "medium",
+        theme: "catppuccin-latte",
+      },
       onAuthorityChange: vi.fn(),
       store,
     });
     expect(store.getState()).toMatchObject({
-      themeMode: "light",
-      palette: "blue",
+      density: "comfortable",
+      fontSize: "large",
+      radius: "medium",
+      theme: "catppuccin-latte",
     });
 
     const refreshedStore = createUiStore();
     reconcileThemeAuthorityTransition({
       authority: "anonymous",
-      bootstrapPreference: { themeMode: "dark", palette: "rose" },
+      bootstrapPreference: {
+        density: "compact",
+        fontSize: "large",
+        radius: "none",
+        theme: "rose-pine",
+      },
       initialPreference,
       onAuthorityChange: vi.fn(),
       previousAuthority: "anonymous",
       store: refreshedStore,
     });
     return expect(refreshedStore.getState()).toMatchObject({
-      themeMode: "dark",
-      palette: "rose",
+      density: "compact",
+      fontSize: "large",
+      radius: "none",
+      theme: "rose-pine",
     });
   });
 
@@ -934,15 +1078,27 @@ describe("trusted theme controls", () => {
     const html = renderToStaticMarkup(
       createElement(ThemeController, {
         children: createElement(CaptureTheme),
-        initialPreference: { themeMode: "system", palette: "neutral" },
+        initialPreference: {
+          density: "default",
+          fontSize: "default",
+          radius: "small",
+          theme: "system",
+        },
       })
     );
 
     expect(html).toContain('data-authority="anonymous"');
-    selectPreference?.({ themeMode: "dark", palette: "violet" });
+    selectPreference?.({
+      density: "comfortable",
+      fontSize: "small",
+      radius: "large",
+      theme: "tokyo-night",
+    });
     return expect(store?.getState()).toMatchObject({
-      themeMode: "dark",
-      palette: "violet",
+      density: "comfortable",
+      fontSize: "small",
+      radius: "large",
+      theme: "tokyo-night",
     });
   });
 
@@ -957,7 +1113,12 @@ describe("trusted theme controls", () => {
       authorityEpoch: () => 0,
       createClient,
       currentAuthority: () => "indeterminate",
-      nextPreference: { themeMode: "dark", palette: "rose" },
+      nextPreference: {
+        density: "compact",
+        fontSize: "large",
+        radius: "none",
+        theme: "rose-pine",
+      },
       requestSequence: { current: 0 },
       setError,
       setPending,
@@ -973,7 +1134,7 @@ describe("trusted theme controls", () => {
   it("surfaces failed and reconciled trusted selections with deterministic feedback", async () => {
     const cases = [
       {
-        expected: "Could not save theme settings. Try again.",
+        expected: "Could not save appearance settings. Try again.",
         get: vi.fn(async () => {
           throw new Error("account unavailable");
         }),
@@ -983,17 +1144,21 @@ describe("trusted theme controls", () => {
       },
       {
         expected:
-          "Theme settings were refreshed from your account. Review them before trying again.",
+          "Appearance settings were refreshed from your account. Review them before trying again.",
         get: vi
           .fn()
           .mockResolvedValueOnce({
-            themeMode: "system",
-            palette: "neutral",
+            density: "default",
+            fontSize: "default",
+            radius: "small",
+            theme: "system",
             updatedAt: new Date("2026-07-23T10:00:00.000Z"),
           })
           .mockResolvedValueOnce({
-            themeMode: "light",
-            palette: "blue",
+            density: "comfortable",
+            fontSize: "large",
+            radius: "medium",
+            theme: "catppuccin-latte",
             updatedAt: new Date("2026-07-23T10:00:00.001Z"),
           }),
         update: vi.fn(async () => {
@@ -1014,7 +1179,12 @@ describe("trusted theme controls", () => {
           update: testCase.update,
         }),
         currentAuthority: () => "trusted",
-        nextPreference: { themeMode: "dark", palette: "rose" },
+        nextPreference: {
+          density: "compact",
+          fontSize: "large",
+          radius: "none",
+          theme: "rose-pine",
+        },
         requestSequence: { current: 0 },
         setError: (value) => errors.push(value),
         setPending: (value) => pending.push(value),
@@ -1035,8 +1205,10 @@ describe("trusted theme controls", () => {
       let currentAuthority: "anonymous" | "trusted" = "trusted";
       let currentEpoch = 0;
       const update = vi.fn(async () => ({
-        themeMode: "dark" as const,
-        palette: "rose" as const,
+        density: "compact" as const,
+        fontSize: "large" as const,
+        radius: "none" as const,
+        theme: "rose-pine" as const,
         updatedAt: new Date("2026-07-23T10:00:00.001Z"),
       }));
       const selection = selectThemeMenuPreference({
@@ -1047,7 +1219,12 @@ describe("trusted theme controls", () => {
           update,
         }),
         currentAuthority: () => currentAuthority,
-        nextPreference: { themeMode: "dark", palette: "rose" },
+        nextPreference: {
+          density: "compact",
+          fontSize: "large",
+          radius: "none",
+          theme: "rose-pine",
+        },
         requestSequence,
         setError: (value) => errors.push(value),
         setPending: (value) => pending.push(value),
@@ -1072,8 +1249,10 @@ describe("trusted theme controls", () => {
         }
       }
       gate.resolve({
-        themeMode: "system",
-        palette: "neutral",
+        density: "default",
+        fontSize: "default",
+        radius: "small",
+        theme: "system",
         updatedAt: new Date("2026-07-23T10:00:00.000Z"),
       });
       await selection;
@@ -1084,9 +1263,19 @@ describe("trusted theme controls", () => {
     }
   });
 
-  it("hydrates anonymous browser state, synchronizes mutations, and cleans stale subscriptions", () => {
-    const initialPreference = { themeMode: "light", palette: "rose" } as const;
-    const bootstrap = { themeMode: "dark", palette: "blue" } as const;
+  it("hydrates anonymous browser state, synchronizes mutations, and cleans stale subscriptions", async () => {
+    const initialPreference = {
+      density: "compact",
+      fontSize: "default",
+      radius: "medium",
+      theme: "gruvbox-dark",
+    } as const;
+    const bootstrap = {
+      density: "compact",
+      fontSize: "small",
+      radius: "medium",
+      theme: "nord",
+    } as const;
     const browser = installThemeBrowser({ bootstrap });
     const render = (authority: "anonymous" | "trusted") =>
       renderThemeRuntime({
@@ -1099,10 +1288,7 @@ describe("trusted theme controls", () => {
     themeHookRuntime.commitEffects();
     expect(browser.windowStub).not.toHaveProperty("__DARKFACTORY_THEME__");
     expect(capturedThemeStore?.getState()).toMatchObject(bootstrap);
-    expect(browser.documentElement.dataset).toEqual({
-      mode: "dark",
-      palette: "blue",
-    });
+    expect(browser.documentElement.dataset).toEqual(bootstrap);
 
     const store = capturedThemeStore;
     if (store === undefined)
@@ -1125,21 +1311,38 @@ describe("trusted theme controls", () => {
       serializeAnonymousThemePreference(bootstrap),
     ]);
     expect(browser.cookieWrites.at(-1)).toBe(serializeThemeCookie(bootstrap));
+    await vi.dynamicImportSettled();
+    await flushMicrotasks();
+    render("anonymous");
     expect(themeComponentRuntime.toaster()["theme"]).toBe("dark");
 
-    store.setState({ themeMode: "light", palette: "amber" });
+    store.setState({
+      density: "default",
+      fontSize: "small",
+      radius: "large",
+      theme: "default-light",
+    });
     expect(browser.documentElement.dataset).toEqual({
-      mode: "light",
-      palette: "amber",
+      density: "default",
+      fontSize: "small",
+      radius: "large",
+      theme: "default-light",
     });
     expect(browser.storageWrites.at(-1)?.[1]).toBe(
       serializeAnonymousThemePreference({
-        themeMode: "light",
-        palette: "amber",
+        density: "default",
+        fontSize: "small",
+        radius: "large",
+        theme: "default-light",
       })
     );
     expect(browser.cookieWrites.at(-1)).toBe(
-      serializeThemeCookie({ themeMode: "light", palette: "amber" })
+      serializeThemeCookie({
+        density: "default",
+        fontSize: "small",
+        radius: "large",
+        theme: "default-light",
+      })
     );
 
     render("trusted");
@@ -1151,7 +1354,12 @@ describe("trusted theme controls", () => {
   });
 
   it("keeps browser persistence best-effort for blocked and non-anonymous authorities", () => {
-    const initialPreference = { themeMode: "dark", palette: "rose" } as const;
+    const initialPreference = {
+      density: "compact",
+      fontSize: "large",
+      radius: "none",
+      theme: "rose-pine",
+    } as const;
     const cases = [
       {
         authority: "anonymous" as const,
@@ -1206,15 +1414,17 @@ describe("trusted theme controls", () => {
 
       expect(browser.setItem).toHaveBeenCalledTimes(testCase.expectedStorage);
       expect(browser.cookieWrites).toHaveLength(testCase.expectedCookies);
-      expect(browser.documentElement.dataset).toEqual({
-        mode: "dark",
-        palette: "rose",
-      });
+      expect(browser.documentElement.dataset).toEqual(initialPreference);
     }
   });
 
   it("propagates non-object browser persistence failures", () => {
-    const initialPreference = { themeMode: "dark", palette: "rose" } as const;
+    const initialPreference = {
+      density: "compact",
+      fontSize: "large",
+      radius: "none",
+      theme: "rose-pine",
+    } as const;
     const observeFailure = (
       options: Readonly<{
         cookieFailure?: unknown;
@@ -1249,19 +1459,15 @@ describe("trusted theme controls", () => {
       storageFailure: "primitive storage failure",
     });
     expect(storage.thrown).toBe("primitive storage failure");
-    expect(storage.browser.documentElement.dataset).toEqual({
-      mode: "dark",
-      palette: "rose",
-    });
+    expect(storage.browser.documentElement.dataset).toEqual(initialPreference);
 
     const cookie = observeFailure({
       cookieFailure: "primitive cookie failure",
     });
     expect(cookie.thrown).toBe("primitive cookie failure");
-    return expect(cookie.browser.documentElement.dataset).toEqual({
-      mode: "dark",
-      palette: "rose",
-    });
+    return expect(cookie.browser.documentElement.dataset).toEqual(
+      initialPreference
+    );
   });
 
   it("renders trusted save, failure, and retry states through the menu controller", async () => {
@@ -1272,14 +1478,18 @@ describe("trusted theme controls", () => {
       getCount += 1;
       if (getCount === 1) return firstGet.promise;
       return Promise.resolve({
-        themeMode: "system",
-        palette: "neutral",
+        density: "default",
+        fontSize: "default",
+        radius: "small",
+        theme: "system",
         updatedAt: new Date("2026-07-23T10:00:00.000Z"),
       });
     });
     const update = vi.fn(async () => ({
-      themeMode: "dark" as const,
-      palette: "rose" as const,
+      density: "compact" as const,
+      fontSize: "large" as const,
+      radius: "none" as const,
+      theme: "rose-pine" as const,
       updatedAt: new Date("2026-07-23T10:00:00.001Z"),
     }));
     themeApiRuntime.configure(
@@ -1289,8 +1499,10 @@ describe("trusted theme controls", () => {
         }) as unknown as ApiClient
     );
     const initialPreference = {
-      themeMode: "system",
-      palette: "neutral",
+      density: "default",
+      fontSize: "default",
+      radius: "small",
+      theme: "system",
     } as const;
     const render = () =>
       renderThemeRuntime({
@@ -1303,8 +1515,8 @@ describe("trusted theme controls", () => {
     expect(themeComponentRuntime.picker()).toMatchObject({
       disabled: false,
       error: null,
-      statusMessage: "These preferences are saved to your account.",
-      triggerLabel: "Theme settings",
+      statusMessage: null,
+      triggerLabel: "Appearance settings",
     });
     themeHookRuntime.commitLayouts();
     themeHookRuntime.commitEffects();
@@ -1315,13 +1527,18 @@ describe("trusted theme controls", () => {
     const select = themeComponentRuntime.picker()["onPreferenceChange"];
     if (typeof select !== "function")
       throw new Error("Expected a theme selection callback.");
-    select({ themeMode: "dark", palette: "rose" });
+    select({
+      density: "compact",
+      fontSize: "large",
+      radius: "none",
+      theme: "rose-pine",
+    });
     render();
     expect(themeComponentRuntime.picker()).toMatchObject({
       disabled: true,
       error: null,
-      statusMessage: "Saving this preference to your account.",
-      triggerLabel: "Saving theme settings",
+      statusMessage: "Saving appearance settings.",
+      triggerLabel: "Saving appearance settings",
     });
     expect(themeApiRuntime.options()).toHaveLength(1);
     expect(themeApiRuntime.options()[0]?.baseUrl).toBe(
@@ -1334,32 +1551,39 @@ describe("trusted theme controls", () => {
     render();
     expect(themeComponentRuntime.picker()).toMatchObject({
       disabled: false,
-      error: "Could not save theme settings. Try again.",
-      statusMessage: "These preferences are saved to your account.",
-      triggerLabel: "Theme settings",
+      error: "Could not save appearance settings. Try again.",
+      statusMessage: null,
+      triggerLabel: "Appearance settings",
     });
 
     const retry = themeComponentRuntime.picker()["onPreferenceChange"];
     if (typeof retry !== "function")
       throw new Error("Expected a theme retry callback.");
-    retry({ themeMode: "dark", palette: "rose" });
+    retry({
+      density: "compact",
+      fontSize: "large",
+      radius: "none",
+      theme: "rose-pine",
+    });
     render();
     expect(themeComponentRuntime.picker()).toMatchObject({
       disabled: true,
       error: null,
-      triggerLabel: "Saving theme settings",
+      triggerLabel: "Saving appearance settings",
     });
     await flushMicrotasks();
     render();
     expect(themeComponentRuntime.picker()).toMatchObject({
       disabled: false,
       error: null,
-      triggerLabel: "Theme settings",
+      triggerLabel: "Appearance settings",
     });
     expect(update).toHaveBeenCalledTimes(1);
     return expect(capturedThemeStore?.getState()).toMatchObject({
-      themeMode: "dark",
-      palette: "rose",
+      density: "compact",
+      fontSize: "large",
+      radius: "none",
+      theme: "rose-pine",
     });
   });
 
@@ -1367,8 +1591,10 @@ describe("trusted theme controls", () => {
     installThemeBrowser();
     const getGate = deferred<ThemePreferenceOutput>();
     const update = vi.fn(async () => ({
-      themeMode: "dark" as const,
-      palette: "rose" as const,
+      density: "compact" as const,
+      fontSize: "large" as const,
+      radius: "none" as const,
+      theme: "rose-pine" as const,
       updatedAt: new Date("2026-07-23T10:00:00.001Z"),
     }));
     themeApiRuntime.configure(
@@ -1383,8 +1609,10 @@ describe("trusted theme controls", () => {
         }) as unknown as ApiClient
     );
     const initialPreference = {
-      themeMode: "system",
-      palette: "neutral",
+      density: "default",
+      fontSize: "default",
+      radius: "small",
+      theme: "system",
     } as const;
     const render = (authority: "anonymous" | "indeterminate" | "trusted") =>
       renderThemeRuntime({
@@ -1399,17 +1627,22 @@ describe("trusted theme controls", () => {
     const select = themeComponentRuntime.picker()["onPreferenceChange"];
     if (typeof select !== "function")
       throw new Error("Expected a theme selection callback.");
-    select({ themeMode: "dark", palette: "rose" });
+    select({
+      density: "compact",
+      fontSize: "large",
+      radius: "none",
+      theme: "rose-pine",
+    });
     render("trusted");
     expect(themeComponentRuntime.picker()["triggerLabel"]).toBe(
-      "Saving theme settings"
+      "Saving appearance settings"
     );
 
     render("anonymous");
     expect(themeComponentRuntime.picker()).toMatchObject({
       disabled: true,
-      statusMessage: null,
-      triggerLabel: "Saving theme settings",
+      statusMessage: "Saving appearance settings.",
+      triggerLabel: "Saving appearance settings",
     });
     themeHookRuntime.commitLayouts();
     render("anonymous");
@@ -1417,12 +1650,14 @@ describe("trusted theme controls", () => {
       disabled: false,
       error: null,
       statusMessage: null,
-      triggerLabel: "Theme settings",
+      triggerLabel: "Appearance settings",
     });
 
     getGate.resolve({
-      themeMode: "system",
-      palette: "neutral",
+      density: "default",
+      fontSize: "default",
+      radius: "small",
+      theme: "system",
       updatedAt: new Date("2026-07-23T10:00:00.000Z"),
     });
     await flushMicrotasks();
@@ -1430,7 +1665,7 @@ describe("trusted theme controls", () => {
     expect(themeComponentRuntime.picker()).toMatchObject({
       disabled: false,
       error: null,
-      triggerLabel: "Theme settings",
+      triggerLabel: "Appearance settings",
     });
     expect(update).not.toHaveBeenCalled();
 
@@ -1441,9 +1676,8 @@ describe("trusted theme controls", () => {
     expect(themeComponentRuntime.picker()).toMatchObject({
       disabled: true,
       error: null,
-      statusMessage:
-        "Theme preferences are temporarily unavailable. Changes are disabled.",
-      triggerLabel: "Theme settings unavailable",
+      statusMessage: "Appearance settings are unavailable.",
+      triggerLabel: "Appearance settings unavailable",
     });
     themeHookRuntime.commitLayouts();
     return themeHookRuntime.reset();

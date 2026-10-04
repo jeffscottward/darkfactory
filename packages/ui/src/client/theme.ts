@@ -1,44 +1,46 @@
-// What: Client theme context: ThemeProvider, useTheme and ThemePicker for mode and palette.
-// Used by: apps/web/src/components/theme-controller.tsx, apps/web/src/components/theme-menu.tsx.
-// See: packages/ui/src/palettes.ts; packages/api/src/contract.ts#ThemePreferenceSchema.
+// What: Client appearance context: ThemeProvider, useTheme, AppearanceMenuItems and the standalone ThemePicker.
+// Used by: apps/web/src/components/theme-controller.tsx, apps/web/src/components/theme-menu.tsx, apps/web/src/components/user-menu.tsx.
+// See: packages/ui/src/themes.ts; packages/api/src/contract.ts#ThemePreferenceSchema.
 "use client";
 
 import { Palette as PaletteIcon } from "lucide-react";
 import {
   createContext,
   createElement,
+  Fragment,
   type ReactElement,
   type ReactNode,
   useContext,
   useMemo,
-  useState,
 } from "react";
 
 import { IconButton } from "../icon-button.tsx";
 import {
-  PALETTE_NAMES,
-  type PaletteName,
-  THEME_MODES,
-  type ThemeMode,
-} from "../palettes.ts";
+  type Appearance,
+  type AppearanceOption,
+  DENSITY_OPTIONS,
+  FONT_SIZE_OPTIONS,
+  optionLabel,
+  RADIUS_OPTIONS,
+  THEME_OPTIONS,
+} from "../themes.ts";
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuLabel,
   DropdownMenuRadioGroup,
   DropdownMenuRadioItem,
-  DropdownMenuSeparator,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from "./dropdown-menu.ts";
 
-export interface ThemePreference {
-  readonly themeMode: ThemeMode;
-  readonly palette: PaletteName;
-}
+export type ThemePreference = Appearance;
 
 export interface ThemeContextValue {
-  readonly preference: Readonly<ThemePreference>;
   readonly onPreferenceChange: (preference: Readonly<ThemePreference>) => void;
+  readonly preference: Readonly<ThemePreference>;
 }
 
 export interface ThemeProviderProps extends ThemeContextValue {
@@ -57,7 +59,13 @@ export const ThemeProvider = ({
       onPreferenceChange,
       preference,
     }),
-    [onPreferenceChange, preference.palette, preference.themeMode]
+    [
+      onPreferenceChange,
+      preference.theme,
+      preference.fontSize,
+      preference.density,
+      preference.radius,
+    ]
   );
 
   return createElement(ThemeContext.Provider, { value }, children);
@@ -69,36 +77,118 @@ export const useTheme = (): ThemeContextValue => {
   return theme;
 };
 
-export const THEME_MODE_OPTIONS: readonly Readonly<{
-  label: string;
-  value: ThemeMode;
-}>[] = Object.freeze([
-  { label: "Light", value: "light" },
-  { label: "Dark", value: "dark" },
-  { label: "System", value: "system" },
+type AppearanceKey = keyof ThemePreference;
+
+interface AppearanceSetting {
+  readonly key: AppearanceKey;
+  readonly label: string;
+  readonly options: readonly AppearanceOption<string>[];
+}
+
+export const APPEARANCE_SETTINGS: readonly AppearanceSetting[] = Object.freeze([
+  { key: "theme", label: "Theme", options: THEME_OPTIONS },
+  { key: "fontSize", label: "Font size", options: FONT_SIZE_OPTIONS },
+  { key: "density", label: "Density", options: DENSITY_OPTIONS },
+  { key: "radius", label: "Roundness", options: RADIUS_OPTIONS },
 ]);
 
-export const PALETTE_OPTIONS: readonly Readonly<{
-  label: string;
-  value: PaletteName;
-}>[] = Object.freeze([
-  { label: "Neutral", value: "neutral" },
-  { label: "Slate", value: "slate" },
-  { label: "Blue", value: "blue" },
-  { label: "Cyan", value: "cyan" },
-  { label: "Green", value: "green" },
-  { label: "Amber", value: "amber" },
-  { label: "Orange", value: "orange" },
-  { label: "Red", value: "red" },
-  { label: "Rose", value: "rose" },
-  { label: "Violet", value: "violet" },
-]);
+const optionContent = (
+  setting: AppearanceSetting,
+  option: AppearanceOption<string>
+): ReactNode =>
+  setting.key === "theme"
+    ? createElement(
+        "span",
+        { className: "flex items-center gap-[0.75rem]" },
+        createElement("span", {
+          "aria-hidden": "true",
+          className: "theme-swatch",
+          "data-theme-swatch": option.value,
+        }),
+        createElement("span", {}, option.label)
+      )
+    : option.label;
 
-const isThemeMode = (value: string): value is ThemeMode =>
-  THEME_MODES.some((mode) => mode === value);
+export interface AppearanceMenuItemsProps {
+  readonly disabled?: boolean;
+  readonly idPrefix: string;
+  readonly onPreferenceChange?:
+    | ((preference: Readonly<ThemePreference>) => void)
+    | undefined;
+}
 
-const isPaletteName = (value: string): value is PaletteName =>
-  PALETTE_NAMES.some((palette) => palette === value);
+/** Appearance submenus (theme, font size, density, roundness) for use inside any DropdownMenuContent. */
+export const AppearanceMenuItems = ({
+  disabled = false,
+  idPrefix,
+  onPreferenceChange,
+}: AppearanceMenuItemsProps): ReactElement => {
+  const theme = useTheme();
+  const selectPreference = onPreferenceChange ?? theme.onPreferenceChange;
+  const { preference } = theme;
+
+  const select = (setting: AppearanceSetting, value: string): void => {
+    if (disabled) return;
+    if (!setting.options.some((option) => option.value === value)) return;
+    selectPreference({ ...preference, [setting.key]: value });
+  };
+
+  return createElement(
+    Fragment,
+    {},
+    createElement(
+      DropdownMenuLabel,
+      { id: `${idPrefix}-appearance-label` },
+      "Appearance"
+    ),
+    APPEARANCE_SETTINGS.map((setting) =>
+      createElement(
+        DropdownMenuSub,
+        { key: setting.key },
+        createElement(
+          DropdownMenuSubTrigger,
+          {
+            disabled,
+            id: `${idPrefix}-${setting.key}-trigger`,
+          },
+          createElement("span", {}, setting.label),
+          createElement(
+            "span",
+            { className: "ml-auto pl-3 text-xs" },
+            optionLabel(setting.options, preference[setting.key])
+          )
+        ),
+        createElement(
+          DropdownMenuSubContent,
+          {
+            "aria-labelledby": `${idPrefix}-${setting.key}-trigger`,
+            className:
+              "max-h-[calc(100dvh-var(--space-8))] overflow-y-auto overscroll-contain",
+          },
+          createElement(
+            DropdownMenuRadioGroup,
+            {
+              "aria-label": setting.label,
+              onValueChange: (value: string) => select(setting, value),
+              value: preference[setting.key],
+            },
+            setting.options.map((option) =>
+              createElement(
+                DropdownMenuRadioItem,
+                {
+                  disabled,
+                  key: option.value,
+                  value: option.value,
+                },
+                optionContent(setting, option)
+              )
+            )
+          )
+        )
+      )
+    )
+  );
+};
 
 export interface ThemePickerProps {
   readonly disabled?: boolean;
@@ -111,30 +201,19 @@ export interface ThemePickerProps {
   readonly triggerLabel?: string;
 }
 
+/** Standalone appearance menu with an icon trigger, for shells without a user menu. */
 export const ThemePicker = ({
   disabled = false,
   error,
   idPrefix,
   onPreferenceChange,
   statusMessage,
-  triggerLabel = "Theme settings",
+  triggerLabel = "Appearance",
 }: ThemePickerProps): ReactElement => {
-  const theme = useTheme();
-  const [open, setOpen] = useState(false);
-  const selectPreference = onPreferenceChange ?? theme.onPreferenceChange;
-  const { palette, themeMode } = theme.preference;
-
-  const selectThemeMode = (value: string): void => {
-    if (disabled || !isThemeMode(value)) return;
-    selectPreference({ themeMode: value, palette });
-  };
-  const selectPalette = (value: string): void => {
-    if (disabled || !isPaletteName(value)) return;
-    selectPreference({ themeMode, palette: value });
-  };
   return createElement(
     DropdownMenu,
-    { onOpenChange: setOpen, open },
+    // Non-modal: a modal menu hides the rest of the page with aria-hidden while it stays focusable.
+    { modal: false },
     createElement(
       "span",
       {
@@ -156,7 +235,8 @@ export const ThemePicker = ({
     createElement(
       DropdownMenuTrigger,
       {
-        "aria-controls": open ? `${idPrefix}-content` : undefined,
+        // aria-controls is optional for menu buttons; axe cannot verify it next to aria-haspopup.
+        "aria-controls": undefined,
         asChild: true,
         id: `${idPrefix}-trigger`,
       },
@@ -170,77 +250,26 @@ export const ThemePicker = ({
       DropdownMenuContent,
       {
         align: "end",
-        className:
-          "max-h-[calc(100dvh-var(--space-8))] w-64 overflow-y-auto overscroll-contain",
         "aria-labelledby": `${idPrefix}-trigger`,
+        className:
+          "max-h-[calc(100dvh-var(--space-8))] w-60 overflow-y-auto overscroll-contain",
         id: `${idPrefix}-content`,
       },
-      createElement(DropdownMenuLabel, {}, "Appearance"),
-      statusMessage === undefined || statusMessage === null
-        ? null
-        : createElement(
-            "p",
-            {
-              "aria-hidden": "true",
-              className: "px-2 pb-2 text-xs leading-5 text-muted-foreground",
-            },
-            statusMessage
-          ),
       error === undefined || error === null
         ? null
         : createElement(
             "p",
             {
               "aria-hidden": "true",
-              className: "px-2 pb-2 text-xs leading-5 text-destructive",
+              className: "px-2 pb-1 text-destructive text-xs",
             },
             error
           ),
-      createElement(
-        DropdownMenuRadioGroup,
-        {
-          "aria-label": "Color mode",
-          onValueChange: selectThemeMode,
-          value: themeMode,
-        },
-        THEME_MODE_OPTIONS.map((option) =>
-          createElement(
-            DropdownMenuRadioItem,
-            {
-              disabled,
-              key: option.value,
-              value: option.value,
-            },
-            option.label
-          )
-        )
-      ),
-      createElement(DropdownMenuSeparator),
-      createElement(DropdownMenuLabel, {}, "Palette"),
-      createElement(
-        DropdownMenuRadioGroup,
-        {
-          "aria-label": "Color palette",
-          onValueChange: selectPalette,
-          value: palette,
-        },
-        PALETTE_OPTIONS.map((option) =>
-          createElement(
-            DropdownMenuRadioItem,
-            {
-              disabled,
-              key: option.value,
-              value: option.value,
-            },
-            createElement("span", {
-              "aria-hidden": "true",
-              className: "theme-palette-swatch size-3 rounded-pill",
-              "data-palette": option.value,
-            }),
-            createElement("span", {}, option.label)
-          )
-        )
-      )
+      createElement(AppearanceMenuItems, {
+        disabled,
+        idPrefix,
+        onPreferenceChange,
+      })
     )
   );
 };

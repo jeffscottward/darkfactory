@@ -1,16 +1,24 @@
 import { isValidElement, type ReactElement } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-type ThemePreference = Readonly<{ themeMode: string; palette: string }>;
+type ThemePreference = Readonly<{
+  theme: string;
+  fontSize: string;
+  density: string;
+  radius: string;
+}>;
 type PreferenceChange = (preference: ThemePreference) => void;
 type PreferenceChangeMock = ReturnType<typeof vi.fn<PreferenceChange>>;
 
 const themeRuntime = vi.hoisted(() => {
   let open = false;
-  let preference: ThemePreference = {
-    themeMode: "system",
-    palette: "neutral",
+  const defaults: ThemePreference = {
+    density: "default",
+    fontSize: "default",
+    radius: "small",
+    theme: "system",
   };
+  let preference: ThemePreference = defaults;
   let onPreferenceChange: PreferenceChangeMock = vi.fn<PreferenceChange>();
   const setOpen = vi.fn(
     (next: unknown) =>
@@ -28,7 +36,7 @@ const themeRuntime = vi.hoisted(() => {
   };
   const reset = (): void => {
     open = false;
-    preference = { themeMode: "system", palette: "neutral" };
+    preference = defaults;
     onPreferenceChange = vi.fn<PreferenceChange>();
     setOpen.mockClear();
   };
@@ -61,7 +69,7 @@ vi.mock("react", async (importOriginal) => {
   };
 });
 
-import { ThemePicker } from "./theme.ts";
+import { AppearanceMenuItems, ThemePicker } from "./theme.ts";
 
 type ElementRecord = ReactElement<Record<string, unknown>>;
 
@@ -116,143 +124,139 @@ const invokeValueChange = (element: ElementRecord, value: string): void => {
 
 beforeEach(() => themeRuntime.reset());
 
-describe("ThemePicker behavior", () => {
-  it("selects only valid modes and palettes through the provider callback", () => {
-    const onPreferenceChange = vi.fn<PreferenceChange>();
-    themeRuntime.configure(
-      { themeMode: "dark", palette: "rose" },
-      onPreferenceChange
-    );
-    const tree = ThemePicker({ idPrefix: "application-theme" });
-    const modeGroup = requiredElement(
-      tree,
-      (element) => element.props["aria-label"] === "Color mode"
-    );
-    const paletteGroup = requiredElement(
-      tree,
-      (element) => element.props["aria-label"] === "Color palette"
-    );
+const groupFor = (tree: unknown, label: string): ElementRecord =>
+  requiredElement(tree, (element) => element.props["aria-label"] === label);
 
-    invokeValueChange(modeGroup, "light");
-    invokeValueChange(paletteGroup, "blue");
-    invokeValueChange(modeGroup, "invalid");
-    invokeValueChange(paletteGroup, "invalid");
+const defaults = {
+  density: "default",
+  fontSize: "default",
+  radius: "small",
+  theme: "system",
+} as const;
+
+describe("AppearanceMenuItems behavior", () => {
+  it("selects only canonical values for each setting through the provider callback", () => {
+    const onPreferenceChange = vi.fn<PreferenceChange>();
+    themeRuntime.configure({ ...defaults, theme: "nord" }, onPreferenceChange);
+    const tree = AppearanceMenuItems({ idPrefix: "menu" });
+
+    invokeValueChange(groupFor(tree, "Theme"), "kanagawa");
+    invokeValueChange(groupFor(tree, "Font size"), "large");
+    invokeValueChange(groupFor(tree, "Density"), "compact");
+    invokeValueChange(groupFor(tree, "Roundness"), "none");
+    for (const label of ["Theme", "Font size", "Density", "Roundness"]) {
+      invokeValueChange(groupFor(tree, label), "invalid");
+    }
 
     expect(onPreferenceChange.mock.calls).toEqual([
-      [{ themeMode: "light", palette: "rose" }],
-      [{ themeMode: "dark", palette: "blue" }],
+      [{ ...defaults, theme: "kanagawa" }],
+      [{ ...defaults, fontSize: "large", theme: "nord" }],
+      [{ ...defaults, density: "compact", theme: "nord" }],
+      [{ ...defaults, radius: "none", theme: "nord" }],
     ]);
     const optionValues = elementsIn(tree)
       .filter((element) => "disabled" in element.props)
       .map((element) => element.props["value"])
       .filter((value): value is string => typeof value === "string");
-    return expect(optionValues).toEqual([
-      "light",
-      "dark",
+    expect(optionValues).toEqual([
       "system",
-      "neutral",
-      "slate",
-      "blue",
-      "cyan",
-      "green",
-      "amber",
-      "orange",
-      "red",
-      "rose",
-      "violet",
+      "default-dark",
+      "default-light",
+      "tokyo-night",
+      "catppuccin-mocha",
+      "catppuccin-latte",
+      "gruvbox-dark",
+      "nord",
+      "everforest",
+      "rose-pine",
+      "kanagawa",
+      "small",
+      "default",
+      "large",
+      "compact",
+      "default",
+      "comfortable",
+      "none",
+      "small",
+      "medium",
+      "large",
     ]);
+    const text = textOf(tree);
+    expect(text).toContain("ThemeNord");
+    expect(text).toContain("Font sizeDefault");
+    expect(text).toContain("RoundnessSmall");
+    const swatches = elementsIn(tree).filter(
+      (element) => element.props["className"] === "theme-swatch"
+    );
+    expect(swatches).toHaveLength(11);
+    return expect(swatches[7]?.props["data-theme-swatch"]).toBe("nord");
   });
 
-  it("exposes open-state ARIA linkage and forwards the controlled root setter", () => {
-    themeRuntime.configure(
-      { themeMode: "system", palette: "neutral" },
-      vi.fn<PreferenceChange>()
-    );
-    let tree = ThemePicker({ idPrefix: "open-theme" });
-    const root = tree as ElementRecord;
-    const closedTrigger = requiredElement(
-      tree,
-      (element) => element.props["id"] === "open-theme-trigger"
-    );
-    expect(closedTrigger.props["aria-controls"]).toBeUndefined();
-
-    const onOpenChange = root.props["onOpenChange"];
-    if (typeof onOpenChange !== "function") {
-      throw new Error("Expected onOpenChange callback");
-    }
-    (onOpenChange as (next: boolean) => void)(true);
-    expect(themeRuntime.open).toBe(true);
-
-    tree = ThemePicker({ idPrefix: "open-theme" });
-    const openTrigger = requiredElement(
-      tree,
-      (element) => element.props["id"] === "open-theme-trigger"
-    );
-    expect(openTrigger.props["aria-controls"]).toBe("open-theme-content");
-
-    const openRoot = tree as ElementRecord;
-    (openRoot.props["onOpenChange"] as (next: boolean) => void)(false);
-    return expect(themeRuntime.open).toBe(false);
-  });
-
-  return it("honors an override, blocks disabled selection, and renders status branches", () => {
+  return it("honors an override and blocks disabled selection", () => {
     const providerChange = vi.fn<PreferenceChange>();
     const overrideChange = vi.fn<PreferenceChange>();
-    themeRuntime.configure(
-      { themeMode: "system", palette: "neutral" },
-      providerChange
-    );
-    const enabled = ThemePicker({
-      error: "Could not save theme settings.",
-      idPrefix: "override-theme",
+    themeRuntime.configure(defaults, providerChange);
+    const enabled = AppearanceMenuItems({
+      idPrefix: "override",
       onPreferenceChange: overrideChange,
-      statusMessage: "Saving theme settings.",
     });
-    invokeValueChange(
-      requiredElement(
-        enabled,
-        (element) => element.props["aria-label"] === "Color mode"
-      ),
-      "dark"
-    );
-    invokeValueChange(
-      requiredElement(
-        enabled,
-        (element) => element.props["aria-label"] === "Color palette"
-      ),
-      "violet"
-    );
-
+    invokeValueChange(groupFor(enabled, "Density"), "comfortable");
     expect(providerChange).not.toHaveBeenCalled();
     expect(overrideChange.mock.calls).toEqual([
-      [{ themeMode: "dark", palette: "neutral" }],
-      [{ themeMode: "system", palette: "violet" }],
+      [{ ...defaults, density: "comfortable" }],
     ]);
-    expect(textOf(enabled)).toContain("Saving theme settings.");
-    expect(textOf(enabled)).toContain("Could not save theme settings.");
 
-    const disabled = ThemePicker({
+    const disabled = AppearanceMenuItems({
       disabled: true,
-      error: null,
-      idPrefix: "disabled-theme",
+      idPrefix: "disabled",
       onPreferenceChange: overrideChange,
-      statusMessage: null,
     });
-    invokeValueChange(
-      requiredElement(
-        disabled,
-        (element) => element.props["aria-label"] === "Color mode"
-      ),
-      "light"
-    );
-    invokeValueChange(
-      requiredElement(
-        disabled,
-        (element) => element.props["aria-label"] === "Color palette"
-      ),
-      "blue"
-    );
+    invokeValueChange(groupFor(disabled, "Theme"), "nord");
+    return expect(overrideChange).toHaveBeenCalledOnce();
+  });
+});
 
-    return expect(overrideChange).toHaveBeenCalledTimes(2);
+describe("ThemePicker behavior", () => {
+  it("renders a non-modal menu whose trigger omits aria-controls", () => {
+    themeRuntime.configure(defaults, vi.fn<PreferenceChange>());
+    const tree = ThemePicker({ idPrefix: "open-theme" });
+    expect((tree as ElementRecord).props["modal"]).toBe(false);
+    const trigger = requiredElement(
+      tree,
+      (element) => element.props["id"] === "open-theme-trigger"
+    );
+    expect(trigger.props).toHaveProperty("aria-controls", undefined);
+    return expect(
+      requiredElement(
+        tree,
+        (element) => element.props["id"] === "open-theme-content"
+      ).props["aria-labelledby"]
+    ).toBe("open-theme-trigger");
+  });
+
+  return it("forwards selection props and renders status and error branches", () => {
+    const overrideChange = vi.fn<PreferenceChange>();
+    themeRuntime.configure(defaults, vi.fn<PreferenceChange>());
+    const enabled = ThemePicker({
+      disabled: true,
+      error: "Could not save appearance settings.",
+      idPrefix: "status-theme",
+      onPreferenceChange: overrideChange,
+      statusMessage: "Saving appearance settings.",
+    });
+    const items = requiredElement(
+      enabled,
+      (element) => element.type === AppearanceMenuItems
+    );
+    expect(items.props).toEqual({
+      disabled: true,
+      idPrefix: "status-theme",
+      onPreferenceChange: overrideChange,
+    });
+    expect(textOf(enabled)).toContain("Saving appearance settings.");
+    expect(textOf(enabled).match(/Could not save/g)).toHaveLength(2);
+
+    const quiet = ThemePicker({ error: null, idPrefix: "quiet-theme" });
+    return expect(textOf(quiet)).not.toContain("Could not save");
   });
 });

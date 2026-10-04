@@ -7,7 +7,7 @@ export const metadata = { title: "Feature items" };
 
 export default function FeatureItemsPage() {
   return (
-    <div className="space-y-10">
+    <div className="space-y-4">
       <PageHeader
         actions={
           <a
@@ -18,8 +18,6 @@ export default function FeatureItemsPage() {
             Create feature item
           </a>
         }
-        description="Owner-scoped starter records backed by the typed featureItems oRPC contract."
-        eyebrow="Vertical slice"
         title="Feature items"
       />
       <FeatureItemsWorkspace />

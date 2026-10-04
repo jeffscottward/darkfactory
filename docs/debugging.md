@@ -31,6 +31,7 @@ Start with `bun run doctor`, then find the symptom below. Paths are relative to 
 | `OMP model gateway is not configured`, `… token is unavailable`, `… is unavailable` or `… does not serve the configured model` | Linux runs need the model gateway (`packages/jobs/src/server/model-relay.ts#requireOmpModelGateway`): set `WORKFLOW_OMP_GATEWAY_URL`, `WORKFLOW_OMP_GATEWAY_TOKEN_FILE` (a 0600 file of the worker's user) and `WORKFLOW_OMP_MODEL` to a model your gateway serves, check `omp auth-gateway status`, and that the gateway's providers are signed in. See [operator.md](operator.md#models-and-credentials) |
 | `OMP model relay is unavailable`, `… failed to start` or `OMP sandbox did not report its process` | `/usr/bin/nsenter` (util-linux) must be root-owned, and able to enter the sandbox's user namespace; `packages/jobs/src/server/model-relay.ts#openOmpModelRelay` |
 | Verifier check fails with `EAGAIN` or `Resource temporarily unavailable` | The container's task limit, which counts threads (`packages/jobs/src/server/omp.ts#OMP_VERIFIER_PIDS`). Limit how many processes the failing test starts at once; see [operator.md](operator.md#how-the-verifier-runs) |
+| Pages load slowly in `bun run dev` | Count the requests in the browser network tab. Hundreds of `node_modules` requests mean a barrel package (for example `lucide-react`) is not pre-bundled: add it to `CLIENT_OPTIMIZE_DEPS_INCLUDE` in `apps/web/vite.config.ts`, then restart with `--force`. See [Page-load performance](#page-load-performance) |
 
 ## Tools
 
@@ -63,6 +64,24 @@ Set a breakpoint, open the test file and press F5. For Playwright, run `pnpm exe
 ### Doctor
 
 `bun run doctor` checks the toolchain (Node, Bun, pnpm and their `mise.toml` pins, vinext, Wrangler, uv), required env keys, the Cloudflare config, and the probes the manifest implies (Docker and Postgres, portless, Graphify). Each check prints `pass`, `fail`, `optional` or `disabled`. The portless route and trust checks pass only while `bun run dev` is running. Run it first when a fresh clone or a teammate's machine misbehaves.
+
+### Page-load performance
+
+Measure the production build first. Dev mode serves each module as its own request, so it is always slower.
+
+1. `bun run build`, then `cd apps/web && PORT=4317 bunx --no-install vite preview`.
+2. In Chromium DevTools, use a cold load with the cache disabled. Check the request count, the transferred bytes, the HTML size and the first contentful paint.
+3. Repeat on `bun run dev` to find dev-only causes.
+
+Measured on 2026-10-04 (local machine, Chromium, median of cold loads):
+
+| Build | Page | Requests | Ready (network idle) | First contentful paint |
+| --- | --- | --- | --- | --- |
+| Dev, before | `/` | 2,083 (12.6 MB of `lucide-react` icon modules) | 2.4 s warm, 5.5 s first load | 0.27 s |
+| Dev, after | `/` | 216 | 0.5 s warm, 3.6 s first load | 0.26 s |
+| Production | `/` | 31 | 0.16 s | 0.10 s |
+
+The cause of the dev lag was `lucide-react` in the client `optimizeDeps.exclude` list. Its barrel export made the browser fetch every icon module. Production builds tree-shake icons, so production was not affected. Font files are never inlined as base64 (`keepFontFilesExternal` in `apps/web/vite.config.ts`), so no stylesheet carries font data for scripts that the page does not use.
 
 ### Code navigation
 

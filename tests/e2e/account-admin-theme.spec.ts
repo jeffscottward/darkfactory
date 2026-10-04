@@ -3,15 +3,28 @@ import {
   type ApiClient,
   createApiClient,
 } from "@darkfactory/api";
+import {
+  type Appearance,
+  DENSITY_OPTIONS,
+  FONT_SIZE_OPTIONS,
+  RADIUS_OPTIONS,
+  THEME_NAMES,
+  THEME_OPTIONS,
+  type ThemeName,
+} from "@darkfactory/ui/themes";
 import type {
   APIRequestContext,
   Browser,
   BrowserContext,
-  ElementHandle,
   Locator,
   Page,
 } from "@playwright/test";
 
+import {
+  type ColorScheme,
+  type ConcreteThemeName,
+  THEME_TOKENS,
+} from "../../packages/ui/src/theme-tokens.ts";
 import {
   E2E_IDENTITIES,
   expect,
@@ -25,7 +38,8 @@ import { resetDatabase } from "./helpers/database.ts";
 test.beforeAll(() => resetDatabase());
 
 const THEME_COOKIE_NAME = "darkfactory-theme";
-const THEME_STORAGE_KEY = "darkfactory.anonymous-ui.v1";
+const THEME_STORAGE_KEY = "darkfactory.anonymous-ui.v2";
+const ANONYMOUS_SNAPSHOT_VERSION = 2;
 const ACCOUNT_EVIDENCE_ADDRESS = "500 Browser Evidence Way";
 const REMOVE_ADDRESS_NAME = /Remove .* address/;
 const CONFIRM_REMOVE_ADDRESS_NAME = /Confirm removal of .* address/;
@@ -39,33 +53,83 @@ const CANONICAL_ADMIN_ORDER = [
 const DASHBOARD_URL = /\/dashboard$/;
 const API_REQUEST_TIMEOUT_MILLISECONDS = 10_000;
 
-const themeModes = ["light", "dark", "system"] as const;
-const palettes = [
-  "neutral",
-  "slate",
-  "blue",
-  "cyan",
-  "green",
-  "amber",
-  "orange",
-  "red",
-  "rose",
-  "violet",
-] as const;
-type ThemeMode = (typeof themeModes)[number];
-type Palette = (typeof palettes)[number];
+const ACCOUNT_PROFILE_URL = /\/account\/profile$/;
 
-type ThemePreference = Readonly<{
-  themeMode: ThemeMode;
-  palette: Palette;
+type AppearancePreference = Appearance;
+type AppearanceKey = keyof AppearancePreference;
+
+const DEFAULT_APPEARANCE: AppearancePreference = {
+  density: "default",
+  fontSize: "default",
+  radius: "small",
+  theme: "system",
+};
+// Seeded DB preference for Alice (packages/db/src/seeds/preferences.ts).
+const ALICE_SEED_APPEARANCE: AppearancePreference = {
+  density: "comfortable",
+  fontSize: "large",
+  radius: "medium",
+  theme: "nord",
+};
+
+// Computed results of the appearance variables in packages/ui/src/styles.css at a 16px root:
+// body font-size = 1rem * --font-scale, padding = --spacing * 4, radius-md = 0.5rem * --radius-scale.
+const BODY_FONT_SIZE_PX = {
+  default: 15,
+  large: 17,
+  small: 14,
+} as const satisfies Record<AppearancePreference["fontSize"], number>;
+const SPACING_X4_PX = {
+  comfortable: 16,
+  compact: 12,
+  default: 14,
+} as const satisfies Record<AppearancePreference["density"], number>;
+const RADIUS_MD_PX = {
+  large: 12,
+  medium: 8,
+  none: 0,
+  small: 4,
+} as const satisfies Record<AppearancePreference["radius"], number>;
+
+const APPEARANCE_ATTRIBUTES = [
+  ["data-theme", "theme"],
+  ["data-font-size", "fontSize"],
+  ["data-density", "density"],
+  ["data-radius", "radius"],
+] as const satisfies readonly (readonly [string, AppearanceKey])[];
+
+const APPEARANCE_SETTINGS = {
+  density: { label: "Density", options: DENSITY_OPTIONS },
+  fontSize: { label: "Font size", options: FONT_SIZE_OPTIONS },
+  radius: { label: "Roundness", options: RADIUS_OPTIONS },
+  theme: { label: "Theme", options: THEME_OPTIONS },
+} as const;
+
+const APPEARANCE_MENUS = {
+  picker: {
+    content: "#application-theme-content",
+    idPrefix: "application-theme",
+    trigger: "#application-theme-trigger",
+  },
+  user: {
+    content: "#user-menu-content",
+    idPrefix: "user-menu",
+    trigger: "#user-menu-trigger",
+  },
+} as const;
+type AppearanceMenu = keyof typeof APPEARANCE_MENUS;
+
+type AppearanceMetrics = Readonly<{
+  bodyFontSize: number;
+  radiusMd: number;
+  spacingX4: number;
 }>;
 
 type ThemeProbe = Readonly<{
   firstPaint: null | Readonly<{
+    attributes: Readonly<Record<string, string | null>>;
     backgroundColor: string;
     color: string;
-    mode: string | undefined;
-    palette: string | undefined;
     time: number;
   }>;
   mutations: readonly Readonly<{
@@ -77,21 +141,22 @@ type ThemeProbe = Readonly<{
 }>;
 
 type RuntimeEvidence = Readonly<{
+  appearance: AppearancePreference;
   authority: "anonymous" | "trusted";
   case: string;
   backgroundColor: string;
+  concreteTheme: ConcreteThemeName;
   cookieMatches: boolean;
   cookieStatus: string | null;
   firstPaint: ThemeProbe["firstPaint"];
+  metrics: AppearanceMetrics;
   nonTextRatios: Readonly<Record<string, number>>;
   tokenRatios: Readonly<Record<string, number>>;
   color: string;
   contrastRatio: number;
-  effectiveScheme: "dark" | "light";
+  effectiveScheme: string;
   localStorage: string | null;
-  mode: string | null;
   mutationCount: number;
-  palette: string | null;
 }>;
 
 type LayoutEvidence = Readonly<{
@@ -100,6 +165,44 @@ type LayoutEvidence = Readonly<{
   scrollWidth: number;
   viewportWidth: number;
 }>;
+
+const optionLabel = (key: AppearanceKey, value: string): string => {
+  const match = APPEARANCE_SETTINGS[key].options.find(
+    (candidate) => candidate.value === value
+  );
+  if (match === undefined) {
+    throw new Error(`Unknown ${key} appearance option: ${value}`);
+  }
+  return match.label;
+};
+
+/** Cookie wire format `<theme>:<fontSize>:<density>:<radius>`, URI-encoded. */
+const encodedAppearance = (preference: AppearancePreference): string =>
+  encodeURIComponent(
+    `${preference.theme}:${preference.fontSize}:${preference.density}:${preference.radius}`
+  );
+
+/** The localStorage snapshot (`darkfactory.anonymous-ui.v2`) for a preference. */
+const storedAppearance = (preference: AppearancePreference): string =>
+  JSON.stringify({ version: ANONYMOUS_SNAPSHOT_VERSION, ...preference });
+
+/** "system" resolves to the default light or dark theme from prefers-color-scheme. */
+const concreteTheme = (
+  theme: ThemeName,
+  systemScheme: ColorScheme
+): ConcreteThemeName => {
+  if (theme !== "system") {
+    return theme;
+  }
+  return systemScheme === "dark" ? "default-dark" : "default-light";
+};
+
+const hexToRgb = (hex: string): string => {
+  const [red, green, blue] = [1, 3, 5].map((start) =>
+    Number.parseInt(hex.slice(start, start + 2), 16)
+  );
+  return `rgb(${red}, ${green}, ${blue})`;
+};
 
 const runtimeEvidence: RuntimeEvidence[] = [];
 const layoutEvidence: LayoutEvidence[] = [];
@@ -118,13 +221,18 @@ const requireBaseURL = (baseURL: string | undefined): string => {
 
 const installThemeProbe = async (context: BrowserContext): Promise<void> => {
   await context.addInitScript(() => {
+    const observedAttributes = [
+      "data-theme",
+      "data-font-size",
+      "data-density",
+      "data-radius",
+    ];
     const instrumentedWindow = window as typeof window & {
       __DF_THEME_PROBE__?: {
         firstPaint: null | {
+          attributes: Record<string, string | null>;
           backgroundColor: string;
           color: string;
-          mode: string | undefined;
-          palette: string | undefined;
           time: number;
         };
         mutations: {
@@ -154,7 +262,7 @@ const installThemeProbe = async (context: BrowserContext): Promise<void> => {
           });
         }
       }).observe(root, {
-        attributeFilter: ["data-mode", "data-palette"],
+        attributeFilter: observedAttributes,
         attributeOldValue: true,
         attributes: true,
       });
@@ -162,10 +270,11 @@ const installThemeProbe = async (context: BrowserContext): Promise<void> => {
         const paintedElement = document.body ?? root;
         const paintedStyle = getComputedStyle(paintedElement);
         probe.firstPaint = {
+          attributes: Object.fromEntries(
+            observedAttributes.map((name) => [name, root.getAttribute(name)])
+          ),
           backgroundColor: paintedStyle.backgroundColor,
           color: paintedStyle.color,
-          mode: root.getAttribute("data-mode") ?? undefined,
-          palette: root.getAttribute("data-palette") ?? undefined,
           time: performance.now(),
         };
       });
@@ -228,15 +337,24 @@ const readableContrast = async (
   page: Page
 ): Promise<{
   backgroundColor: string;
+  backgroundToken: string;
   color: string;
   contrastRatio: number;
-  effectiveScheme: "dark" | "light";
+  effectiveScheme: string;
+  foregroundToken: string;
   nonTextRatios: Readonly<Record<string, number>>;
   tokenRatios: Readonly<Record<string, number>>;
 }> =>
   page.evaluate(() => {
+    // The production CSS minifier shortens colors such as #ffffff to #fff.
+    const longHex = (value: string): string => {
+      const normalized = value.trim().toLowerCase();
+      return /^#[0-9a-f]{3}$/u.test(normalized)
+        ? `#${[...normalized.slice(1)].map((digit) => digit + digit).join("")}`
+        : normalized;
+    };
     const channels = (value: string): readonly number[] => {
-      const normalized = value.trim();
+      const normalized = longHex(value);
       if (normalized.startsWith("#") && normalized.length === 7) {
         return [1, 3, 5].map((start) =>
           Number.parseInt(normalized.slice(start, start + 2), 16)
@@ -309,23 +427,34 @@ const readableContrast = async (
         ),
       ])
     );
-    let effectiveScheme: "dark" | "light" = matchMedia(
-      "(prefers-color-scheme: dark)"
-    ).matches
-      ? "dark"
-      : "light";
-    const selectedMode = document.documentElement.getAttribute("data-mode");
-    if (selectedMode === "dark" || selectedMode === "light") {
-      effectiveScheme = selectedMode;
-    }
     return {
       backgroundColor,
+      backgroundToken: longHex(rootStyle.getPropertyValue("--background")),
       color,
       contrastRatio: ratio(color, backgroundColor),
-      effectiveScheme,
+      effectiveScheme: rootStyle.colorScheme,
+      foregroundToken: longHex(rootStyle.getPropertyValue("--foreground")),
       nonTextRatios,
       tokenRatios,
     };
+  });
+
+/** Pixel results of the font-size, density, and roundness variables on the live document. */
+const appearanceMetrics = async (page: Page): Promise<AppearanceMetrics> =>
+  page.evaluate(() => {
+    const sample = document.createElement("div");
+    sample.setAttribute("aria-hidden", "true");
+    sample.style.cssText =
+      "position:absolute;visibility:hidden;pointer-events:none;padding:calc(var(--spacing) * 4);border-radius:var(--radius-md)";
+    document.body.append(sample);
+    const sampleStyle = getComputedStyle(sample);
+    const metrics = {
+      bodyFontSize: Number.parseFloat(getComputedStyle(document.body).fontSize),
+      radiusMd: Number.parseFloat(sampleStyle.borderTopLeftRadius),
+      spacingX4: Number.parseFloat(sampleStyle.paddingTop),
+    };
+    sample.remove();
+    return metrics;
   });
 
 const cookieValue = async (page: Page): Promise<string | null> =>
@@ -364,57 +493,8 @@ const sessionToken = async (
   return cookie.value;
 };
 
-const assertTheme = async (
-  page: Page,
-  expected: ThemePreference,
-  options: Readonly<{
-    authority: "anonymous" | "trusted";
-    case: string;
-    cookieStatus: "invalid" | "missing" | "valid";
-    checkFirstPaint?: boolean;
-    localStorage?: string | null;
-  }>
-): Promise<void> => {
-  const root = page.locator("html");
-  await expect(root).toHaveAttribute("data-mode", expected.themeMode);
-  await expect(root).toHaveAttribute("data-palette", expected.palette);
-  await expect(root).toHaveAttribute("data-theme-authority", options.authority);
-  await expect(root).toHaveAttribute(
-    "data-theme-cookie-status",
-    options.cookieStatus
-  );
-  await expect
-    .poll(() => cookieValue(page))
-    .toBe(`${expected.themeMode}%3A${expected.palette}`);
-  if (options.localStorage !== undefined) {
-    await expect.poll(() => localTheme(page)).toBe(options.localStorage);
-  }
-  const contrast = await readableContrast(page);
-  expect(contrast.contrastRatio).toBeGreaterThanOrEqual(4.5);
-  if (expected.themeMode !== "system") {
-    expect(contrast.effectiveScheme).toBe(expected.themeMode);
-  }
-  for (const [token, ratio] of Object.entries(contrast.tokenRatios)) {
-    expect(ratio, `${token} semantic token contrast`).toBeGreaterThanOrEqual(
-      4.5
-    );
-  }
-  for (const [token, ratio] of Object.entries(contrast.nonTextRatios)) {
-    expect(ratio, `${token} non-text contrast`).toBeGreaterThanOrEqual(3);
-  }
-  if (options.checkFirstPaint !== false) {
-    await expect
-      .poll(() =>
-        page.evaluate(() => {
-          const instrumentedWindow = window as typeof window & {
-            __DF_THEME_PROBE__?: ThemeProbe;
-          };
-          return instrumentedWindow.__DF_THEME_PROBE__?.firstPaint ?? null;
-        })
-      )
-      .not.toBeNull();
-  }
-  const probe = await page.evaluate(() => {
+const readThemeProbe = async (page: Page): Promise<ThemeProbe> =>
+  page.evaluate(() => {
     const instrumentedWindow = window as typeof window & {
       __DF_THEME_PROBE__?: ThemeProbe;
     };
@@ -425,122 +505,183 @@ const assertTheme = async (
       }
     );
   });
+
+const assertAppearance = async (
+  page: Page,
+  expected: AppearancePreference,
+  options: Readonly<{
+    authority: "anonymous" | "trusted";
+    case: string;
+    cookieStatus: "invalid" | "missing" | "valid";
+    checkFirstPaint?: boolean;
+    localStorage?: AppearancePreference | null;
+    systemScheme?: ColorScheme;
+  }>
+): Promise<void> => {
+  const root = page.locator("html");
+  for (const [attribute, key] of APPEARANCE_ATTRIBUTES) {
+    await expect(root).toHaveAttribute(attribute, expected[key]);
+  }
+  await expect(root).toHaveAttribute("data-theme-authority", options.authority);
+  await expect(root).toHaveAttribute(
+    "data-theme-cookie-status",
+    options.cookieStatus
+  );
+  await expect.poll(() => cookieValue(page)).toBe(encodedAppearance(expected));
+  if (options.localStorage !== undefined) {
+    const expectedStorage =
+      options.localStorage === null
+        ? null
+        : JSON.parse(storedAppearance(options.localStorage));
+    await expect
+      .poll(async () => {
+        const stored = await localTheme(page);
+        return stored === null ? null : JSON.parse(stored);
+      })
+      .toEqual(expectedStorage);
+  }
+
+  const resolvedTheme = concreteTheme(
+    expected.theme,
+    options.systemScheme ?? "light"
+  );
+  const themeTokens = THEME_TOKENS[resolvedTheme];
+  await expect
+    .poll(async () => {
+      const current = await readableContrast(page);
+      return {
+        backgroundColor: current.backgroundColor,
+        backgroundToken: current.backgroundToken,
+        color: current.color,
+        effectiveScheme: current.effectiveScheme,
+        foregroundToken: current.foregroundToken,
+      };
+    }, `${options.case} renders ${resolvedTheme} colors`)
+    .toEqual({
+      backgroundColor: hexToRgb(themeTokens.tokens.background),
+      backgroundToken: themeTokens.tokens.background.toLowerCase(),
+      color: hexToRgb(themeTokens.tokens.foreground),
+      effectiveScheme: themeTokens.colorScheme,
+      foregroundToken: themeTokens.tokens.foreground.toLowerCase(),
+    });
+  const contrast = await readableContrast(page);
+  expect(contrast.contrastRatio).toBeGreaterThanOrEqual(4.5);
+  for (const [token, ratio] of Object.entries(contrast.tokenRatios)) {
+    expect(ratio, `${token} semantic token contrast`).toBeGreaterThanOrEqual(
+      4.5
+    );
+  }
+  for (const [token, ratio] of Object.entries(contrast.nonTextRatios)) {
+    expect(ratio, `${token} non-text contrast`).toBeGreaterThanOrEqual(3);
+  }
+
+  const metrics = await appearanceMetrics(page);
+  expect(metrics, `${options.case} appearance metrics`).toEqual({
+    bodyFontSize: BODY_FONT_SIZE_PX[expected.fontSize],
+    radiusMd: RADIUS_MD_PX[expected.radius],
+    spacingX4: SPACING_X4_PX[expected.density],
+  });
+
+  if (options.checkFirstPaint !== false) {
+    await expect
+      .poll(async () => (await readThemeProbe(page)).firstPaint)
+      .not.toBeNull();
+  }
+  const probe = await readThemeProbe(page);
   if (options.checkFirstPaint !== false) {
     expect(probe.firstPaint).toMatchObject({
+      attributes: Object.fromEntries(
+        APPEARANCE_ATTRIBUTES.map(([attribute, key]) => [
+          attribute,
+          expected[key],
+        ])
+      ),
       backgroundColor: contrast.backgroundColor,
       color: contrast.color,
-      mode: expected.themeMode,
-      palette: expected.palette,
     });
     const lateFlashMutations = probe.mutations.filter((mutation) => {
       if (probe.firstPaint === null || mutation.time <= probe.firstPaint.time) {
         return false;
       }
-      let expectedValue: string | null = null;
-      if (mutation.attribute === "data-mode") {
-        expectedValue = expected.themeMode;
-      } else if (mutation.attribute === "data-palette") {
-        expectedValue = expected.palette;
-      }
-      return mutation.oldValue !== expectedValue;
+      const entry = APPEARANCE_ATTRIBUTES.find(
+        ([attribute]) => attribute === mutation.attribute
+      );
+      return entry === undefined || mutation.oldValue !== expected[entry[1]];
     });
     expect(
       lateFlashMutations,
-      "theme must not correct after first paint"
+      "appearance must not correct after first paint"
     ).toEqual([]);
   }
   runtimeEvidence.push({
+    appearance: expected,
     authority: options.authority,
     backgroundColor: contrast.backgroundColor,
     case: options.case,
-    cookieMatches:
-      (await cookieValue(page)) ===
-      `${expected.themeMode}%3A${expected.palette}`,
-    cookieStatus: await root.getAttribute("data-theme-cookie-status"),
     color: contrast.color,
+    concreteTheme: resolvedTheme,
     contrastRatio: contrast.contrastRatio,
-    nonTextRatios: contrast.nonTextRatios,
-    tokenRatios: contrast.tokenRatios,
+    cookieMatches: (await cookieValue(page)) === encodedAppearance(expected),
+    cookieStatus: await root.getAttribute("data-theme-cookie-status"),
     effectiveScheme: contrast.effectiveScheme,
     firstPaint: probe.firstPaint,
     localStorage: await localTheme(page),
-    mode: await root.getAttribute("data-mode"),
+    metrics,
     mutationCount: probe.mutations.length,
-    palette: await root.getAttribute("data-palette"),
+    nonTextRatios: contrast.nonTextRatios,
+    tokenRatios: contrast.tokenRatios,
   });
 };
 
-const selectThemeOption = async (
+/** Opens the standalone picker or the portal user menu and waits for its content. */
+const openAppearanceMenu = async (
   page: Page,
-  groupName: "Color mode" | "Color palette",
-  optionName: string
-): Promise<void> => {
-  const trigger = page.locator("#application-theme-trigger");
-  const closedTrigger = page
-    .getByRole("button", { name: "Theme settings", exact: true })
-    .and(trigger);
-  const group = page.getByRole("group", { name: groupName });
-
-  for (let attempt = 0; attempt < 2; attempt += 1) {
-    let clickedTrigger: ElementHandle<HTMLElement | SVGElement> | null = null;
-    try {
-      await expect(closedTrigger).toHaveCount(1);
-      const candidate = await trigger.elementHandle();
-      if (candidate === null) {
-        throw new Error("Theme trigger disappeared before selection");
-      }
-      clickedTrigger = candidate;
-      await expect
-        .poll(() =>
-          candidate
-            .evaluate(
-              (element) =>
-                element.isConnected &&
-                document.querySelector("#application-theme-trigger") ===
-                  element &&
-                element instanceof HTMLButtonElement &&
-                !element.disabled &&
-                Object.keys(element).some((key) =>
-                  key.startsWith("__reactProps$")
-                )
-            )
-            .catch(() => false)
-        )
-        .toBe(true);
-      expect(await candidate.getAttribute("aria-controls")).toBeNull();
-      await candidate.click();
-      await expect(trigger).toHaveAttribute(
-        "aria-controls",
-        "application-theme-content"
-      );
-      await expect(group).toBeVisible();
-      break;
-    } catch (error) {
-      const wasReplaced =
-        clickedTrigger !== null &&
-        (await clickedTrigger
-          .evaluate(
-            (element) =>
-              !element.isConnected ||
-              document.querySelector("#application-theme-trigger") !== element
-          )
-          .catch(() => false));
-      if (!wasReplaced || attempt === 1) {
-        throw error;
-      }
-    }
+  menu: AppearanceMenu
+): Promise<Locator> => {
+  const ids = APPEARANCE_MENUS[menu];
+  const trigger = page.locator(ids.trigger);
+  const content = page.locator(ids.content);
+  await expectHydrated(trigger);
+  if (menu === "user") {
+    await expect(trigger).toHaveAttribute("data-hydration-state", "ready");
   }
+  await expect(trigger).toBeEnabled();
+  // A trigger replaced during hydration can swallow the first click; retry while closed.
+  await expect(async () => {
+    if (!(await content.isVisible())) {
+      await trigger.click();
+    }
+    await expect(content).toBeVisible({ timeout: 2000 });
+  }).toPass({ timeout: 15_000 });
+  await expect(trigger).toHaveAttribute("aria-expanded", "true");
+  return content;
+};
 
-  await expect(page.locator("#application-theme-trigger")).toHaveCount(1);
-  const content = page.locator("#application-theme-content");
-  await expect(content).toHaveAttribute(
-    "aria-labelledby",
-    "application-theme-trigger"
+const selectAppearance = async (
+  page: Page,
+  menu: AppearanceMenu,
+  key: AppearanceKey,
+  value: string
+): Promise<void> => {
+  const ids = APPEARANCE_MENUS[menu];
+  const content = await openAppearanceMenu(page, menu);
+  const subTrigger = page.locator(`#${ids.idPrefix}-${key}-trigger`);
+  await expect(subTrigger).toHaveRole("menuitem");
+  await expect(subTrigger).toHaveAttribute("aria-haspopup", "menu");
+  await subTrigger.focus();
+  await subTrigger.press("ArrowRight");
+  const option = page
+    .getByRole("group", { exact: true, name: APPEARANCE_SETTINGS[key].label })
+    .getByRole("menuitemradio", { exact: true, name: optionLabel(key, value) });
+  await expect(option).toBeVisible();
+  await option.click();
+  await expect(content).toBeHidden();
+  const attribute = APPEARANCE_ATTRIBUTES.find(
+    ([, candidate]) => candidate === key
   );
-  await group
-    .getByRole("menuitemradio", { name: optionName, exact: true })
-    .click();
-  expect(await trigger.getAttribute("aria-controls")).toBeNull();
+  if (attribute !== undefined) {
+    await expect(page.locator("html")).toHaveAttribute(attribute[0], value);
+  }
 };
 
 const waitForAccountPage = async (
@@ -786,9 +927,8 @@ test.describe
             "public"
           );
           await freshPage.goto("/account");
-          await expect(
-            freshPage.getByRole("heading", { level: 1, name: "Your account" })
-          ).toBeVisible();
+          await expect(freshPage).toHaveURL(ACCOUNT_PROFILE_URL);
+          await waitForAccountPage(freshPage, "Profile");
           await assertNoHorizontalOverflow(freshPage, "account-desktop");
           assertFreshRuntime();
         } finally {
@@ -864,13 +1004,28 @@ test.describe
         await signInAs(memberPage, E2E_IDENTITIES.alice);
         await memberPage.goto("/admin/users");
         await expect(memberPage).toHaveURL(DASHBOARD_URL);
+        const memberSidebarLinks = memberPage
+          .getByRole("navigation", { name: "Portal navigation" })
+          .getByRole("link");
+        await expect(memberSidebarLinks).toHaveCount(1);
+        await expect(memberSidebarLinks.first()).toHaveAttribute(
+          "href",
+          "/dashboard"
+        );
+        const memberMenu = await openAppearanceMenu(memberPage, "user");
         await expect(
-          memberPage.getByRole("navigation", {
-            name: "Administration navigation",
-          })
+          memberMenu.getByRole("group", { exact: true, name: "Account" })
+        ).toBeVisible();
+        await expect(
+          memberMenu.getByRole("group", { name: "Administration" })
         ).toHaveCount(0);
         await expect(
-          memberPage.getByRole("link", { name: "Users", exact: true })
+          memberMenu.getByRole("menuitem", { exact: true, name: "Users" })
+        ).toHaveCount(0);
+        await memberPage.keyboard.press("Escape");
+        await expect(memberMenu).toBeHidden();
+        await expect(
+          memberPage.getByRole("link", { exact: true, name: "Users" })
         ).toHaveCount(0);
         const memberApi = apiFor(memberContext, resolvedBaseURL);
         await expect(
@@ -892,6 +1047,14 @@ test.describe
       await expect(
         adminPage.getByRole("heading", { level: 1, name: "Users" })
       ).toBeVisible();
+      const adminMenu = await openAppearanceMenu(adminPage, "user");
+      const adminUsersItem = adminMenu
+        .getByRole("group", { exact: true, name: "Administration" })
+        .getByRole("menuitem", { exact: true, name: "Users" });
+      await expect(adminUsersItem).toHaveAttribute("href", "/admin/users");
+      await expect(adminUsersItem).toHaveAttribute("aria-current", "page");
+      await adminPage.keyboard.press("Escape");
+      await expect(adminMenu).toBeHidden();
       const directoryList = adminPage.locator("main").getByRole("list");
       const directoryItems = directoryList.getByRole("listitem");
       await expect(directoryItems).toHaveCount(CANONICAL_ADMIN_ORDER.length);
@@ -911,7 +1074,7 @@ test.describe
       await expect(searchInput).toBeVisible();
       await searchInput.fill("Alice", { timeout: 5000 });
       await adminPage
-        .getByRole("button", { name: "Search", exact: true })
+        .getByRole("button", { exact: true, name: "Search" })
         .click({ timeout: 5000 });
       await expect(directoryItems).toHaveCount(1);
       await expect(
@@ -983,7 +1146,7 @@ test.describe
       assertAdminRuntime();
     });
 
-    test("mobile account and admin navigation remains complete and width-safe at 375px", async ({
+    test("mobile portal navigation and user menu remain complete and width-safe at 375px", async ({
       baseURL,
       browser,
       page,
@@ -1006,13 +1169,19 @@ test.describe
       await assertTouchTarget(memberTrigger);
       await memberTrigger.focus();
       await memberTrigger.press("Enter");
-      const accountNavigation = memberPage.getByRole("navigation", {
-        name: "Mobile account navigation",
+      const portalNavigation = memberPage.getByRole("navigation", {
+        name: "Mobile portal navigation",
       });
-      await expect(accountNavigation).toBeVisible();
+      await expect(portalNavigation).toBeVisible();
       const memberDialog = memberPage.getByRole("dialog", {
-        name: "Portal navigation",
+        name: "Navigation",
       });
+      await expect(memberDialog).toBeVisible();
+      const portalLinks = portalNavigation.getByRole("link");
+      await expect(portalLinks).toHaveCount(1);
+      await expect(portalLinks.first()).toHaveAttribute("href", "/dashboard");
+      await expect(portalLinks.first()).toContainText("Overview");
+      await assertTouchTarget(portalLinks.first());
       await memberPage.keyboard.press("Tab");
       expect(
         await memberDialog.evaluate((dialog) =>
@@ -1025,31 +1194,73 @@ test.describe
           dialog.contains(document.activeElement)
         )
       ).toBe(true);
+      await memberPage.keyboard.press("Escape");
+      await expect(memberDialog).toBeHidden();
+      await expect(memberTrigger).toBeFocused();
+
+      const assertMenuWithinViewport = async (
+        targetPage: Page,
+        menu: Locator,
+        caseName: string
+      ): Promise<void> => {
+        const box = await menu.boundingBox();
+        expect(box, `${caseName} menu must render`).not.toBeNull();
+        expect(box?.x ?? -1).toBeGreaterThanOrEqual(0);
+        expect((box?.x ?? 0) + (box?.width ?? 0)).toBeLessThanOrEqual(
+          (targetPage.viewportSize()?.width ?? 0) + 1
+        );
+        await assertNoHorizontalOverflow(targetPage, caseName);
+      };
+
+      const memberUserTrigger = memberPage.locator("#user-menu-trigger");
+      await expectHydrated(memberUserTrigger);
+      await expect(memberUserTrigger).toHaveAttribute(
+        "data-hydration-state",
+        "ready"
+      );
+      await expect(memberUserTrigger).toHaveAccessibleName(
+        E2E_IDENTITIES.alice.name
+      );
+      await assertTouchTarget(memberUserTrigger);
+      await memberUserTrigger.focus();
+      await memberUserTrigger.press("Enter");
+      const memberMenu = memberPage.locator("#user-menu-content");
+      await expect(memberMenu).toBeVisible();
+      await expect(memberMenu).toHaveRole("menu");
+      const accountGroup = memberMenu.getByRole("group", {
+        exact: true,
+        name: "Account",
+      });
       for (const [label, href] of [
         ["Profile", "/account/profile"],
         ["Address", "/account/address"],
         ["Preferences", "/account/preferences"],
         ["Security", "/account/security"],
       ] as const) {
-        const accountLink = accountNavigation.locator(`a[href="${href}"]`);
-        await expect(accountLink).toBeVisible();
-        await expect(accountLink).toContainText(label);
-        await assertTouchTarget(accountLink);
+        const accountItem = accountGroup.getByRole("menuitem", {
+          exact: true,
+          name: label,
+        });
+        await expect(accountItem).toHaveAttribute("href", href);
+        await assertTouchTarget(accountItem);
       }
       await expect(
-        accountNavigation.locator('a[href="/account/profile"]')
+        accountGroup.getByRole("menuitem", { exact: true, name: "Profile" })
       ).toHaveAttribute("aria-current", "page");
       await expect(
-        memberPage.getByRole("navigation", {
-          name: "Mobile administration navigation",
-        })
+        memberMenu.getByRole("group", { name: "Administration" })
       ).toHaveCount(0);
+      await expect(
+        memberMenu.getByRole("menuitem", { exact: true, name: "Sign out" })
+      ).toBeVisible();
+      await assertMenuWithinViewport(
+        memberPage,
+        memberMenu,
+        "account-mobile-375"
+      );
       await memberPage.keyboard.press("Escape");
-      await expect(memberDialog).toBeHidden();
-      await expect(memberTrigger).toBeFocused();
-      await memberTrigger.press("Enter");
-      await expect(accountNavigation).toBeVisible();
-      await assertNoHorizontalOverflow(memberPage, "account-mobile-375");
+      await expect(memberMenu).toBeHidden();
+      await expect(memberUserTrigger).toBeFocused();
       assertMemberRuntime();
 
       const adminContext = await newConfiguredContext(
@@ -1064,80 +1275,80 @@ test.describe
       try {
         await signInAs(adminPage, E2E_IDENTITIES.admin);
         await adminPage.goto("/admin/users");
-        const adminTrigger = adminPage.getByRole("button", {
-          name: "Open portal navigation",
-        });
-        await expectHydrated(adminTrigger);
-        await expect(adminTrigger).toHaveAttribute(
-          "popovertarget",
-          "portal-navigation"
+        await expect(
+          adminPage.getByRole("heading", { level: 1, name: "Users" })
+        ).toBeVisible();
+        const adminUserTrigger = adminPage.locator("#user-menu-trigger");
+        await expectHydrated(adminUserTrigger);
+        await expect(adminUserTrigger).toHaveAttribute(
+          "data-hydration-state",
+          "ready"
         );
-        await expect(adminTrigger).toBeEnabled();
-        await assertTouchTarget(adminTrigger);
-        await adminTrigger.focus();
-        await adminTrigger.press("Enter");
-        const adminNavigation = adminPage.getByRole("navigation", {
-          name: "Mobile administration navigation",
-        });
-        const usersLink = adminNavigation.locator('a[href="/admin/users"]');
-        await expect(usersLink).toBeVisible();
-        await expect(usersLink).toContainText("Users");
-        await expect(usersLink).toHaveAttribute("aria-current", "page");
-        await assertTouchTarget(usersLink);
-        const adminAccountNavigation = adminPage.getByRole("navigation", {
-          name: "Mobile account navigation",
-        });
-        await expect(adminAccountNavigation).toBeVisible();
-        for (const link of await adminAccountNavigation
-          .getByRole("link")
+        await expect(adminUserTrigger).toHaveAccessibleName(
+          E2E_IDENTITIES.admin.name
+        );
+        await assertTouchTarget(adminUserTrigger);
+        await adminUserTrigger.focus();
+        await adminUserTrigger.press("ArrowDown");
+        const adminMenu = adminPage.locator("#user-menu-content");
+        await expect(adminMenu).toBeVisible();
+        const usersItem = adminMenu
+          .getByRole("group", { exact: true, name: "Administration" })
+          .getByRole("menuitem", { exact: true, name: "Users" });
+        await expect(usersItem).toHaveAttribute("href", "/admin/users");
+        await expect(usersItem).toHaveAttribute("aria-current", "page");
+        await assertTouchTarget(usersItem);
+        for (const item of await adminMenu
+          .getByRole("group", { exact: true, name: "Account" })
+          .getByRole("menuitem")
           .all()) {
-          await assertTouchTarget(link);
+          await assertTouchTarget(item);
         }
-        const adminDialog = adminPage.getByRole("dialog", {
-          name: "Portal navigation",
-        });
-        await adminPage.keyboard.press("Tab");
-        expect(
-          await adminDialog.evaluate((dialog) =>
-            dialog.contains(document.activeElement)
-          )
-        ).toBe(true);
-        await adminPage.keyboard.press("Shift+Tab");
-        expect(
-          await adminDialog.evaluate((dialog) =>
-            dialog.contains(document.activeElement)
-          )
-        ).toBe(true);
+        await assertMenuWithinViewport(
+          adminPage,
+          adminMenu,
+          "admin-mobile-375"
+        );
         await adminPage.keyboard.press("Escape");
-        await expect(adminDialog).toBeHidden();
-        await expect(adminTrigger).toBeFocused();
-        await adminTrigger.press("Enter");
-        await expect(adminNavigation).toBeVisible();
-        await assertNoHorizontalOverflow(adminPage, "admin-mobile-375");
+        await expect(adminMenu).toBeHidden();
+        await expect(adminUserTrigger).toBeFocused();
+        await adminUserTrigger.press("Enter");
+        await expect(adminMenu).toBeVisible();
+        await usersItem.press("Enter");
+        await expect(adminMenu).toBeHidden();
+        await expect(adminPage).toHaveURL(/\/admin\/users$/);
+        await assertNoHorizontalOverflow(adminPage, "admin-mobile-375-closed");
         assertAdminRuntime();
       } finally {
         await adminContext.close();
       }
     });
 
-    test("anonymous theme precedence and every 3 mode by 10 palette combination persist without flash", async ({
+    test("anonymous appearance precedence, all 11 themes, font size, density, and roundness persist without flash", async ({
       baseURL,
       browser,
       page,
     }) => {
-      test.setTimeout(120_000);
+      test.setTimeout(240_000);
       const resolvedBaseURL = requireBaseURL(baseURL);
-      const localDarkRose = JSON.stringify({
-        version: 1,
-        themeMode: "dark",
-        palette: "rose",
-      });
+      const localPreference: AppearancePreference = {
+        density: "compact",
+        fontSize: "large",
+        radius: "large",
+        theme: "rose-pine",
+      };
+      const cookiePreference: AppearancePreference = {
+        density: "comfortable",
+        fontSize: "small",
+        radius: "none",
+        theme: "catppuccin-latte",
+      };
       const waitForAnonymousThemeReady = async (
         targetPage: Page
       ): Promise<void> => {
         await expect(
           targetPage.locator("#application-theme-trigger")
-        ).toHaveAccessibleName("Theme settings", { timeout: 5000 });
+        ).toHaveAccessibleName("Appearance settings", { timeout: 5000 });
         await expect(targetPage.locator("html")).toHaveAttribute(
           "data-theme-authority",
           "anonymous",
@@ -1195,21 +1406,17 @@ test.describe
       await installThemeProbe(localContext);
       await localContext.addInitScript(
         ({ key, value }) => localStorage.setItem(key, value),
-        { key: THEME_STORAGE_KEY, value: localDarkRose }
+        { key: THEME_STORAGE_KEY, value: storedAppearance(localPreference) }
       );
       const localPage = page;
       const assertLocalRuntime = monitorSecondaryPage(localPage);
       await gotoAnonymousThemeRoot(localPage);
-      await assertTheme(
-        localPage,
-        { themeMode: "dark", palette: "rose" },
-        {
-          authority: "anonymous",
-          case: "missing-cookie-uses-local-storage",
-          cookieStatus: "missing",
-          localStorage: localDarkRose,
-        }
-      );
+      await assertAppearance(localPage, localPreference, {
+        authority: "anonymous",
+        case: "missing-cookie-uses-local-storage",
+        cookieStatus: "missing",
+        localStorage: localPreference,
+      });
       assertLocalRuntime();
 
       const cookieContext = await newConfiguredContext(
@@ -1220,32 +1427,24 @@ test.describe
         {
           name: THEME_COOKIE_NAME,
           url: resolvedBaseURL,
-          value: "light%3Ablue",
+          value: encodedAppearance(cookiePreference),
         },
       ]);
       await cookieContext.addInitScript(
         ({ key, value }) => localStorage.setItem(key, value),
-        { key: THEME_STORAGE_KEY, value: localDarkRose }
+        { key: THEME_STORAGE_KEY, value: storedAppearance(localPreference) }
       );
       const cookiePage = await cookieContext.newPage();
       const assertCookieRuntime = monitorSecondaryPage(cookiePage);
       const cookieFailures: unknown[] = [];
       try {
         await gotoAnonymousThemeRoot(cookiePage);
-        await assertTheme(
-          cookiePage,
-          { themeMode: "light", palette: "blue" },
-          {
-            authority: "anonymous",
-            case: "valid-cookie-beats-local-storage",
-            cookieStatus: "valid",
-            localStorage: JSON.stringify({
-              version: 1,
-              themeMode: "light",
-              palette: "blue",
-            }),
-          }
-        );
+        await assertAppearance(cookiePage, cookiePreference, {
+          authority: "anonymous",
+          case: "valid-cookie-beats-local-storage",
+          cookieStatus: "valid",
+          localStorage: cookiePreference,
+        });
         assertCookieRuntime();
       } catch (error) {
         cookieFailures.push(error);
@@ -1257,47 +1456,48 @@ test.describe
       }
       throwContextFailures(cookieFailures, "Cookie precedence");
 
-      const invalidContext = await newConfiguredContext(
-        browser,
-        resolvedBaseURL
-      );
-      await invalidContext.addCookies([
-        { name: THEME_COOKIE_NAME, url: resolvedBaseURL, value: "invalid" },
-      ]);
-      await invalidContext.addInitScript(
-        ({ key, value }) => localStorage.setItem(key, value),
-        { key: THEME_STORAGE_KEY, value: localDarkRose }
-      );
-      const invalidPage = await invalidContext.newPage();
-      const assertInvalidRuntime = monitorSecondaryPage(invalidPage);
-      const invalidFailures: unknown[] = [];
-      try {
-        await gotoAnonymousThemeRoot(invalidPage);
-        const defaultStorage = JSON.stringify({
-          version: 1,
-          themeMode: "system",
-          palette: "neutral",
-        });
-        await assertTheme(
-          invalidPage,
-          { themeMode: "system", palette: "neutral" },
-          {
-            authority: "anonymous",
-            case: "invalid-cookie-rejects-local-storage",
-            cookieStatus: "invalid",
-            localStorage: defaultStorage,
-          }
+      for (const [caseName, invalidValue] of [
+        ["invalid-cookie-rejects-local-storage", "invalid"],
+        // The retired two-part `<mode>:<palette>` format is invalid, not migrated.
+        ["legacy-cookie-rejects-local-storage", "dark%3Aviolet"],
+      ] as const) {
+        const invalidContext = await newConfiguredContext(
+          browser,
+          resolvedBaseURL
         );
-        assertInvalidRuntime();
-      } catch (error) {
-        invalidFailures.push(error);
+        await invalidContext.addCookies([
+          {
+            name: THEME_COOKIE_NAME,
+            url: resolvedBaseURL,
+            value: invalidValue,
+          },
+        ]);
+        await invalidContext.addInitScript(
+          ({ key, value }) => localStorage.setItem(key, value),
+          { key: THEME_STORAGE_KEY, value: storedAppearance(localPreference) }
+        );
+        const invalidPage = await invalidContext.newPage();
+        const assertInvalidRuntime = monitorSecondaryPage(invalidPage);
+        const invalidFailures: unknown[] = [];
+        try {
+          await gotoAnonymousThemeRoot(invalidPage);
+          await assertAppearance(invalidPage, DEFAULT_APPEARANCE, {
+            authority: "anonymous",
+            case: caseName,
+            cookieStatus: "invalid",
+            localStorage: DEFAULT_APPEARANCE,
+          });
+          assertInvalidRuntime();
+        } catch (error) {
+          invalidFailures.push(error);
+        }
+        try {
+          await closeContextBounded(invalidContext, caseName);
+        } catch (error) {
+          invalidFailures.push(error);
+        }
+        throwContextFailures(invalidFailures, caseName);
       }
-      try {
-        await closeContextBounded(invalidContext, "Invalid cookie");
-      } catch (error) {
-        invalidFailures.push(error);
-      }
-      throwContextFailures(invalidFailures, "Invalid cookie");
 
       const matrixContext = await newConfiguredContext(
         browser,
@@ -1309,123 +1509,158 @@ test.describe
       try {
         await matrixPage.emulateMedia({ colorScheme: "light" });
         await gotoAnonymousThemeRoot(matrixPage);
-        const initialPreference = {
-          themeMode: "system" as const,
-          palette: "neutral" as const,
-        };
-        await assertTheme(matrixPage, initialPreference, {
+        await assertAppearance(matrixPage, DEFAULT_APPEARANCE, {
           authority: "anonymous",
           case: "initial-first-paint",
           cookieStatus: "missing",
-          localStorage: JSON.stringify({ version: 1, ...initialPreference }),
+          localStorage: DEFAULT_APPEARANCE,
         });
+
+        // Keyboard: open the picker, move between submenus, choose a theme, close with Escape.
         const themeTrigger = matrixPage.getByRole("button", {
-          name: "Theme settings",
           exact: true,
+          name: "Appearance settings",
         });
+        const pickerMenu = matrixPage.locator("#application-theme-content");
+        const themeSubTrigger = matrixPage.locator(
+          "#application-theme-theme-trigger"
+        );
+        await expectHydrated(themeTrigger);
         await themeTrigger.focus();
         await themeTrigger.press("Enter");
-        const themeMenu = matrixPage.getByRole("menu");
-        await expect(themeMenu).toBeVisible();
-        await matrixPage.keyboard.press("Home");
+        await expect(pickerMenu).toBeVisible();
+        await expect(pickerMenu).toHaveRole("menu");
+        const subTriggers = pickerMenu.locator('[aria-haspopup="menu"]');
+        await expect(subTriggers).toHaveCount(4);
+        for (const [index, key] of (
+          ["theme", "fontSize", "density", "radius"] as const
+        ).entries()) {
+          await expect(subTriggers.nth(index)).toHaveRole("menuitem");
+          await expect(subTriggers.nth(index)).toHaveAccessibleName(
+            new RegExp(
+              `^${APPEARANCE_SETTINGS[key].label}\\s*${optionLabel(key, DEFAULT_APPEARANCE[key])}$`,
+              "u"
+            )
+          );
+        }
+        await expect(themeSubTrigger).toBeFocused();
         await matrixPage.keyboard.press("ArrowDown");
-        const darkModeItem = themeMenu.getByRole("menuitemradio", {
-          name: "Dark",
+        await expect(
+          matrixPage.locator("#application-theme-fontSize-trigger")
+        ).toBeFocused();
+        await matrixPage.keyboard.press("ArrowUp");
+        await expect(themeSubTrigger).toBeFocused();
+        await matrixPage.keyboard.press("ArrowRight");
+        const themeGroup = matrixPage.getByRole("group", {
           exact: true,
+          name: "Theme",
         });
-        await expect(darkModeItem).toBeFocused();
+        await expect(
+          themeGroup.getByRole("menuitemradio", { exact: true, name: "System" })
+        ).toBeFocused();
+        await expect(themeGroup.getByRole("menuitemradio")).toHaveText(
+          THEME_OPTIONS.map((option) => option.label)
+        );
+        for (const option of THEME_OPTIONS) {
+          const item = themeGroup.getByRole("menuitemradio", {
+            exact: true,
+            name: option.label,
+          });
+          const swatch = item.locator(
+            `.theme-swatch[data-theme-swatch="${option.value}"]`
+          );
+          const swatchBox = await swatch.boundingBox();
+          const labelBox = await item
+            .getByText(option.label, { exact: true })
+            .boundingBox();
+          expect(swatchBox?.width).toBeCloseTo(20, 0);
+          expect(swatchBox?.height).toBeCloseTo(20, 0);
+          expect(
+            (labelBox?.x ?? 0) -
+              ((swatchBox?.x ?? 0) + (swatchBox?.width ?? 0)),
+            `${option.label} swatch gap`
+          ).toBeGreaterThanOrEqual(12);
+          await assertTouchTarget(item);
+        }
+        await matrixPage.keyboard.press("ArrowDown");
+        await expect(
+          themeGroup.getByRole("menuitemradio", {
+            exact: true,
+            name: "Default Dark",
+          })
+        ).toBeFocused();
         await matrixPage.keyboard.press("Enter");
         await expect(matrixPage.locator("html")).toHaveAttribute(
-          "data-mode",
-          "dark"
+          "data-theme",
+          "default-dark"
         );
+        await expect(pickerMenu).toBeHidden();
         await expect(themeTrigger).toBeFocused();
         await themeTrigger.press("Enter");
-        await matrixPage.keyboard.press("Home");
-        const lightModeItem = themeMenu.getByRole("menuitemradio", {
-          name: "Light",
-          exact: true,
-        });
-        await expect(lightModeItem).toBeFocused();
-        await matrixPage.keyboard.press("Space");
-        await expect(matrixPage.locator("html")).toHaveAttribute(
-          "data-mode",
-          "light"
-        );
-        await expect(themeTrigger).toBeFocused();
-        await themeTrigger.press("Enter");
-        await expect(themeMenu).toBeVisible();
+        await expect(pickerMenu).toBeVisible();
         await matrixPage.keyboard.press("Escape");
-        await expect(themeMenu).toBeHidden();
+        await expect(pickerMenu).toBeHidden();
         await expect(themeTrigger).toBeFocused();
-        for (const mode of themeModes) {
-          await selectThemeOption(matrixPage, "Color mode", titleCase(mode));
-          for (const palette of palettes) {
-            await selectThemeOption(
-              matrixPage,
-              "Color palette",
-              titleCase(palette)
-            );
-            const preference = { themeMode: mode, palette };
-            const storedPreference = JSON.stringify({
-              version: 1,
-              ...preference,
-            });
+
+        let current: AppearancePreference = {
+          ...DEFAULT_APPEARANCE,
+          theme: "default-dark",
+        };
+        for (const theme of THEME_NAMES) {
+          await selectAppearance(matrixPage, "picker", "theme", theme);
+          current = { ...current, theme };
+          await reloadAnonymousTheme(matrixPage);
+          await assertAppearance(matrixPage, current, {
+            authority: "anonymous",
+            case: `matrix-theme-${theme}${theme === "system" ? "-light" : ""}`,
+            cookieStatus: "valid",
+            localStorage: current,
+          });
+          if (theme === "system") {
+            await matrixPage.emulateMedia({ colorScheme: "dark" });
             await reloadAnonymousTheme(matrixPage);
-            await assertTheme(matrixPage, preference, {
+            await assertAppearance(matrixPage, current, {
               authority: "anonymous",
-              case: `matrix-${mode}-${palette}`,
+              case: "matrix-theme-system-dark",
               cookieStatus: "valid",
-              localStorage: storedPreference,
+              localStorage: current,
+              systemScheme: "dark",
             });
-            if (mode === "system") {
-              await matrixPage.emulateMedia({ colorScheme: "dark" });
-              await reloadAnonymousTheme(matrixPage);
-              await assertTheme(matrixPage, preference, {
-                authority: "anonymous",
-                case: `system-effective-dark-${palette}`,
-                cookieStatus: "valid",
-                localStorage: storedPreference,
-              });
-              await matrixPage.emulateMedia({ colorScheme: "light" });
-            }
+            await matrixPage.emulateMedia({ colorScheme: "light" });
           }
         }
-        const darkUnderLight = {
-          themeMode: "dark" as const,
-          palette: "violet" as const,
-        };
-        await selectThemeOption(matrixPage, "Color mode", "Dark");
-        await selectThemeOption(matrixPage, "Color palette", "Violet");
-        await reloadAnonymousTheme(matrixPage);
-        await assertTheme(matrixPage, darkUnderLight, {
+        for (const key of ["fontSize", "density", "radius"] as const) {
+          for (const option of APPEARANCE_SETTINGS[key].options) {
+            await selectAppearance(matrixPage, "picker", key, option.value);
+            current = { ...current, [key]: option.value };
+            await reloadAnonymousTheme(matrixPage);
+            await assertAppearance(matrixPage, current, {
+              authority: "anonymous",
+              case: `matrix-${key}-${option.value}`,
+              cookieStatus: "valid",
+              localStorage: current,
+            });
+          }
+        }
+
+        // The tightest combination still keeps 44px interactive targets.
+        await selectAppearance(matrixPage, "picker", "fontSize", "small");
+        await selectAppearance(matrixPage, "picker", "density", "compact");
+        current = { ...current, density: "compact", fontSize: "small" };
+        await assertAppearance(matrixPage, current, {
           authority: "anonymous",
-          case: "explicit-dark-under-system-light",
-          cookieStatus: "valid",
-          localStorage: JSON.stringify({ version: 1, ...darkUnderLight }),
-        });
-        const lightUnderDark = {
-          themeMode: "light" as const,
-          palette: "violet" as const,
-        };
-        await selectThemeOption(matrixPage, "Color mode", "Light");
-        await matrixPage.emulateMedia({ colorScheme: "dark" });
-        await reloadAnonymousTheme(matrixPage);
-        await assertTheme(matrixPage, lightUnderDark, {
-          authority: "anonymous",
-          case: "explicit-light-under-system-dark",
-          cookieStatus: "valid",
-          localStorage: JSON.stringify({ version: 1, ...lightUnderDark }),
-        });
-        await matrixPage.emulateMedia({ colorScheme: "light" });
-        await selectThemeOption(matrixPage, "Color mode", "Dark");
-        await assertTheme(matrixPage, darkUnderLight, {
-          authority: "anonymous",
-          case: "final-dark-violet-state",
+          case: "final-compact-small-state",
           checkFirstPaint: false,
           cookieStatus: "valid",
-          localStorage: JSON.stringify({ version: 1, ...darkUnderLight }),
+          localStorage: current,
         });
+        await assertTouchTarget(themeTrigger);
+        await openAppearanceMenu(matrixPage, "picker");
+        for (const item of await pickerMenu.getByRole("menuitem").all()) {
+          await assertTouchTarget(item);
+        }
+        await matrixPage.keyboard.press("Escape");
+        await expect(pickerMenu).toBeHidden();
         await assertNoHorizontalOverflow(matrixPage, "theme-desktop");
         assertMatrixRuntime();
       } catch (error) {
@@ -1439,29 +1674,41 @@ test.describe
       throwContextFailures(matrixFailures, "Theme matrix");
     });
 
-    test("trusted Alice DB theme beats anonymous state on login and reload, persists through DB, and restores", async ({
+    test("trusted Alice DB appearance beats anonymous state on login and reload, persists through DB, and restores", async ({
       baseURL,
       browser,
       page,
     }, testInfo) => {
+      test.setTimeout(120_000);
       const resolvedBaseURL = requireBaseURL(baseURL);
+      const anonymousPreference: AppearancePreference = {
+        density: "compact",
+        fontSize: "small",
+        radius: "none",
+        theme: "catppuccin-latte",
+      };
+      const trustedChange: AppearancePreference = {
+        density: "compact",
+        fontSize: "small",
+        radius: "large",
+        theme: "gruvbox-dark",
+      };
       const loginContext = page.context();
       await installThemeProbe(loginContext);
       const loginPage = page;
       const assertLoginRuntime = monitorSecondaryPage(loginPage);
       await signInAs(loginPage, E2E_IDENTITIES.alice);
-      await expect(loginPage.locator("html")).toHaveAttribute(
+      const loginRoot = loginPage.locator("html");
+      await expect(loginRoot).toHaveAttribute(
         "data-theme-authority",
         "trusted"
       );
-      await expect(loginPage.locator("html")).toHaveAttribute(
-        "data-mode",
-        "dark"
-      );
-      await expect(loginPage.locator("html")).toHaveAttribute(
-        "data-palette",
-        "violet"
-      );
+      for (const [attribute, key] of APPEARANCE_ATTRIBUTES) {
+        await expect(loginRoot).toHaveAttribute(
+          attribute,
+          ALICE_SEED_APPEARANCE[key]
+        );
+      }
       const authenticatedState = await loginContext.storageState();
       const trustedContext = await newConfiguredContext(
         browser,
@@ -1474,26 +1721,27 @@ test.describe
         {
           name: THEME_COOKIE_NAME,
           url: resolvedBaseURL,
-          value: "light%3Ablue",
+          value: encodedAppearance(anonymousPreference),
         },
       ]);
-      const anonymousStorage = JSON.stringify({
-        version: 1,
-        themeMode: "light",
-        palette: "blue",
-      });
       await trustedContext.addInitScript(
         ({ key, value }) => localStorage.setItem(key, value),
-        { key: THEME_STORAGE_KEY, value: anonymousStorage }
+        { key: THEME_STORAGE_KEY, value: storedAppearance(anonymousPreference) }
       );
       const trustedPage = await trustedContext.newPage();
       const assertTrustedRuntime = monitorSecondaryPage(trustedPage);
       const trustedApi = apiFor(trustedContext, resolvedBaseURL);
       const cleanupApi = apiFor(loginContext, resolvedBaseURL);
-      const waitForTrustedThemeReady = async (): Promise<void> => {
-        await expect(
-          trustedPage.locator("#application-theme-trigger")
-        ).toHaveAccessibleName("Theme settings");
+      const selectTrustedAppearance = async (
+        preference: AppearancePreference
+      ): Promise<void> => {
+        for (const [, key] of APPEARANCE_ATTRIBUTES) {
+          await selectAppearance(trustedPage, "user", key, preference[key]);
+          await expect(trustedPage.locator("#user-menu-trigger")).toBeEnabled();
+        }
+        await expect
+          .poll(async () => trustedApi.preferences.theme.get({}))
+          .toMatchObject({ ...preference });
       };
       let themeRestored = true;
       const failures: unknown[] = [];
@@ -1501,77 +1749,53 @@ test.describe
         await trustedPage.goto("/dashboard", {
           waitUntil: "load",
         });
-        await assertTheme(
-          trustedPage,
-          { themeMode: "dark", palette: "violet" },
-          {
-            authority: "trusted",
-            case: "trusted-db-beats-cookie-and-local-storage",
-            cookieStatus: "valid",
-            localStorage: anonymousStorage,
-          }
-        );
+        await assertAppearance(trustedPage, ALICE_SEED_APPEARANCE, {
+          authority: "trusted",
+          case: "trusted-db-beats-cookie-and-local-storage",
+          cookieStatus: "valid",
+          localStorage: anonymousPreference,
+        });
 
         themeRestored = false;
-        await selectThemeOption(trustedPage, "Color mode", "Light");
-        await selectThemeOption(trustedPage, "Color palette", "Cyan");
-        await waitForTrustedThemeReady();
-        await expect
-          .poll(async () => trustedApi.preferences.theme.get({}))
-          .toMatchObject({ themeMode: "light", palette: "cyan" });
-
+        await selectTrustedAppearance(trustedChange);
         await trustedPage.reload({ waitUntil: "load" });
-        await assertTheme(
-          trustedPage,
-          { themeMode: "light", palette: "cyan" },
-          {
-            authority: "trusted",
-            case: "trusted-db-persists-reload",
-            cookieStatus: "valid",
-            localStorage: anonymousStorage,
-          }
-        );
-        await selectThemeOption(trustedPage, "Color mode", "Dark");
-        await selectThemeOption(trustedPage, "Color palette", "Violet");
-        await waitForTrustedThemeReady();
-        await expect
-          .poll(async () => trustedApi.preferences.theme.get({}))
-          .toMatchObject({ themeMode: "dark", palette: "violet" });
+        await assertAppearance(trustedPage, trustedChange, {
+          authority: "trusted",
+          case: "trusted-db-persists-reload",
+          cookieStatus: "valid",
+          localStorage: anonymousPreference,
+        });
+        await selectTrustedAppearance(ALICE_SEED_APPEARANCE);
         themeRestored = true;
         await trustedPage.reload({ waitUntil: "load" });
-        await assertTheme(
-          trustedPage,
-          { themeMode: "dark", palette: "violet" },
-          {
-            authority: "trusted",
-            case: "trusted-seed-restored",
-            cookieStatus: "valid",
-            localStorage: anonymousStorage,
-          }
-        );
+        await assertAppearance(trustedPage, ALICE_SEED_APPEARANCE, {
+          authority: "trusted",
+          case: "trusted-seed-restored",
+          cookieStatus: "valid",
+          localStorage: anonymousPreference,
+        });
         await trustedPage.goto("/", { waitUntil: "load" });
-        await assertTheme(
-          trustedPage,
-          { themeMode: "dark", palette: "violet" },
-          {
-            authority: "trusted",
-            case: "trusted-public-restored",
-            cookieStatus: "valid",
-            localStorage: anonymousStorage,
-          }
-        );
+        await assertAppearance(trustedPage, ALICE_SEED_APPEARANCE, {
+          authority: "trusted",
+          case: "trusted-public-restored",
+          cookieStatus: "valid",
+          localStorage: anonymousPreference,
+        });
         await assertNoHorizontalOverflow(trustedPage, "trusted-public-desktop");
       } catch (error) {
         failures.push(error);
       }
       if (!themeRestored) {
         try {
-          const current = await cleanupApi.preferences.theme.get({});
-          if (current.themeMode !== "dark" || current.palette !== "violet") {
+          const stored = await cleanupApi.preferences.theme.get({});
+          if (
+            APPEARANCE_ATTRIBUTES.some(
+              ([, key]) => stored[key] !== ALICE_SEED_APPEARANCE[key]
+            )
+          ) {
             await cleanupApi.preferences.theme.update({
-              expectedUpdatedAt: current.updatedAt,
-              themeMode: "dark",
-              palette: "violet",
+              ...ALICE_SEED_APPEARANCE,
+              expectedUpdatedAt: stored.updatedAt,
             });
           }
         } catch (error) {
@@ -1598,9 +1822,14 @@ test.describe
         );
       }
       assertLoginRuntime();
+      const matrixCases = runtimeEvidence.filter((record) =>
+        record.case.startsWith("matrix-theme-")
+      );
+      // Every theme once, plus "system" under both emulated color schemes.
+      expect(matrixCases).toHaveLength(THEME_NAMES.length + 1);
       expect(
-        runtimeEvidence.filter((record) => record.case.startsWith("matrix-"))
-      ).toHaveLength(themeModes.length * palettes.length);
+        new Set(matrixCases.map((record) => record.concreteTheme))
+      ).toEqual(new Set(Object.keys(THEME_TOKENS)));
       expect(
         runtimeEvidence.filter(
           (record) => record.case === "initial-first-paint"
@@ -1609,10 +1838,10 @@ test.describe
       const evidence = JSON.stringify(
         {
           artifactProfile: "no-binary",
-          combinations: themeModes.length * palettes.length,
           generatedAt: new Date().toISOString(),
           layout: layoutEvidence,
           theme: runtimeEvidence,
+          themes: THEME_NAMES.length,
         },
         null,
         2

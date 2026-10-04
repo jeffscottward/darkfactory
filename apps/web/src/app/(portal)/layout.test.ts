@@ -11,8 +11,8 @@ const mocks = vi.hoisted(() => ({
   headers: vi.fn(
     async () =>
       new Headers({
-        cookie: "better-auth.session_token=opaque",
         "cf-connecting-ip": "203.0.113.42",
+        cookie: "better-auth.session_token=opaque",
         "x-pathname": "/feature-items",
       })
   ),
@@ -34,7 +34,6 @@ vi.mock("../../components/portal-shell.tsx", () => ({
   PortalShell: "portal-shell",
 }));
 
-import { AccountNavigationClient } from "../../components/account/account-navigation-client.tsx";
 import { AddressPageClient } from "../../components/account/address-page-client.tsx";
 import { PreferencesPageClient } from "../../components/account/preferences-page-client.tsx";
 import { ProfilePageClient } from "../../components/account/profile-page-client.tsx";
@@ -146,11 +145,11 @@ describe("PortalLayout", () => {
     "renders role-gated routes for an active %s session",
     async (role, isAdmin, availableRoutes) => {
       mocks.getRequestPortalSession.mockResolvedValueOnce({
-        userId: "user-1",
+        expiresAt: new Date("2030-01-01T00:00:00.000Z"),
         name: "Example User",
         role,
         status: "active",
-        expiresAt: new Date("2030-01-01T00:00:00.000Z"),
+        userId: "user-1",
       });
 
       const result = await PortalLayout({ children: "protected" });
@@ -158,28 +157,20 @@ describe("PortalLayout", () => {
       expect(result.type).toBe("portal-shell");
       expect(result.props.children).toBe("protected");
       expect(result.props.isAdmin).toBe(isAdmin);
+      expect(result.props.userName).toBe("Example User");
       return expect(result.props.availableRoutes).toEqual(availableRoutes);
     }
   );
 });
 
 describe("portal route leaf composition", () => {
-  it("renders the account index, layout, and all account client leaves", () => {
-    const account = AccountPage();
-    expect(
-      runtimeElements(account)
-        .filter((element) => element.type === "a")
-        .map((element) => element.props.href)
-    ).toEqual([
-      "/account/profile",
-      "/account/address",
-      "/account/preferences",
-      "/account/security",
-    ]);
+  it("redirects the account index and renders the layout and all account client leaves", () => {
+    expect(() => AccountPage()).toThrow("REDIRECT:/account/profile");
+    expect(mocks.redirect).toHaveBeenCalledWith("/account/profile");
 
     const layout = AccountLayout({ children: "account content" });
-    expect(runtimeElement(layout, AccountNavigationClient)).toBeDefined();
-    expect(layout.props.children).toBeDefined();
+    expect(layout.type).toBe("div");
+    expect(layout.props.children).toBe("account content");
 
     expect(runtimeElement(AddressPage(), AddressPageClient)).toBeDefined();
     expect(

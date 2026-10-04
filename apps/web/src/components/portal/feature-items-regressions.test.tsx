@@ -222,7 +222,7 @@ describe("archive serialization", () => {
     });
     const collectionHtml = renderToStaticMarkup(collectionTree as ReactElement);
     expect(collectionHtml).toContain("Active");
-    expect(collectionHtml).toContain("No description provided.");
+    expect(collectionHtml).not.toContain("No description provided.");
     const archive = findElement(
       collectionTree,
       (candidate) => candidate.props["aria-label"] === "Archive Original name"
@@ -391,7 +391,7 @@ describe("archived and session recovery states", () => {
     expect(collection).not.toContain("Archive Archived record");
 
     const notice = renderToStaticMarkup(<ArchivedFeatureItemNotice />);
-    expect(notice).toContain("read-only");
+    expect(notice).toContain('role="note"');
     expect(notice).toContain("Archived records cannot be edited");
     const detail = renderToStaticMarkup(
       <ArchivedFeatureItemDetails item={archived} />

@@ -3,20 +3,20 @@
 import {
   Button,
   buttonVariants,
-  EmptyState,
   Input,
   Label,
   Skeleton,
   StatusBadge,
 } from "@darkfactory/ui";
 import { useForm } from "@tanstack/react-form";
-import { KeyRound, MonitorSmartphone, RotateCcw } from "lucide-react";
+import { KeyRound, RotateCcw } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
 import {
   type AccountFeedback,
   AccountFeedbackMessage,
 } from "./account-feedback.tsx";
+import { InlineNotice } from "../inline-notice.tsx";
 import type {
   ChangePasswordInput,
   SafeSession,
@@ -67,12 +67,12 @@ export const SecurityPanel = ({
       <div
         aria-busy="true"
         aria-live="polite"
-        className="space-y-3"
+        className="space-y-2"
         role="status"
       >
         <span className="sr-only">Loading sessions</span>
         {["one", "two"].map((key) => (
-          <Skeleton className="h-24 w-full" key={key} />
+          <Skeleton className="h-14 w-full" key={key} />
         ))}
       </div>
     );
@@ -80,31 +80,33 @@ export const SecurityPanel = ({
   if (state.type === "error") {
     return (
       <div aria-live="assertive" role="alert">
-        <EmptyState
+        <InlineNotice
           action={
             state.kind === "unauthorized" ? (
               <a
-                className={buttonVariants()}
+                className={buttonVariants({ size: "compact" })}
                 href="/sign-in?callbackURL=%2Faccount%2Fsecurity"
               >
                 Sign in
               </a>
             ) : state.kind === "forbidden" ? (
               <a
-                className={buttonVariants({ variant: "secondary" })}
-                href="/account"
+                className={buttonVariants({
+                  size: "compact",
+                  variant: "secondary",
+                })}
+                href="/account/profile"
               >
                 Back to account
               </a>
             ) : (
-              <Button onClick={onRetry} variant="secondary">
+              <Button onClick={onRetry} size="compact" variant="secondary">
                 <RotateCcw aria-hidden="true" className="size-4" />
                 Try again
               </Button>
             )
           }
-          description={state.message}
-          icon={<RotateCcw />}
+          message={state.message}
           title="Sessions could not be loaded"
         />
       </div>
@@ -113,18 +115,14 @@ export const SecurityPanel = ({
   if (state.sessions.length === 0) {
     return (
       <div aria-live="polite" role="status">
-        <EmptyState
-          description="No active sessions were returned. Refresh before changing account security."
-          icon={<MonitorSmartphone />}
-          title="No active sessions were returned"
-        />
+        <InlineNotice title="No active sessions were returned" />
       </div>
     );
   }
 
   const hasOtherSessions = state.sessions.some((session) => !session.isCurrent);
   return (
-    <div className="space-y-5">
+    <div className="space-y-3">
       <AccountFeedbackMessage feedback={feedback} />
       <div
         className="divide-y divide-border border-border border-y"
@@ -132,24 +130,22 @@ export const SecurityPanel = ({
       >
         {state.sessions.map((session) => (
           <article
-            className="grid min-w-0 gap-3 py-5 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center"
+            className="grid min-w-0 gap-1 py-2 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center"
             key={session.id}
             role="listitem"
           >
-            <div className="min-w-0 space-y-1">
-              <div className="flex min-w-0 flex-wrap items-center gap-3">
-                <h3 className="min-w-0 break-words font-heading font-semibold text-base text-foreground">
+            <div className="min-w-0">
+              <div className="flex min-w-0 flex-wrap items-center gap-2">
+                <h3 className="min-w-0 break-words font-heading font-semibold text-foreground text-sm">
                   {session.userAgent ?? "Unidentified browser"}
                 </h3>
                 {session.isCurrent ? (
                   <StatusBadge status="success">Current session</StatusBadge>
                 ) : null}
               </div>
-              <p className="text-muted-foreground text-sm">
-                Last active {formatDate(session.updatedAt)}
-              </p>
               <p className="text-muted-foreground text-xs">
-                Expires {formatDate(session.expiresAt)}
+                Last active {formatDate(session.updatedAt)} · Expires{" "}
+                {formatDate(session.expiresAt)}
               </p>
             </div>
           </article>
@@ -160,7 +156,7 @@ export const SecurityPanel = ({
         <div
           aria-busy={isRevoking}
           aria-label="Confirm signing out other sessions"
-          className="space-y-3 border-destructive border-l-2 pl-4"
+          className="space-y-2 border-destructive border-l-2 pl-3"
           onKeyDown={(event) => {
             if (event.key === "Escape" && !isRevoking)
               return closeRevokeConfirmation();
@@ -239,7 +235,7 @@ export const PasswordForm = ({ feedback, onSave }: PasswordFormProps) => {
 
   return (
     <form
-      className="space-y-5"
+      className="space-y-3"
       id="password-form"
       noValidate
       onSubmit={(event) => {
@@ -295,7 +291,7 @@ export const PasswordForm = ({ feedback, onSave }: PasswordFormProps) => {
             const error = field.state.meta.errors[0];
             const errorId = `${definition.name}-error`;
             return (
-              <div className="max-w-md space-y-2">
+              <div className="max-w-md space-y-1">
                 <Label htmlFor={definition.name}>
                   {definition.label} (required)
                 </Label>

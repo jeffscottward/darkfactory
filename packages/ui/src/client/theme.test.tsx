@@ -1,10 +1,10 @@
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
+import { DEFAULT_APPEARANCE } from "../themes.ts";
 
 import {
-  PALETTE_OPTIONS,
-  THEME_MODE_OPTIONS,
+  APPEARANCE_SETTINGS,
   ThemePicker,
   type ThemePreference,
   ThemeProvider,
@@ -14,15 +14,21 @@ import {
 const ThemeProbe = () => {
   const { preference } = useTheme();
   return (
-    <output data-mode={preference.themeMode} data-palette={preference.palette}>
-      {preference.themeMode}:{preference.palette}
+    <output data-radius={preference.radius} data-theme={preference.theme}>
+      {preference.theme}:{preference.fontSize}:{preference.density}:
+      {preference.radius}
     </output>
   );
 };
 
 describe("semantic theme components", () => {
   it("provides the controlled semantic theme contract to descendants", () => {
-    const preference = { themeMode: "dark", palette: "rose" } as const;
+    const preference = {
+      density: "compact",
+      fontSize: "large",
+      radius: "none",
+      theme: "rose-pine",
+    } as const;
     const markup = renderToStaticMarkup(
       createElement(ThemeProvider, {
         children: createElement(ThemeProbe),
@@ -31,9 +37,9 @@ describe("semantic theme components", () => {
       })
     );
 
-    expect(markup).toContain('data-mode="dark"');
-    expect(markup).toContain('data-palette="rose"');
-    return expect(markup).toContain("dark:rose");
+    expect(markup).toContain('data-theme="rose-pine"');
+    expect(markup).toContain('data-radius="none"');
+    return expect(markup).toContain("rose-pine:large:compact:");
   });
 
   it("delegates preference changes without owning persistence policy", () => {
@@ -47,16 +53,16 @@ describe("semantic theme components", () => {
       createElement(ThemeProvider, {
         children: createElement(SelectionProbe),
         onPreferenceChange,
-        preference: { themeMode: "system", palette: "neutral" },
+        preference: DEFAULT_APPEARANCE,
       })
     );
 
-    selectPreference?.({ themeMode: "light", palette: "blue" });
+    selectPreference?.({ ...DEFAULT_APPEARANCE, theme: "nord" });
 
     expect(onPreferenceChange).toHaveBeenCalledOnce();
     return expect(onPreferenceChange).toHaveBeenCalledWith({
-      themeMode: "light",
-      palette: "blue",
+      ...DEFAULT_APPEARANCE,
+      theme: "nord",
     });
   });
 
@@ -65,25 +71,16 @@ describe("semantic theme components", () => {
       "ThemeProvider is required."
     ));
 
-  it("exports exactly three modes and ten labeled palettes", () => {
-    expect(THEME_MODE_OPTIONS).toEqual([
-      { label: "Light", value: "light" },
-      { label: "Dark", value: "dark" },
-      { label: "System", value: "system" },
+  it("exposes the four appearance settings with their canonical options", () => {
+    expect(APPEARANCE_SETTINGS.map(({ key, label }) => [key, label])).toEqual([
+      ["theme", "Theme"],
+      ["fontSize", "Font size"],
+      ["density", "Density"],
+      ["radius", "Roundness"],
     ]);
-    expect(PALETTE_OPTIONS).toHaveLength(10);
-    return expect(PALETTE_OPTIONS.map(({ value }) => value)).toEqual([
-      "neutral",
-      "slate",
-      "blue",
-      "cyan",
-      "green",
-      "amber",
-      "orange",
-      "red",
-      "rose",
-      "violet",
-    ]);
+    return expect(
+      APPEARANCE_SETTINGS.map(({ options }) => options.length)
+    ).toEqual([11, 3, 3, 4]);
   });
 
   it("keeps the picker trigger discoverable when selections are disabled", () => {
@@ -95,7 +92,7 @@ describe("semantic theme components", () => {
           triggerLabel: "Theme settings unavailable",
         }),
         onPreferenceChange: vi.fn(),
-        preference: { themeMode: "system", palette: "neutral" },
+        preference: DEFAULT_APPEARANCE,
       })
     );
 
@@ -112,7 +109,7 @@ describe("semantic theme components", () => {
           createElement(ThemePicker, { idPrefix: "secondary-theme" })
         ),
         onPreferenceChange: vi.fn(),
-        preference: { themeMode: "system", palette: "neutral" },
+        preference: DEFAULT_APPEARANCE,
       })
     );
 
@@ -133,7 +130,7 @@ describe("semantic theme components", () => {
           statusMessage: "Saving theme settings.",
         }),
         onPreferenceChange: vi.fn(),
-        preference: { themeMode: "dark", palette: "rose" },
+        preference: { ...DEFAULT_APPEARANCE, theme: "nord" },
       })
     );
 

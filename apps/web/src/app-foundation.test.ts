@@ -15,7 +15,7 @@ type MockLinkProps = AnchorHTMLAttributes<HTMLAnchorElement> & {
   readonly prefetch?: boolean;
 };
 
-import { PALETTES } from "@darkfactory/state";
+import { THEMES } from "@darkfactory/state";
 
 const layoutMocks = vi.hoisted(() => ({
   dispatchInternalOrpcRequest: vi.fn(),
@@ -43,9 +43,16 @@ vi.mock("@darkfactory/ui/client/toaster", () => ({ Toaster: () => null }));
 vi.mock("./components/theme-menu.tsx", () => ({
   ThemeMenu: () =>
     createElement("button", {
-      "aria-label": "Theme settings",
+      "aria-label": "Appearance settings",
       type: "button",
     }),
+  useAppearanceSelection: () => ({
+    disabled: false,
+    error: null,
+    select: () => undefined,
+    statusMessage: null,
+    triggerLabel: "Appearance settings",
+  }),
 }));
 vi.mock("@darkfactory/ui/client/dialog", () => ({
   Dialog: ({ children }: { children: ReactNode }) =>
@@ -96,6 +103,7 @@ import {
   ALL_NAVIGATION,
   AUTH_NAVIGATION,
   EXPOSED_ROUTE_PATHS,
+  FEATURE_NAVIGATION,
   isNavigationItemActive,
   isRouteExposed,
   PORTAL_NAVIGATION,
@@ -152,7 +160,7 @@ const UiStateProbe = () =>
   createElement(
     "span",
     {},
-    useUiState((state) => `${state.themeMode}:${state.palette}`)
+    useUiState((state) => `${state.theme}:${state.radius}`)
   );
 
 const MissingUiStateProviderProbe = () => {
@@ -190,35 +198,42 @@ const findPortalElement = (
 
 const runThemeBootstrap = ({
   cookieStatus,
-  palette = "neutral",
+  dataset = {},
   serializedTheme,
-  themeMode = "system",
 }: {
   cookieStatus: "invalid" | "missing" | "valid";
-  palette?: string;
+  dataset?: Readonly<Record<string, string>>;
   serializedTheme?: string;
-  themeMode?: string;
 }) => {
   const documentElement = {
     dataset: {
-      mode: themeMode,
-      palette,
+      ...dataset,
       themeAuthority: "anonymous",
       themeCookieStatus: cookieStatus,
-    },
+    } as Record<string, string>,
   };
   const windowObject: Record<string, unknown> = {};
   runInNewContext(THEME_BOOTSTRAP_SCRIPT, {
     document: { documentElement },
     localStorage: { getItem: () => serializedTheme ?? null },
-    window: windowObject,
     Object,
+    window: windowObject,
   });
   return {
     dataset: documentElement.dataset,
     snapshot: windowObject["__DARKFACTORY_THEME__"],
   };
 };
+
+const ROSE_PINE = {
+  density: "compact",
+  fontSize: "large",
+  radius: "none",
+  theme: "rose-pine",
+} as const;
+const ROSE_PINE_COOKIE = "darkfactory-theme=rose-pine%3Alarge%3Acompact%3Anone";
+const LEGACY_THEME_COOKIE = "darkfactory-theme=dark%3Arose";
+
 describe("application navigation manifest", () => {
   it("contains every public, portal, account, and admin destination exactly once per group", () => {
     expect(PUBLIC_NAVIGATION.map((item) => item.href)).toEqual([
@@ -229,10 +244,9 @@ describe("application navigation manifest", () => {
       "/about",
       "/sign-in",
     ]);
-    expect(PORTAL_NAVIGATION.map((item) => item.href)).toEqual([
-      "/dashboard",
+    expect(PORTAL_NAVIGATION.map((item) => item.href)).toEqual(["/dashboard"]);
+    expect(FEATURE_NAVIGATION.map((item) => item.href)).toEqual([
       "/feature-items",
-      "/account",
     ]);
     expect(ACCOUNT_NAVIGATION.map((item) => item.href)).toEqual([
       "/account/profile",
@@ -258,6 +272,7 @@ describe("application navigation manifest", () => {
     for (const group of [
       PUBLIC_NAVIGATION,
       PORTAL_NAVIGATION,
+      FEATURE_NAVIGATION,
       ACCOUNT_NAVIGATION,
       ADMIN_NAVIGATION,
     ]) {
@@ -269,8 +284,13 @@ describe("application navigation manifest", () => {
     const exposedRoutes = ALL_NAVIGATION.filter((item) =>
       isRouteExposed(item.href)
     ).map((item) => item.href);
-    expect(exposedRoutes).toEqual([...EXPOSED_ROUTE_PATHS]);
-    expect(Object.keys(ROUTE_PAGE_FILES)).toEqual(exposedRoutes);
+    // "/account" stays routable as a redirect to the profile page but is no longer a menu destination.
+    expect([...exposedRoutes].sort()).toEqual(
+      EXPOSED_ROUTE_PATHS.filter((route) => route !== "/account").sort()
+    );
+    expect(Object.keys(ROUTE_PAGE_FILES).sort()).toEqual(
+      [...EXPOSED_ROUTE_PATHS].sort()
+    );
     for (const pageFile of Object.values(ROUTE_PAGE_FILES)) {
       await expect(
         access(new URL(`./app/${pageFile}`, import.meta.url))
@@ -280,7 +300,7 @@ describe("application navigation manifest", () => {
 
   return it("marks exact and nested destinations without falsely selecting sibling routes", () => {
     const dashboard = PORTAL_NAVIGATION[0];
-    const featureItems = PORTAL_NAVIGATION[1];
+    const featureItems = FEATURE_NAVIGATION[0];
     expect(dashboard).toBeDefined();
     expect(featureItems).toBeDefined();
     expect(isNavigationItemActive("/dashboard", dashboard!)).toBe(true);
@@ -308,38 +328,50 @@ describe("root metadata and theme contract", () => {
     expect(metadata.icons).toEqual({ icon: "/favicon.svg" });
     expect(viewport.colorScheme).toBe("light dark");
     expect(themeRootAttributes(DEFAULT_ANONYMOUS_THEME)).toEqual({
-      "data-mode": "system",
-      "data-palette": "neutral",
+      "data-density": "default",
+      "data-font-size": "default",
+      "data-radius": "small",
+      "data-theme": "system",
       "data-theme-authority": "anonymous",
       "data-theme-cookie-status": "missing",
     });
     expect(
-      (
-        await resolveRequestTheme({
-          cookieHeader: "darkfactory-theme=dark%3Arose",
-        })
-      ).preference
-    ).toEqual({ themeMode: "dark", palette: "rose" });
+      (await resolveRequestTheme({ cookieHeader: ROSE_PINE_COOKIE })).preference
+    ).toEqual(ROSE_PINE);
+    expect(
+      await resolveRequestTheme({ cookieHeader: LEGACY_THEME_COOKIE })
+    ).toEqual({
+      authority: "anonymous",
+      cookie: { status: "invalid" },
+      preference: DEFAULT_ANONYMOUS_THEME,
+    });
     expect(
       await resolveRequestTheme({
-        cookieHeader: "darkfactory-theme=dark%3Arose",
+        cookieHeader: ROSE_PINE_COOKIE,
         loadTrustedPreference: async () => ({
-          themeMode: "light",
-          palette: "blue",
+          density: "comfortable",
+          fontSize: "large",
+          radius: "medium",
+          theme: "catppuccin-latte",
           updatedAt: new Date("2026-01-01T00:00:00.000Z"),
         }),
       })
     ).toMatchObject({
       authority: "trusted",
-      preference: { themeMode: "light", palette: "blue" },
+      preference: {
+        density: "comfortable",
+        fontSize: "large",
+        radius: "medium",
+        theme: "catppuccin-latte",
+      },
     });
     expect(
       (
         await resolveRequestTheme({
-          cookieHeader: "darkfactory-theme=dark%3Arose",
+          cookieHeader: ROSE_PINE_COOKIE,
           loadTrustedPreference: async () => ({
-            themeMode: "night",
-            palette: "blue",
+            palette: "rose",
+            themeMode: "dark",
           }),
         })
       ).preference
@@ -349,38 +381,46 @@ describe("root metadata and theme contract", () => {
         await resolveRequestTheme({
           cookieHeader: null,
           loadTrustedPreference: async () => ({
-            themeMode: "light",
-            palette: "blue",
-            updatedAt: null,
+            density: "comfortable",
+            fontSize: "large",
+            radius: "medium",
+            theme: "catppuccin-latte",
             unexpected: true,
+            updatedAt: null,
           }),
         })
       ).preference
     ).toEqual(DEFAULT_ANONYMOUS_THEME);
     for (const malformedTrustedPreference of [
+      null,
+      "rose-pine:large:compact:none",
+      [ROSE_PINE],
       {
-        themeMode: {
+        ...ROSE_PINE,
+        theme: {
           toString() {
             throw new Error("must not coerce");
           },
         },
-        palette: "blue",
         updatedAt: null,
       },
+      { ...ROSE_PINE, theme: Symbol("dark"), updatedAt: null },
+      { ...ROSE_PINE, fontSize: { valueOf: null }, updatedAt: null },
+      { ...ROSE_PINE, density: "dense", updatedAt: null },
+      { ...ROSE_PINE, radius: "round", updatedAt: null },
       {
-        themeMode: Symbol("dark"),
-        palette: "blue",
-        updatedAt: null,
-      },
-      {
+        density: "compact",
+        fontSize: "large",
+        radius: "none",
         themeMode: "dark",
-        palette: { valueOf: null },
         updatedAt: null,
       },
+      { ...ROSE_PINE, updatedAt: "2026-01-01T00:00:00.000Z" },
+      { ...ROSE_PINE, updatedAt: new Date(Number.NaN) },
     ]) {
       await expect(
         resolveRequestTheme({
-          cookieHeader: "darkfactory-theme=dark%3Arose",
+          cookieHeader: ROSE_PINE_COOKIE,
           loadTrustedPreference: async () => malformedTrustedPreference,
         })
       ).resolves.toMatchObject({
@@ -390,7 +430,7 @@ describe("root metadata and theme contract", () => {
     }
     expect(
       await resolveRequestTheme({
-        cookieHeader: "darkfactory-theme=dark%3Arose",
+        cookieHeader: ROSE_PINE_COOKIE,
         loadTrustedPreference: async () => INDETERMINATE_THEME,
       })
     ).toMatchObject({
@@ -409,72 +449,72 @@ describe("root metadata and theme contract", () => {
       null,
       "",
       "not-json",
-      '{"version":1,"themeMode":"dark"}',
-      '{"version":1,"themeMode":"night","palette":"neutral"}',
-      '{"version":1,"themeMode":"dark","palette":"magenta"}',
-      '{"version":1,"themeMode":"dark","palette":"rose","mobileNavigationOpen":true}',
-      '{"version":1,"state":{"sidebar":"expanded","mobileNavigationOpen":true,"themeMode":"dark","palette":"rose","consent":"unknown"}}',
+      '{"version":1,"themeMode":"dark","palette":"rose"}',
+      '{"version":1,"theme":"rose-pine","fontSize":"large","density":"compact","radius":"none"}',
+      '{"version":2,"theme":"rose-pine","fontSize":"large","density":"compact"}',
+      '{"version":2,"theme":"night","fontSize":"large","density":"compact","radius":"none"}',
+      '{"version":2,"theme":"rose-pine","fontSize":"huge","density":"compact","radius":"none"}',
+      '{"version":2,"theme":"rose-pine","fontSize":"large","density":"compact","sidebar":"expanded"}',
+      '{"version":2,"theme":"rose-pine","fontSize":"large","density":"compact","radius":"none","mobileNavigationOpen":true}',
+      '{"version":2,"state":{"sidebar":"expanded","mobileNavigationOpen":true,"theme":"rose-pine","fontSize":"large","density":"compact","radius":"none","consent":"unknown"}}',
     ]) {
       expect(parseAnonymousThemePreference(malformed)).toEqual(
         DEFAULT_ANONYMOUS_THEME
       );
     }
-    const serialized = serializeAnonymousThemePreference({
-      themeMode: "dark",
-      palette: "rose",
-    });
-    expect(serialized).toBe(
-      '{"version":1,"themeMode":"dark","palette":"rose"}'
-    );
+    const serialized = serializeAnonymousThemePreference(ROSE_PINE);
+    expect(JSON.parse(serialized)).toEqual({ version: 2, ...ROSE_PINE });
     expect(serialized).not.toContain("mobileNavigationOpen");
     expect(serialized).not.toContain("sidebar");
     return expect(parseAnonymousThemePreference(serialized)).toEqual({
-      themeMode: "dark",
-      palette: "rose",
+      density: "compact",
+      fontSize: "large",
+      radius: "none",
+      theme: "rose-pine",
     });
   });
 
   it("accepts one bounded canonical preference cookie and rejects malformed, oversized, or duplicate values", () => {
-    expect(
-      parseThemeCookieHeader("other=1; darkfactory-theme=dark%3Arose")
-    ).toEqual({
+    expect(parseThemeCookieHeader(`other=1; ${ROSE_PINE_COOKIE}`)).toEqual({
+      preference: ROSE_PINE,
       status: "valid",
-      preference: { themeMode: "dark", palette: "rose" },
     });
     expect(
-      parseThemeCookieHeader(
-        `other=${"x".repeat(5000)}; darkfactory-theme=dark%3Arose`
-      )
+      parseThemeCookieHeader(`other=${"x".repeat(5000)}; ${ROSE_PINE_COOKIE}`)
     ).toEqual({
+      preference: ROSE_PINE,
       status: "valid",
-      preference: { themeMode: "dark", palette: "rose" },
     });
     expect(parseThemeCookieHeader("other=1")).toEqual({ status: "missing" });
     for (const malformed of [
+      LEGACY_THEME_COOKIE,
       "darkfactory-theme=dark",
-      "darkfactory-theme=night%3Arose",
-      "darkfactory-theme=dark%3Amagenta",
+      "darkfactory-theme=night%3Alarge%3Acompact%3Anone",
+      "darkfactory-theme=rose-pine%3Ahuge%3Acompact%3Anone",
+      "darkfactory-theme=rose-pine%3Alarge%3Adense%3Anone",
+      "darkfactory-theme=rose-pine%3Alarge%3Acompact%3Around",
+      "darkfactory-theme=rose-pine%3Alarge%3Acompact%3Anone%3Aextra",
       "darkfactory-theme=%E0%A4%A",
-      "darkfactory-theme=dark%3Arose; darkfactory-theme=light%3Ablue",
+      `${ROSE_PINE_COOKIE}; darkfactory-theme=system%3Adefault%3Adefault%3Asmall`,
       `darkfactory-theme=${"x".repeat(MAX_THEME_COOKIE_VALUE_LENGTH + 1)}`,
       "x".repeat(MAX_COOKIE_HEADER_LENGTH + 1),
     ]) {
       expect(parseThemeCookieHeader(malformed)).toEqual({ status: "invalid" });
     }
-    expect(
-      serializeThemeCookie({ themeMode: "dark", palette: "rose" })
-    ).toContain("; Secure");
-    return expect(
-      createAnonymousUiStateSnapshot({ themeMode: "dark", palette: "rose" })
-    ).toEqual({
-      version: 1,
+    expect(serializeThemeCookie(ROSE_PINE)).toBe(
+      `${ROSE_PINE_COOKIE}; Path=/; Max-Age=31536000; SameSite=Lax; Secure`
+    );
+    return expect(createAnonymousUiStateSnapshot(ROSE_PINE)).toEqual({
       state: {
-        sidebar: "expanded",
-        mobileNavigationOpen: false,
-        themeMode: "dark",
-        palette: "rose",
         consent: "unknown",
+        density: "compact",
+        fontSize: "large",
+        mobileNavigationOpen: false,
+        radius: "none",
+        sidebar: "expanded",
+        theme: "rose-pine",
       },
+      version: 2,
     });
   });
 
@@ -487,15 +527,31 @@ describe("root metadata and theme contract", () => {
     expect(await response.text()).toBe(THEME_BOOTSTRAP_SCRIPT);
     expect(THEME_BOOTSTRAP_SCRIPT).not.toContain("document.cookie");
     expect(THEME_BOOTSTRAP_SCRIPT).toContain("themeCookieStatus");
-    const storedTheme = '{"version":1,"themeMode":"dark","palette":"blue"}';
+    const storedTheme = JSON.stringify({
+      density: "compact",
+      fontSize: "small",
+      radius: "medium",
+      theme: "nord",
+      version: 2,
+    });
+    const nord = {
+      density: "compact",
+      fontSize: "small",
+      radius: "medium",
+      theme: "nord",
+    };
     expect(
       runThemeBootstrap({
         cookieStatus: "missing",
         serializedTheme: storedTheme,
       })
-    ).toMatchObject({
-      dataset: { mode: "dark", palette: "blue" },
-      snapshot: { themeMode: "dark", palette: "blue", source: "localStorage" },
+    ).toEqual({
+      dataset: {
+        ...nord,
+        themeAuthority: "anonymous",
+        themeCookieStatus: "missing",
+      },
+      snapshot: { ...nord, source: "localStorage" },
     });
     expect(
       runThemeBootstrap({
@@ -503,48 +559,89 @@ describe("root metadata and theme contract", () => {
         serializedTheme: storedTheme,
       })
     ).toMatchObject({
-      dataset: { mode: "system", palette: "neutral" },
-      snapshot: { themeMode: "system", palette: "neutral", source: "server" },
+      dataset: DEFAULT_ANONYMOUS_THEME,
+      snapshot: { ...DEFAULT_ANONYMOUS_THEME, source: "server" },
     });
     expect(
       runThemeBootstrap({
         cookieStatus: "valid",
-        palette: "rose",
+        dataset: ROSE_PINE,
         serializedTheme: storedTheme,
-        themeMode: "dark",
       })
     ).toMatchObject({
-      dataset: { mode: "dark", palette: "rose" },
-      snapshot: { themeMode: "dark", palette: "rose", source: "cookie" },
+      dataset: ROSE_PINE,
+      snapshot: { ...ROSE_PINE, source: "cookie" },
     });
+    expect(
+      runThemeBootstrap({
+        cookieStatus: "missing",
+        dataset: { ...ROSE_PINE, fontSize: "huge", radius: "round" },
+      })
+    ).toMatchObject({
+      dataset: { ...ROSE_PINE, fontSize: "default", radius: "small" },
+      snapshot: {
+        ...ROSE_PINE,
+        fontSize: "default",
+        radius: "small",
+        source: "server",
+      },
+    });
+    for (const legacyOrInvalidSnapshot of [
+      '{"version":1,"themeMode":"dark","palette":"blue"}',
+      JSON.stringify({ ...nord, version: 1 }),
+      JSON.stringify({ ...nord, theme: "night", version: 2 }),
+      JSON.stringify({ ...nord, extra: true, version: 2 }),
+      JSON.stringify({ fontSize: "small", theme: "nord", version: 2 }),
+      JSON.stringify({ ...nord, radius: "x".repeat(128), version: 2 }),
+      "null",
+      "not-json",
+      "",
+    ]) {
+      expect(
+        runThemeBootstrap({
+          cookieStatus: "missing",
+          dataset: ROSE_PINE,
+          serializedTheme: legacyOrInvalidSnapshot,
+        })
+      ).toMatchObject({
+        dataset: ROSE_PINE,
+        snapshot: { ...ROSE_PINE, source: "server" },
+      });
+    }
 
     const html = markup(
       createElement(RootDocument, {
         children: createElement("main", { id: "main-content" }),
-        initialTheme: { themeMode: "dark", palette: "rose" },
+        initialTheme: ROSE_PINE,
       })
     );
-    expect(html).toContain('data-mode="dark"');
-    expect(html).toContain('data-palette="rose"');
+    expect(html).toContain('data-theme="rose-pine"');
+    expect(html).toContain('data-font-size="large"');
+    expect(html).toContain('data-density="compact"');
+    expect(html).toContain('data-radius="none"');
     expect(html).toContain(`src="${THEME_BOOTSTRAP_PATH}"`);
     expect(html).not.toContain("document.documentElement");
     expect(html).not.toContain("style=");
     return expect(html).not.toContain("unsafe-inline");
   });
 
-  it("applies every canonical palette while keeping mode and color-scheme independent", () => {
-    for (const palette of PALETTES) {
-      expect(themeDomAttributes({ themeMode: "dark", palette })).toEqual({
-        "data-mode": "dark",
-        "data-palette": palette,
-        colorScheme: "dark",
+  it("applies every canonical theme through independent root data attributes", () => {
+    for (const theme of THEMES) {
+      expect(themeDomAttributes({ ...ROSE_PINE, theme })).toEqual({
+        "data-density": "compact",
+        "data-font-size": "large",
+        "data-radius": "none",
+        "data-theme": theme,
       });
     }
 
     return expect(
-      themeDomAttributes({ themeMode: "system", palette: "neutral" })
-        .colorScheme
-    ).toBe("light dark");
+      themeRootAttributes(ROSE_PINE, "trusted", "valid")
+    ).toMatchObject({
+      "data-theme": "rose-pine",
+      "data-theme-authority": "trusted",
+      "data-theme-cookie-status": "valid",
+    });
   });
 
   return it("keeps private, portal, authentication, admin, and API routes out of robots", () =>
@@ -623,19 +720,24 @@ describe("shared shell semantics", () => {
   it("disables prefetch for every desktop and mobile authenticated navigation group", () => {
     const availableRoutes = [
       PORTAL_NAVIGATION[0]!.href,
+      FEATURE_NAVIGATION[0]!.href,
       ACCOUNT_NAVIGATION[0]!.href,
       ADMIN_NAVIGATION[0]!.href,
     ];
     const portalTrees = [
-      PortalSidebar({ availableRoutes, isAdmin: true }),
-      PortalTopbar({ availableRoutes, isAdmin: true }),
+      PortalSidebar({ availableRoutes }),
+      PortalTopbar({
+        availableRoutes,
+        isAdmin: true,
+        userName: "Ada Lovelace",
+      }),
     ];
     const navigationGroups = portalTrees.flatMap((tree, index) => {
       const navigation = findPortalElement(
         tree,
         (element) =>
           typeof element.type === "function" &&
-          element.props.isAdmin === true &&
+          element.props.availableRoutes === availableRoutes &&
           element.props.mobile === (index === 1 ? true : undefined)
       );
       expect(navigation).toBeDefined();
@@ -651,7 +753,11 @@ describe("shared shell semantics", () => {
       );
     });
 
-    expect(navigationGroups).toHaveLength(6);
+    expect(navigationGroups).toHaveLength(2);
+    expect(navigationGroups.map((group) => group.props.items)).toEqual([
+      [PORTAL_NAVIGATION[0]],
+      [PORTAL_NAVIGATION[0]],
+    ]);
     return expect(
       navigationGroups.every((group) => group.props.prefetch === false)
     ).toBe(true);
@@ -721,11 +827,15 @@ describe("shared shell semantics", () => {
       withUiState(
         createElement(PortalShell, {
           children: createElement("h1", {}, "Portal page"),
+          userName: "Ada Lovelace",
         })
       )
     );
     const portalNavigationTrigger = portal.match(
       /<button[^>]*aria-label="Open portal navigation"[^>]*>/
+    )?.[0];
+    const userMenuTrigger = portal.match(
+      /<button[^>]*id="user-menu-trigger"[^>]*>/
     )?.[0];
     const auth = markup(
       withUiState(
@@ -744,29 +854,36 @@ describe("shared shell semantics", () => {
       /aria-label="Open portal navigation"[^>]*\sdisabled(?:=|>|\s)/
     );
     expect(portalNavigationTrigger).not.toContain("data-hydration-state");
-    expect(portal).toContain('href="/dashboard"');
-    expect(portal).toContain('href="/account/security"');
-    expect(portal).toContain("<span>Sign out</span>");
+    expect(portal).toContain('aria-label="Portal navigation"');
+    expect(portal).toContain('aria-label="Mobile portal navigation"');
+    expect(portal.match(/href="\/dashboard"/g)).toHaveLength(2);
+    expect(portal).toContain("Overview");
+    expect(userMenuTrigger).toContain('data-hydration-state="pending"');
+    expect(portal).toContain(">AL</span>");
+    expect(portal).toContain(">Ada Lovelace</span>");
+    // Feature, account, admin and sign-out entries live in the closed user menu.
+    expect(portal).not.toContain('href="/feature-items"');
+    expect(portal).not.toContain('href="/account/security"');
+    expect(portal).not.toContain("<span>Sign out</span>");
     expect(portal).not.toContain("authenticated");
     expect(auth.match(/id="main-content"/g)).toHaveLength(1);
     expect(portal).not.toContain('href="/admin/users"');
     const adminPortal = markup(
       withUiState(
         createElement(PortalShell, {
-          children: createElement("h1", {}, "Admin portal"),
           availableRoutes: ["/admin/users"],
+          children: createElement("h1", {}, "Admin portal"),
           isAdmin: true,
+          userName: "Grace Hopper",
         })
       )
     );
-    expect(adminPortal).toContain('href="/admin/users"');
+    expect(adminPortal).toContain(">GH</span>");
+    expect(adminPortal).not.toContain('aria-label="Portal navigation"');
+    expect(adminPortal).not.toContain('href="/admin/users"');
     expect(adminPortal).not.toContain('href="/dashboard"');
     expect(adminPortal).not.toContain('href="/account"');
     expect(adminPortal).not.toContain('href="/feature-items"');
-    expect(adminPortal).not.toContain('href="/account/profile"');
-    expect(adminPortal).not.toContain('href="/account/address"');
-    expect(adminPortal).not.toContain('href="/account/preferences"');
-    expect(adminPortal).not.toContain('href="/account/security"');
     return expect(auth).toContain("<main");
   });
 
@@ -776,20 +893,21 @@ describe("shared shell semantics", () => {
         createElement(PortalShell, {
           availableRoutes: [],
           children: createElement("h1", {}, "Unavailable portal"),
+          userName: "Ada Lovelace",
         })
       )
     );
 
-    expect(portal).toContain(
-      "Portal destinations appear as their page implementations become available."
-    );
     expect(portal).toContain("Unavailable portal");
+    expect(portal).toContain('id="user-menu-trigger"');
+    expect(portal).not.toContain('aria-label="Portal navigation"');
+    expect(portal).not.toContain('aria-label="Mobile portal navigation"');
     return expect(portal).not.toContain('href="/dashboard"');
   });
 
   return it("closes mobile navigation only when the popover exposes a hide method", () => {
     const mobileNavigation = findPortalElement(
-      PortalTopbar({ availableRoutes: ["/dashboard"] }),
+      PortalTopbar({ availableRoutes: ["/dashboard"], userName: "Ada" }),
       (element) => element.props.mobile === true
     );
     expect(mobileNavigation).toBeDefined();
@@ -844,13 +962,15 @@ describe("root layout request composition", () => {
     vi.stubEnv("APP_URL", "https://darkfactory.example");
     layoutMocks.headers.mockResolvedValueOnce(
       new Headers({
-        cookie: "darkfactory-theme=dark%3Arose",
+        cookie: ROSE_PINE_COOKIE,
         "x-request-id": "request-layout",
       })
     );
     layoutMocks.loadApiThemePreference.mockResolvedValueOnce({
-      themeMode: "light",
-      palette: "blue",
+      density: "comfortable",
+      fontSize: "large",
+      radius: "medium",
+      theme: "catppuccin-latte",
       updatedAt: null,
     });
 
@@ -858,7 +978,7 @@ describe("root layout request composition", () => {
 
     expect(layoutMocks.loadApiThemePreference).toHaveBeenCalledWith({
       appUrl: new URL("https://darkfactory.example"),
-      cookieHeader: "darkfactory-theme=dark%3Arose",
+      cookieHeader: ROSE_PINE_COOKIE,
       fetch: layoutMocks.dispatchInternalOrpcRequest,
       requestId: "request-layout",
     });
@@ -866,7 +986,12 @@ describe("root layout request composition", () => {
     return expect(result.props).toMatchObject({
       children: "protected content",
       cookieStatus: "valid",
-      initialTheme: { themeMode: "light", palette: "blue" },
+      initialTheme: {
+        density: "comfortable",
+        fontSize: "large",
+        radius: "medium",
+        theme: "catppuccin-latte",
+      },
       themeAuthority: "trusted",
     });
   });
@@ -895,20 +1020,16 @@ describe("theme and UI runtime boundaries", () => {
       1,
       "x".repeat(129),
       "[]",
-      '{"version":2,"themeMode":"dark","palette":"rose"}',
-      '{"version":1,"themeMode":"dark","palette":"rose","extra":true}',
+      '{"version":1,"themeMode":"dark","palette":"rose"}',
+      JSON.stringify({ version: 1, ...ROSE_PINE }),
+      JSON.stringify({ version: 2, ...ROSE_PINE, extra: true }),
+      JSON.stringify({ version: 2, ...ROSE_PINE, radius: "round" }),
     ]) {
       expect(parseAnonymousThemeSnapshot(malformed)).toBeNull();
     }
     return expect(
-      parseAnonymousThemeSnapshot(
-        '{"version":1,"themeMode":"dark","palette":"rose"}'
-      )
-    ).toEqual({
-      version: 1,
-      themeMode: "dark",
-      palette: "rose",
-    });
+      parseAnonymousThemeSnapshot(JSON.stringify({ version: 2, ...ROSE_PINE }))
+    ).toEqual({ version: 2, ...ROSE_PINE });
   });
 
   it("requires provider context and projects selected state through the store hook", () => {
@@ -916,7 +1037,7 @@ describe("theme and UI runtime boundaries", () => {
       "UiStateProvider is required."
     );
     return expect(markup(withUiState(createElement(UiStateProbe)))).toContain(
-      "system:neutral"
+      "system:small"
     );
   });
 
@@ -929,16 +1050,17 @@ describe("theme and UI runtime boundaries", () => {
       "darkfactory-theme",
       "darkfactory-theme=",
       "darkfactory-theme=dark%3Arose%3Aextra",
+      "darkfactory-theme=rose-pine%3Alarge%3Acompact",
     ]) {
       expect(parseThemeCookieHeader(malformed)).toEqual({ status: "invalid" });
     }
     return expect(
       parseThemeCookieHeader(
-        "other=value; darkfactory-theme=dark%3Arose; preference=ignored"
+        `other=value; ${ROSE_PINE_COOKIE}; preference=ignored`
       )
     ).toEqual({
+      preference: ROSE_PINE,
       status: "valid",
-      preference: { themeMode: "dark", palette: "rose" },
     });
   });
 
@@ -947,13 +1069,17 @@ describe("theme and UI runtime boundaries", () => {
       null,
       [],
       {
-        themeMode: "dark",
-        palette: "rose",
+        density: "compact",
+        fontSize: "large",
+        radius: "none",
+        theme: "rose-pine",
         updatedAt: new Date(Number.NaN),
       },
       {
-        themeMode: "dark",
-        palette: "rose",
+        density: "compact",
+        fontSize: "large",
+        radius: "none",
+        theme: "rose-pine",
         updatedAt: "2026-07-25T00:00:00.000Z",
       },
     ]) {

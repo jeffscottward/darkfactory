@@ -1,23 +1,12 @@
-import { PageHeader, SectionHeader } from "@darkfactory/ui";
+import { PageHeader } from "@darkfactory/ui";
 
 import { AddressPageClient } from "../../../../components/account/address-page-client.tsx";
 
 export default function AddressPage() {
   return (
-    <div className="space-y-10">
-      <PageHeader
-        description="Maintain account addresses and choose one primary address."
-        eyebrow="Account"
-        title="Addresses"
-      />
-      <section aria-labelledby="saved-addresses" className="space-y-6">
-        <SectionHeader
-          description="Choose one primary address. Every removal asks for confirmation."
-          id="saved-addresses"
-          title="Saved addresses"
-        />
-        <AddressPageClient />
-      </section>
+    <div className="space-y-4">
+      <PageHeader title="Addresses" />
+      <AddressPageClient />
     </div>
   );
 }

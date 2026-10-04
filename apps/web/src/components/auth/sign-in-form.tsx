@@ -172,13 +172,13 @@ export const SignInForm = ({
 
       <div className="flex flex-wrap items-center justify-between gap-3 text-sm">
         <Link
-          className="inline-flex min-h-11 items-center font-semibold text-foreground underline underline-offset-4 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          className="inline-flex min-h-11 min-w-11 items-center justify-center font-semibold text-foreground underline underline-offset-4 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           href="/forgot-password"
         >
           Forgot your password?
         </Link>
         <Link
-          className="inline-flex min-h-11 items-center text-muted-foreground underline underline-offset-4 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          className="inline-flex min-h-11 min-w-11 items-center justify-center text-muted-foreground underline underline-offset-4 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           href="/sign-up"
         >
           Create an account

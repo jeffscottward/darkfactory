@@ -304,8 +304,10 @@ describe("DF-045/051/061-064 real PostgreSQL API integration", {
     );
     const memberTheme = await apiClient(memberCookie).preferences.theme.get({});
     expect(memberTheme).toMatchObject({
-      themeMode: "system",
-      palette: "neutral",
+      theme: "system",
+      fontSize: "default",
+      density: "default",
+      radius: "small",
       updatedAt: expect.any(Date),
     });
 
@@ -325,19 +327,25 @@ describe("DF-045/051/061-064 real PostgreSQL API integration", {
         semanticEvents,
         requestId: "theme-request-1",
       }).preferences.theme.update({
-        themeMode: "dark",
-        palette: "violet",
+        theme: "nord",
+        fontSize: "large",
+        density: "comfortable",
+        radius: "medium",
         expectedUpdatedAt: memberTheme.updatedAt,
       })
     ).resolves.toMatchObject({
-      themeMode: "dark",
-      palette: "violet",
+      theme: "nord",
+      fontSize: "large",
+      density: "comfortable",
+      radius: "medium",
       updatedAt: expect.any(Date),
     });
     await expectedError(
       apiClient(memberCookie).preferences.theme.update({
-        themeMode: "light",
-        palette: "amber",
+        theme: "everforest",
+        fontSize: "default",
+        density: "comfortable",
+        radius: "none",
         expectedUpdatedAt: memberTheme.updatedAt,
       }),
       "CONFLICT",
@@ -347,47 +355,59 @@ describe("DF-045/051/061-064 real PostgreSQL API integration", {
     await expect(
       apiClient(memberCookie).preferences.theme.get({})
     ).resolves.toMatchObject({
-      themeMode: "dark",
-      palette: "violet",
+      theme: "nord",
+      fontSize: "large",
+      density: "comfortable",
+      radius: "medium",
       updatedAt: expect.any(Date),
     });
     const otherTheme = await apiClient(otherCookie).preferences.theme.get({});
     await expect(
       apiClient(otherCookie).preferences.theme.update({
-        themeMode: "light",
-        palette: "amber",
+        theme: "everforest",
+        fontSize: "default",
+        density: "comfortable",
+        radius: "none",
         expectedUpdatedAt: otherTheme.updatedAt,
       })
     ).resolves.toMatchObject({
-      themeMode: "light",
-      palette: "amber",
+      theme: "everforest",
+      fontSize: "default",
+      density: "comfortable",
+      radius: "none",
       updatedAt: expect.any(Date),
     });
     await expect(
       apiClient(memberCookie).preferences.theme.get({})
     ).resolves.toMatchObject({
-      themeMode: "dark",
-      palette: "violet",
+      theme: "nord",
+      fontSize: "large",
+      density: "comfortable",
+      radius: "medium",
       updatedAt: expect.any(Date),
     });
 
     const stored = await testDatabase.query<{
       email: string;
-      mode: string;
-      color_scheme: string;
+      theme: string;
+      font_size: string;
+      density: string;
+      radius: string;
       email_notifications: boolean;
       product_updates: boolean;
       analytics_consent: boolean;
       personalization_consent: boolean;
       profile_visibility: string;
     }>(
-      'SELECT u.email, p.mode, p.color_scheme, p.email_notifications, p.product_updates, p.analytics_consent, p.personalization_consent, p.profile_visibility FROM user_preferences p JOIN "user" u ON u.id = p.user_id ORDER BY u.email'
+      'SELECT u.email, p.theme, p.font_size, p.density, p.radius, p.email_notifications, p.product_updates, p.analytics_consent, p.personalization_consent, p.profile_visibility FROM user_preferences p JOIN "user" u ON u.id = p.user_id ORDER BY u.email'
     );
     expect(stored).toEqual([
       {
         email: "theme-member@domain.test",
-        mode: "dark",
-        color_scheme: "violet",
+        theme: "nord",
+        font_size: "large",
+        density: "comfortable",
+        radius: "medium",
         email_notifications: true,
         product_updates: true,
         analytics_consent: false,
@@ -396,8 +416,10 @@ describe("DF-045/051/061-064 real PostgreSQL API integration", {
       },
       {
         email: "theme-other@domain.test",
-        mode: "light",
-        color_scheme: "amber",
+        theme: "everforest",
+        font_size: "default",
+        density: "comfortable",
+        radius: "none",
         email_notifications: true,
         product_updates: true,
         analytics_consent: false,
@@ -421,8 +443,8 @@ describe("DF-045/051/061-064 real PostgreSQL API integration", {
     });
     expect(events[0]?.correlation.actorId).toBeDefined();
     expect(events[0]?.eventId).not.toBe("theme-request-1");
-    expect(JSON.stringify(events[0])).not.toContain("violet");
-    return expect(JSON.stringify(events[0])).not.toContain("dark");
+    expect(JSON.stringify(events[0])).not.toContain("nord");
+    return expect(JSON.stringify(events[0])).not.toContain("comfortable");
   });
 
   it("persists owner-scoped profile, addresses, and complete preferences with PII-free events", async () => {
@@ -514,8 +536,10 @@ describe("DF-045/051/061-064 real PostgreSQL API integration", {
     });
     const initialTheme = await member.preferences.theme.get({});
     await member.preferences.theme.update({
-      themeMode: "dark",
-      palette: "violet",
+      theme: "nord",
+      fontSize: "large",
+      density: "comfortable",
+      radius: "medium",
       expectedUpdatedAt: initialTheme.updatedAt,
     });
     const initialPreferences = await member.preferences.get({});
@@ -529,8 +553,10 @@ describe("DF-045/051/061-064 real PostgreSQL API integration", {
         profileVisibility: "members",
       })
     ).resolves.toMatchObject({
-      themeMode: "dark",
-      palette: "violet",
+      theme: "nord",
+      fontSize: "large",
+      density: "comfortable",
+      radius: "medium",
       emailNotifications: false,
       productUpdates: false,
       analyticsConsent: true,

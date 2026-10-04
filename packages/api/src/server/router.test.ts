@@ -100,8 +100,10 @@ const preferences = (
   overrides: Partial<UserPreferences> = {}
 ): UserPreferences => ({
   userId: "member-1",
-  mode: "system",
-  colorScheme: "neutral",
+  theme: "system",
+  fontSize: "default",
+  density: "default",
+  radius: "small",
   emailNotifications: false,
   productUpdates: true,
   analyticsConsent: false,
@@ -143,13 +145,17 @@ const repositories = (): Repositories => ({
   userPreferences: {
     findByUserId: vi.fn(async () => preferences()),
     findThemeByUserId: vi.fn(async () => ({
-      mode: "system" as const,
-      colorScheme: "neutral" as const,
+      theme: "system" as const,
+      fontSize: "default" as const,
+      density: "default" as const,
+      radius: "small" as const,
       updatedAt: NOW,
     })),
     upsertTheme: vi.fn(async (input) => ({
-      mode: input.mode,
-      colorScheme: input.colorScheme,
+      theme: input.theme,
+      fontSize: input.fontSize,
+      density: input.density,
+      radius: input.radius,
       updatedAt: NOW,
     })),
     upsert: vi.fn(async (input) => preferences(input)),
@@ -669,8 +675,10 @@ describe("feature and theme service error responses", () => {
 
       return await expectDefinedError(
         client.preferences.theme.update({
-          themeMode: "dark",
-          palette: "violet",
+          theme: "nord",
+          fontSize: "large",
+          density: "comfortable",
+          radius: "medium",
           expectedUpdatedAt: NOW,
         }),
         code,
@@ -687,8 +695,10 @@ describe("feature and theme service error responses", () => {
 
     return await expect(
       client.preferences.theme.update({
-        themeMode: "dark",
-        palette: "violet",
+        theme: "nord",
+        fontSize: "large",
+        density: "comfortable",
+        radius: "medium",
         expectedUpdatedAt: NOW,
       })
     ).rejects.toBe(failure);
@@ -1188,8 +1198,10 @@ describe("router event failure and lifetime boundaries", () => {
           waitUntil: themeWaitUntil,
         })
       ).preferences.theme.update({
-        themeMode: "dark",
-        palette: "violet",
+        theme: "nord",
+        fontSize: "large",
+        density: "comfortable",
+        radius: "medium",
         expectedUpdatedAt: NOW,
       })
     ).rejects.toBe(themeFailure);
@@ -1236,13 +1248,17 @@ describe("router event failure and lifetime boundaries", () => {
           semanticEvents: themeEvents,
         })
       ).preferences.theme.update({
-        themeMode: "dark",
-        palette: "violet",
+        theme: "nord",
+        fontSize: "large",
+        density: "comfortable",
+        radius: "medium",
         expectedUpdatedAt: NOW,
       })
     ).resolves.toMatchObject({
-      themeMode: "dark",
-      palette: "violet",
+      theme: "nord",
+      fontSize: "large",
+      density: "comfortable",
+      radius: "medium",
     });
     expect(themeRepos.userPreferences.upsertTheme).toHaveBeenCalledOnce();
     return expect(themeEmit).toHaveBeenCalledOnce();

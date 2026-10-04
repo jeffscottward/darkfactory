@@ -81,9 +81,9 @@ describe("semantic server-safe primitives", () => {
   it("preserves form relationships and invalid state", () => {
     const input = markup(
       createElement(Input, {
+        "aria-describedby": "email-error",
         id: "email",
         invalid: true,
-        "aria-describedby": "email-error",
       })
     );
     const textarea = markup(
@@ -99,15 +99,15 @@ describe("semantic server-safe primitives", () => {
   it("renders regions and configurable headings with explicit accessible names", () => {
     const empty = markup(
       createElement(EmptyState, {
-        title: "No feature items",
         description: "Create an item to exercise the vertical slice.",
         headingLevel: 3,
+        title: "No feature items",
       })
     );
     const portalHeader = markup(
       createElement(PageHeader, {
+        actions: createElement("a", { href: "/new" }, "New"),
         title: "Feature items",
-        description: "Inspect a complete request path.",
       })
     );
     const publicHeader = markup(
@@ -117,7 +117,7 @@ describe("semantic server-safe primitives", () => {
       })
     );
     const sectionHeader = markup(
-      createElement(SectionHeader, { title: "Recent items", headingLevel: 3 })
+      createElement(SectionHeader, { headingLevel: 3, title: "Recent items" })
     );
     const cardTitle = markup(
       createElement(CardTitle, { headingLevel: 2 }, "Account settings")
@@ -128,7 +128,9 @@ describe("semantic server-safe primitives", () => {
     expect(empty).toContain("<h3");
     expect(portalHeader).toContain("<header");
     expect(portalHeader).toContain("<h1");
-    expect(portalHeader).toContain("text-2xl");
+    expect(portalHeader).toContain("text-xl");
+    expect(portalHeader).toContain('data-variant="portal"');
+    expect(portalHeader).not.toContain("<p");
     expect(publicHeader).toContain("text-4xl");
     expect(sectionHeader).toContain("<h3");
     return expect(cardTitle).toContain("<h2");
@@ -235,7 +237,6 @@ describe("semantic server-safe primitives", () => {
         }),
         createElement(SectionHeader, {
           actions: createElement("button", { type: "button" }, "Refresh"),
-          description: "Section description",
           title: "Recent activity",
         })
       )
@@ -247,7 +248,6 @@ describe("semantic server-safe primitives", () => {
       "Public description",
       "Start",
       "Recent activity",
-      "Section description",
       "Refresh",
     ]) {
       expect(rendered).toContain(text);
@@ -299,18 +299,22 @@ describe("client primitive wrappers", () => {
     });
     const subContent = DropdownMenuSubContent({ children: "Submenu content" });
 
-    expect(String(elementProps(item)["className"])).not.toContain("pl-9");
-    expect(String(elementProps(insetItem)["className"])).toContain("pl-9");
+    expect(String(elementProps(item)["className"])).not.toContain("pl-8");
+    expect(String(elementProps(insetItem)["className"])).toContain("pl-8");
     expect(elementProps(checkbox)["children"]).toBeDefined();
     expect(elementProps(radio)["children"]).toBeDefined();
-    expect(String(elementProps(label)["className"])).not.toContain("pl-9");
-    expect(String(elementProps(insetLabel)["className"])).toContain("pl-9");
+    expect(String(elementProps(label)["className"])).not.toContain("pl-8");
+    expect(String(elementProps(insetLabel)["className"])).toContain("pl-8");
     expect(String(elementProps(separator)["className"])).toContain("bg-border");
-    expect(String(elementProps(subTrigger)["className"])).not.toContain("pl-9");
+    expect(String(elementProps(subTrigger)["className"])).not.toContain("pl-8");
+    expect(elementProps(subTrigger)).toHaveProperty("aria-controls", undefined);
     expect(String(elementProps(insetSubTrigger)["className"])).toContain(
-      "pl-9"
+      "pl-8"
     );
-    return expect(String(elementProps(subContent)["className"])).toContain(
+    const subContentChild = elementProps(subContent)[
+      "children"
+    ] as ReactElement;
+    return expect(String(elementProps(subContentChild)["className"])).toContain(
       "z-popover"
     );
   });
@@ -370,15 +374,15 @@ describe("client primitive wrappers", () => {
 
   return it("forwards every tabs wrapper and merges toaster defaults with caller options", () => {
     const tabs = Tabs({ className: "custom-tabs", defaultValue: "one" });
-    const list = TabsList({ className: "custom-list", children: "List" });
+    const list = TabsList({ children: "List", className: "custom-list" });
     const trigger = TabsTrigger({
-      className: "custom-trigger",
       children: "One",
+      className: "custom-trigger",
       value: "one",
     });
     const content = TabsContent({
-      className: "custom-tab-content",
       children: "Panel",
+      className: "custom-tab-content",
       value: "one",
     });
     const defaults = elementProps(Toaster({}));
@@ -389,12 +393,12 @@ describe("client primitive wrappers", () => {
         position: "top-center",
         theme: "dark",
         toastOptions: {
-          duration: 1234,
-          unstyled: false,
           classNames: {
             loader: "caller-loader",
             toast: "caller-toast",
           },
+          duration: 1234,
+          unstyled: false,
         },
       })
     );

@@ -32,7 +32,7 @@ export default function ContactPage() {
       eyebrow="Contact"
       title="Talk to the people behind the system."
     >
-      <section className="grid gap-12 py-16 md:grid-cols-12 md:gap-8 md:py-20">
+      <section className="grid gap-6 py-8 md:grid-cols-12 md:gap-5 md:py-10">
         <div className="md:col-span-5">
           <p className="font-semibold text-primary text-sm tracking-wide">
             Before you send
@@ -45,7 +45,7 @@ export default function ContactPage() {
           </h2>
           <section
             aria-labelledby="contact-expectations-title"
-            className="mt-8 divide-y divide-border border-border border-y"
+            className="mt-5 divide-y divide-border border-border border-y"
           >
             {expectations.map((expectation) => (
               <div className="py-6" key={expectation.title}>

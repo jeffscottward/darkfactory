@@ -16,7 +16,7 @@ export default async function LoadingSmokePage() {
       eyebrow="E2E fixture"
       title="The loading fixture completed."
     >
-      <p className="py-16 text-base text-muted-foreground leading-7">
+      <p className="py-8 text-base text-muted-foreground leading-7">
         This route is available only to the isolated end-to-end server.
       </p>
     </PublicPage>
