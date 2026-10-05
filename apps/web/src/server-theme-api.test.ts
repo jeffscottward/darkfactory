@@ -59,7 +59,7 @@ describe("server theme API forwarding", () => {
   it("rebuilds structurally compatible Worker requests from their URL", async () => {
     let forwarded: Request | undefined;
     const source = new Request("https://darkfactory.example/api/orpc", {
-      body: '{"json":{"theme":"nord"}}',
+      body: '{"json":{"theme":"night-owl"}}',
       headers: {
         "content-type": "application/json",
         "x-orpc-procedure": "preferences.theme.set",
@@ -86,7 +86,9 @@ describe("server theme API forwarding", () => {
 
     expect(forwarded?.url).toBe(source.url);
     expect(forwarded?.method).toBe("POST");
-    return expect(await forwarded?.text()).toBe('{"json":{"theme":"nord"}}');
+    return expect(await forwarded?.text()).toBe(
+      '{"json":{"theme":"night-owl"}}'
+    );
   });
 
   it("aborts a stalled request and clears its timeout", async () => {
@@ -210,13 +212,13 @@ describe("server theme API forwarding", () => {
         density: "compact",
         fontSize: "large",
         radius: "none",
-        theme: "rose-pine",
+        theme: "dracula",
       }))
     ).resolves.toEqual({
       density: "compact",
       fontSize: "large",
       radius: "none",
-      theme: "rose-pine",
+      theme: "dracula",
     });
     return await expect(
       load(async () => {
@@ -254,7 +256,7 @@ describe("server theme API forwarding", () => {
         density: "compact",
         fontSize: "large",
         radius: "none",
-        theme: "rose-pine",
+        theme: "dracula",
         updatedAt: null,
       });
     });
@@ -291,7 +293,7 @@ describe("server theme API forwarding", () => {
       density: "compact",
       fontSize: "large",
       radius: "none",
-      theme: "rose-pine",
+      theme: "dracula",
       updatedAt: null,
     });
     return expect(fetchRequest).toHaveBeenCalledOnce();
@@ -338,7 +340,7 @@ describe("trusted theme load under request-database capacity", () => {
         density: "compact",
         fontSize: "large",
         radius: "none",
-        theme: "rose-pine",
+        theme: "dracula",
         updatedAt: null,
       },
     });
@@ -371,7 +373,7 @@ describe("trusted theme load under request-database capacity", () => {
         density: "compact",
         fontSize: "large",
         radius: "none",
-        theme: "rose-pine",
+        theme: "dracula",
       },
     });
     expect(fetchRequest).toHaveBeenCalledTimes(2);

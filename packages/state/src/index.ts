@@ -3,16 +3,17 @@
 // See: packages/ui/src/themes.ts; packages/db/src/schema/index.ts#APPEARANCE_THEMES.
 export const THEMES = Object.freeze([
   "system",
-  "default-dark",
   "default-light",
+  "default-dark",
+  "graphite",
+  "dracula",
+  "monokai",
   "tokyo-night",
-  "catppuccin-mocha",
-  "catppuccin-latte",
-  "gruvbox-dark",
-  "nord",
-  "everforest",
-  "rose-pine",
-  "kanagawa",
+  "one-dark",
+  "night-owl",
+  "synthwave-84",
+  "github-dark",
+  "github-light",
 ] as const);
 
 export const FONT_SIZES = Object.freeze(["small", "default", "large"] as const);
@@ -74,12 +75,26 @@ export const APPEARANCE_KEYS = Object.freeze([
   "radius",
 ] as const);
 
-/** Returns a copy with only the four appearance fields, or null when any field is not canonical. */
+/** Theme names from before the shadcn theme set (migration 0010). A stored retired name falls back to "system". */
+export const RETIRED_THEMES = Object.freeze([
+  "catppuccin-mocha",
+  "catppuccin-latte",
+  "gruvbox-dark",
+  "nord",
+  "everforest",
+  "rose-pine",
+  "kanagawa",
+] as const);
+
+const isRetiredTheme = isMember(RETIRED_THEMES);
+
+/** Returns a copy with only the four appearance fields, or null when any field is not canonical. Retired theme names become "system". */
 export const parseAppearancePreference = (
   value: unknown
 ): AppearancePreference | null => {
   if (typeof value !== "object" || value === null) return null;
-  const theme = Reflect.get(value, "theme");
+  const storedTheme = Reflect.get(value, "theme");
+  const theme = isRetiredTheme(storedTheme) ? "system" : storedTheme;
   const fontSize = Reflect.get(value, "fontSize");
   const density = Reflect.get(value, "density");
   const radius = Reflect.get(value, "radius");
@@ -104,7 +119,7 @@ export const DEFAULT_APPEARANCE: Readonly<AppearancePreference> = Object.freeze(
   {
     density: "default",
     fontSize: "default",
-    radius: "small",
+    radius: "medium",
     theme: "system",
   }
 );

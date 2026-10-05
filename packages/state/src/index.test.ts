@@ -15,6 +15,7 @@ import {
   isSameAppearance,
   isTheme,
   parseAppearancePreference,
+  RETIRED_THEMES,
   RADII,
   THEMES,
   type Theme,
@@ -24,16 +25,17 @@ describe("appearance contracts", () => {
   it("exposes the canonical ordered theme list", () => {
     expect(THEMES).toEqual([
       "system",
-      "default-dark",
       "default-light",
+      "default-dark",
+      "graphite",
+      "dracula",
+      "monokai",
       "tokyo-night",
-      "catppuccin-mocha",
-      "catppuccin-latte",
-      "gruvbox-dark",
-      "nord",
-      "everforest",
-      "rose-pine",
-      "kanagawa",
+      "one-dark",
+      "night-owl",
+      "synthwave-84",
+      "github-dark",
+      "github-light",
     ]);
     expect(Object.isFrozen(THEMES)).toBe(true);
     return expectTypeOf<Theme>().toEqualTypeOf<(typeof THEMES)[number]>();
@@ -58,7 +60,7 @@ describe("appearance contracts", () => {
     for (const value of [
       "neutral",
       "dark",
-      "Nord",
+      "Night Owl",
       "",
       null,
       undefined,
@@ -78,18 +80,18 @@ describe("appearance contracts", () => {
         density: "compact",
         fontSize: "large",
         radius: "none",
-        theme: "nord",
+        theme: "night-owl",
         updatedAt: null,
       })
     ).toEqual({
       density: "compact",
       fontSize: "large",
       radius: "none",
-      theme: "nord",
+      theme: "night-owl",
     });
     for (const value of [
       null,
-      "nord",
+      "night-owl",
       { ...DEFAULT_APPEARANCE, theme: "neutral" },
       { ...DEFAULT_APPEARANCE, fontSize: "huge" },
       { ...DEFAULT_APPEARANCE, density: "airy" },
@@ -98,6 +100,20 @@ describe("appearance contracts", () => {
     ]) {
       expect(parseAppearancePreference(value)).toBeNull();
     }
+  });
+
+  it("maps retired theme names to System and keeps the other fields", () => {
+    for (const theme of RETIRED_THEMES) {
+      expect(isTheme(theme)).toBe(false);
+      expect(
+        parseAppearancePreference({
+          ...DEFAULT_APPEARANCE,
+          radius: "large",
+          theme,
+        })
+      ).toEqual({ ...DEFAULT_APPEARANCE, radius: "large", theme: "system" });
+    }
+    return expect(RETIRED_THEMES).toContain("catppuccin-mocha");
   });
 
   it("compares appearance records field by field", () => {
@@ -133,7 +149,7 @@ describe("appearance contracts", () => {
     expect(DEFAULT_APPEARANCE).toEqual({
       density: "default",
       fontSize: "default",
-      radius: "small",
+      radius: "medium",
       theme: "system",
     });
     expect(DEFAULT_UI_PREFERENCES).toEqual({
@@ -141,7 +157,7 @@ describe("appearance contracts", () => {
       density: "default",
       fontSize: "default",
       mobileNavigationOpen: false,
-      radius: "small",
+      radius: "medium",
       sidebar: "expanded",
       theme: "system",
     });

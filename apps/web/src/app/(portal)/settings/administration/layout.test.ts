@@ -7,45 +7,47 @@ const mocks = vi.hoisted(() => ({
       new Headers({
         cookie: "better-auth.session_token=opaque",
         "cf-connecting-ip": "203.0.113.42",
-        "x-pathname": "/admin/users",
+        "x-pathname": "/settings/administration",
       })
   ),
-  portalSignInHref: vi.fn(() => "/sign-in?callbackURL=%2Fadmin%2Fusers"),
+  portalSignInHref: vi.fn(
+    () => "/sign-in?callbackURL=%2Fsettings%2Fadministration"
+  ),
   redirect: vi.fn(),
 }));
 
 vi.mock("next/headers", () => ({ headers: mocks.headers }));
 vi.mock("next/navigation", () => ({ redirect: mocks.redirect }));
-vi.mock("../../../lib/request-portal-session.ts", () => ({
+vi.mock("../../../../lib/request-portal-session.ts", () => ({
   getRequestPortalSession: mocks.getRequestPortalSession,
 }));
-vi.mock("../../../lib/server-session.ts", () => ({
+vi.mock("../../../../lib/server-session.ts", () => ({
   portalSignInHref: mocks.portalSignInHref,
 }));
 
-import AdminLayout from "./layout.tsx";
+import AdministrationSettingsLayout from "./layout.tsx";
 
-describe("server-authorized admin layout", () => {
+describe("server-authorized administration settings layout", () => {
   beforeEach(() => {
     mocks.getRequestPortalSession.mockReset();
     mocks.headers.mockResolvedValue(
       new Headers({
         cookie: "better-auth.session_token=opaque",
         "cf-connecting-ip": "203.0.113.42",
-        "x-pathname": "/admin/users",
+        "x-pathname": "/settings/administration",
       })
     );
     mocks.portalSignInHref.mockReturnValue(
-      "/sign-in?callbackURL=%2Fadmin%2Fusers"
+      "/sign-in?callbackURL=%2Fsettings%2Fadministration"
     );
     return mocks.redirect.mockReset();
   });
 
   it("fails closed for an anonymous direct request", async () => {
     mocks.getRequestPortalSession.mockResolvedValueOnce(null);
-    await AdminLayout({ children: "private directory" });
+    await AdministrationSettingsLayout({ children: "private directory" });
     expect(mocks.redirect).toHaveBeenCalledWith(
-      "/sign-in?callbackURL=%2Fadmin%2Fusers"
+      "/sign-in?callbackURL=%2Fsettings%2Fadministration"
     );
     return expect(mocks.getRequestPortalSession).toHaveBeenCalledWith(
       "better-auth.session_token=opaque",
@@ -61,8 +63,10 @@ describe("server-authorized admin layout", () => {
       status: "active",
       expiresAt: new Date("2030-01-01T00:00:00.000Z"),
     });
-    await AdminLayout({ children: "private directory" });
-    return expect(mocks.redirect).toHaveBeenCalledWith("/dashboard");
+    await AdministrationSettingsLayout({ children: "private directory" });
+    return expect(mocks.redirect).toHaveBeenCalledWith(
+      "/settings/account/profile"
+    );
   });
 
   return it("renders read-only admin content for a trusted active admin", async () => {
@@ -73,7 +77,9 @@ describe("server-authorized admin layout", () => {
       status: "active",
       expiresAt: new Date("2030-01-01T00:00:00.000Z"),
     });
-    const result = await AdminLayout({ children: "private directory" });
+    const result = await AdministrationSettingsLayout({
+      children: "private directory",
+    });
     expect(result.props.children).toBe("private directory");
     return expect(mocks.redirect).not.toHaveBeenCalled();
   });

@@ -35,7 +35,7 @@ export const EmptyState = ({
       {...props}
       aria-labelledby={titleId}
       className={cn(
-        "mx-auto flex max-w-reading flex-col items-start gap-2 border-border border-y py-4 text-left",
+        "flex min-w-0 flex-1 flex-col items-center justify-center gap-6 text-balance rounded-lg border border-dashed p-6 text-center md:p-12",
         className
       )}
       role="region"
@@ -43,23 +43,20 @@ export const EmptyState = ({
       {icon === undefined ? null : (
         <span
           aria-hidden="true"
-          className="text-muted-foreground [&_svg]:size-6"
+          className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-muted text-foreground [&_svg:not([class*='size-'])]:size-6"
         >
           {icon}
         </span>
       )}
-      <div className="space-y-1">
-        <Heading
-          className="font-heading font-semibold text-2xl text-foreground tracking-tight"
-          id={titleId}
-        >
+      <div className="flex max-w-sm flex-col items-center gap-2">
+        <Heading className="font-medium text-lg tracking-tight" id={titleId}>
           {title}
         </Heading>
-        <p className="max-w-reading text-base text-muted-foreground leading-6">
-          {description}
-        </p>
+        <p className="text-muted-foreground text-sm/relaxed">{description}</p>
       </div>
-      {action === undefined ? null : <div className="pt-1">{action}</div>}
+      {action === undefined ? null : (
+        <div className="flex items-center gap-2">{action}</div>
+      )}
     </section>
   );
 };

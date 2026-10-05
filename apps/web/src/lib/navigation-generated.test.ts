@@ -12,18 +12,26 @@ vi.mock("../features/generated-navigation.ts", () => ({
 }));
 
 import {
+  ADMIN_PORTAL_ROUTE_PATHS,
   EXPOSED_ROUTE_PATHS,
   FEATURE_NAVIGATION,
+  MEMBER_PORTAL_ROUTE_PATHS,
+  PORTAL_SIDEBAR_GROUPS,
   ROUTE_PAGE_FILES,
 } from "./navigation.ts";
 
 describe("navigation composition", () => {
-  it("projects generated destinations into portal and route manifests", () => {
+  it("projects generated destinations into the sidebar Features group and route manifests", () => {
     expect(FEATURE_NAVIGATION).toContainEqual({
       label: "Generated reports",
       href: "/reports",
       icon: LayoutList,
     });
+    expect(
+      PORTAL_SIDEBAR_GROUPS.find((group) => group.label === "Features")?.items
+    ).toBe(FEATURE_NAVIGATION);
+    expect(MEMBER_PORTAL_ROUTE_PATHS).toContain("/reports");
+    expect(ADMIN_PORTAL_ROUTE_PATHS).toContain("/reports");
     expect(EXPOSED_ROUTE_PATHS).toContain("/reports");
     return expect(ROUTE_PAGE_FILES["/reports"]).toBe(
       "(portal)/reports/page.tsx"

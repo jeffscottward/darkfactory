@@ -25,7 +25,7 @@ import {
   resolvePortalAppUrl,
 } from "../../../lib/server-session.ts";
 
-export const metadata = { title: "Dashboard" };
+export const metadata = { title: "Overview" };
 const INTERNAL_DASHBOARD_TIMEOUT_MS = 10_000;
 
 const SUMMARY_ERROR_STATUSES: Readonly<Record<string, number>> = Object.freeze({
@@ -180,7 +180,7 @@ export default async function DashboardPage() {
 
   return (
     <div className="space-y-4">
-      <PageHeader title="Dashboard" />
+      <PageHeader title="Overview" />
       <DashboardContent model={toDashboardViewModel(summaryState)} />
     </div>
   );

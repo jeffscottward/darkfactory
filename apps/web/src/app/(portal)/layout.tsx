@@ -3,23 +3,12 @@ import { redirect } from "next/navigation";
 import type { ReactNode } from "react";
 
 import { PortalShell } from "../../components/portal-shell.tsx";
+import {
+  ADMIN_PORTAL_ROUTE_PATHS,
+  MEMBER_PORTAL_ROUTE_PATHS,
+} from "../../lib/navigation.ts";
 import { getRequestPortalSession } from "../../lib/request-portal-session.ts";
 import { portalSignInHref } from "../../lib/server-session.ts";
-
-const MEMBER_PORTAL_ROUTES = Object.freeze([
-  "/dashboard",
-  "/feature-items",
-  "/account",
-  "/account/profile",
-  "/account/address",
-  "/account/preferences",
-  "/account/security",
-] as const);
-
-const ADMIN_PORTAL_ROUTES = Object.freeze([
-  ...MEMBER_PORTAL_ROUTES,
-  "/admin/users",
-] as const);
 
 export default async function PortalLayout({
   children,
@@ -37,7 +26,9 @@ export default async function PortalLayout({
   const isAdmin = session.role === "admin";
   return (
     <PortalShell
-      availableRoutes={isAdmin ? ADMIN_PORTAL_ROUTES : MEMBER_PORTAL_ROUTES}
+      availableRoutes={
+        isAdmin ? ADMIN_PORTAL_ROUTE_PATHS : MEMBER_PORTAL_ROUTE_PATHS
+      }
       isAdmin={isAdmin}
       userName={session.name}
     >

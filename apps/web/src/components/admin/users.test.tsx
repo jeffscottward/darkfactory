@@ -592,9 +592,13 @@ describe("admin user directory states", () => {
   });
 
   return it.each([
-    ["unauthorized", "/sign-in?callbackURL=%2Fadmin%2Fusers", "Sign in"],
-    ["forbidden", "/dashboard", "Back to dashboard"],
-    ["not-found", "/dashboard", "Back to dashboard"],
+    [
+      "unauthorized",
+      "/sign-in?callbackURL=%2Fsettings%2Fadministration",
+      "Sign in",
+    ],
+    ["forbidden", "/dashboard", "Back to overview"],
+    ["not-found", "/dashboard", "Back to overview"],
   ] as const)(
     "renders the authorization-safe %s recovery action",
     (kind, href, action) => {

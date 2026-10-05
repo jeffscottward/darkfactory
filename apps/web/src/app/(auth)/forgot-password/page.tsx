@@ -13,7 +13,6 @@ export default function ForgotPasswordPage() {
   return (
     <AuthPanel
       description="Request a one-time link to choose a new password."
-      eyebrow="Account recovery"
       footer={
         <Link
           className="inline-flex min-h-11 items-center font-semibold text-foreground underline underline-offset-4 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"

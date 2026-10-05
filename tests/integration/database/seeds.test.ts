@@ -313,7 +313,7 @@ describe("DF-040 and DF-046 through DF-050 development seeds", {
       },
       {
         user_id: IDS.users[1],
-        theme: "nord",
+        theme: "night-owl",
         font_size: "large",
         density: "comfortable",
         radius: "medium",
@@ -492,7 +492,7 @@ describe("DF-040 and DF-046 through DF-050 development seeds", {
     );
     await testDatabase.query(
       "UPDATE user_preferences SET theme = $1 WHERE user_id = $2",
-      ["nord", IDS.users[0]]
+      ["night-owl", IDS.users[0]]
     );
     await testDatabase.query("UPDATE addresses SET city = $1 WHERE id = $2", [
       "Drifted",

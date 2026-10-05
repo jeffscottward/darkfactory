@@ -33,7 +33,6 @@ export default async function VerifyEmailPage({
             ? "Sign in to confirm the account status."
             : "Send a one-time verification link to the account email."
       }
-      eyebrow="Email verification"
       title={
         verificationError
           ? "Verification link needs attention."

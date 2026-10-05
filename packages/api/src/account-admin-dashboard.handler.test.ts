@@ -84,7 +84,7 @@ const storedAddress: Address = {
 };
 const storedPreferences: UserPreferences = {
   userId: "member-1",
-  theme: "nord",
+  theme: "night-owl",
   fontSize: "large",
   density: "comfortable",
   radius: "medium",
@@ -117,14 +117,14 @@ const repositories = (): Repositories => ({
   userPreferences: {
     findByUserId: vi.fn(async () => storedPreferences),
     findThemeByUserId: vi.fn(async () => ({
-      theme: "nord" as const,
+      theme: "night-owl" as const,
       fontSize: "large" as const,
       density: "comfortable" as const,
       radius: "medium" as const,
       updatedAt: storedPreferences.updatedAt,
     })),
     upsertTheme: vi.fn(async () => ({
-      theme: "nord" as const,
+      theme: "night-owl" as const,
       fontSize: "large" as const,
       density: "comfortable" as const,
       radius: "medium" as const,

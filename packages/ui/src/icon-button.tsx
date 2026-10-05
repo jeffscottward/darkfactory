@@ -1,64 +1,47 @@
-import type { VariantProps } from "class-variance-authority";
-import { cva } from "class-variance-authority";
-import { LoaderCircle } from "lucide-react";
+// What: Icon-only shadcn Button (size "icon", 36px chrome in a 44px box) with a required accessible name.
+// Used by: packages/ui/src/index.ts; apps/web and apps/operator components.
+// See: packages/ui/src/button.tsx.
 import type { ComponentPropsWithRef } from "react";
 
-import { cn } from "./utilities.ts";
+import { Button, type ButtonSize, type ButtonVariant } from "./button.tsx";
 
-export const iconButtonVariants = cva(
-  "relative inline-flex size-11 shrink-0 items-center justify-center rounded-md border border-transparent text-foreground transition-colors duration-base ease-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:pointer-events-none disabled:border-disabled-border disabled:bg-disabled disabled:text-disabled-foreground disabled:opacity-100 [&_svg]:size-5 [&_svg]:shrink-0",
-  {
-    variants: {
-      variant: {
-        ghost: "hover:bg-accent active:bg-muted",
-        secondary:
-          "border-border-strong bg-surface hover:bg-accent active:bg-muted",
-        primary:
-          "bg-primary text-primary-foreground hover:bg-primary-hover active:bg-primary-active",
-        destructive:
-          "text-destructive hover:bg-destructive-subtle active:bg-destructive-subtle",
-      },
-    },
-    defaultVariants: { variant: "ghost" },
-  }
-);
+const ICON_VARIANT = {
+  destructive: "ghost",
+  ghost: "ghost",
+  outline: "outline",
+  primary: "default",
+  secondary: "outline",
+} as const satisfies Record<string, ButtonVariant>;
 
 export interface IconButtonProps
-  extends Omit<ComponentPropsWithRef<"button">, "aria-label">,
-    VariantProps<typeof iconButtonVariants> {
+  extends Omit<ComponentPropsWithRef<"button">, "aria-label"> {
   "aria-label": string;
   loading?: boolean;
   loadingLabel?: string;
+  size?: Extract<ButtonSize, "icon" | "icon-sm" | "icon-lg">;
+  variant?: keyof typeof ICON_VARIANT;
 }
 
 export const IconButton = ({
   "aria-label": ariaLabel,
-  children,
   className,
-  disabled = false,
   loading = false,
   loadingLabel,
-  type = "button",
-  variant,
+  size = "icon",
+  variant = "ghost",
   ...props
 }: IconButtonProps) => (
-  <button
+  <Button
     {...props}
-    aria-busy={loading || undefined}
     aria-label={loading ? (loadingLabel ?? `Loading: ${ariaLabel}`) : ariaLabel}
-    className={cn(iconButtonVariants({ variant }), className)}
-    data-loading={loading || undefined}
-    disabled={disabled || loading}
-    type={type}
-  >
-    <span className={cn("inline-flex", loading && "invisible")}>
-      {children}
-    </span>
-    {loading ? (
-      <LoaderCircle
-        aria-hidden="true"
-        className="absolute size-5 animate-spin motion-reduce:animate-none"
-      />
-    ) : null}
-  </button>
+    className={
+      variant === "destructive"
+        ? `text-destructive ${className ?? ""}`.trim()
+        : className
+    }
+    loading={loading}
+    loadingLabel={loadingLabel ?? `Loading: ${ariaLabel}`}
+    size={size}
+    variant={ICON_VARIANT[variant]}
+  />
 );

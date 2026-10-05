@@ -235,16 +235,17 @@ describe("DarkFactory-owned schema", () => {
   it("persists the complete settled preference domains", () => {
     expect(APPEARANCE_THEMES).toEqual([
       "system",
-      "default-dark",
       "default-light",
+      "default-dark",
+      "graphite",
+      "dracula",
+      "monokai",
       "tokyo-night",
-      "catppuccin-mocha",
-      "catppuccin-latte",
-      "gruvbox-dark",
-      "nord",
-      "everforest",
-      "rose-pine",
-      "kanagawa",
+      "one-dark",
+      "night-owl",
+      "synthwave-84",
+      "github-dark",
+      "github-light",
     ]);
     expect(FONT_SIZES).toEqual(["small", "default", "large"]);
     expect(DENSITIES).toEqual(["compact", "default", "comfortable"]);

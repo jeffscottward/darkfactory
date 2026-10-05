@@ -5,11 +5,11 @@ import type { ComponentPropsWithRef } from "react";
 import { cn } from "./utilities.ts";
 
 export const statusBadgeVariants = cva(
-  "inline-flex min-h-6 items-center gap-1.5 rounded-pill border px-2.5 py-0.5 font-body font-semibold text-xs leading-4 before:size-1.5 before:rounded-pill before:bg-current",
+  "inline-flex w-fit shrink-0 items-center justify-center gap-1.5 overflow-hidden whitespace-nowrap rounded-full border px-2 py-0.5 font-medium text-xs before:size-1.5 before:rounded-full before:bg-current",
   {
     variants: {
       status: {
-        neutral: "border-border-strong bg-muted text-foreground",
+        neutral: "border-border text-foreground",
         success:
           "border-success-border bg-success-subtle text-success-foreground",
         warning:
@@ -37,6 +37,7 @@ export const StatusBadge = ({
 }: StatusBadgeProps) => (
   <span
     className={cn(statusBadgeVariants({ status }), className)}
+    data-slot="badge"
     data-status={status}
     {...props}
   >

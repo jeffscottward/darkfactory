@@ -24,6 +24,7 @@ import {
   type ColorScheme,
   type ConcreteThemeName,
   THEME_TOKENS,
+  toHex,
 } from "../../packages/ui/src/theme-tokens.ts";
 import {
   E2E_IDENTITIES,
@@ -43,17 +44,17 @@ const ANONYMOUS_SNAPSHOT_VERSION = 2;
 const ACCOUNT_EVIDENCE_ADDRESS = "500 Browser Evidence Way";
 const REMOVE_ADDRESS_NAME = /Remove .* address/;
 const CONFIRM_REMOVE_ADDRESS_NAME = /Confirm removal of .* address/;
-const ACCOUNT_SECURITY_URL = /\/account\/security$/;
+const ACCOUNT_SECURITY_URL = /\/settings\/account\/security$/;
 const SIGN_IN_URL = /\/sign-in(?:\?|$)/;
 const CANONICAL_ADMIN_ORDER = [
   E2E_IDENTITIES.bob,
   E2E_IDENTITIES.alice,
   E2E_IDENTITIES.admin,
 ] as const;
-const DASHBOARD_URL = /\/dashboard$/;
+const ADMINISTRATION_URL = /\/settings\/administration$/;
 const API_REQUEST_TIMEOUT_MILLISECONDS = 10_000;
 
-const ACCOUNT_PROFILE_URL = /\/account\/profile$/;
+const ACCOUNT_PROFILE_URL = /\/settings\/account\/profile$/;
 
 type AppearancePreference = Appearance;
 type AppearanceKey = keyof AppearancePreference;
@@ -61,7 +62,7 @@ type AppearanceKey = keyof AppearancePreference;
 const DEFAULT_APPEARANCE: AppearancePreference = {
   density: "default",
   fontSize: "default",
-  radius: "small",
+  radius: "medium",
   theme: "system",
 };
 // Seeded DB preference for Alice (packages/db/src/seeds/preferences.ts).
@@ -69,26 +70,27 @@ const ALICE_SEED_APPEARANCE: AppearancePreference = {
   density: "comfortable",
   fontSize: "large",
   radius: "medium",
-  theme: "nord",
+  theme: "night-owl",
 };
 
 // Computed results of the appearance variables in packages/ui/src/styles.css at a 16px root:
 // body font-size = 1rem * --font-scale, padding = --spacing * 4, radius-md = 0.5rem * --radius-scale.
 const BODY_FONT_SIZE_PX = {
-  default: 15,
-  large: 17,
+  default: 16,
+  large: 18,
   small: 14,
 } as const satisfies Record<AppearancePreference["fontSize"], number>;
 const SPACING_X4_PX = {
-  comfortable: 16,
-  compact: 12,
-  default: 14,
+  comfortable: 18,
+  compact: 14,
+  default: 16,
 } as const satisfies Record<AppearancePreference["density"], number>;
+// shadcn rounded-md is --radius × 0.8.
 const RADIUS_MD_PX = {
-  large: 12,
+  large: 12.8,
   medium: 8,
   none: 0,
-  small: 4,
+  small: 4.8,
 } as const satisfies Record<AppearancePreference["radius"], number>;
 
 const APPEARANCE_ATTRIBUTES = [
@@ -197,12 +199,15 @@ const concreteTheme = (
   return systemScheme === "dark" ? "default-dark" : "default-light";
 };
 
-const hexToRgb = (hex: string): string => {
-  const [red, green, blue] = [1, 3, 5].map((start) =>
-    Number.parseInt(hex.slice(start, start + 2), 16)
+/** True when two #rrggbb colors differ by at most 2/255 per channel (oklch/lab rounding). */
+const sameColor = (actual: string, expected: string): boolean =>
+  [1, 3, 5].every(
+    (start) =>
+      Math.abs(
+        Number.parseInt(actual.slice(start, start + 2), 16) -
+          Number.parseInt(expected.slice(start, start + 2), 16)
+      ) <= 2
   );
-  return `rgb(${red}, ${green}, ${blue})`;
-};
 
 const runtimeEvidence: RuntimeEvidence[] = [];
 const layoutEvidence: LayoutEvidence[] = [];
@@ -326,7 +331,23 @@ const assertNoHorizontalOverflow = async (
   layoutEvidence.push({ case: caseName, ...width });
 };
 
+/** Menus open with a short zoom-in animation; measure the settled layout. */
+const settleAnimations = (page: Page): Promise<unknown> =>
+  page.evaluate(() =>
+    Promise.all(
+      document
+        .getAnimations()
+        .filter(
+          (animation) =>
+            animation.effect?.getComputedTiming().endTime !==
+            Number.POSITIVE_INFINITY
+        )
+        .map((animation) => animation.finished.catch(() => undefined))
+    )
+  );
+
 const assertTouchTarget = async (locator: Locator): Promise<void> => {
+  await settleAnimations(locator.page());
   const box = await locator.boundingBox();
   expect(box, "touch target must have a rendered box").not.toBeNull();
   expect(box?.height).toBeGreaterThanOrEqual(44);
@@ -337,8 +358,10 @@ const readableContrast = async (
   page: Page
 ): Promise<{
   backgroundColor: string;
+  backgroundHex: string;
   backgroundToken: string;
   color: string;
+  colorHex: string;
   contrastRatio: number;
   effectiveScheme: string;
   foregroundToken: string;
@@ -353,19 +376,29 @@ const readableContrast = async (
         ? `#${[...normalized.slice(1)].map((digit) => digit + digit).join("")}`
         : normalized;
     };
+    // Let the browser resolve any CSS color (hex, rgb, oklch, with alpha)
+    // to sRGB by painting it on a canvas over the page background.
+    const canvas = document.createElement("canvas");
+    canvas.width = 1;
+    canvas.height = 1;
+    const context = canvas.getContext("2d", { willReadFrequently: true });
+    const pageBackground = getComputedStyle(document.documentElement)
+      .getPropertyValue("--background")
+      .trim();
     const channels = (value: string): readonly number[] => {
       const normalized = longHex(value);
-      if (normalized.startsWith("#") && normalized.length === 7) {
-        return [1, 3, 5].map((start) =>
-          Number.parseInt(normalized.slice(start, start + 2), 16)
-        );
-      }
-      const matches = normalized.match(/[\d.]+/gu);
-      if (matches === null || matches.length < 3) {
-        return [];
-      }
-      return matches.slice(0, 3).map(Number);
+      if (context === null || normalized === "") return [];
+      context.clearRect(0, 0, 1, 1);
+      context.fillStyle = pageBackground || "#000000";
+      context.fillRect(0, 0, 1, 1);
+      context.fillStyle = normalized;
+      context.fillRect(0, 0, 1, 1);
+      return [...context.getImageData(0, 0, 1, 1).data.slice(0, 3)];
     };
+    const resolvedHex = (value: string): string =>
+      `#${channels(value)
+        .map((channel) => channel.toString(16).padStart(2, "0"))
+        .join("")}`;
     const luminance = (value: string): number => {
       const [red = 0, green = 0, blue = 0] = channels(value);
       const linear = [red, green, blue].map((channel) => {
@@ -429,11 +462,13 @@ const readableContrast = async (
     );
     return {
       backgroundColor,
-      backgroundToken: longHex(rootStyle.getPropertyValue("--background")),
+      backgroundHex: resolvedHex(backgroundColor),
+      backgroundToken: resolvedHex(rootStyle.getPropertyValue("--background")),
       color,
+      colorHex: resolvedHex(color),
       contrastRatio: ratio(color, backgroundColor),
       effectiveScheme: rootStyle.colorScheme,
-      foregroundToken: longHex(rootStyle.getPropertyValue("--foreground")),
+      foregroundToken: resolvedHex(rootStyle.getPropertyValue("--foreground")),
       nonTextRatios,
       tokenRatios,
     };
@@ -445,7 +480,7 @@ const appearanceMetrics = async (page: Page): Promise<AppearanceMetrics> =>
     const sample = document.createElement("div");
     sample.setAttribute("aria-hidden", "true");
     sample.style.cssText =
-      "position:absolute;visibility:hidden;pointer-events:none;padding:calc(var(--spacing) * 4);border-radius:var(--radius-md)";
+      "position:absolute;visibility:hidden;pointer-events:none;padding:calc(var(--spacing) * 4);border-radius:calc(var(--radius) * 0.8)";
     document.body.append(sample);
     const sampleStyle = getComputedStyle(sample);
     const metrics = {
@@ -546,23 +581,34 @@ const assertAppearance = async (
     options.systemScheme ?? "light"
   );
   const themeTokens = THEME_TOKENS[resolvedTheme];
+  // The CSS minifier may rewrite oklch() as lab(), so compare resolved sRGB
+  // (within one rounding step per channel), not color strings.
+  const expectedBackground = toHex(themeTokens.tokens.background);
+  const expectedForeground = toHex(themeTokens.tokens.foreground);
   await expect
     .poll(async () => {
       const current = await readableContrast(page);
       return {
-        backgroundColor: current.backgroundColor,
-        backgroundToken: current.backgroundToken,
-        color: current.color,
+        backgroundColor:
+          sameColor(current.backgroundHex, expectedBackground) ||
+          current.backgroundHex,
+        backgroundToken:
+          sameColor(current.backgroundToken, expectedBackground) ||
+          current.backgroundToken,
+        color:
+          sameColor(current.colorHex, expectedForeground) || current.colorHex,
         effectiveScheme: current.effectiveScheme,
-        foregroundToken: current.foregroundToken,
+        foregroundToken:
+          sameColor(current.foregroundToken, expectedForeground) ||
+          current.foregroundToken,
       };
     }, `${options.case} renders ${resolvedTheme} colors`)
     .toEqual({
-      backgroundColor: hexToRgb(themeTokens.tokens.background),
-      backgroundToken: themeTokens.tokens.background.toLowerCase(),
-      color: hexToRgb(themeTokens.tokens.foreground),
+      backgroundColor: true,
+      backgroundToken: true,
+      color: true,
       effectiveScheme: themeTokens.colorScheme,
-      foregroundToken: themeTokens.tokens.foreground.toLowerCase(),
+      foregroundToken: true,
     });
   const contrast = await readableContrast(page);
   expect(contrast.contrastRatio).toBeGreaterThanOrEqual(4.5);
@@ -634,10 +680,7 @@ const assertAppearance = async (
 };
 
 /** Opens the standalone picker or the portal user menu and waits for its content. */
-const openAppearanceMenu = async (
-  page: Page,
-  menu: AppearanceMenu
-): Promise<Locator> => {
+const openMenu = async (page: Page, menu: AppearanceMenu): Promise<Locator> => {
   const ids = APPEARANCE_MENUS[menu];
   const trigger = page.locator(ids.trigger);
   const content = page.locator(ids.content);
@@ -664,7 +707,7 @@ const selectAppearance = async (
   value: string
 ): Promise<void> => {
   const ids = APPEARANCE_MENUS[menu];
-  const content = await openAppearanceMenu(page, menu);
+  const content = await openMenu(page, menu);
   const subTrigger = page.locator(`#${ids.idPrefix}-${key}-trigger`);
   await expect(subTrigger).toHaveRole("menuitem");
   await expect(subTrigger).toHaveAttribute("aria-haspopup", "menu");
@@ -684,12 +727,47 @@ const selectAppearance = async (
   }
 };
 
+/** Selects one option on the Appearance settings tab and waits until it is applied and saved. */
+const selectSettingsAppearance = async (
+  page: Page,
+  key: AppearanceKey,
+  value: string
+): Promise<void> => {
+  if (new URL(page.url()).pathname !== "/settings/appearance") {
+    await page.goto("/settings/appearance");
+  }
+  const group = page.getByRole("group", {
+    exact: true,
+    name: APPEARANCE_SETTINGS[key].label,
+  });
+  const option = group.getByRole("radio", {
+    exact: true,
+    name: optionLabel(key, value),
+  });
+  await expectHydrated(option);
+  await expect(option).toBeEnabled();
+  await option.check();
+  await expect(option).toBeChecked();
+  const attribute = APPEARANCE_ATTRIBUTES.find(
+    ([, candidate]) => candidate === key
+  );
+  if (attribute !== undefined) {
+    await expect(page.locator("html")).toHaveAttribute(attribute[0], value);
+  }
+  // The groups are disabled while the save is in flight.
+  await expect(option).toBeEnabled();
+};
+
+/** Settings pages carry one "Settings" h1; each tab or section names itself with an h2. */
 const waitForAccountPage = async (
   page: Page,
   heading: string
 ): Promise<void> => {
   await expect(
-    page.getByRole("heading", { level: 1, name: heading })
+    page.getByRole("heading", { level: 1, name: "Settings" })
+  ).toBeVisible();
+  await expect(
+    page.getByRole("heading", { level: 2, name: heading })
   ).toBeVisible();
 };
 
@@ -705,7 +783,7 @@ const setCheckbox = async (
 };
 
 const restoreAliceAccount = async (page: Page): Promise<void> => {
-  await page.goto("/account/profile");
+  await page.goto("/settings/account/profile");
   await waitForAccountPage(page, "Profile");
   const displayName = page.locator("#displayName");
   if ((await displayName.inputValue()) !== "Alice Adams") {
@@ -714,7 +792,7 @@ const restoreAliceAccount = async (page: Page): Promise<void> => {
     await expect(page.getByText("Profile saved.")).toBeVisible();
   }
 
-  await page.goto("/account/address");
+  await page.goto("/settings/account/address");
   await waitForAccountPage(page, "Addresses");
   await expect(
     page.getByRole("button", { name: "Add an address" })
@@ -732,7 +810,7 @@ const restoreAliceAccount = async (page: Page): Promise<void> => {
     await expect(page.getByText("Address removed.")).toBeVisible();
   }
 
-  await page.goto("/account/preferences");
+  await page.goto("/settings/account/preferences");
   await waitForAccountPage(page, "Preferences");
   await setCheckbox(page, "#emailNotifications", true);
   await setCheckbox(page, "#productUpdates", true);
@@ -854,7 +932,7 @@ test.describe
       await restoreAliceAccount(page);
 
       try {
-        await page.goto("/account/profile");
+        await page.goto("/settings/account/profile");
         await waitForAccountPage(page, "Profile");
         await page.locator("#displayName").fill("Alice Browser Evidence");
         await page.getByRole("button", { name: "Save profile" }).click();
@@ -864,7 +942,7 @@ test.describe
           "Alice Browser Evidence"
         );
 
-        await page.goto("/account/address");
+        await page.goto("/settings/account/address");
         await waitForAccountPage(page, "Addresses");
         await page.getByRole("button", { name: "Add an address" }).click();
         await page.locator("#type").selectOption("work");
@@ -878,7 +956,7 @@ test.describe
         await page.reload();
         await expect(page.getByText(ACCOUNT_EVIDENCE_ADDRESS)).toBeVisible();
 
-        await page.goto("/account/preferences");
+        await page.goto("/settings/account/preferences");
         await waitForAccountPage(page, "Preferences");
         await setCheckbox(page, "#emailNotifications", false);
         await setCheckbox(page, "#productUpdates", false);
@@ -911,17 +989,17 @@ test.describe
             freshSession !== originalSession,
             "fresh browser context must create a distinct session"
           ).toBe(true);
-          await freshPage.goto("/account/profile");
+          await freshPage.goto("/settings/account/profile");
           await waitForAccountPage(freshPage, "Profile");
           await expect(freshPage.locator("#displayName")).toHaveValue(
             "Alice Browser Evidence"
           );
-          await freshPage.goto("/account/address");
+          await freshPage.goto("/settings/account/address");
           await waitForAccountPage(freshPage, "Addresses");
           await expect(
             freshPage.getByText(ACCOUNT_EVIDENCE_ADDRESS)
           ).toBeVisible();
-          await freshPage.goto("/account/preferences");
+          await freshPage.goto("/settings/account/preferences");
           await waitForAccountPage(freshPage, "Preferences");
           await expect(freshPage.locator("#profileVisibility")).toHaveValue(
             "public"
@@ -951,7 +1029,7 @@ test.describe
       const assertOtherRuntime = monitorSecondaryPage(otherPage);
       try {
         await signInAs(otherPage, E2E_IDENTITIES.alice);
-        await page.goto("/account/security");
+        await page.goto("/settings/account/security");
         await waitForAccountPage(page, "Security");
         await expect(
           page.getByText("Current session", { exact: true })
@@ -1002,30 +1080,38 @@ test.describe
       const assertMemberRuntime = monitorSecondaryPage(memberPage);
       try {
         await signInAs(memberPage, E2E_IDENTITIES.alice);
+        await memberPage.goto("/settings/administration");
+        await expect(memberPage).toHaveURL(ACCOUNT_PROFILE_URL);
+        await waitForAccountPage(memberPage, "Profile");
+        // The legacy admin URL ends at the same member-safe page.
         await memberPage.goto("/admin/users");
-        await expect(memberPage).toHaveURL(DASHBOARD_URL);
+        await expect(memberPage).toHaveURL(ACCOUNT_PROFILE_URL);
+        await waitForAccountPage(memberPage, "Profile");
         const memberSidebarLinks = memberPage
           .getByRole("navigation", { name: "Portal navigation" })
           .getByRole("link");
-        await expect(memberSidebarLinks).toHaveCount(1);
-        await expect(memberSidebarLinks.first()).toHaveAttribute(
+        await expect(memberSidebarLinks).toHaveCount(2);
+        await expect(memberSidebarLinks.nth(0)).toHaveAttribute(
           "href",
           "/dashboard"
         );
-        const memberMenu = await openAppearanceMenu(memberPage, "user");
-        await expect(
-          memberMenu.getByRole("group", { exact: true, name: "Account" })
-        ).toBeVisible();
-        await expect(
-          memberMenu.getByRole("group", { name: "Administration" })
-        ).toHaveCount(0);
-        await expect(
-          memberMenu.getByRole("menuitem", { exact: true, name: "Users" })
-        ).toHaveCount(0);
+        await expect(memberSidebarLinks.nth(1)).toHaveAttribute(
+          "href",
+          "/feature-items"
+        );
+        const memberTabs = memberPage
+          .getByRole("navigation", { exact: true, name: "Settings" })
+          .getByRole("link");
+        await expect(memberTabs).toHaveText(["Account", "Appearance"]);
+        const memberMenu = await openMenu(memberPage, "user");
+        await expect(memberMenu.getByRole("menuitem")).toHaveText([
+          "Settings",
+          "Sign out",
+        ]);
         await memberPage.keyboard.press("Escape");
         await expect(memberMenu).toBeHidden();
         await expect(
-          memberPage.getByRole("link", { exact: true, name: "Users" })
+          memberPage.getByRole("link", { exact: true, name: "Administration" })
         ).toHaveCount(0);
         const memberApi = apiFor(memberContext, resolvedBaseURL);
         await expect(
@@ -1043,19 +1129,35 @@ test.describe
       const adminPage = page;
       const assertAdminRuntime = monitorSecondaryPage(adminPage);
       await signInAs(adminPage, E2E_IDENTITIES.admin);
+      // The legacy admin URL redirects to the Administration settings tab.
       await adminPage.goto("/admin/users");
-      await expect(
-        adminPage.getByRole("heading", { level: 1, name: "Users" })
-      ).toBeVisible();
-      const adminMenu = await openAppearanceMenu(adminPage, "user");
-      const adminUsersItem = adminMenu
-        .getByRole("group", { exact: true, name: "Administration" })
-        .getByRole("menuitem", { exact: true, name: "Users" });
-      await expect(adminUsersItem).toHaveAttribute("href", "/admin/users");
-      await expect(adminUsersItem).toHaveAttribute("aria-current", "page");
+      await expect(adminPage).toHaveURL(ADMINISTRATION_URL);
+      await waitForAccountPage(adminPage, "Users");
+      const administrationTab = adminPage
+        .getByRole("navigation", { exact: true, name: "Settings" })
+        .getByRole("link", { exact: true, name: "Administration" });
+      await expect(administrationTab).toHaveAttribute(
+        "href",
+        "/settings/administration"
+      );
+      await expect(administrationTab).toHaveAttribute("aria-current", "page");
+      const adminMenu = await openMenu(adminPage, "user");
+      const adminSettingsItem = adminMenu.getByRole("menuitem", {
+        exact: true,
+        name: "Settings",
+      });
+      await expect(adminSettingsItem).toHaveAttribute("href", "/settings");
+      await expect(adminSettingsItem).toHaveAttribute("aria-current", "page");
+      await expect(adminMenu.getByRole("menuitem")).toHaveText([
+        "Settings",
+        "Sign out",
+      ]);
       await adminPage.keyboard.press("Escape");
       await expect(adminMenu).toBeHidden();
-      const directoryList = adminPage.locator("main").getByRole("list");
+      const directoryList = adminPage.getByRole("list", {
+        exact: true,
+        name: "User directory",
+      });
       const directoryItems = directoryList.getByRole("listitem");
       await expect(directoryItems).toHaveCount(CANONICAL_ADMIN_ORDER.length);
       for (const identity of Object.values(E2E_IDENTITIES)) {
@@ -1156,7 +1258,7 @@ test.describe
       const memberPage = page;
       const assertMemberRuntime = monitorSecondaryPage(memberPage);
       await signInAs(memberPage, E2E_IDENTITIES.alice);
-      await memberPage.goto("/account/profile");
+      await memberPage.goto("/settings/account/profile");
       await waitForAccountPage(memberPage, "Profile");
       const memberTrigger = memberPage.getByRole("button", {
         name: "Open portal navigation",
@@ -1178,10 +1280,19 @@ test.describe
       });
       await expect(memberDialog).toBeVisible();
       const portalLinks = portalNavigation.getByRole("link");
-      await expect(portalLinks).toHaveCount(1);
-      await expect(portalLinks.first()).toHaveAttribute("href", "/dashboard");
-      await expect(portalLinks.first()).toContainText("Overview");
-      await assertTouchTarget(portalLinks.first());
+      await expect(portalLinks).toHaveCount(2);
+      await expect(portalLinks.nth(0)).toHaveAttribute("href", "/dashboard");
+      await expect(portalLinks.nth(0)).toContainText("Overview");
+      await expect(portalLinks.nth(1)).toHaveAttribute(
+        "href",
+        "/feature-items"
+      );
+      await expect(portalLinks.nth(1)).toContainText("Feature items");
+      await expect(portalNavigation).toContainText("Features");
+      await expect(portalNavigation).not.toContainText("Dashboard");
+      for (const link of await portalLinks.all()) {
+        await assertTouchTarget(link);
+      }
       await memberPage.keyboard.press("Tab");
       expect(
         await memberDialog.evaluate((dialog) =>
@@ -1227,32 +1338,17 @@ test.describe
       const memberMenu = memberPage.locator("#user-menu-content");
       await expect(memberMenu).toBeVisible();
       await expect(memberMenu).toHaveRole("menu");
-      const accountGroup = memberMenu.getByRole("group", {
+      const memberMenuItems = memberMenu.getByRole("menuitem");
+      await expect(memberMenuItems).toHaveText(["Settings", "Sign out"]);
+      const memberSettingsItem = memberMenu.getByRole("menuitem", {
         exact: true,
-        name: "Account",
+        name: "Settings",
       });
-      for (const [label, href] of [
-        ["Profile", "/account/profile"],
-        ["Address", "/account/address"],
-        ["Preferences", "/account/preferences"],
-        ["Security", "/account/security"],
-      ] as const) {
-        const accountItem = accountGroup.getByRole("menuitem", {
-          exact: true,
-          name: label,
-        });
-        await expect(accountItem).toHaveAttribute("href", href);
-        await assertTouchTarget(accountItem);
+      await expect(memberSettingsItem).toHaveAttribute("href", "/settings");
+      await expect(memberSettingsItem).toHaveAttribute("aria-current", "page");
+      for (const item of await memberMenuItems.all()) {
+        await assertTouchTarget(item);
       }
-      await expect(
-        accountGroup.getByRole("menuitem", { exact: true, name: "Profile" })
-      ).toHaveAttribute("aria-current", "page");
-      await expect(
-        memberMenu.getByRole("group", { name: "Administration" })
-      ).toHaveCount(0);
-      await expect(
-        memberMenu.getByRole("menuitem", { exact: true, name: "Sign out" })
-      ).toBeVisible();
       await assertMenuWithinViewport(
         memberPage,
         memberMenu,
@@ -1261,6 +1357,39 @@ test.describe
       await memberPage.keyboard.press("Escape");
       await expect(memberMenu).toBeHidden();
       await expect(memberUserTrigger).toBeFocused();
+
+      const memberTabs = memberPage.getByRole("navigation", {
+        exact: true,
+        name: "Settings",
+      });
+      await expect(memberTabs.getByRole("link")).toHaveText([
+        "Account",
+        "Appearance",
+      ]);
+      const accountSections = memberPage.getByRole("navigation", {
+        exact: true,
+        name: "Account sections",
+      });
+      for (const [label, href] of [
+        ["Profile", "/settings/account/profile"],
+        ["Address", "/settings/account/address"],
+        ["Preferences", "/settings/account/preferences"],
+        ["Security", "/settings/account/security"],
+      ] as const) {
+        const section = accountSections.getByRole("link", {
+          exact: true,
+          name: label,
+        });
+        await expect(section).toHaveAttribute("href", href);
+        await assertTouchTarget(section);
+      }
+      await expect(
+        accountSections.getByRole("link", { exact: true, name: "Profile" })
+      ).toHaveAttribute("aria-current", "page");
+      for (const tab of await memberTabs.getByRole("link").all()) {
+        await assertTouchTarget(tab);
+      }
+      await assertNoHorizontalOverflow(memberPage, "settings-mobile-375");
       assertMemberRuntime();
 
       const adminContext = await newConfiguredContext(
@@ -1274,10 +1403,8 @@ test.describe
       const assertAdminRuntime = monitorSecondaryPage(adminPage);
       try {
         await signInAs(adminPage, E2E_IDENTITIES.admin);
-        await adminPage.goto("/admin/users");
-        await expect(
-          adminPage.getByRole("heading", { level: 1, name: "Users" })
-        ).toBeVisible();
+        await adminPage.goto("/settings/administration");
+        await waitForAccountPage(adminPage, "Users");
         const adminUserTrigger = adminPage.locator("#user-menu-trigger");
         await expectHydrated(adminUserTrigger);
         await expect(adminUserTrigger).toHaveAttribute(
@@ -1292,16 +1419,13 @@ test.describe
         await adminUserTrigger.press("ArrowDown");
         const adminMenu = adminPage.locator("#user-menu-content");
         await expect(adminMenu).toBeVisible();
-        const usersItem = adminMenu
-          .getByRole("group", { exact: true, name: "Administration" })
-          .getByRole("menuitem", { exact: true, name: "Users" });
-        await expect(usersItem).toHaveAttribute("href", "/admin/users");
-        await expect(usersItem).toHaveAttribute("aria-current", "page");
-        await assertTouchTarget(usersItem);
-        for (const item of await adminMenu
-          .getByRole("group", { exact: true, name: "Account" })
-          .getByRole("menuitem")
-          .all()) {
+        const settingsItem = adminMenu.getByRole("menuitem", {
+          exact: true,
+          name: "Settings",
+        });
+        await expect(settingsItem).toHaveAttribute("href", "/settings");
+        await expect(settingsItem).toHaveAttribute("aria-current", "page");
+        for (const item of await adminMenu.getByRole("menuitem").all()) {
           await assertTouchTarget(item);
         }
         await assertMenuWithinViewport(
@@ -1314,9 +1438,21 @@ test.describe
         await expect(adminUserTrigger).toBeFocused();
         await adminUserTrigger.press("Enter");
         await expect(adminMenu).toBeVisible();
-        await usersItem.press("Enter");
+        await settingsItem.press("Enter");
         await expect(adminMenu).toBeHidden();
-        await expect(adminPage).toHaveURL(/\/admin\/users$/);
+        await expect(adminPage).toHaveURL(ACCOUNT_PROFILE_URL);
+        await waitForAccountPage(adminPage, "Profile");
+        const adminTabs = adminPage
+          .getByRole("navigation", { exact: true, name: "Settings" })
+          .getByRole("link");
+        await expect(adminTabs).toHaveText([
+          "Account",
+          "Administration",
+          "Appearance",
+        ]);
+        for (const tab of await adminTabs.all()) {
+          await assertTouchTarget(tab);
+        }
         await assertNoHorizontalOverflow(adminPage, "admin-mobile-375-closed");
         assertAdminRuntime();
       } finally {
@@ -1335,13 +1471,13 @@ test.describe
         density: "compact",
         fontSize: "large",
         radius: "large",
-        theme: "rose-pine",
+        theme: "dracula",
       };
       const cookiePreference: AppearancePreference = {
         density: "comfortable",
         fontSize: "small",
         radius: "none",
-        theme: "catppuccin-latte",
+        theme: "github-light",
       };
       const waitForAnonymousThemeReady = async (
         targetPage: Page
@@ -1569,6 +1705,7 @@ test.describe
           const swatch = item.locator(
             `.theme-swatch[data-theme-swatch="${option.value}"]`
           );
+          await settleAnimations(matrixPage);
           const swatchBox = await swatch.boundingBox();
           const labelBox = await item
             .getByText(option.label, { exact: true })
@@ -1582,6 +1719,13 @@ test.describe
           ).toBeGreaterThanOrEqual(12);
           await assertTouchTarget(item);
         }
+        await matrixPage.keyboard.press("ArrowDown");
+        await expect(
+          themeGroup.getByRole("menuitemradio", {
+            exact: true,
+            name: "Default Light",
+          })
+        ).toBeFocused();
         await matrixPage.keyboard.press("ArrowDown");
         await expect(
           themeGroup.getByRole("menuitemradio", {
@@ -1655,7 +1799,7 @@ test.describe
           localStorage: current,
         });
         await assertTouchTarget(themeTrigger);
-        await openAppearanceMenu(matrixPage, "picker");
+        await openMenu(matrixPage, "picker");
         for (const item of await pickerMenu.getByRole("menuitem").all()) {
           await assertTouchTarget(item);
         }
@@ -1685,13 +1829,13 @@ test.describe
         density: "compact",
         fontSize: "small",
         radius: "none",
-        theme: "catppuccin-latte",
+        theme: "github-light",
       };
       const trustedChange: AppearancePreference = {
         density: "compact",
         fontSize: "small",
         radius: "large",
-        theme: "gruvbox-dark",
+        theme: "one-dark",
       };
       const loginContext = page.context();
       await installThemeProbe(loginContext);
@@ -1736,8 +1880,7 @@ test.describe
         preference: AppearancePreference
       ): Promise<void> => {
         for (const [, key] of APPEARANCE_ATTRIBUTES) {
-          await selectAppearance(trustedPage, "user", key, preference[key]);
-          await expect(trustedPage.locator("#user-menu-trigger")).toBeEnabled();
+          await selectSettingsAppearance(trustedPage, key, preference[key]);
         }
         await expect
           .poll(async () => trustedApi.preferences.theme.get({}))

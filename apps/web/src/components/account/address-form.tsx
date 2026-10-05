@@ -184,9 +184,9 @@ export const AddressForm = ({
       }}
     >
       <div>
-        <h2 className="font-heading font-semibold text-base text-foreground">
+        <h3 className="font-heading font-semibold text-base text-foreground">
           {isEditing ? "Edit address" : "Add an address"}
-        </h2>
+        </h3>
       </div>
       <AccountFeedbackMessage feedback={feedback} />
       <div className="grid gap-3 sm:grid-cols-2">

@@ -169,7 +169,7 @@ const expectDashboardCounts = async (
   }>
 ): Promise<void> => {
   await expect(
-    page.getByRole("heading", { level: 1, name: "Dashboard" })
+    page.getByRole("heading", { level: 1, name: "Overview" })
   ).toBeVisible();
   try {
     await expect(
@@ -340,9 +340,13 @@ test.describe
       const overviewLink = mobileNavigation.locator('a[href="/dashboard"]');
       const userMenuTrigger = page.locator("#user-menu-trigger");
       const userMenu = page.locator("#user-menu-content");
-      const featureItemsMenuItem = userMenu
-        .getByRole("group", { exact: true, name: "Features" })
-        .getByRole("menuitem", { exact: true, name: "Feature items" });
+      const settingsMenuItem = userMenu.getByRole("menuitem", {
+        exact: true,
+        name: "Settings",
+      });
+      const featureItemsLink = mobileNavigation.locator(
+        'a[href="/feature-items"]'
+      );
       const closeNavigation = page.getByRole("button", {
         name: "Close portal navigation",
       });
@@ -450,18 +454,36 @@ test.describe
       await expect(mobileNavigation).toBeHidden();
       await expect(navigationTrigger).toBeFocused();
 
-      // Feature routes live in the user menu: open it from the keyboard and arrow to the item.
+      // The user menu holds only Settings and Sign out; arrow between them from the keyboard.
       await userMenuTrigger.focus();
       await userMenuTrigger.press("Enter");
       await expect(userMenu).toBeVisible();
-      await expect(featureItemsMenuItem).toBeFocused();
+      await expect(userMenu.getByRole("menuitem")).toHaveText([
+        "Settings",
+        "Sign out",
+      ]);
+      await expect(settingsMenuItem).toBeFocused();
       await page.keyboard.press("ArrowDown");
-      await expect(featureItemsMenuItem).not.toBeFocused();
+      await expect(settingsMenuItem).not.toBeFocused();
       await page.keyboard.press("ArrowUp");
-      await expect(featureItemsMenuItem).toBeFocused();
+      await expect(settingsMenuItem).toBeFocused();
+      await expectNoHorizontalOverflow(page);
+      await page.keyboard.press("Escape");
+      await expect(userMenu).toBeHidden();
+      await expect(userMenuTrigger).toBeFocused();
+
+      // Feature routes live in the sidebar "Features" group, right after Overview.
+      await navigationTrigger.focus();
+      await navigationTrigger.press("Enter");
+      await expect(mobileNavigation).toBeVisible();
+      await expect(mobileNavigation).toContainText("Features");
+      await page.keyboard.press("Tab");
+      await expect(overviewLink).toBeFocused();
+      await page.keyboard.press("Tab");
+      await expect(featureItemsLink).toBeFocused();
       await expectNoHorizontalOverflow(page);
       await page.keyboard.press("Enter");
-      await expect(userMenu).toBeHidden();
+      await expect(mobileNavigation).toBeHidden();
       await expect(page).toHaveURL(FEATURE_ITEMS_URL_PATTERN);
 
       await expect(

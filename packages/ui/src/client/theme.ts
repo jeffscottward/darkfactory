@@ -99,7 +99,7 @@ const optionContent = (
   setting.key === "theme"
     ? createElement(
         "span",
-        { className: "flex items-center gap-[0.75rem]" },
+        { className: "flex items-center gap-3" },
         createElement("span", {
           "aria-hidden": "true",
           className: "theme-swatch",
@@ -163,7 +163,7 @@ export const AppearanceMenuItems = ({
           {
             "aria-labelledby": `${idPrefix}-${setting.key}-trigger`,
             className:
-              "max-h-[calc(100dvh-var(--space-8))] overflow-y-auto overscroll-contain",
+              "max-h-[calc(100dvh-2rem)] overflow-y-auto overscroll-contain",
           },
           createElement(
             DropdownMenuRadioGroup,
@@ -252,7 +252,7 @@ export const ThemePicker = ({
         align: "end",
         "aria-labelledby": `${idPrefix}-trigger`,
         className:
-          "max-h-[calc(100dvh-var(--space-8))] w-60 overflow-y-auto overscroll-contain",
+          "max-h-[calc(100dvh-2rem)] w-60 overflow-y-auto overscroll-contain",
         id: `${idPrefix}-content`,
       },
       error === undefined || error === null

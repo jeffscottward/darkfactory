@@ -114,7 +114,7 @@ describe("development preference seeds", () => {
         profileVisibility: "private",
       },
       {
-        theme: "nord",
+        theme: "night-owl",
         fontSize: "large",
         density: "comfortable",
         radius: "medium",
@@ -165,7 +165,7 @@ describe("development preference seeds", () => {
   });
 
   return it.each([
-    ["theme", "nord"],
+    ["theme", "night-owl"],
     ["fontSize", "large"],
     ["density", "compact"],
     ["radius", "none"],

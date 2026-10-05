@@ -234,7 +234,7 @@ const expectDashboardFor = async (
       { exact: true }
     )
   ).toBeVisible();
-  // Administration lives in the portal user menu, shown only to admins.
+  // The user menu holds only Settings and Sign out; the Administration settings tab is shown only to admins.
   const userMenuTrigger = page.locator("#user-menu-trigger");
   await expect(userMenuTrigger).toHaveAccessibleName(identity.name);
   await expect(userMenuTrigger).toHaveAttribute(
@@ -244,18 +244,28 @@ const expectDashboardFor = async (
   await userMenuTrigger.click();
   const userMenu = page.locator("#user-menu-content");
   await expect(userMenu).toBeVisible();
-  const administration = userMenu.getByRole("group", {
-    exact: true,
-    name: "Administration",
-  });
-  await expect(administration).toHaveCount(identity.role === "admin" ? 1 : 0);
-  if (identity.role === "admin") {
-    await expect(
-      administration.getByRole("menuitem", { exact: true, name: "Users" })
-    ).toHaveAttribute("href", "/admin/users");
-  }
-  await page.keyboard.press("Escape");
+  await expect(userMenu.getByRole("menuitem")).toHaveText([
+    "Settings",
+    "Sign out",
+  ]);
+  await userMenu
+    .getByRole("menuitem", { exact: true, name: "Settings" })
+    .click();
   await expect(userMenu).toBeHidden();
+  await expect(page).toHaveURL(
+    (url) => url.pathname === "/settings/account/profile"
+  );
+  const settingsTabs = page.getByRole("navigation", {
+    exact: true,
+    name: "Settings",
+  });
+  await expect(settingsTabs.getByRole("link")).toHaveText(
+    identity.role === "admin"
+      ? ["Account", "Administration", "Appearance"]
+      : ["Account", "Appearance"]
+  );
+  await page.goto("/dashboard");
+  await expect(expectedHeading).toBeVisible();
 };
 
 test.use({ screenshot: "off", trace: "off", video: "off" });

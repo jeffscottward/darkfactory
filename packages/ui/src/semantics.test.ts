@@ -128,7 +128,7 @@ describe("semantic server-safe primitives", () => {
     expect(empty).toContain("<h3");
     expect(portalHeader).toContain("<header");
     expect(portalHeader).toContain("<h1");
-    expect(portalHeader).toContain("text-xl");
+    expect(portalHeader).toContain("text-2xl");
     expect(portalHeader).toContain('data-variant="portal"');
     expect(portalHeader).not.toContain("<p");
     expect(publicHeader).toContain("text-4xl");
@@ -171,7 +171,8 @@ describe("semantic server-safe primitives", () => {
     expect(stat).toContain("<dd");
     expect(avatar).toContain('role="img"');
     expect(avatar).toContain('aria-label="Ada Lovelace"');
-    return expect(separator).toContain("<hr");
+    expect(separator).toContain('role="none"');
+    return expect(separator).toContain('data-slot="separator"');
   });
 
   it("renders every card region and optional semantic primitive branch", () => {
@@ -200,7 +201,10 @@ describe("semantic server-safe primitives", () => {
           { optional: true, optionalLabel: "Not required" },
           "Alias"
         ),
-        createElement(Separator, { orientation: "vertical" }),
+        createElement(Separator, {
+          decorative: false,
+          orientation: "vertical",
+        }),
         createElement(StatCard, {
           description: "Compared with yesterday",
           label: "Open items",
@@ -270,7 +274,7 @@ describe("client primitive wrappers", () => {
       "children"
     ] as ReactElement;
 
-    expect(elementProps(defaultContentChild)["sideOffset"]).toBe(8);
+    expect(elementProps(defaultContentChild)["sideOffset"]).toBe(4);
     expect(elementProps(customContentChild)["sideOffset"]).toBe(12);
     expect(String(elementProps(customContentChild)["className"])).toContain(
       "custom-content"
@@ -299,18 +303,34 @@ describe("client primitive wrappers", () => {
     });
     const subContent = DropdownMenuSubContent({ children: "Submenu content" });
 
-    expect(String(elementProps(item)["className"])).not.toContain("pl-8");
-    expect(String(elementProps(insetItem)["className"])).toContain("pl-8");
+    expect(elementProps(item)["data-inset"]).toBeUndefined();
+    expect(elementProps(insetItem)["data-inset"]).toBe(true);
+    // asChild: the link stays the menuitem box and wraps the chrome span.
+    const linkItem = DropdownMenuItem({
+      asChild: true,
+      children: createElement("a", { href: "/settings" }, "Settings"),
+    });
+    expect(elementProps(linkItem)["asChild"]).toBe(true);
+    const link = elementProps(linkItem)["children"] as ReactElement;
+    expect(link.type).toBe("a");
+    expect(elementProps(link)["href"]).toBe("/settings");
+    const linkChrome = elementProps(link)["children"] as ReactElement;
+    expect(elementProps(linkChrome)["data-slot"]).toBe(
+      "dropdown-menu-item-chrome"
+    );
+    expect(elementProps(linkChrome)["children"]).toBe("Settings");
+    expect(elementProps(item)["asChild"]).toBe(false);
+    expect(
+      (elementProps(item)["children"] as ReactElement).props
+    ).toHaveProperty("data-slot", "dropdown-menu-item-chrome");
     expect(elementProps(checkbox)["children"]).toBeDefined();
     expect(elementProps(radio)["children"]).toBeDefined();
     expect(String(elementProps(label)["className"])).not.toContain("pl-8");
     expect(String(elementProps(insetLabel)["className"])).toContain("pl-8");
     expect(String(elementProps(separator)["className"])).toContain("bg-border");
-    expect(String(elementProps(subTrigger)["className"])).not.toContain("pl-8");
+    expect(elementProps(subTrigger)["data-inset"]).toBeUndefined();
     expect(elementProps(subTrigger)).toHaveProperty("aria-controls", undefined);
-    expect(String(elementProps(insetSubTrigger)["className"])).toContain(
-      "pl-8"
-    );
+    expect(elementProps(insetSubTrigger)["data-inset"]).toBe(true);
     const subContentChild = elementProps(subContent)[
       "children"
     ] as ReactElement;

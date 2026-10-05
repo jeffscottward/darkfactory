@@ -68,12 +68,15 @@ export const PreferencesPageClient = () => {
       state.kind === "unauthorized" ? (
         <a
           className={buttonVariants()}
-          href="/sign-in?callbackURL=%2Faccount%2Fpreferences"
+          href="/sign-in?callbackURL=%2Fsettings%2Faccount%2Fpreferences"
         >
           Sign in
         </a>
       ) : state.kind === "forbidden" || state.kind === "not-found" ? (
-        <a className={buttonVariants({ variant: "secondary" })} href="/account">
+        <a
+          className={buttonVariants({ variant: "secondary" })}
+          href="/settings/account"
+        >
           Back to account
         </a>
       ) : (

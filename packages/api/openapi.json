@@ -9563,16 +9563,17 @@
                     "theme": {
                       "enum": [
                         "system",
-                        "default-dark",
                         "default-light",
+                        "default-dark",
+                        "graphite",
+                        "dracula",
+                        "monokai",
                         "tokyo-night",
-                        "catppuccin-mocha",
-                        "catppuccin-latte",
-                        "gruvbox-dark",
-                        "nord",
-                        "everforest",
-                        "rose-pine",
-                        "kanagawa"
+                        "one-dark",
+                        "night-owl",
+                        "synthwave-84",
+                        "github-dark",
+                        "github-light"
                       ],
                       "type": "string"
                     },
@@ -10138,16 +10139,17 @@
                     "theme": {
                       "enum": [
                         "system",
-                        "default-dark",
                         "default-light",
+                        "default-dark",
+                        "graphite",
+                        "dracula",
+                        "monokai",
                         "tokyo-night",
-                        "catppuccin-mocha",
-                        "catppuccin-latte",
-                        "gruvbox-dark",
-                        "nord",
-                        "everforest",
-                        "rose-pine",
-                        "kanagawa"
+                        "one-dark",
+                        "night-owl",
+                        "synthwave-84",
+                        "github-dark",
+                        "github-light"
                       ],
                       "type": "string"
                     },
@@ -10647,16 +10649,17 @@
                     "theme": {
                       "enum": [
                         "system",
-                        "default-dark",
                         "default-light",
+                        "default-dark",
+                        "graphite",
+                        "dracula",
+                        "monokai",
                         "tokyo-night",
-                        "catppuccin-mocha",
-                        "catppuccin-latte",
-                        "gruvbox-dark",
-                        "nord",
-                        "everforest",
-                        "rose-pine",
-                        "kanagawa"
+                        "one-dark",
+                        "night-owl",
+                        "synthwave-84",
+                        "github-dark",
+                        "github-light"
                       ],
                       "type": "string"
                     },
@@ -11100,16 +11103,17 @@
                   "theme": {
                     "enum": [
                       "system",
-                      "default-dark",
                       "default-light",
+                      "default-dark",
+                      "graphite",
+                      "dracula",
+                      "monokai",
                       "tokyo-night",
-                      "catppuccin-mocha",
-                      "catppuccin-latte",
-                      "gruvbox-dark",
-                      "nord",
-                      "everforest",
-                      "rose-pine",
-                      "kanagawa"
+                      "one-dark",
+                      "night-owl",
+                      "synthwave-84",
+                      "github-dark",
+                      "github-light"
                     ],
                     "type": "string"
                   }
@@ -11161,16 +11165,17 @@
                     "theme": {
                       "enum": [
                         "system",
-                        "default-dark",
                         "default-light",
+                        "default-dark",
+                        "graphite",
+                        "dracula",
+                        "monokai",
                         "tokyo-night",
-                        "catppuccin-mocha",
-                        "catppuccin-latte",
-                        "gruvbox-dark",
-                        "nord",
-                        "everforest",
-                        "rose-pine",
-                        "kanagawa"
+                        "one-dark",
+                        "night-owl",
+                        "synthwave-84",
+                        "github-dark",
+                        "github-light"
                       ],
                       "type": "string"
                     },

@@ -1,5 +1,8 @@
+// Legacy URL: redirects to its settings tab so old links keep working.
 import { redirect } from "next/navigation";
 
-export default function AdminPage() {
-  return redirect("/admin/users");
+import { LEGACY_ROUTE_REDIRECTS } from "../../../lib/navigation.ts";
+
+export default function LegacyAdminPage() {
+  return redirect(LEGACY_ROUTE_REDIRECTS["/admin"]);
 }

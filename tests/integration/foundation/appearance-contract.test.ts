@@ -24,16 +24,17 @@ import { describe, expect, it } from "vitest";
 const canonical = {
   theme: [
     "system",
-    "default-dark",
     "default-light",
+    "default-dark",
+    "graphite",
+    "dracula",
+    "monokai",
     "tokyo-night",
-    "catppuccin-mocha",
-    "catppuccin-latte",
-    "gruvbox-dark",
-    "nord",
-    "everforest",
-    "rose-pine",
-    "kanagawa",
+    "one-dark",
+    "night-owl",
+    "synthwave-84",
+    "github-dark",
+    "github-light",
   ],
   fontSize: ["small", "default", "large"],
   density: ["compact", "default", "comfortable"],
@@ -44,7 +45,7 @@ const defaults = {
   theme: "system",
   fontSize: "default",
   density: "default",
-  radius: "small",
+  radius: "medium",
 } as const;
 
 describe("persisted appearance contract", () => {
@@ -74,7 +75,7 @@ describe("persisted appearance contract", () => {
       expect(radii).toEqual(canonical.radius);
   });
 
-  return it("keeps System with default size, density, and small radius as the shared default", () => {
+  return it("keeps System with default size, density, and medium (shadcn 0.625rem) radius as the shared default", () => {
     expect(DEFAULT_APPEARANCE).toEqual(defaults);
     return expect(UI_DEFAULT_APPEARANCE).toEqual(defaults);
   });

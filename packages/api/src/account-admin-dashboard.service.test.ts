@@ -429,7 +429,7 @@ describe("account service", () => {
     const expectedUpdatedAt = new Date("2026-01-01T00:00:00.000Z");
     vi.mocked(repositories.userPreferences.findByUserId).mockResolvedValue(
       preferences({
-        theme: "nord",
+        theme: "night-owl",
         fontSize: "large",
         density: "comfortable",
         radius: "medium",
@@ -444,7 +444,7 @@ describe("account service", () => {
     const service = createAccountService(repositories);
 
     await expect(service.getPreferences(principal)).resolves.toEqual({
-      theme: "nord",
+      theme: "night-owl",
       fontSize: "large",
       density: "comfortable",
       radius: "medium",

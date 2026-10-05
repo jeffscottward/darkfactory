@@ -5,16 +5,17 @@ import { z } from "zod";
 
 export const THEME_NAMES = [
   "system",
-  "default-dark",
   "default-light",
+  "default-dark",
+  "graphite",
+  "dracula",
+  "monokai",
   "tokyo-night",
-  "catppuccin-mocha",
-  "catppuccin-latte",
-  "gruvbox-dark",
-  "nord",
-  "everforest",
-  "rose-pine",
-  "kanagawa",
+  "one-dark",
+  "night-owl",
+  "synthwave-84",
+  "github-dark",
+  "github-light",
 ] as const;
 export const FONT_SIZES = ["small", "default", "large"] as const;
 export const DENSITIES = ["compact", "default", "comfortable"] as const;

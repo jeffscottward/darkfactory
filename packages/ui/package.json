@@ -89,6 +89,10 @@
       "import": "./src/client/dropdown-menu.ts",
       "default": "./src/client/dropdown-menu.ts"
     },
+    "./client/sidebar": {
+      "import": "./src/client/sidebar.tsx",
+      "default": "./src/client/sidebar.tsx"
+    },
     "./client/tabs": {
       "import": "./src/client/tabs.ts",
       "default": "./src/client/tabs.ts"
@@ -112,15 +116,16 @@
     "typecheck": "tsc --noEmit -p tsconfig.json"
   },
   "dependencies": {
-    "@fontsource-variable/manrope": "catalog:",
-    "@fontsource-variable/public-sans": "catalog:",
+    "@fontsource-variable/geist": "catalog:",
+    "@fontsource-variable/geist-mono": "catalog:",
     "class-variance-authority": "catalog:",
     "clsx": "catalog:",
     "lucide-react": "catalog:",
     "radix-ui": "catalog:",
     "sonner": "catalog:",
     "tailwind-merge": "catalog:",
-    "tailwindcss": "catalog:"
+    "tailwindcss": "catalog:",
+    "tw-animate-css": "catalog:"
   },
   "devDependencies": {
     "@types/node": "catalog:",

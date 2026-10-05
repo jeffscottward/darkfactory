@@ -1,11 +1,11 @@
 import { Skeleton } from "@darkfactory/ui";
 
-export default function AdminLoading() {
+export default function AdministrationSettingsLoading() {
   return (
     <div
       aria-busy="true"
       aria-live="polite"
-      className="mx-auto w-full max-w-portal space-y-4"
+      className="space-y-4"
       role="status"
     >
       <span className="sr-only">Loading administration</span>

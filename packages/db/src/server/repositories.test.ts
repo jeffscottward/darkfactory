@@ -982,7 +982,7 @@ describe("feature item mutation repository", () => {
   it("creates versioned theme fields without touching unrelated preferences", async () => {
     const returning = vi.fn(async () => [
       {
-        theme: "nord" as const,
+        theme: "night-owl" as const,
         fontSize: "large" as const,
         density: "comfortable" as const,
         radius: "medium" as const,
@@ -1000,14 +1000,14 @@ describe("feature item mutation repository", () => {
     await expect(
       repository.upsertTheme({
         userId: "user_alice",
-        theme: "nord",
+        theme: "night-owl",
         fontSize: "large",
         density: "comfortable",
         radius: "medium",
         expectedUpdatedAt: null,
       })
     ).resolves.toEqual({
-      theme: "nord",
+      theme: "night-owl",
       fontSize: "large",
       density: "comfortable",
       radius: "medium",
@@ -1016,7 +1016,7 @@ describe("feature item mutation repository", () => {
     expect(insert).toHaveBeenCalledWith(userPreferences);
     expect(values).toHaveBeenCalledWith({
       userId: "user_alice",
-      theme: "nord",
+      theme: "night-owl",
       fontSize: "large",
       density: "comfortable",
       radius: "medium",
@@ -1038,7 +1038,7 @@ describe("feature item mutation repository", () => {
     const repository = createUserPreferencesRepository(database);
     const valid = {
       userId: "user_alice",
-      theme: "nord",
+      theme: "night-owl",
       fontSize: "default",
       density: "default",
       radius: "small",
@@ -1060,16 +1060,17 @@ describe("feature item mutation repository", () => {
     expect(insert).not.toHaveBeenCalled();
     expect(APPEARANCE_THEMES).toEqual([
       "system",
-      "default-dark",
       "default-light",
+      "default-dark",
+      "graphite",
+      "dracula",
+      "monokai",
       "tokyo-night",
-      "catppuccin-mocha",
-      "catppuccin-latte",
-      "gruvbox-dark",
-      "nord",
-      "everforest",
-      "rose-pine",
-      "kanagawa",
+      "one-dark",
+      "night-owl",
+      "synthwave-84",
+      "github-dark",
+      "github-light",
     ]);
     expect(FONT_SIZES).toEqual(["small", "default", "large"]);
     expect(DENSITIES).toEqual(["compact", "default", "comfortable"]);
@@ -2386,7 +2387,7 @@ describe("user preferences repository", () => {
     await expect(
       initialRepository.upsertTheme({
         userId: "user_alice",
-        theme: "nord",
+        theme: "night-owl",
         fontSize: "large",
         density: "comfortable",
         radius: "medium",
@@ -2407,7 +2408,7 @@ describe("user preferences repository", () => {
     await expect(
       staleRepository.upsertTheme({
         userId: "user_alice",
-        theme: "nord",
+        theme: "night-owl",
         fontSize: "large",
         density: "comfortable",
         radius: "medium",
@@ -2432,7 +2433,7 @@ describe("user preferences repository", () => {
     try {
       await repository.upsertTheme({
         userId: "user_alice",
-        theme: "nord",
+        theme: "night-owl",
         fontSize: "large",
         density: "comfortable",
         radius: "medium",
@@ -3298,7 +3299,7 @@ describe("repository residual boundaries", () => {
     return await expect(
       repository.upsertTheme({
         userId: "user_alice",
-        theme: "gruvbox-dark",
+        theme: "one-dark",
         fontSize: "default",
         density: "compact",
         radius: "large",
@@ -3327,7 +3328,7 @@ describe("repository residual boundaries", () => {
     });
 
     const theme = {
-      theme: "nord" as const,
+      theme: "night-owl" as const,
       fontSize: "large" as const,
       density: "comfortable" as const,
       radius: "medium" as const,
@@ -3343,7 +3344,7 @@ describe("repository residual boundaries", () => {
     await expect(
       preferencesRepository.upsertTheme({
         userId: "user_alice",
-        theme: "nord",
+        theme: "night-owl",
         fontSize: "large",
         density: "comfortable",
         radius: "medium",

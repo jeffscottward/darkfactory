@@ -63,7 +63,7 @@ export const ProfilePageClient = () => {
       state.kind === "unauthorized" ? (
         <a
           className={buttonVariants()}
-          href="/sign-in?callbackURL=%2Faccount%2Fprofile"
+          href="/sign-in?callbackURL=%2Fsettings%2Faccount%2Fprofile"
         >
           Sign in
         </a>
@@ -72,10 +72,13 @@ export const ProfilePageClient = () => {
           className={buttonVariants({ variant: "secondary" })}
           href="/dashboard"
         >
-          Back to dashboard
+          Back to overview
         </a>
       ) : state.kind === "not-found" ? (
-        <a className={buttonVariants({ variant: "secondary" })} href="/account">
+        <a
+          className={buttonVariants({ variant: "secondary" })}
+          href="/settings/account"
+        >
           Back to account
         </a>
       ) : (

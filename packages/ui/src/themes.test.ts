@@ -26,27 +26,18 @@ describe("appearance catalog", () => {
     expect(RADIUS_OPTIONS.map(({ value }) => value)).toEqual(RADIUS_NAMES);
     expect(THEME_OPTIONS.map(({ label }) => label)).toEqual([
       "System",
-      "Default Dark",
-      "Default Light",
-      "Tokyo Night",
-      "Catppuccin Mocha",
-      "Catppuccin Latte",
-      "Gruvbox Dark",
-      "Nord",
-      "Everforest",
-      "Rosé Pine",
-      "Kanagawa",
+      ...CONCRETE_THEME_NAMES.map((name) => THEME_TOKENS[name].label),
     ]);
     return expect(DEFAULT_APPEARANCE).toEqual({
       density: "default",
       fontSize: "default",
-      radius: "small",
+      radius: "medium",
       theme: "system",
     });
   });
 
   it("labels known values and falls back to the raw value", () => {
-    expect(optionLabel(THEME_OPTIONS, "rose-pine")).toBe("Rosé Pine");
+    expect(optionLabel(THEME_OPTIONS, "synthwave-84")).toBe("Synthwave '84");
     return expect(optionLabel(RADIUS_OPTIONS, "huge" as never)).toBe("huge");
   });
 
@@ -56,28 +47,29 @@ describe("appearance catalog", () => {
         density: "compact",
         fontSize: "large",
         radius: "none",
-        theme: "nord",
+        theme: "dracula",
       })
     ).toEqual({
       "data-density": "compact",
       "data-font-size": "large",
       "data-radius": "none",
-      "data-theme": "nord",
+      "data-theme": "dracula",
     }));
 
   return it("reports each theme color scheme", () => {
     expect(themeColorScheme("system")).toBe("system");
     expect(themeColorScheme("default-light")).toBe("light");
-    expect(themeColorScheme("catppuccin-latte")).toBe("light");
+    expect(themeColorScheme("github-light")).toBe("light");
     for (const theme of [
       "default-dark",
+      "graphite",
+      "dracula",
+      "monokai",
       "tokyo-night",
-      "catppuccin-mocha",
-      "gruvbox-dark",
-      "nord",
-      "everforest",
-      "rose-pine",
-      "kanagawa",
+      "one-dark",
+      "night-owl",
+      "synthwave-84",
+      "github-dark",
     ] as const) {
       expect(themeColorScheme(theme)).toBe("dark");
     }

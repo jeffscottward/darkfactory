@@ -259,7 +259,7 @@ describe("account, preferences, dashboard, and admin contracts", () => {
       PreferencesSchema.parse({ ...preference, theme: "dark" })
     ).toThrow();
     for (const field of [
-      ["theme", "nord"],
+      ["theme", "night-owl"],
       ["fontSize", "large"],
       ["density", "compact"],
       ["radius", "none"],

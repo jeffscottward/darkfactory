@@ -18,21 +18,15 @@ export const StatCard = ({
 }: StatCardProps) => (
   <dl
     className={cn(
-      "grid min-w-0 gap-1 border-primary border-l-2 pl-3 text-left",
+      "flex min-w-0 flex-col gap-1.5 rounded-xl border bg-card px-6 py-6 text-left text-card-foreground shadow-sm",
       className
     )}
     {...props}
   >
-    <dt className="font-body font-medium text-muted-foreground text-sm">
-      {label}
-    </dt>
-    <dd className="font-heading font-semibold text-2xl text-foreground tracking-tight">
-      {value}
-    </dd>
+    <dt className="text-muted-foreground text-sm">{label}</dt>
+    <dd className="font-semibold text-2xl tabular-nums">{value}</dd>
     {description === undefined ? null : (
-      <dd className="font-body text-muted-foreground text-xs leading-4">
-        {description}
-      </dd>
+      <dd className="text-muted-foreground text-sm">{description}</dd>
     )}
   </dl>
 );

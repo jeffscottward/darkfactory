@@ -933,7 +933,7 @@ describe("dashboard summary loader", () => {
         isValidElement(child) && child.type === DashboardContent
     );
 
-    expect(metadata).toEqual({ title: "Dashboard" });
+    expect(metadata).toEqual({ title: "Overview" });
     expect(content?.props).toMatchObject({
       model: toDashboardViewModel({ type: "ready", summary: dashboardSummary }),
     });

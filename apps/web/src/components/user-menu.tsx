@@ -1,31 +1,24 @@
-// What: Portal user menu (avatar + name trigger): features, account, administration, appearance and sign out.
+// What: Portal user menu (avatar + name trigger) with exactly two items: Settings and Sign out.
 // Used by: apps/web/src/components/portal-shell.tsx.
-// See: apps/web/src/lib/navigation.ts; packages/ui/src/client/theme.ts#AppearanceMenuItems.
+// See: apps/web/src/lib/navigation.ts#SETTINGS_ENTRY; apps/web/src/app/(portal)/settings/layout.tsx.
 "use client";
 
 import {
   DropdownMenu,
   DropdownMenuContent,
-  DropdownMenuGroup,
   DropdownMenuItem,
-  DropdownMenuLabel,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@darkfactory/ui/client/dropdown-menu";
-import { AppearanceMenuItems } from "@darkfactory/ui/client/theme";
 import { ChevronDown } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Fragment } from "react";
 
 import {
-  ACCOUNT_NAVIGATION,
-  ADMIN_NAVIGATION,
   EXPOSED_ROUTE_PATHS,
-  FEATURE_NAVIGATION,
   isNavigationItemActive,
   isRouteExposed,
-  type NavigationItem,
+  SETTINGS_ENTRY,
 } from "../lib/navigation.ts";
 import {
   SignOutError,
@@ -33,7 +26,6 @@ import {
   useSignOutAction,
 } from "./account/sign-out-action.tsx";
 import type { CurrentSessionGateway } from "./account/sign-out-client.ts";
-import { useAppearanceSelection } from "./theme-menu.tsx";
 
 export const userInitials = (name: string): string => {
   const parts = name.trim().split(/\s+/u).filter(Boolean);
@@ -44,57 +36,30 @@ export const userInitials = (name: string): string => {
   return initials === "" ? "?" : initials;
 };
 
-export interface UserMenuSection {
-  readonly items: readonly NavigationItem[];
-  readonly label: string;
-}
-
-export const userMenuSections = ({
-  availableRoutes = EXPOSED_ROUTE_PATHS,
-  isAdmin = false,
-}: Readonly<{
-  availableRoutes?: readonly string[];
-  isAdmin?: boolean;
-}>): readonly UserMenuSection[] => {
-  const exposed = (items: readonly NavigationItem[]) =>
-    items.filter((item) => isRouteExposed(item.href, availableRoutes));
-  const sections: UserMenuSection[] = [
-    { items: exposed(FEATURE_NAVIGATION), label: "Features" },
-    { items: exposed(ACCOUNT_NAVIGATION), label: "Account" },
-  ];
-  if (isAdmin)
-    sections.push({
-      items: exposed(ADMIN_NAVIGATION),
-      label: "Administration",
-    });
-  return sections.filter((section) => section.items.length > 0);
-};
-
 export interface UserMenuProps {
   readonly availableRoutes?: readonly string[];
-  readonly isAdmin?: boolean;
   readonly name: string;
   readonly signOutGateway?: CurrentSessionGateway;
 }
 
 export const UserMenu = ({
   availableRoutes = EXPOSED_ROUTE_PATHS,
-  isAdmin = false,
   name,
   signOutGateway,
 }: UserMenuProps) => {
   const pathname = usePathname() ?? "";
-  const appearance = useAppearanceSelection();
   const signOut = useSignOutAction(
     signOutGateway === undefined ? {} : { gateway: signOutGateway }
   );
-  const sections = userMenuSections({ availableRoutes, isAdmin });
+  const settings = isRouteExposed(SETTINGS_ENTRY.href, availableRoutes)
+    ? SETTINGS_ENTRY
+    : null;
+  const SettingsIcon = SETTINGS_ENTRY.icon;
+  const settingsActive =
+    settings !== null && isNavigationItemActive(pathname, settings);
 
   return (
     <div className="relative">
-      <span aria-atomic="true" aria-live="polite" className="sr-only">
-        {appearance.statusMessage}
-      </span>
       {/* Non-modal: a modal menu marks the page aria-hidden while it stays focusable.
           aria-controls is optional for menu buttons; axe cannot verify it next to aria-haspopup. */}
       <DropdownMenu modal={false}>
@@ -116,45 +81,25 @@ export const UserMenu = ({
         <DropdownMenuContent
           align="end"
           aria-labelledby="user-menu-trigger"
-          className="max-h-[calc(100dvh-var(--header-height))] w-60 overflow-y-auto overscroll-contain"
+          className="w-56"
           id="user-menu-content"
         >
-          {sections.map((section) => (
-            <Fragment key={section.label}>
-              <DropdownMenuGroup aria-label={section.label}>
-                <DropdownMenuLabel>{section.label}</DropdownMenuLabel>
-                {section.items.map((item) => {
-                  const Icon = item.icon;
-                  const active = isNavigationItemActive(pathname, item);
-                  return (
-                    <DropdownMenuItem asChild key={item.href}>
-                      <Link
-                        aria-current={active ? "page" : undefined}
-                        className={active ? "font-semibold" : undefined}
-                        href={item.href}
-                        prefetch={false}
-                      >
-                        <Icon aria-hidden="true" />
-                        <span>{item.label}</span>
-                      </Link>
-                    </DropdownMenuItem>
-                  );
-                })}
-              </DropdownMenuGroup>
+          {settings === null ? null : (
+            <>
+              <DropdownMenuItem asChild>
+                <Link
+                  aria-current={settingsActive ? "page" : undefined}
+                  className={settingsActive ? "font-semibold" : undefined}
+                  href={settings.href}
+                  prefetch={false}
+                >
+                  <SettingsIcon aria-hidden="true" />
+                  <span>{settings.label}</span>
+                </Link>
+              </DropdownMenuItem>
               <DropdownMenuSeparator />
-            </Fragment>
-          ))}
-          {appearance.error === null ? null : (
-            <p className="px-3 py-1 text-destructive text-xs" role="alert">
-              {appearance.error}
-            </p>
+            </>
           )}
-          <AppearanceMenuItems
-            disabled={appearance.disabled}
-            idPrefix="user-menu"
-            onPreferenceChange={appearance.select}
-          />
-          <DropdownMenuSeparator />
           <SignOutMenuItem {...signOut} />
         </DropdownMenuContent>
       </DropdownMenu>

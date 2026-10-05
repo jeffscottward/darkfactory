@@ -28,6 +28,8 @@ const DEFAULT_SESSION_TIMEOUT_MS = 3000;
 const PORTAL_PATH_ROOTS = [
   "/dashboard",
   "/feature-items",
+  "/settings",
+  // Legacy roots: their pages redirect to /settings.
   "/account",
   "/admin",
 ] as const;

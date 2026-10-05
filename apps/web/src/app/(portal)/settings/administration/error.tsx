@@ -3,14 +3,14 @@
 import { Button, EmptyState } from "@darkfactory/ui";
 import { RotateCcw } from "lucide-react";
 
-export default function AccountError({
+export default function AdministrationSettingsError({
   reset,
 }: {
   readonly error: Error;
   readonly reset: () => void;
 }) {
   return (
-    <div className="mx-auto w-full max-w-portal">
+    <div>
       <EmptyState
         action={
           <Button onClick={reset} variant="secondary">
@@ -18,9 +18,9 @@ export default function AccountError({
             Try again
           </Button>
         }
-        description="Account settings could not be displayed. No saved values were changed."
+        description="The read-only administration view could not be displayed."
         icon={<RotateCcw />}
-        title="Account settings unavailable"
+        title="Administration unavailable"
       />
     </div>
   );

@@ -72,7 +72,7 @@ export const signInAs = async (
     (url) => url.pathname === "/dashboard"
   );
   await playwrightExpect(
-    page.getByRole("heading", { level: 1, name: "Dashboard" })
+    page.getByRole("heading", { level: 1, name: "Overview" })
   ).toBeVisible();
 };
 

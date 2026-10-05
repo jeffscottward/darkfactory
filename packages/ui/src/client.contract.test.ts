@@ -28,13 +28,24 @@ describe("React 19 focus refs", () => {
   });
 
   return it("keeps menu focus and disabled states visually explicit", () => {
-    const itemClasses = DropdownMenuItem({}).props.className as string;
-    const subTriggerClasses = DropdownMenuSubTrigger({}).props
-      .className as string;
+    const chromeClasses = (element: {
+      props: { children?: unknown };
+    }): string =>
+      String(
+        (element.props.children as { props: { className: string } }).props
+          .className
+      );
+    const item = DropdownMenuItem({});
+    const subTrigger = DropdownMenuSubTrigger({});
 
-    expect(itemClasses).toContain("focus:ring-2");
-    expect(itemClasses).toContain("data-[disabled]:opacity-100");
-    expect(subTriggerClasses).toContain("focus:ring-2");
-    return expect(subTriggerClasses).toContain("data-[disabled]:opacity-100");
+    expect(String(item.props.className)).toContain("min-h-11");
+    expect(chromeClasses(item)).toContain("group-focus/item:bg-accent");
+    expect(chromeClasses(item)).toContain(
+      "group-data-[disabled]/item:opacity-50"
+    );
+    expect(chromeClasses(subTrigger)).toContain("group-focus/item:bg-accent");
+    return expect(chromeClasses(subTrigger)).toContain(
+      "group-data-[state=open]/item:bg-accent"
+    );
   });
 });

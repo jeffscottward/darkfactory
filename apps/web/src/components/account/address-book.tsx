@@ -65,7 +65,7 @@ export const AddressBook = ({
             state.kind === "unauthorized" ? (
               <a
                 className={buttonVariants({ size: "compact" })}
-                href="/sign-in?callbackURL=%2Faccount%2Faddress"
+                href="/sign-in?callbackURL=%2Fsettings%2Faccount%2Faddress"
               >
                 Sign in
               </a>
@@ -75,7 +75,7 @@ export const AddressBook = ({
                   size: "compact",
                   variant: "secondary",
                 })}
-                href="/account/profile"
+                href="/settings/account/profile"
               >
                 Back to account
               </a>
@@ -113,6 +113,7 @@ export const AddressBook = ({
     <div className="space-y-3">
       <AccountFeedbackMessage feedback={feedback} />
       <div
+        aria-label="Saved addresses"
         className="divide-y divide-border border-border border-y"
         role="list"
       >
@@ -129,9 +130,9 @@ export const AddressBook = ({
             >
               <div className="min-w-0 space-y-1">
                 <div className="flex flex-wrap items-center gap-2">
-                  <h2 className="font-heading font-semibold text-base text-foreground capitalize">
+                  <h3 className="font-heading font-semibold text-base text-foreground capitalize">
                     {address.type}
-                  </h2>
+                  </h3>
                   {address.isPrimary ? (
                     <StatusBadge status="success">Primary</StatusBadge>
                   ) : null}
