@@ -20,8 +20,9 @@ export const Avatar = ({
 }: AvatarProps) => (
   <span
     {...props}
+    data-slot="avatar"
     className={cn(
-      "relative inline-flex size-10 shrink-0 items-center justify-center overflow-hidden rounded-pill border border-border bg-muted font-body font-semibold text-foreground text-sm",
+      "relative flex size-8 shrink-0 select-none items-center justify-center overflow-hidden rounded-full bg-muted text-muted-foreground text-sm",
       className
     )}
     {...(src === undefined ? { role: "img", "aria-label": name } : {})}
@@ -31,10 +32,10 @@ export const Avatar = ({
     ) : (
       <img
         alt={name}
-        className="size-full object-cover"
-        height={40}
+        className="aspect-square size-full object-cover"
+        height={32}
         src={src}
-        width={40}
+        width={32}
         {...imageProps}
       />
     )}

@@ -283,6 +283,10 @@ describe("getPortalSession", () => {
     expect(safePortalCallbackPath("/admin/users?cursor=next")).toBe(
       "/admin/users?cursor=next"
     );
+    expect(safePortalCallbackPath("/settings/account/security")).toBe(
+      "/settings/account/security"
+    );
+    expect(safePortalCallbackPath("/settings-archive")).toBeNull();
     expect(
       safePortalCallbackPath("/operator/runs/run-1?view=timeline")
     ).toBeNull();

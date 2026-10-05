@@ -36,8 +36,11 @@ vi.mock("next/navigation", () => ({
   usePathname: () => navigationMocks.pathname,
 }));
 vi.mock("next/link", () => ({
-  default: ({ prefetch: _prefetch, ...props }: MockLinkProps) =>
-    createElement("a", props),
+  default: ({ prefetch, ...props }: MockLinkProps) =>
+    createElement("a", {
+      ...props,
+      "data-prefetch": prefetch === undefined ? undefined : String(prefetch),
+    }),
 }));
 vi.mock("@darkfactory/ui/client/toaster", () => ({ Toaster: () => null }));
 vi.mock("./components/theme-menu.tsx", () => ({
@@ -87,28 +90,29 @@ import robots from "./app/robots.ts";
 import { GET as getThemeBootstrap } from "./app/theme-bootstrap.js/route.ts";
 import { AuthShell } from "./components/auth-shell.tsx";
 import { NavigationLinks } from "./components/navigation-links.tsx";
-import {
-  PortalShell,
-  PortalSidebar,
-  PortalTopbar,
-} from "./components/portal-shell.tsx";
+import { PortalShell } from "./components/portal-shell.tsx";
 import {
   getPublicNavigationModel,
   PublicFooter,
   PublicShell,
 } from "./components/public-shell.tsx";
 import {
-  ACCOUNT_NAVIGATION,
-  ADMIN_NAVIGATION,
+  ACCOUNT_SETTINGS_NAVIGATION,
   ALL_NAVIGATION,
   AUTH_NAVIGATION,
   EXPOSED_ROUTE_PATHS,
   FEATURE_NAVIGATION,
   isNavigationItemActive,
   isRouteExposed,
+  LEGACY_ROUTE_PAGE_FILES,
+  LEGACY_ROUTE_REDIRECTS,
   PORTAL_NAVIGATION,
+  PORTAL_SIDEBAR_GROUPS,
   PUBLIC_NAVIGATION,
   ROUTE_PAGE_FILES,
+  SETTINGS_ENTRY,
+  SETTINGS_HOME_PATH,
+  SETTINGS_NAVIGATION,
   SUPPORT_NAVIGATION,
 } from "./lib/navigation.ts";
 import {
@@ -163,6 +167,11 @@ const UiStateProbe = () =>
     useUiState((state) => `${state.theme}:${state.radius}`)
   );
 
+const CollapseSidebar = () => {
+  useUiStoreApi().getState().setSidebar("collapsed");
+  return null;
+};
+
 const MissingUiStateProviderProbe = () => {
   useUiStoreApi();
   return null;
@@ -190,11 +199,6 @@ const collectPortalElements = (
   }
   return matches;
 };
-
-const findPortalElement = (
-  node: ReactNode,
-  predicate: (element: PortalElement) => boolean
-): PortalElement | undefined => collectPortalElements(node, predicate)[0];
 
 const runThemeBootstrap = ({
   cookieStatus,
@@ -229,13 +233,13 @@ const ROSE_PINE = {
   density: "compact",
   fontSize: "large",
   radius: "none",
-  theme: "rose-pine",
+  theme: "dracula",
 } as const;
-const ROSE_PINE_COOKIE = "darkfactory-theme=rose-pine%3Alarge%3Acompact%3Anone";
+const ROSE_PINE_COOKIE = "darkfactory-theme=dracula%3Alarge%3Acompact%3Anone";
 const LEGACY_THEME_COOKIE = "darkfactory-theme=dark%3Arose";
 
 describe("application navigation manifest", () => {
-  it("contains every public, portal, account, and admin destination exactly once per group", () => {
+  it("contains every public, portal, feature, and settings destination exactly once per group", () => {
     expect(PUBLIC_NAVIGATION.map((item) => item.href)).toEqual([
       "/",
       "/features",
@@ -244,17 +248,34 @@ describe("application navigation manifest", () => {
       "/about",
       "/sign-in",
     ]);
-    expect(PORTAL_NAVIGATION.map((item) => item.href)).toEqual(["/dashboard"]);
+    expect(PORTAL_NAVIGATION.map((item) => [item.href, item.label])).toEqual([
+      ["/dashboard", "Overview"],
+    ]);
     expect(FEATURE_NAVIGATION.map((item) => item.href)).toEqual([
       "/feature-items",
     ]);
-    expect(ACCOUNT_NAVIGATION.map((item) => item.href)).toEqual([
-      "/account/profile",
-      "/account/address",
-      "/account/preferences",
-      "/account/security",
+    expect(
+      PORTAL_SIDEBAR_GROUPS.map((group) => [group.label, group.items])
+    ).toEqual([
+      [null, PORTAL_NAVIGATION],
+      ["Features", FEATURE_NAVIGATION],
     ]);
-    expect(ADMIN_NAVIGATION.map((item) => item.href)).toEqual(["/admin/users"]);
+    expect(SETTINGS_ENTRY).toMatchObject({
+      href: "/settings",
+      label: "Settings",
+    });
+    expect(SETTINGS_NAVIGATION.map((item) => [item.href, item.label])).toEqual([
+      ["/settings/account", "Account"],
+      ["/settings/administration", "Administration"],
+      ["/settings/appearance", "Appearance"],
+    ]);
+    expect(ACCOUNT_SETTINGS_NAVIGATION.map((item) => item.href)).toEqual([
+      "/settings/account/profile",
+      "/settings/account/address",
+      "/settings/account/preferences",
+      "/settings/account/security",
+    ]);
+    expect(SETTINGS_HOME_PATH).toBe("/settings/account/profile");
     expect(SUPPORT_NAVIGATION.map((item) => item.href)).toEqual([
       "/contact",
       "/legal/privacy",
@@ -268,30 +289,42 @@ describe("application navigation manifest", () => {
     expect(new Set(ALL_NAVIGATION.map((item) => item.href)).size).toBe(
       ALL_NAVIGATION.length
     );
+    expect(
+      ALL_NAVIGATION.filter((item) => item.label.includes("Dashboard"))
+    ).toEqual([]);
 
     for (const group of [
       PUBLIC_NAVIGATION,
       PORTAL_NAVIGATION,
       FEATURE_NAVIGATION,
-      ACCOUNT_NAVIGATION,
-      ADMIN_NAVIGATION,
+      SETTINGS_NAVIGATION,
+      ACCOUNT_SETTINGS_NAVIGATION,
     ]) {
       expect(new Set(group.map((item) => item.href)).size).toBe(group.length);
     }
   });
 
-  it("maps every exposed destination to a real page while future definitions remain non-navigable", async () => {
+  it("maps every exposed destination and legacy redirect to a real page while future definitions remain non-navigable", async () => {
     const exposedRoutes = ALL_NAVIGATION.filter((item) =>
       isRouteExposed(item.href)
     ).map((item) => item.href);
-    // "/account" stays routable as a redirect to the profile page but is no longer a menu destination.
-    expect([...exposedRoutes].sort()).toEqual(
-      EXPOSED_ROUTE_PATHS.filter((route) => route !== "/account").sort()
-    );
+    expect([...exposedRoutes].sort()).toEqual([...EXPOSED_ROUTE_PATHS].sort());
     expect(Object.keys(ROUTE_PAGE_FILES).sort()).toEqual(
       [...EXPOSED_ROUTE_PATHS].sort()
     );
-    for (const pageFile of Object.values(ROUTE_PAGE_FILES)) {
+    expect(Object.keys(LEGACY_ROUTE_PAGE_FILES).sort()).toEqual(
+      Object.keys(LEGACY_ROUTE_REDIRECTS).sort()
+    );
+    for (const target of Object.values(LEGACY_ROUTE_REDIRECTS)) {
+      expect(EXPOSED_ROUTE_PATHS).toContain(target);
+    }
+    for (const legacyRoute of Object.keys(LEGACY_ROUTE_REDIRECTS)) {
+      expect(EXPOSED_ROUTE_PATHS).not.toContain(legacyRoute);
+    }
+    for (const pageFile of [
+      ...Object.values(ROUTE_PAGE_FILES),
+      ...Object.values(LEGACY_ROUTE_PAGE_FILES),
+    ]) {
       await expect(
         access(new URL(`./app/${pageFile}`, import.meta.url))
       ).resolves.toBeUndefined();
@@ -301,6 +334,7 @@ describe("application navigation manifest", () => {
   return it("marks exact and nested destinations without falsely selecting sibling routes", () => {
     const dashboard = PORTAL_NAVIGATION[0];
     const featureItems = FEATURE_NAVIGATION[0];
+    const accountTab = SETTINGS_NAVIGATION[0];
     expect(dashboard).toBeDefined();
     expect(featureItems).toBeDefined();
     expect(isNavigationItemActive("/dashboard", dashboard!)).toBe(true);
@@ -310,6 +344,12 @@ describe("application navigation manifest", () => {
     expect(
       isNavigationItemActive("/feature-items-archive", featureItems!)
     ).toBe(false);
+    expect(
+      isNavigationItemActive("/settings/account/security", accountTab!)
+    ).toBe(true);
+    expect(isNavigationItemActive("/settings/appearance", accountTab!)).toBe(
+      false
+    );
     return expect(isNavigationItemActive("/about", PUBLIC_NAVIGATION[0]!)).toBe(
       false
     );
@@ -330,7 +370,7 @@ describe("root metadata and theme contract", () => {
     expect(themeRootAttributes(DEFAULT_ANONYMOUS_THEME)).toEqual({
       "data-density": "default",
       "data-font-size": "default",
-      "data-radius": "small",
+      "data-radius": "medium",
       "data-theme": "system",
       "data-theme-authority": "anonymous",
       "data-theme-cookie-status": "missing",
@@ -352,7 +392,7 @@ describe("root metadata and theme contract", () => {
           density: "comfortable",
           fontSize: "large",
           radius: "medium",
-          theme: "catppuccin-latte",
+          theme: "github-light",
           updatedAt: new Date("2026-01-01T00:00:00.000Z"),
         }),
       })
@@ -362,7 +402,7 @@ describe("root metadata and theme contract", () => {
         density: "comfortable",
         fontSize: "large",
         radius: "medium",
-        theme: "catppuccin-latte",
+        theme: "github-light",
       },
     });
     expect(
@@ -384,7 +424,7 @@ describe("root metadata and theme contract", () => {
             density: "comfortable",
             fontSize: "large",
             radius: "medium",
-            theme: "catppuccin-latte",
+            theme: "github-light",
             unexpected: true,
             updatedAt: null,
           }),
@@ -393,7 +433,7 @@ describe("root metadata and theme contract", () => {
     ).toEqual(DEFAULT_ANONYMOUS_THEME);
     for (const malformedTrustedPreference of [
       null,
-      "rose-pine:large:compact:none",
+      "dracula:large:compact:none",
       [ROSE_PINE],
       {
         ...ROSE_PINE,
@@ -450,13 +490,13 @@ describe("root metadata and theme contract", () => {
       "",
       "not-json",
       '{"version":1,"themeMode":"dark","palette":"rose"}',
-      '{"version":1,"theme":"rose-pine","fontSize":"large","density":"compact","radius":"none"}',
-      '{"version":2,"theme":"rose-pine","fontSize":"large","density":"compact"}',
+      '{"version":1,"theme":"dracula","fontSize":"large","density":"compact","radius":"none"}',
+      '{"version":2,"theme":"dracula","fontSize":"large","density":"compact"}',
       '{"version":2,"theme":"night","fontSize":"large","density":"compact","radius":"none"}',
-      '{"version":2,"theme":"rose-pine","fontSize":"huge","density":"compact","radius":"none"}',
-      '{"version":2,"theme":"rose-pine","fontSize":"large","density":"compact","sidebar":"expanded"}',
-      '{"version":2,"theme":"rose-pine","fontSize":"large","density":"compact","radius":"none","mobileNavigationOpen":true}',
-      '{"version":2,"state":{"sidebar":"expanded","mobileNavigationOpen":true,"theme":"rose-pine","fontSize":"large","density":"compact","radius":"none","consent":"unknown"}}',
+      '{"version":2,"theme":"dracula","fontSize":"huge","density":"compact","radius":"none"}',
+      '{"version":2,"theme":"dracula","fontSize":"large","density":"compact","sidebar":"expanded"}',
+      '{"version":2,"theme":"dracula","fontSize":"large","density":"compact","radius":"none","mobileNavigationOpen":true}',
+      '{"version":2,"state":{"sidebar":"expanded","mobileNavigationOpen":true,"theme":"dracula","fontSize":"large","density":"compact","radius":"none","consent":"unknown"}}',
     ]) {
       expect(parseAnonymousThemePreference(malformed)).toEqual(
         DEFAULT_ANONYMOUS_THEME
@@ -470,7 +510,7 @@ describe("root metadata and theme contract", () => {
       density: "compact",
       fontSize: "large",
       radius: "none",
-      theme: "rose-pine",
+      theme: "dracula",
     });
   });
 
@@ -490,10 +530,10 @@ describe("root metadata and theme contract", () => {
       LEGACY_THEME_COOKIE,
       "darkfactory-theme=dark",
       "darkfactory-theme=night%3Alarge%3Acompact%3Anone",
-      "darkfactory-theme=rose-pine%3Ahuge%3Acompact%3Anone",
-      "darkfactory-theme=rose-pine%3Alarge%3Adense%3Anone",
-      "darkfactory-theme=rose-pine%3Alarge%3Acompact%3Around",
-      "darkfactory-theme=rose-pine%3Alarge%3Acompact%3Anone%3Aextra",
+      "darkfactory-theme=dracula%3Ahuge%3Acompact%3Anone",
+      "darkfactory-theme=dracula%3Alarge%3Adense%3Anone",
+      "darkfactory-theme=dracula%3Alarge%3Acompact%3Around",
+      "darkfactory-theme=dracula%3Alarge%3Acompact%3Anone%3Aextra",
       "darkfactory-theme=%E0%A4%A",
       `${ROSE_PINE_COOKIE}; darkfactory-theme=system%3Adefault%3Adefault%3Asmall`,
       `darkfactory-theme=${"x".repeat(MAX_THEME_COOKIE_VALUE_LENGTH + 1)}`,
@@ -512,7 +552,7 @@ describe("root metadata and theme contract", () => {
         mobileNavigationOpen: false,
         radius: "none",
         sidebar: "expanded",
-        theme: "rose-pine",
+        theme: "dracula",
       },
       version: 2,
     });
@@ -531,14 +571,14 @@ describe("root metadata and theme contract", () => {
       density: "compact",
       fontSize: "small",
       radius: "medium",
-      theme: "nord",
+      theme: "night-owl",
       version: 2,
     });
     const nord = {
       density: "compact",
       fontSize: "small",
       radius: "medium",
-      theme: "nord",
+      theme: "night-owl",
     };
     expect(
       runThemeBootstrap({
@@ -578,11 +618,11 @@ describe("root metadata and theme contract", () => {
         dataset: { ...ROSE_PINE, fontSize: "huge", radius: "round" },
       })
     ).toMatchObject({
-      dataset: { ...ROSE_PINE, fontSize: "default", radius: "small" },
+      dataset: { ...ROSE_PINE, fontSize: "default", radius: "medium" },
       snapshot: {
         ...ROSE_PINE,
         fontSize: "default",
-        radius: "small",
+        radius: "medium",
         source: "server",
       },
     });
@@ -591,7 +631,7 @@ describe("root metadata and theme contract", () => {
       JSON.stringify({ ...nord, version: 1 }),
       JSON.stringify({ ...nord, theme: "night", version: 2 }),
       JSON.stringify({ ...nord, extra: true, version: 2 }),
-      JSON.stringify({ fontSize: "small", theme: "nord", version: 2 }),
+      JSON.stringify({ fontSize: "small", theme: "night-owl", version: 2 }),
       JSON.stringify({ ...nord, radius: "x".repeat(128), version: 2 }),
       "null",
       "not-json",
@@ -615,7 +655,7 @@ describe("root metadata and theme contract", () => {
         initialTheme: ROSE_PINE,
       })
     );
-    expect(html).toContain('data-theme="rose-pine"');
+    expect(html).toContain('data-theme="dracula"');
     expect(html).toContain('data-font-size="large"');
     expect(html).toContain('data-density="compact"');
     expect(html).toContain('data-radius="none"');
@@ -638,7 +678,7 @@ describe("root metadata and theme contract", () => {
     return expect(
       themeRootAttributes(ROSE_PINE, "trusted", "valid")
     ).toMatchObject({
-      "data-theme": "rose-pine",
+      "data-theme": "dracula",
       "data-theme-authority": "trusted",
       "data-theme-cookie-status": "valid",
     });
@@ -654,6 +694,8 @@ describe("root metadata and theme contract", () => {
       "/feature-items",
       "/forgot-password",
       "/reset-password",
+      "/settings",
+      "/settings/",
       "/sign-in",
       "/sign-up",
     ]));
@@ -713,58 +755,31 @@ describe("shared shell semantics", () => {
       })
     );
     expect(html).toContain('aria-current="page"');
-    expect(html).toContain("bg-primary-subtle");
+    expect(html).toContain("text-foreground");
     return expect(html).toContain(", current page");
   });
 
-  it("disables prefetch for every desktop and mobile authenticated navigation group", () => {
-    const availableRoutes = [
-      PORTAL_NAVIGATION[0]!.href,
-      FEATURE_NAVIGATION[0]!.href,
-      ACCOUNT_NAVIGATION[0]!.href,
-      ADMIN_NAVIGATION[0]!.href,
-    ];
-    const portalTrees = [
-      PortalSidebar({ availableRoutes }),
-      PortalTopbar({
-        availableRoutes,
-        isAdmin: true,
-        userName: "Ada Lovelace",
-      }),
-    ];
-    const navigationGroups = portalTrees.flatMap((tree, index) => {
-      const navigation = findPortalElement(
-        tree,
-        (element) =>
-          typeof element.type === "function" &&
-          element.props.availableRoutes === availableRoutes &&
-          element.props.mobile === (index === 1 ? true : undefined)
-      );
-      expect(navigation).toBeDefined();
-      if (navigation === undefined || typeof navigation.type !== "function") {
-        throw new Error("Expected portal navigation");
-      }
-      const renderNavigation = navigation.type as (
-        props: PortalElement["props"]
-      ) => ReactNode;
-      return collectPortalElements(
-        renderNavigation(navigation.props),
-        (element) => element.type === NavigationLinks
-      );
-    });
-
-    expect(navigationGroups).toHaveLength(2);
-    expect(navigationGroups.map((group) => group.props.items)).toEqual([
-      [PORTAL_NAVIGATION[0]],
-      [PORTAL_NAVIGATION[0]],
-    ]);
+  it("disables prefetch for every authenticated sidebar link", () => {
+    const portal = markup(
+      withUiState(
+        createElement(PortalShell, {
+          children: createElement("h1", {}, "Portal page"),
+          userName: "Ada Lovelace",
+        })
+      )
+    );
+    const links = portal.match(
+      /<a[^>]*href="\/(dashboard|feature-items)"[^>]*>/g
+    );
+    // Desktop sidebar and mobile drawer.
+    expect(links).toHaveLength(4);
     return expect(
-      navigationGroups.every((group) => group.props.prefetch === false)
+      links?.every((link) => link.includes('data-prefetch="false"'))
     ).toBe(true);
   });
 
   it("forwards an explicit prefetch value to every link without changing public defaults", () => {
-    const items = [PORTAL_NAVIGATION[0]!, ACCOUNT_NAVIGATION[0]!];
+    const items = [PORTAL_NAVIGATION[0]!, ACCOUNT_SETTINGS_NAVIGATION[0]!];
     const privateLinks = collectPortalElements(
       NavigationLinks({ items, prefetch: false }),
       (element) => typeof element.props.href === "string"
@@ -823,6 +838,7 @@ describe("shared shell semantics", () => {
   });
 
   it("renders portal and auth shells with semantic role-gated landmarks", () => {
+    navigationMocks.pathname = "/dashboard";
     const portal = markup(
       withUiState(
         createElement(PortalShell, {
@@ -831,9 +847,6 @@ describe("shared shell semantics", () => {
         })
       )
     );
-    const portalNavigationTrigger = portal.match(
-      /<button[^>]*aria-label="Open portal navigation"[^>]*>/
-    )?.[0];
     const userMenuTrigger = portal.match(
       /<button[^>]*id="user-menu-trigger"[^>]*>/
     )?.[0];
@@ -845,49 +858,49 @@ describe("shared shell semantics", () => {
       )
     );
     expect(portal.match(/id="main-content"/g)).toHaveLength(1);
-    expect(portal).toContain("<aside");
-    expect(portal).toContain('popoverTarget="portal-navigation"');
-    expect(portal).toContain('popover="auto"');
-    expect(portal).toContain('popoverTargetAction="hide"');
-    expect(portal).toMatch(/aria-label="Open portal navigation"/);
-    expect(portal).not.toMatch(
-      /aria-label="Open portal navigation"[^>]*\sdisabled(?:=|>|\s)/
-    );
-    expect(portalNavigationTrigger).not.toContain("data-hydration-state");
+    expect(portal).toContain('data-slot="sidebar-wrapper"');
+    expect(portal).toContain('data-slot="sidebar-inset"');
+    expect(portal).toContain('data-collapsible=""');
+    expect(portal).toContain('data-variant="inset"');
+    expect(portal).toMatch(/aria-label="Toggle sidebar"/);
     expect(portal).toContain('aria-label="Portal navigation"');
-    expect(portal).toContain('aria-label="Mobile portal navigation"');
+    expect(portal).toContain(">Features</div>");
     expect(portal.match(/href="\/dashboard"/g)).toHaveLength(2);
-    expect(portal).toContain("Overview");
+    expect(portal.match(/href="\/feature-items"/g)).toHaveLength(2);
+    expect(portal).toContain('aria-label="Mobile portal navigation"');
+    expect(portal).toMatch(
+      /<button[^>]*aria-label="Open portal navigation"[^>]*popovertarget="portal-navigation"/i
+    );
+    expect(portal).toMatch(/id="portal-navigation"[^>]*popover="auto"/);
+    expect(portal).toMatch(
+      /<button[^>]*aria-label="Close portal navigation"[^>]*autofocus/i
+    );
+    expect(portal).toContain('aria-current="page"');
+    expect(portal).toContain('<p class="font-medium text-base">Overview</p>');
     expect(userMenuTrigger).toContain('data-hydration-state="pending"');
     expect(portal).toContain(">AL</span>");
-    expect(portal).toContain(">Ada Lovelace</span>");
-    // Feature, account, admin and sign-out entries live in the closed user menu.
-    expect(portal).not.toContain('href="/feature-items"');
-    expect(portal).not.toContain('href="/account/security"');
     expect(portal).not.toContain("<span>Sign out</span>");
     expect(portal).not.toContain("authenticated");
     expect(auth.match(/id="main-content"/g)).toHaveLength(1);
-    expect(portal).not.toContain('href="/admin/users"');
-    const adminPortal = markup(
-      withUiState(
+    const collapsed = markup(
+      withUiState([
+        createElement(CollapseSidebar, { key: "collapse" }),
         createElement(PortalShell, {
-          availableRoutes: ["/admin/users"],
-          children: createElement("h1", {}, "Admin portal"),
-          isAdmin: true,
+          availableRoutes: ["/settings/appearance"],
+          children: createElement("h1", {}, "Settings"),
+          key: "shell",
           userName: "Grace Hopper",
-        })
-      )
+        }),
+      ])
     );
-    expect(adminPortal).toContain(">GH</span>");
-    expect(adminPortal).not.toContain('aria-label="Portal navigation"');
-    expect(adminPortal).not.toContain('href="/admin/users"');
-    expect(adminPortal).not.toContain('href="/dashboard"');
-    expect(adminPortal).not.toContain('href="/account"');
-    expect(adminPortal).not.toContain('href="/feature-items"');
+    expect(collapsed).toContain(">GH</span>");
+    expect(collapsed).not.toContain('aria-label="Portal navigation"');
+    expect(collapsed).not.toContain('href="/dashboard"');
     return expect(auth).toContain("<main");
   });
 
-  it("keeps the portal shell useful while no destinations are exposed", () => {
+  return it("keeps the portal shell useful while no destinations are exposed", () => {
+    navigationMocks.pathname = null;
     const portal = markup(
       withUiState(
         createElement(PortalShell, {
@@ -899,61 +912,10 @@ describe("shared shell semantics", () => {
     );
 
     expect(portal).toContain("Unavailable portal");
+    expect(portal).toContain(">DarkFactory</p>");
     expect(portal).toContain('id="user-menu-trigger"');
     expect(portal).not.toContain('aria-label="Portal navigation"');
-    expect(portal).not.toContain('aria-label="Mobile portal navigation"');
     return expect(portal).not.toContain('href="/dashboard"');
-  });
-
-  return it("closes mobile navigation only when the popover exposes a hide method", () => {
-    const mobileNavigation = findPortalElement(
-      PortalTopbar({ availableRoutes: ["/dashboard"], userName: "Ada" }),
-      (element) => element.props.mobile === true
-    );
-    expect(mobileNavigation).toBeDefined();
-    if (
-      mobileNavigation === undefined ||
-      typeof mobileNavigation.type !== "function"
-    ) {
-      throw new Error("Expected the mobile portal navigation component");
-    }
-    const renderNavigation = mobileNavigation.type as (
-      props: PortalElement["props"]
-    ) => ReactNode;
-    const navigationTree = renderNavigation(mobileNavigation.props);
-    const links = findPortalElement(
-      navigationTree,
-      (element) => element.type === NavigationLinks
-    );
-    expect(links).toBeDefined();
-    const onNavigate = links?.props.onNavigate;
-    if (onNavigate === undefined) {
-      throw new Error("Expected mobile navigation links to close the popover");
-    }
-
-    const hidePopover = vi.fn();
-    const popover = { hidePopover };
-    const getElementById = vi.fn(
-      (): { readonly hidePopover: unknown } | null => popover
-    );
-    getElementById.mockReturnValueOnce(popover);
-    getElementById.mockReturnValueOnce(null);
-    getElementById.mockReturnValueOnce({ hidePopover: "not callable" });
-    vi.stubGlobal("document", { getElementById });
-
-    try {
-      onNavigate();
-      expect(() => onNavigate()).not.toThrow();
-      expect(() => onNavigate()).not.toThrow();
-      expect(getElementById).toHaveBeenCalledTimes(3);
-      expect(getElementById).toHaveBeenNthCalledWith(1, "portal-navigation");
-      expect(getElementById).toHaveBeenNthCalledWith(2, "portal-navigation");
-      expect(getElementById).toHaveBeenNthCalledWith(3, "portal-navigation");
-      expect(hidePopover).toHaveBeenCalledOnce();
-      expect(hidePopover.mock.contexts[0]).toBe(popover);
-    } finally {
-      vi.unstubAllGlobals();
-    }
   });
 });
 
@@ -970,7 +932,7 @@ describe("root layout request composition", () => {
       density: "comfortable",
       fontSize: "large",
       radius: "medium",
-      theme: "catppuccin-latte",
+      theme: "github-light",
       updatedAt: null,
     });
 
@@ -990,7 +952,7 @@ describe("root layout request composition", () => {
         density: "comfortable",
         fontSize: "large",
         radius: "medium",
-        theme: "catppuccin-latte",
+        theme: "github-light",
       },
       themeAuthority: "trusted",
     });
@@ -1037,7 +999,7 @@ describe("theme and UI runtime boundaries", () => {
       "UiStateProvider is required."
     );
     return expect(markup(withUiState(createElement(UiStateProbe)))).toContain(
-      "system:small"
+      "system:medium"
     );
   });
 
@@ -1050,7 +1012,7 @@ describe("theme and UI runtime boundaries", () => {
       "darkfactory-theme",
       "darkfactory-theme=",
       "darkfactory-theme=dark%3Arose%3Aextra",
-      "darkfactory-theme=rose-pine%3Alarge%3Acompact",
+      "darkfactory-theme=dracula%3Alarge%3Acompact",
     ]) {
       expect(parseThemeCookieHeader(malformed)).toEqual({ status: "invalid" });
     }
@@ -1072,14 +1034,14 @@ describe("theme and UI runtime boundaries", () => {
         density: "compact",
         fontSize: "large",
         radius: "none",
-        theme: "rose-pine",
+        theme: "dracula",
         updatedAt: new Date(Number.NaN),
       },
       {
         density: "compact",
         fontSize: "large",
         radius: "none",
-        theme: "rose-pine",
+        theme: "dracula",
         updatedAt: "2026-07-25T00:00:00.000Z",
       },
     ]) {

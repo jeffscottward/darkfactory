@@ -27,7 +27,7 @@ describe("semantic theme components", () => {
       density: "compact",
       fontSize: "large",
       radius: "none",
-      theme: "rose-pine",
+      theme: "dracula",
     } as const;
     const markup = renderToStaticMarkup(
       createElement(ThemeProvider, {
@@ -37,9 +37,9 @@ describe("semantic theme components", () => {
       })
     );
 
-    expect(markup).toContain('data-theme="rose-pine"');
+    expect(markup).toContain('data-theme="dracula"');
     expect(markup).toContain('data-radius="none"');
-    return expect(markup).toContain("rose-pine:large:compact:");
+    return expect(markup).toContain("dracula:large:compact:");
   });
 
   it("delegates preference changes without owning persistence policy", () => {
@@ -57,12 +57,12 @@ describe("semantic theme components", () => {
       })
     );
 
-    selectPreference?.({ ...DEFAULT_APPEARANCE, theme: "nord" });
+    selectPreference?.({ ...DEFAULT_APPEARANCE, theme: "night-owl" });
 
     expect(onPreferenceChange).toHaveBeenCalledOnce();
     return expect(onPreferenceChange).toHaveBeenCalledWith({
       ...DEFAULT_APPEARANCE,
-      theme: "nord",
+      theme: "night-owl",
     });
   });
 
@@ -80,7 +80,7 @@ describe("semantic theme components", () => {
     ]);
     return expect(
       APPEARANCE_SETTINGS.map(({ options }) => options.length)
-    ).toEqual([11, 3, 3, 4]);
+    ).toEqual([12, 3, 3, 4]);
   });
 
   it("keeps the picker trigger discoverable when selections are disabled", () => {
@@ -130,7 +130,7 @@ describe("semantic theme components", () => {
           statusMessage: "Saving theme settings.",
         }),
         onPreferenceChange: vi.fn(),
-        preference: { ...DEFAULT_APPEARANCE, theme: "nord" },
+        preference: { ...DEFAULT_APPEARANCE, theme: "night-owl" },
       })
     );
 

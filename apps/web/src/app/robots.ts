@@ -12,6 +12,8 @@ export default function robots() {
         "/feature-items",
         "/forgot-password",
         "/reset-password",
+        "/settings",
+        "/settings/",
         "/sign-in",
         "/sign-up",
       ],

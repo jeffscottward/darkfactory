@@ -503,7 +503,7 @@ describe("trusted theme controls", () => {
           density: "compact",
           fontSize: "large",
           radius: "none",
-          theme: "rose-pine",
+          theme: "dracula",
         },
         themeAuthority: "trusted",
       })
@@ -538,13 +538,13 @@ describe("trusted theme controls", () => {
           density: "comfortable",
           fontSize: "default",
           radius: "none",
-          theme: "kanagawa",
+          theme: "github-dark",
         },
         themeAuthority: "anonymous",
       })
     );
 
-    expect(markup).toContain('data-theme="kanagawa"');
+    expect(markup).toContain('data-theme="github-dark"');
     expect(markup).toContain('data-font-size="default"');
     expect(markup).toContain('data-radius="none"');
     return expect(markup).toContain('data-density="comfortable"');
@@ -558,14 +558,14 @@ describe("trusted theme controls", () => {
           density: "comfortable",
           fontSize: "default",
           radius: "none",
-          theme: "kanagawa",
+          theme: "github-dark",
         },
       })
     );
 
-    expect(markup).toContain("kanagawa:comfortable");
+    expect(markup).toContain("github-dark:comfortable");
     return expect(themeHookRuntime.clientSnapshot()).toBe(
-      "kanagawa:comfortable"
+      "github-dark:comfortable"
     );
   });
 
@@ -587,7 +587,7 @@ describe("trusted theme controls", () => {
             density: "compact",
             fontSize: "large",
             radius: "none",
-            theme: "rose-pine",
+            theme: "dracula",
           },
           themeAuthority: authority,
         })
@@ -597,14 +597,14 @@ describe("trusted theme controls", () => {
         density: "comfortable",
         fontSize: "large",
         radius: "medium",
-        theme: "catppuccin-latte",
+        theme: "github-light",
       });
 
       expect(store?.getState()).toMatchObject({
         density: "compact",
         fontSize: "large",
         radius: "none",
-        theme: "rose-pine",
+        theme: "dracula",
       });
     }
   });
@@ -624,7 +624,7 @@ describe("trusted theme controls", () => {
         density: "compact",
         fontSize: "large",
         radius: "none",
-        theme: "rose-pine",
+        theme: "dracula",
       },
       requestSequence: { current: 1 },
       setError: (message) => errors.push(message),
@@ -639,7 +639,7 @@ describe("trusted theme controls", () => {
       density: "compact",
       fontSize: "large",
       radius: "none",
-      theme: "rose-pine",
+      theme: "dracula",
     });
   });
 
@@ -680,7 +680,7 @@ describe("trusted theme controls", () => {
                 density: "compact",
                 fontSize: "large",
                 radius: "none",
-                theme: "rose-pine",
+                theme: "dracula",
                 updatedAt: new Date("2026-07-23T10:00:00.001Z"),
               };
             },
@@ -702,7 +702,7 @@ describe("trusted theme controls", () => {
         density: "compact",
         fontSize: "large",
         radius: "none",
-        theme: "rose-pine",
+        theme: "dracula",
       },
       requestSequence: { current: 0 },
       setError: vi.fn(),
@@ -718,7 +718,7 @@ describe("trusted theme controls", () => {
       density: "compact",
       fontSize: "large",
       radius: "none",
-      theme: "rose-pine",
+      theme: "dracula",
     });
   });
 
@@ -753,7 +753,7 @@ describe("trusted theme controls", () => {
         density: "compact",
         fontSize: "large",
         radius: "none",
-        theme: "rose-pine",
+        theme: "dracula",
       },
       requestSequence: { current: 0 },
       setError: (message) => errors.push(message),
@@ -774,7 +774,7 @@ describe("trusted theme controls", () => {
         density: "comfortable",
         fontSize: "large",
         radius: "medium",
-        theme: "catppuccin-latte",
+        theme: "github-light",
       },
       requestSequence: { current: 1 },
       setError: (message) => errors.push(message),
@@ -789,7 +789,7 @@ describe("trusted theme controls", () => {
       density: "comfortable",
       fontSize: "large",
       radius: "medium",
-      theme: "catppuccin-latte",
+      theme: "github-light",
     });
   });
 
@@ -825,13 +825,13 @@ describe("trusted theme controls", () => {
       density: "compact",
       fontSize: "large",
       radius: "none",
-      theme: "rose-pine",
+      theme: "dracula",
     });
     const second = selection(async () => secondGet.promise, {
       density: "comfortable",
       fontSize: "large",
       radius: "medium",
-      theme: "catppuccin-latte",
+      theme: "github-light",
     });
     firstGet.resolve({
       density: "default",
@@ -869,13 +869,13 @@ describe("trusted theme controls", () => {
         density: "default",
         fontSize: "large",
         radius: "small",
-        theme: "everforest",
+        theme: "synthwave-84",
       },
       initialPreference: {
         density: "compact",
         fontSize: "large",
         radius: "none",
-        theme: "rose-pine",
+        theme: "dracula",
       },
       onAuthorityChange: (authority) => authorityChanges.push(authority),
       store,
@@ -888,7 +888,7 @@ describe("trusted theme controls", () => {
       density: "compact",
       fontSize: "large",
       radius: "none",
-      theme: "rose-pine",
+      theme: "dracula",
     });
   });
 
@@ -899,13 +899,13 @@ describe("trusted theme controls", () => {
       density: "compact",
       fontSize: "small",
       radius: "medium",
-      theme: "nord",
+      theme: "night-owl",
     } as const;
     const preferenceB = {
       density: "compact",
       fontSize: "default",
       radius: "medium",
-      theme: "gruvbox-dark",
+      theme: "one-dark",
     } as const;
     let previousAuthority: "anonymous" | "trusted" | undefined;
     const apply = (
@@ -950,7 +950,7 @@ describe("trusted theme controls", () => {
           density: "compact",
           fontSize: "large",
           radius: "none",
-          theme: "rose-pine",
+          theme: "dracula",
         })
       ).toBeUndefined();
       expect(consumption.consumed).toBe(true);
@@ -959,7 +959,7 @@ describe("trusted theme controls", () => {
           density: "comfortable",
           fontSize: "large",
           radius: "medium",
-          theme: "catppuccin-latte",
+          theme: "github-light",
         })
       ).toBeUndefined();
     }
@@ -969,7 +969,7 @@ describe("trusted theme controls", () => {
     const initialPreference = {
       density: "default",
       fontSize: "default",
-      radius: "small",
+      radius: "medium",
       theme: "system",
     } as const;
     for (const bootstrapPreference of [
@@ -989,19 +989,19 @@ describe("trusted theme controls", () => {
         density: "default",
         fontSize: "huge",
         radius: "small",
-        theme: "rose-pine",
+        theme: "dracula",
       },
       {
         density: "dense",
         fontSize: "large",
         radius: "small",
-        theme: "rose-pine",
+        theme: "dracula",
       },
       {
         density: "compact",
         fontSize: "large",
         radius: "round",
-        theme: "rose-pine",
+        theme: "dracula",
       },
     ]) {
       const store = createUiStore();
@@ -1025,13 +1025,13 @@ describe("trusted theme controls", () => {
         density: "compact",
         fontSize: "large",
         radius: "none",
-        theme: "rose-pine",
+        theme: "dracula",
       },
       initialPreference: {
         density: "comfortable",
         fontSize: "large",
         radius: "medium",
-        theme: "catppuccin-latte",
+        theme: "github-light",
       },
       onAuthorityChange: vi.fn(),
       store,
@@ -1040,7 +1040,7 @@ describe("trusted theme controls", () => {
       density: "comfortable",
       fontSize: "large",
       radius: "medium",
-      theme: "catppuccin-latte",
+      theme: "github-light",
     });
 
     const refreshedStore = createUiStore();
@@ -1050,7 +1050,7 @@ describe("trusted theme controls", () => {
         density: "compact",
         fontSize: "large",
         radius: "none",
-        theme: "rose-pine",
+        theme: "dracula",
       },
       initialPreference,
       onAuthorityChange: vi.fn(),
@@ -1061,7 +1061,7 @@ describe("trusted theme controls", () => {
       density: "compact",
       fontSize: "large",
       radius: "none",
-      theme: "rose-pine",
+      theme: "dracula",
     });
   });
 
@@ -1117,7 +1117,7 @@ describe("trusted theme controls", () => {
         density: "compact",
         fontSize: "large",
         radius: "none",
-        theme: "rose-pine",
+        theme: "dracula",
       },
       requestSequence: { current: 0 },
       setError,
@@ -1158,7 +1158,7 @@ describe("trusted theme controls", () => {
             density: "comfortable",
             fontSize: "large",
             radius: "medium",
-            theme: "catppuccin-latte",
+            theme: "github-light",
             updatedAt: new Date("2026-07-23T10:00:00.001Z"),
           }),
         update: vi.fn(async () => {
@@ -1183,7 +1183,7 @@ describe("trusted theme controls", () => {
           density: "compact",
           fontSize: "large",
           radius: "none",
-          theme: "rose-pine",
+          theme: "dracula",
         },
         requestSequence: { current: 0 },
         setError: (value) => errors.push(value),
@@ -1208,7 +1208,7 @@ describe("trusted theme controls", () => {
         density: "compact" as const,
         fontSize: "large" as const,
         radius: "none" as const,
-        theme: "rose-pine" as const,
+        theme: "dracula" as const,
         updatedAt: new Date("2026-07-23T10:00:00.001Z"),
       }));
       const selection = selectThemeMenuPreference({
@@ -1223,7 +1223,7 @@ describe("trusted theme controls", () => {
           density: "compact",
           fontSize: "large",
           radius: "none",
-          theme: "rose-pine",
+          theme: "dracula",
         },
         requestSequence,
         setError: (value) => errors.push(value),
@@ -1268,13 +1268,13 @@ describe("trusted theme controls", () => {
       density: "compact",
       fontSize: "default",
       radius: "medium",
-      theme: "gruvbox-dark",
+      theme: "one-dark",
     } as const;
     const bootstrap = {
       density: "compact",
       fontSize: "small",
       radius: "medium",
-      theme: "nord",
+      theme: "night-owl",
     } as const;
     const browser = installThemeBrowser({ bootstrap });
     const render = (authority: "anonymous" | "trusted") =>
@@ -1358,7 +1358,7 @@ describe("trusted theme controls", () => {
       density: "compact",
       fontSize: "large",
       radius: "none",
-      theme: "rose-pine",
+      theme: "dracula",
     } as const;
     const cases = [
       {
@@ -1423,7 +1423,7 @@ describe("trusted theme controls", () => {
       density: "compact",
       fontSize: "large",
       radius: "none",
-      theme: "rose-pine",
+      theme: "dracula",
     } as const;
     const observeFailure = (
       options: Readonly<{
@@ -1489,7 +1489,7 @@ describe("trusted theme controls", () => {
       density: "compact" as const,
       fontSize: "large" as const,
       radius: "none" as const,
-      theme: "rose-pine" as const,
+      theme: "dracula" as const,
       updatedAt: new Date("2026-07-23T10:00:00.001Z"),
     }));
     themeApiRuntime.configure(
@@ -1531,7 +1531,7 @@ describe("trusted theme controls", () => {
       density: "compact",
       fontSize: "large",
       radius: "none",
-      theme: "rose-pine",
+      theme: "dracula",
     });
     render();
     expect(themeComponentRuntime.picker()).toMatchObject({
@@ -1563,7 +1563,7 @@ describe("trusted theme controls", () => {
       density: "compact",
       fontSize: "large",
       radius: "none",
-      theme: "rose-pine",
+      theme: "dracula",
     });
     render();
     expect(themeComponentRuntime.picker()).toMatchObject({
@@ -1583,7 +1583,7 @@ describe("trusted theme controls", () => {
       density: "compact",
       fontSize: "large",
       radius: "none",
-      theme: "rose-pine",
+      theme: "dracula",
     });
   });
 
@@ -1594,7 +1594,7 @@ describe("trusted theme controls", () => {
       density: "compact" as const,
       fontSize: "large" as const,
       radius: "none" as const,
-      theme: "rose-pine" as const,
+      theme: "dracula" as const,
       updatedAt: new Date("2026-07-23T10:00:00.001Z"),
     }));
     themeApiRuntime.configure(
@@ -1631,7 +1631,7 @@ describe("trusted theme controls", () => {
       density: "compact",
       fontSize: "large",
       radius: "none",
-      theme: "rose-pine",
+      theme: "dracula",
     });
     render("trusted");
     expect(themeComponentRuntime.picker()["triggerLabel"]).toBe(

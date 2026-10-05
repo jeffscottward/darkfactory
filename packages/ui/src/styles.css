@@ -1,18 +1,29 @@
 @import "tailwindcss";
-@import "@fontsource-variable/manrope";
-@import "@fontsource-variable/public-sans";
+@import "tw-animate-css";
+@import "@fontsource-variable/geist";
+@import "@fontsource-variable/geist-mono";
 @import "sonner/dist/styles.css";
 
 @import "./themes.css";
 
+/*
+ * shadcn/ui token contract (https://ui.shadcn.com/docs/theming).
+ * themes.css sets the variables per [data-theme]; this block maps them onto
+ * Tailwind colors. Extension tokens (status colors, derived legacy names)
+ * are listed after the shadcn block.
+ */
 @theme inline {
-  --font-heading:
-    "Manrope Variable", "Manrope", ui-sans-serif, system-ui, sans-serif;
-  --font-body:
-    "Public Sans Variable", "Public Sans", ui-sans-serif, system-ui, sans-serif;
-  --font-sans: var(--font-body);
+  --font-sans:
+    "Geist Variable", "Geist", ui-sans-serif, system-ui, sans-serif,
+    "Apple Color Emoji", "Segoe UI Emoji";
+  --font-mono:
+    "Geist Mono Variable", "Geist Mono", ui-monospace, SFMono-Regular, Menlo,
+    monospace;
+  /* Legacy aliases: both resolve to Geist. Prefer font-sans in new code. */
+  --font-heading: var(--font-sans);
+  --font-body: var(--font-sans);
 
-  /* Type scale: every step multiplies by --font-scale (Appearance → Font size). */
+  /* Type scale: Tailwind defaults times --font-scale (Appearance → Font size; default 1). */
   --text-xs: calc(0.75rem * var(--font-scale));
   --text-xs--line-height: calc(1rem * var(--font-scale));
   --text-sm: calc(0.875rem * var(--font-scale));
@@ -20,78 +31,92 @@
   --text-base: calc(1rem * var(--font-scale));
   --text-base--line-height: calc(1.5rem * var(--font-scale));
   --text-lg: calc(1.125rem * var(--font-scale));
-  --text-lg--line-height: calc(1.625rem * var(--font-scale));
+  --text-lg--line-height: calc(1.75rem * var(--font-scale));
   --text-xl: calc(1.25rem * var(--font-scale));
   --text-xl--line-height: calc(1.75rem * var(--font-scale));
   --text-2xl: calc(1.5rem * var(--font-scale));
   --text-2xl--line-height: calc(2rem * var(--font-scale));
   --text-3xl: calc(1.875rem * var(--font-scale));
   --text-3xl--line-height: calc(2.25rem * var(--font-scale));
-  --text-4xl: calc(clamp(2.25rem, 1.85rem + 2vw, 3.5rem) * var(--font-scale));
-  --text-4xl--line-height: 1.05;
-  --text-display: calc(clamp(3rem, 2rem + 4vw, 6.5rem) * var(--font-scale));
-  --text-display--line-height: 0.96;
+  --text-4xl: calc(2.25rem * var(--font-scale));
+  --text-4xl--line-height: calc(2.5rem * var(--font-scale));
+  --text-display: calc(3rem * var(--font-scale));
+  --text-display--line-height: 1;
+
+  /* shadcn radii, derived from --radius (Appearance → Roundness; default 0.625rem). */
+  --radius-sm: calc(var(--radius) * 0.6);
+  --radius-md: calc(var(--radius) * 0.8);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) * 1.4);
+  --radius-2xl: calc(var(--radius) * 1.8);
+  --radius-3xl: calc(var(--radius) * 2.2);
+  --radius-4xl: calc(var(--radius) * 2.6);
+  --radius-pill: 9999px;
 
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --color-surface: var(--surface);
-  --color-surface-raised: var(--surface-raised);
-  --color-sidebar: var(--sidebar);
-  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
   --color-muted: var(--muted);
   --color-muted-foreground: var(--muted-foreground);
-  --color-border: var(--border);
-  --color-border-strong: var(--border-strong);
   --color-accent: var(--accent);
   --color-accent-foreground: var(--accent-foreground);
-  --color-primary: var(--primary);
-  --color-primary-hover: var(--primary-hover);
-  --color-primary-active: var(--primary-active);
-  --color-primary-foreground: var(--primary-foreground);
-  --color-primary-subtle: var(--primary-subtle);
-  --color-primary-subtle-foreground: var(--primary-subtle-foreground);
-  --color-primary-border: var(--primary-border);
   --color-destructive: var(--destructive);
-  --color-destructive-hover: var(--destructive-hover);
-  --color-destructive-active: var(--destructive-active);
-  --color-destructive-foreground: var(--destructive-foreground);
-  --color-destructive-subtle: var(--destructive-subtle);
-  --color-destructive-border: var(--destructive-border);
-  --color-success: var(--success);
-  --color-success-subtle: var(--success-subtle);
-  --color-success-foreground: var(--success-foreground);
-  --color-success-border: var(--success-border);
-  --color-warning: var(--warning);
-  --color-warning-subtle: var(--warning-subtle);
-  --color-warning-foreground: var(--warning-foreground);
-  --color-warning-border: var(--warning-border);
-  --color-info: var(--info);
-  --color-info-subtle: var(--info-subtle);
-  --color-info-foreground: var(--info-foreground);
-  --color-info-border: var(--info-border);
-  --color-disabled: var(--disabled);
-  --color-disabled-foreground: var(--disabled-foreground);
-  --color-disabled-border: var(--disabled-border);
+  --color-border: var(--border);
+  --color-input: var(--input);
   --color-ring: var(--ring);
-  --color-overlay: var(--overlay);
   --color-chart-1: var(--chart-1);
   --color-chart-2: var(--chart-2);
   --color-chart-3: var(--chart-3);
   --color-chart-4: var(--chart-4);
   --color-chart-5: var(--chart-5);
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-ring: var(--sidebar-ring);
 
-  /* Roundness: every radius step multiplies by --radius-scale (Appearance → Roundness). */
-  --radius-xs: calc(0.25rem * var(--radius-scale));
-  --radius-sm: calc(0.375rem * var(--radius-scale));
-  --radius-md: calc(0.5rem * var(--radius-scale));
-  --radius-lg: calc(0.75rem * var(--radius-scale));
-  --radius-xl: calc(1rem * var(--radius-scale));
-  --radius-pill: 9999px;
+  /* Extension: status colors (set per theme). */
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-success: var(--success);
+  --color-success-foreground: var(--success-foreground);
+  --color-warning: var(--warning);
+  --color-warning-foreground: var(--warning-foreground);
+  --color-info: var(--info);
+  --color-info-foreground: var(--info-foreground);
 
-  --shadow-sm: 0 1px 2px rgb(0 0 0 / 0.08);
-  --shadow-inner: inset 0 1px 2px rgb(0 0 0 / 0.05);
-  --shadow-md: 0 8px 24px rgb(0 0 0 / 0.12);
-  --shadow-lg: 0 20px 48px rgb(0 0 0 / 0.16);
+  /* Extension: derived tokens (computed by deriveTokens in theme-tokens.ts). */
+  --color-surface: var(--surface);
+  --color-surface-raised: var(--surface-raised);
+  --color-border-strong: var(--border-strong);
+  --color-primary-hover: var(--primary-hover);
+  --color-primary-active: var(--primary-active);
+  --color-primary-subtle: var(--primary-subtle);
+  --color-primary-subtle-foreground: var(--primary-subtle-foreground);
+  --color-primary-border: var(--primary-border);
+  --color-destructive-hover: var(--destructive-hover);
+  --color-destructive-active: var(--destructive-active);
+  --color-destructive-subtle: var(--destructive-subtle);
+  --color-destructive-border: var(--destructive-border);
+  --color-success-subtle: var(--success-subtle);
+  --color-success-border: var(--success-border);
+  --color-warning-subtle: var(--warning-subtle);
+  --color-warning-border: var(--warning-border);
+  --color-info-subtle: var(--info-subtle);
+  --color-info-border: var(--info-border);
+  --color-disabled: var(--disabled);
+  --color-disabled-foreground: var(--disabled-foreground);
+  --color-disabled-border: var(--disabled-border);
+  --color-overlay: var(--overlay);
 
   --container-reading: 45rem;
   --container-portal: 80rem;
@@ -100,38 +125,23 @@
 }
 
 /*
- * Density: Tailwind spacing utilities (p-*, m-*, gap-*, w-*, h-*) use
- * calc(var(--spacing) * n), so --spacing is the single density knob.
+ * Density: Tailwind spacing utilities use calc(var(--spacing) * n), so
+ * --spacing is the single density knob (default 0.25rem = Tailwind/shadcn).
  * Steps 11 and 12 stay fixed: they are the 44px and 48px touch-target sizes.
  */
 @theme {
-  --spacing: 0.21875rem;
+  --spacing: 0.25rem;
   --spacing-11: 2.75rem;
   --spacing-12: 3rem;
 }
 
 :root {
-  --font-scale: 0.9375;
-  --radius-scale: 0.5;
+  --radius: 0.625rem;
+  --font-scale: 1;
 
-  --space-0: 0;
-  --space-1: calc(var(--spacing) * 1);
-  --space-2: calc(var(--spacing) * 2);
-  --space-3: calc(var(--spacing) * 3);
-  --space-4: calc(var(--spacing) * 4);
-  --space-5: calc(var(--spacing) * 5);
-  --space-6: calc(var(--spacing) * 6);
   --space-8: calc(var(--spacing) * 8);
-  --space-10: calc(var(--spacing) * 10);
-  --space-12: calc(var(--spacing) * 12);
-  --space-16: calc(var(--spacing) * 16);
-  --space-20: calc(var(--spacing) * 20);
-  --space-24: calc(var(--spacing) * 24);
-  --space-32: calc(var(--spacing) * 32);
-
   --target-min: 2.75rem;
-  --header-height: 3rem;
-  --sidebar-width: 13rem;
+  --header-height: calc(var(--spacing) * 12);
 
   --duration-fast: 120ms;
   --duration-base: 180ms;
@@ -140,8 +150,8 @@
   --content-reading: 45rem;
   --content-portal: 80rem;
   --content-public: 90rem;
-  --gutter-mobile: calc(var(--spacing) * 3);
-  --gutter-tablet: calc(var(--spacing) * 4);
+  --gutter-mobile: calc(var(--spacing) * 4);
+  --gutter-tablet: calc(var(--spacing) * 6);
   --gutter-desktop: calc(var(--spacing) * 6);
 }
 
@@ -149,40 +159,58 @@
   --font-scale: 0.875;
 }
 
-:root[data-font-size="default"] {
-  --font-scale: 0.9375;
-}
-
 :root[data-font-size="large"] {
-  --font-scale: 1.0625;
+  --font-scale: 1.125;
 }
 
 :root[data-density="compact"] {
-  --spacing: 0.1875rem;
-}
-
-:root[data-density="default"] {
   --spacing: 0.21875rem;
 }
 
 :root[data-density="comfortable"] {
-  --spacing: 0.25rem;
+  --spacing: 0.28125rem;
 }
 
 :root[data-radius="none"] {
-  --radius-scale: 0;
+  --radius: 0rem;
 }
 
 :root[data-radius="small"] {
-  --radius-scale: 0.5;
+  --radius: 0.375rem;
 }
 
 :root[data-radius="medium"] {
-  --radius-scale: 1;
+  --radius: 0.625rem;
 }
 
 :root[data-radius="large"] {
-  --radius-scale: 1.5;
+  --radius: 1rem;
+}
+
+/*
+ * Touch target (44px gate) around a visible shadcn-sized control.
+ * The element box is at least 44x44 and transparent; the visible chrome
+ * (background, border, radius, shadow, focus ring) is painted on ::before,
+ * inset to the shadcn size given by --chrome-h / --chrome-w.
+ * Set the chrome with the same utilities shadcn uses, prefixed with
+ * before: (see button.tsx).
+ */
+@utility touch-target {
+  position: relative;
+  isolation: isolate;
+  min-height: var(--target-min);
+  min-width: var(--target-min);
+  background-clip: content-box;
+  &::before {
+    content: "";
+    position: absolute;
+    z-index: -1;
+    inset-inline: 0;
+    top: 50%;
+    height: var(--chrome-h, 100%);
+    transform: translateY(-50%);
+    pointer-events: none;
+  }
 }
 
 @utility duration-fast {
@@ -210,11 +238,8 @@
 }
 
 @layer base {
-  *,
-  *::before,
-  *::after {
-    box-sizing: border-box;
-    border-color: var(--border);
+  * {
+    @apply border-border outline-ring/50;
   }
 
   html {
@@ -224,14 +249,10 @@
   }
 
   body {
+    /* text-base: 16px at Font size Default (shadcn); Small and Large scale it. */
+    @apply bg-background text-foreground font-sans text-base antialiased;
     min-height: 100dvh;
     margin: 0;
-    background: var(--background);
-    color: var(--foreground);
-    font-family: var(--font-body);
-    font-size: var(--text-base);
-    line-height: 1.5;
-    text-rendering: optimizeLegibility;
   }
 
   h1,
@@ -240,9 +261,6 @@
   h4,
   h5,
   h6 {
-    font-family: var(--font-heading);
-    font-weight: 600;
-    letter-spacing: -0.02em;
     text-wrap: balance;
   }
 
@@ -250,21 +268,9 @@
     text-wrap: pretty;
   }
 
-  button,
-  input,
-  textarea,
-  select {
-    font: inherit;
-  }
-
   button:not(:disabled),
   [role="button"]:not([aria-disabled="true"]) {
     cursor: pointer;
-  }
-
-  ::selection {
-    background: var(--primary);
-    color: var(--primary-foreground);
   }
 
   :focus-visible {
@@ -294,24 +300,19 @@
     max-width: var(--content-reading);
   }
 
-  .df-grid {
-    display: grid;
-    grid-template-columns: repeat(4, minmax(0, 1fr));
-    gap: var(--space-4);
-  }
-
   .skip-link {
     position: fixed;
-    top: var(--space-2);
-    left: var(--space-2);
+    top: calc(var(--spacing) * 2);
+    left: calc(var(--spacing) * 2);
     z-index: 100;
     min-height: 2.75rem;
-    padding: var(--space-3) var(--space-4);
-    transform: translateY(calc(-100% - var(--space-4)));
+    padding: calc(var(--spacing) * 3) calc(var(--spacing) * 4);
+    transform: translateY(calc(-100% - var(--spacing) * 4));
     border-radius: var(--radius-md);
     background: var(--primary);
     color: var(--primary-foreground);
-    font-weight: 700;
+    font-weight: 500;
+    font-size: var(--text-sm);
     transition: transform var(--duration-base) var(--ease-out);
   }
 
@@ -325,11 +326,6 @@
     .df-reading {
       padding-inline: var(--gutter-tablet);
     }
-
-    .df-grid {
-      grid-template-columns: repeat(8, minmax(0, 1fr));
-      gap: var(--space-6);
-    }
   }
 
   @media (min-width: 64rem) {
@@ -337,11 +333,6 @@
     .df-container-portal,
     .df-reading {
       padding-inline: var(--gutter-desktop);
-    }
-
-    .df-grid {
-      grid-template-columns: repeat(12, minmax(0, 1fr));
-      gap: var(--space-8);
     }
   }
 }

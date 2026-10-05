@@ -33,7 +33,7 @@ describe("trusted theme updates", () => {
         return {
           density: "default",
           fontSize: "default",
-          radius: "small",
+          radius: "medium",
           theme: "system",
           updatedAt: versionA,
         };
@@ -42,7 +42,7 @@ describe("trusted theme updates", () => {
         density: "compact",
         fontSize: "large",
         radius: "none",
-        theme: "rose-pine",
+        theme: "dracula",
       },
       sequence: { current: 0 },
       store,
@@ -65,7 +65,7 @@ describe("trusted theme updates", () => {
       expectedUpdatedAt: versionA,
       fontSize: "large",
       radius: "none",
-      theme: "rose-pine",
+      theme: "dracula",
     });
     expect(result).toBe("applied");
     expect(store.getState()).toMatchObject({
@@ -83,7 +83,7 @@ describe("trusted theme updates", () => {
     const get = vi.fn(async () => ({
       density: "default" as const,
       fontSize: "default" as const,
-      radius: "small" as const,
+      radius: "medium" as const,
       theme: "system" as const,
       updatedAt: versionA,
     }));
@@ -97,7 +97,7 @@ describe("trusted theme updates", () => {
           density: "compact",
           fontSize: "large",
           radius: "none",
-          theme: "rose-pine",
+          theme: "dracula",
         },
         sequence: { current: 0 },
         store,
@@ -110,7 +110,7 @@ describe("trusted theme updates", () => {
     return expect(store.getState()).toMatchObject({
       density: "default",
       fontSize: "default",
-      radius: "small",
+      radius: "medium",
       theme: "system",
     });
   });
@@ -121,7 +121,7 @@ describe("trusted theme updates", () => {
       density: "compact" as const,
       fontSize: "large" as const,
       radius: "none" as const,
-      theme: "rose-pine" as const,
+      theme: "dracula" as const,
       updatedAt: versionA,
     }));
     await updateTrustedThemePreference({
@@ -130,7 +130,7 @@ describe("trusted theme updates", () => {
       get: async () => ({
         density: "default",
         fontSize: "default",
-        radius: "small",
+        radius: "medium",
         theme: "system",
         updatedAt: null,
       }),
@@ -138,7 +138,7 @@ describe("trusted theme updates", () => {
         density: "compact",
         fontSize: "large",
         radius: "none",
-        theme: "rose-pine",
+        theme: "dracula",
       },
       sequence: { current: 0 },
       store,
@@ -150,7 +150,7 @@ describe("trusted theme updates", () => {
       expectedUpdatedAt: null,
       fontSize: "large",
       radius: "none",
-      theme: "rose-pine",
+      theme: "dracula",
     });
   });
 
@@ -160,7 +160,7 @@ describe("trusted theme updates", () => {
     const get = vi.fn(async () => ({
       density: "default" as const,
       fontSize: "default" as const,
-      radius: "small" as const,
+      radius: "medium" as const,
       theme: "system" as const,
       updatedAt: versionA,
     }));
@@ -175,7 +175,7 @@ describe("trusted theme updates", () => {
         density: "compact",
         fontSize: "large",
         radius: "none",
-        theme: "rose-pine",
+        theme: "dracula",
       },
       sequence: { current: 0 },
       store,
@@ -201,7 +201,7 @@ describe("trusted theme updates", () => {
         density: "compact",
         fontSize: "large",
         radius: "none",
-        theme: "rose-pine",
+        theme: "dracula",
       },
       sequence: { current: 0 },
       store,
@@ -212,7 +212,7 @@ describe("trusted theme updates", () => {
     current.resolve({
       density: "default",
       fontSize: "default",
-      radius: "small",
+      radius: "medium",
       theme: "system",
       updatedAt: versionA,
     });
@@ -222,7 +222,7 @@ describe("trusted theme updates", () => {
     return expect(store.getState()).toMatchObject({
       density: "default",
       fontSize: "default",
-      radius: "small",
+      radius: "medium",
       theme: "system",
     });
   });
@@ -238,7 +238,7 @@ describe("trusted theme updates", () => {
       get: async () => ({
         density: "default",
         fontSize: "default",
-        radius: "small",
+        radius: "medium",
         theme: "system",
         updatedAt: versionA,
       }),
@@ -246,7 +246,7 @@ describe("trusted theme updates", () => {
         density: "compact",
         fontSize: "large",
         radius: "none",
-        theme: "rose-pine",
+        theme: "dracula",
       },
       sequence: { current: 0 },
       store,
@@ -259,7 +259,7 @@ describe("trusted theme updates", () => {
       density: "compact",
       fontSize: "large",
       radius: "none",
-      theme: "rose-pine",
+      theme: "dracula",
       updatedAt: versionB,
     });
 
@@ -267,7 +267,7 @@ describe("trusted theme updates", () => {
     return expect(store.getState()).toMatchObject({
       density: "default",
       fontSize: "default",
-      radius: "small",
+      radius: "medium",
       theme: "system",
     });
   });
@@ -282,7 +282,7 @@ describe("trusted theme updates", () => {
         ({
           density: "default",
           fontSize: "default",
-          radius: "small",
+          radius: "medium",
           theme: "night",
           updatedAt: versionA,
         }) as never,
@@ -290,7 +290,7 @@ describe("trusted theme updates", () => {
         density: "compact",
         fontSize: "large",
         radius: "none",
-        theme: "rose-pine",
+        theme: "dracula",
       },
       sequence: { current: 0 },
       store,
@@ -301,7 +301,7 @@ describe("trusted theme updates", () => {
       .mockResolvedValueOnce({
         density: "default",
         fontSize: "default",
-        radius: "small",
+        radius: "medium",
         theme: "system",
         updatedAt: versionA,
       })
@@ -314,7 +314,7 @@ describe("trusted theme updates", () => {
         density: "compact",
         fontSize: "large",
         radius: "none",
-        theme: "rose-pine",
+        theme: "dracula",
       },
       sequence: { current: 0 },
       store,
@@ -322,7 +322,7 @@ describe("trusted theme updates", () => {
         density: "compact",
         fontSize: "large",
         radius: "none",
-        theme: "rose-pine",
+        theme: "dracula",
         updatedAt: new Date(Number.NaN),
       }),
     });
@@ -334,7 +334,7 @@ describe("trusted theme updates", () => {
     return expect(store.getState()).toMatchObject({
       density: "default",
       fontSize: "default",
-      radius: "small",
+      radius: "medium",
       theme: "system",
     });
   });
@@ -344,7 +344,7 @@ describe("trusted theme updates", () => {
     let remote: ThemePreferenceOutput = {
       density: "default",
       fontSize: "default",
-      radius: "small",
+      radius: "medium",
       theme: "system",
       updatedAt: versionA,
     };
@@ -356,7 +356,7 @@ describe("trusted theme updates", () => {
         density: "compact",
         fontSize: "large",
         radius: "none",
-        theme: "rose-pine",
+        theme: "dracula",
       },
       sequence: { current: 0 },
       store,
@@ -365,7 +365,7 @@ describe("trusted theme updates", () => {
           density: "compact",
           fontSize: "large",
           radius: "none",
-          theme: "rose-pine",
+          theme: "dracula",
           updatedAt: versionB,
         };
         throw new Error("response lost");
@@ -377,7 +377,7 @@ describe("trusted theme updates", () => {
       density: "compact",
       fontSize: "large",
       radius: "none",
-      theme: "rose-pine",
+      theme: "dracula",
     });
   });
 
@@ -395,7 +395,7 @@ describe("trusted theme updates", () => {
           ? {
               density: "default",
               fontSize: "default",
-              radius: "small",
+              radius: "medium",
               theme: "system",
               updatedAt: versionA,
             }
@@ -405,7 +405,7 @@ describe("trusted theme updates", () => {
         density: "compact",
         fontSize: "large",
         radius: "none",
-        theme: "rose-pine",
+        theme: "dracula",
       },
       sequence: { current: 0 },
       store,
@@ -420,7 +420,7 @@ describe("trusted theme updates", () => {
       density: "compact",
       fontSize: "large",
       radius: "none",
-      theme: "rose-pine",
+      theme: "dracula",
       updatedAt: versionB,
     });
 
@@ -428,7 +428,7 @@ describe("trusted theme updates", () => {
     return expect(store.getState()).toMatchObject({
       density: "default",
       fontSize: "default",
-      radius: "small",
+      radius: "medium",
       theme: "system",
     });
   });
@@ -441,7 +441,7 @@ describe("trusted theme updates", () => {
       density: "compact" as const,
       fontSize: "large" as const,
       radius: "none" as const,
-      theme: "rose-pine" as const,
+      theme: "dracula" as const,
       updatedAt: versionB,
     }));
     const pending = updateTrustedThemePreference({
@@ -452,7 +452,7 @@ describe("trusted theme updates", () => {
         density: "compact",
         fontSize: "large",
         radius: "none",
-        theme: "rose-pine",
+        theme: "dracula",
       },
       sequence: { current: 0 },
       store,
@@ -463,7 +463,7 @@ describe("trusted theme updates", () => {
     current.resolve({
       density: "default",
       fontSize: "default",
-      radius: "small",
+      radius: "medium",
       theme: "system",
       updatedAt: versionA,
     });
@@ -473,7 +473,7 @@ describe("trusted theme updates", () => {
     return expect(store.getState()).toMatchObject({
       density: "default",
       fontSize: "default",
-      radius: "small",
+      radius: "medium",
       theme: "system",
     });
   });
@@ -488,7 +488,7 @@ describe("trusted theme updates", () => {
       density: "comfortable" as const,
       fontSize: "large" as const,
       radius: "medium" as const,
-      theme: "catppuccin-latte" as const,
+      theme: "github-light" as const,
       updatedAt: versionB,
     }));
     const first = updateTrustedThemePreference({
@@ -499,7 +499,7 @@ describe("trusted theme updates", () => {
         density: "compact",
         fontSize: "large",
         radius: "none",
-        theme: "rose-pine",
+        theme: "dracula",
       },
       sequence,
       store,
@@ -513,7 +513,7 @@ describe("trusted theme updates", () => {
         density: "comfortable",
         fontSize: "large",
         radius: "medium",
-        theme: "catppuccin-latte",
+        theme: "github-light",
       },
       sequence,
       store,
@@ -523,7 +523,7 @@ describe("trusted theme updates", () => {
     firstGet.resolve({
       density: "default",
       fontSize: "default",
-      radius: "small",
+      radius: "medium",
       theme: "system",
       updatedAt: versionA,
     });
@@ -533,7 +533,7 @@ describe("trusted theme updates", () => {
     secondGet.resolve({
       density: "default",
       fontSize: "default",
-      radius: "small",
+      radius: "medium",
       theme: "system",
       updatedAt: versionA,
     });
@@ -543,13 +543,13 @@ describe("trusted theme updates", () => {
       expectedUpdatedAt: versionA,
       fontSize: "large",
       radius: "medium",
-      theme: "catppuccin-latte",
+      theme: "github-light",
     });
     return expect(store.getState()).toMatchObject({
       density: "comfortable",
       fontSize: "large",
       radius: "medium",
-      theme: "catppuccin-latte",
+      theme: "github-light",
     });
   });
 
@@ -564,7 +564,7 @@ describe("trusted theme updates", () => {
       get: async () => ({
         density: "default",
         fontSize: "default",
-        radius: "small",
+        radius: "medium",
         theme: "system",
         updatedAt: versionA,
       }),
@@ -572,7 +572,7 @@ describe("trusted theme updates", () => {
         density: "compact",
         fontSize: "large",
         radius: "none",
-        theme: "rose-pine",
+        theme: "dracula",
       },
       sequence,
       store,
@@ -584,7 +584,7 @@ describe("trusted theme updates", () => {
       get: async () => ({
         density: "default",
         fontSize: "default",
-        radius: "small",
+        radius: "medium",
         theme: "system",
         updatedAt: versionA,
       }),
@@ -592,7 +592,7 @@ describe("trusted theme updates", () => {
         density: "comfortable",
         fontSize: "large",
         radius: "medium",
-        theme: "catppuccin-latte",
+        theme: "github-light",
       },
       sequence,
       store,
@@ -603,14 +603,14 @@ describe("trusted theme updates", () => {
       density: "compact",
       fontSize: "large",
       radius: "none",
-      theme: "rose-pine",
+      theme: "dracula",
       updatedAt: versionB,
     });
     await expect(firstUpdate).resolves.toBe("superseded");
     expect(store.getState()).toMatchObject({
       density: "default",
       fontSize: "default",
-      radius: "small",
+      radius: "medium",
       theme: "system",
     });
 
@@ -618,7 +618,7 @@ describe("trusted theme updates", () => {
       density: "comfortable",
       fontSize: "large",
       radius: "medium",
-      theme: "catppuccin-latte",
+      theme: "github-light",
       updatedAt: versionB,
     });
     await expect(secondUpdate).resolves.toBe("applied");
@@ -626,7 +626,7 @@ describe("trusted theme updates", () => {
       density: "comfortable",
       fontSize: "large",
       radius: "medium",
-      theme: "catppuccin-latte",
+      theme: "github-light",
     });
   });
 
@@ -658,7 +658,7 @@ describe("trusted theme updates", () => {
         return {
           density: "default",
           fontSize: "default",
-          radius: "small",
+          radius: "medium",
           theme: "system",
           updatedAt: versionA,
         };
@@ -667,7 +667,7 @@ describe("trusted theme updates", () => {
         density: "compact",
         fontSize: "large",
         radius: "none",
-        theme: "rose-pine",
+        theme: "dracula",
       },
       sequence: { current: 0 },
       store,
@@ -687,7 +687,7 @@ describe("trusted theme updates", () => {
           return {
             density: "default",
             fontSize: "default",
-            radius: "small",
+            radius: "medium",
             theme: "system",
             updatedAt: versionA,
           };
@@ -696,7 +696,7 @@ describe("trusted theme updates", () => {
         return {
           density: "default",
           fontSize: "default",
-          radius: "small",
+          radius: "medium",
           theme: "system",
           updatedAt: versionA,
         };
@@ -705,7 +705,7 @@ describe("trusted theme updates", () => {
         density: "compact",
         fontSize: "large",
         radius: "none",
-        theme: "rose-pine",
+        theme: "dracula",
       },
       sequence: { current: 0 },
       store,
@@ -715,7 +715,7 @@ describe("trusted theme updates", () => {
           density: "compact",
           fontSize: "large",
           radius: "none",
-          theme: "rose-pine",
+          theme: "dracula",
           updatedAt: versionB,
         };
       },
@@ -728,7 +728,7 @@ describe("trusted theme updates", () => {
     expect(store.getState()).toMatchObject({
       density: "default",
       fontSize: "default",
-      radius: "small",
+      radius: "medium",
       theme: "system",
     });
     return expect(vi.getTimerCount()).toBe(0);
@@ -743,7 +743,7 @@ describe("bounded theme API transport", () => {
     const body = new ReadableStream<Uint8Array>({
       start(controller) {
         controller.enqueue(encoder.encode('{"theme":'));
-        controller.enqueue(encoder.encode('"nord"}'));
+        controller.enqueue(encoder.encode('"night-owl"}'));
         return void controller.close();
       },
     });
@@ -764,7 +764,7 @@ describe("bounded theme API transport", () => {
     expect(response.status).toBe(206);
     expect(response.statusText).toBe("Partial Content");
     expect(response.headers.get("x-result")).toBe("bounded");
-    return expect(await response.text()).toBe('{"theme":"nord"}');
+    return expect(await response.text()).toBe('{"theme":"night-owl"}');
   });
 
   it("returns a bodyless response without replacing it", async () => {
@@ -909,7 +909,7 @@ describe("trusted theme fail-closed branches", () => {
         density: "compact",
         fontSize: "large",
         radius: "none",
-        theme: "rose-pine",
+        theme: "dracula",
       },
       sequence: { current: 0 },
       store: createUiStore(),
@@ -934,7 +934,7 @@ describe("trusted theme fail-closed branches", () => {
         density: "compact",
         fontSize: "large",
         radius: "none",
-        theme: "rose-pine",
+        theme: "dracula",
       },
       sequence: { current: 0 },
       store: createUiStore(),
@@ -956,7 +956,7 @@ describe("trusted theme fail-closed branches", () => {
           return {
             density: "default" as const,
             fontSize: "default" as const,
-            radius: "small" as const,
+            radius: "medium" as const,
             theme: "system" as const,
             updatedAt: currentVersion,
           };
@@ -968,7 +968,7 @@ describe("trusted theme fail-closed branches", () => {
         density: "compact",
         fontSize: "large",
         radius: "none",
-        theme: "rose-pine",
+        theme: "dracula",
       },
       sequence: { current: 0 },
       store: createUiStore(),
@@ -987,7 +987,7 @@ describe("trusted theme fail-closed branches", () => {
       .mockResolvedValueOnce({
         density: "default",
         fontSize: "default",
-        radius: "small",
+        radius: "medium",
         theme: "system",
         updatedAt: currentVersion,
       })
@@ -1000,7 +1000,7 @@ describe("trusted theme fail-closed branches", () => {
         density: "compact",
         fontSize: "large",
         radius: "none",
-        theme: "rose-pine",
+        theme: "dracula",
       },
       sequence: { current: 0 },
       store: createUiStore(),

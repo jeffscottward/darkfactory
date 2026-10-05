@@ -111,9 +111,9 @@ const UserRow = ({ user }: { readonly user: AdminUserSummaryOutput }) => {
       role="listitem"
     >
       <div className="min-w-0 break-words">
-        <h2 className="break-words font-heading font-semibold text-foreground text-sm">
+        <h3 className="break-words font-heading font-semibold text-foreground text-sm">
           {titleFor(user)}
-        </h2>
+        </h3>
         {summary.length > 0 ? (
           <p className="break-words text-muted-foreground text-sm">{summary}</p>
         ) : null}
@@ -161,7 +161,7 @@ export const AdminUsersDirectory = ({
             state.kind === "unauthorized" ? (
               <a
                 className={buttonVariants({ size: "compact" })}
-                href="/sign-in?callbackURL=%2Fadmin%2Fusers"
+                href="/sign-in?callbackURL=%2Fsettings%2Fadministration"
               >
                 Sign in
               </a>
@@ -173,7 +173,7 @@ export const AdminUsersDirectory = ({
                 })}
                 href="/dashboard"
               >
-                Back to dashboard
+                Back to overview
               </a>
             ) : (
               <Button onClick={onRetry} size="compact" variant="secondary">
@@ -208,6 +208,7 @@ export const AdminUsersDirectory = ({
     ) : (
       <div className="space-y-2">
         <div
+          aria-label="User directory"
           className="divide-y divide-border border-border border-y"
           role="list"
         >

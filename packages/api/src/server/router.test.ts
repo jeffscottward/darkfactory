@@ -675,7 +675,7 @@ describe("feature and theme service error responses", () => {
 
       return await expectDefinedError(
         client.preferences.theme.update({
-          theme: "nord",
+          theme: "night-owl",
           fontSize: "large",
           density: "comfortable",
           radius: "medium",
@@ -695,7 +695,7 @@ describe("feature and theme service error responses", () => {
 
     return await expect(
       client.preferences.theme.update({
-        theme: "nord",
+        theme: "night-owl",
         fontSize: "large",
         density: "comfortable",
         radius: "medium",
@@ -1198,7 +1198,7 @@ describe("router event failure and lifetime boundaries", () => {
           waitUntil: themeWaitUntil,
         })
       ).preferences.theme.update({
-        theme: "nord",
+        theme: "night-owl",
         fontSize: "large",
         density: "comfortable",
         radius: "medium",
@@ -1248,14 +1248,14 @@ describe("router event failure and lifetime boundaries", () => {
           semanticEvents: themeEvents,
         })
       ).preferences.theme.update({
-        theme: "nord",
+        theme: "night-owl",
         fontSize: "large",
         density: "comfortable",
         radius: "medium",
         expectedUpdatedAt: NOW,
       })
     ).resolves.toMatchObject({
-      theme: "nord",
+      theme: "night-owl",
       fontSize: "large",
       density: "comfortable",
       radius: "medium",

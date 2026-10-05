@@ -42,18 +42,20 @@ import { AdminUsersPageClient } from "../../components/admin/admin-users-page-cl
 import { FeatureItemCreateWorkflow } from "../../components/portal/feature-item-create-workflow.tsx";
 import { FeatureItemEditor } from "../../components/portal/feature-item-editor.tsx";
 import { FeatureItemsWorkspace } from "../../components/portal/feature-items-workspace.tsx";
-import AddressPage from "./account/address/page.tsx";
-import AccountError from "./account/error.tsx";
-import AccountLayout from "./account/layout.tsx";
-import AccountLoading from "./account/loading.tsx";
-import AccountPage from "./account/page.tsx";
-import PreferencesPage from "./account/preferences/page.tsx";
-import ProfilePage from "./account/profile/page.tsx";
-import SecurityPage from "./account/security/page.tsx";
-import AdminError from "./admin/error.tsx";
-import AdminLoading from "./admin/loading.tsx";
-import AdminPage from "./admin/page.ts";
-import AdminUsersPage from "./admin/users/page.tsx";
+import { AppearanceSettings } from "../../components/settings/appearance-settings.tsx";
+import { SettingsNavigation } from "../../components/settings/settings-navigation.tsx";
+import {
+  ADMIN_PORTAL_ROUTE_PATHS,
+  LEGACY_ROUTE_REDIRECTS,
+  MEMBER_PORTAL_ROUTE_PATHS,
+} from "../../lib/navigation.ts";
+import LegacyAddressPage from "./account/address/page.ts";
+import LegacyAccountPage from "./account/page.ts";
+import LegacyPreferencesPage from "./account/preferences/page.ts";
+import LegacyProfilePage from "./account/profile/page.ts";
+import LegacySecurityPage from "./account/security/page.ts";
+import LegacyAdminPage from "./admin/page.ts";
+import LegacyAdminUsersPage from "./admin/users/page.ts";
 import DashboardError from "./dashboard/error.tsx";
 import DashboardLoading from "./dashboard/loading.tsx";
 import FeatureItemPage, {
@@ -68,14 +70,33 @@ import FeatureItemsPage, {
   metadata as featureItemsMetadata,
 } from "./feature-items/page.tsx";
 import PortalLayout from "./layout.tsx";
+import AddressSettingsPage from "./settings/account/address/page.tsx";
+import AccountSettingsError from "./settings/account/error.tsx";
+import AccountSettingsLayout from "./settings/account/layout.tsx";
+import AccountSettingsLoading from "./settings/account/loading.tsx";
+import AccountSettingsPage from "./settings/account/page.ts";
+import PreferencesSettingsPage from "./settings/account/preferences/page.tsx";
+import ProfileSettingsPage from "./settings/account/profile/page.tsx";
+import SecuritySettingsPage from "./settings/account/security/page.tsx";
+import AdministrationSettingsError from "./settings/administration/error.tsx";
+import AdministrationSettingsLoading from "./settings/administration/loading.tsx";
+import AdministrationSettingsPage from "./settings/administration/page.tsx";
+import AppearanceSettingsPage from "./settings/appearance/page.tsx";
+import SettingsLayout, {
+  metadata as settingsMetadata,
+} from "./settings/layout.tsx";
+import SettingsPage from "./settings/page.ts";
 
 type RuntimeElement = ReactElement<{
   readonly action?: ReactNode;
   readonly actions?: ReactNode;
+  readonly availableRoutes?: readonly string[];
   readonly children?: ReactNode;
   readonly href?: string;
   readonly id?: string;
+  readonly menu?: string;
   readonly onClick?: (() => void) | undefined;
+  readonly title?: ReactNode;
 }>;
 
 const runtimeElements = (node: ReactNode): readonly RuntimeElement[] => {
@@ -114,33 +135,8 @@ describe("PortalLayout", () => {
   });
 
   return it.each([
-    [
-      "member",
-      false,
-      [
-        "/dashboard",
-        "/feature-items",
-        "/account",
-        "/account/profile",
-        "/account/address",
-        "/account/preferences",
-        "/account/security",
-      ],
-    ],
-    [
-      "admin",
-      true,
-      [
-        "/dashboard",
-        "/feature-items",
-        "/account",
-        "/account/profile",
-        "/account/address",
-        "/account/preferences",
-        "/account/security",
-        "/admin/users",
-      ],
-    ],
+    ["member", false, MEMBER_PORTAL_ROUTE_PATHS],
+    ["admin", true, ADMIN_PORTAL_ROUTE_PATHS],
   ])(
     "renders role-gated routes for an active %s session",
     async (role, isAdmin, availableRoutes) => {
@@ -163,22 +159,134 @@ describe("PortalLayout", () => {
   );
 });
 
+describe("portal route manifests", () =>
+  it("gives members every portal page and administrators the Administration tab too", () => {
+    expect(MEMBER_PORTAL_ROUTE_PATHS).toEqual([
+      "/dashboard",
+      "/feature-items",
+      "/settings",
+      "/settings/account",
+      "/settings/account/profile",
+      "/settings/account/address",
+      "/settings/account/preferences",
+      "/settings/account/security",
+      "/settings/appearance",
+    ]);
+    return expect(ADMIN_PORTAL_ROUTE_PATHS).toEqual([
+      ...MEMBER_PORTAL_ROUTE_PATHS,
+      "/settings/administration",
+    ]);
+  }));
+
+const activeSession = (role: "admin" | "member") => ({
+  expiresAt: new Date("2030-01-01T00:00:00.000Z"),
+  name: "Example User",
+  role,
+  status: "active",
+  userId: "user-1",
+});
+
+describe("settings layout", () => {
+  it("redirects an anonymous request to sign in", async () => {
+    mocks.getRequestPortalSession.mockResolvedValueOnce(null);
+    await expect(SettingsLayout({ children: "settings" })).rejects.toThrow(
+      "REDIRECT:/sign-in?callbackURL=%2Ffeature-items"
+    );
+    return expect(mocks.getRequestPortalSession).toHaveBeenCalledWith(
+      "better-auth.session_token=opaque",
+      "203.0.113.42"
+    );
+  });
+
+  return it.each([
+    ["member", MEMBER_PORTAL_ROUTE_PATHS],
+    ["admin", ADMIN_PORTAL_ROUTE_PATHS],
+  ] as const)(
+    "renders the Settings title and role-filtered tabs for a %s",
+    async (role, availableRoutes) => {
+      mocks.getRequestPortalSession.mockResolvedValueOnce(activeSession(role));
+      const layout = await SettingsLayout({ children: "settings content" });
+      const elements = runtimeElements(layout);
+      expect(
+        elements.some((element) => element.props.title === "Settings")
+      ).toBe(true);
+      const tabs = runtimeElement(layout, SettingsNavigation);
+      expect(tabs?.props).toEqual({ availableRoutes, menu: "settings" });
+      expect(
+        elements.some(
+          (element) => element.props.children === "settings content"
+        )
+      ).toBe(true);
+      return expect(settingsMetadata).toEqual({ title: "Settings" });
+    }
+  );
+});
+
 describe("portal route leaf composition", () => {
-  it("redirects the account index and renders the layout and all account client leaves", () => {
-    expect(() => AccountPage()).toThrow("REDIRECT:/account/profile");
-    expect(mocks.redirect).toHaveBeenCalledWith("/account/profile");
+  it("redirects the settings and account indexes to the profile section", () => {
+    expect(() => SettingsPage()).toThrow("REDIRECT:/settings/account/profile");
+    expect(() => AccountSettingsPage()).toThrow(
+      "REDIRECT:/settings/account/profile"
+    );
+    return expect(mocks.redirect).toHaveBeenCalledTimes(2);
+  });
 
-    const layout = AccountLayout({ children: "account content" });
-    expect(layout.type).toBe("div");
-    expect(layout.props.children).toBe("account content");
+  it("redirects every legacy account and admin URL to its settings tab", () => {
+    const legacyPages = [
+      ["/account", LegacyAccountPage],
+      ["/account/profile", LegacyProfilePage],
+      ["/account/address", LegacyAddressPage],
+      ["/account/preferences", LegacyPreferencesPage],
+      ["/account/security", LegacySecurityPage],
+      ["/admin", LegacyAdminPage],
+      ["/admin/users", LegacyAdminUsersPage],
+    ] as const;
+    for (const [path, Page] of legacyPages) {
+      expect(() => Page()).toThrow(`REDIRECT:${LEGACY_ROUTE_REDIRECTS[path]}`);
+    }
+    expect(LEGACY_ROUTE_REDIRECTS).toEqual({
+      "/account": "/settings/account/profile",
+      "/account/address": "/settings/account/address",
+      "/account/preferences": "/settings/account/preferences",
+      "/account/profile": "/settings/account/profile",
+      "/account/security": "/settings/account/security",
+      "/admin": "/settings/administration",
+      "/admin/users": "/settings/administration",
+    });
+    return expect(mocks.redirect).toHaveBeenCalledTimes(legacyPages.length);
+  });
 
-    expect(runtimeElement(AddressPage(), AddressPageClient)).toBeDefined();
+  it("renders the account sections navigation and every account client leaf", () => {
+    const layout = AccountSettingsLayout({ children: "account content" });
+    expect(runtimeElement(layout, SettingsNavigation)?.props).toEqual({
+      menu: "account",
+    });
     expect(
-      runtimeElement(PreferencesPage(), PreferencesPageClient)
+      runtimeElements(layout).some(
+        (element) => element.props.children === "account content"
+      )
+    ).toBe(true);
+
+    for (const [Page, Client, title] of [
+      [AddressSettingsPage, AddressPageClient, "Addresses"],
+      [PreferencesSettingsPage, PreferencesPageClient, "Preferences"],
+      [ProfileSettingsPage, ProfilePageClient, "Profile"],
+      [SecuritySettingsPage, SecurityPageClient, "Security"],
+    ] as const) {
+      const page = Page();
+      expect(runtimeElement(page, Client)).toBeDefined();
+      expect(
+        runtimeElements(page).some((element) => element.props.title === title)
+      ).toBe(true);
+    }
+  });
+
+  it("renders the administration directory and the appearance form", () => {
+    expect(
+      runtimeElement(AdministrationSettingsPage(), AdminUsersPageClient)
     ).toBeDefined();
-    expect(runtimeElement(ProfilePage(), ProfilePageClient)).toBeDefined();
     return expect(
-      runtimeElement(SecurityPage(), SecurityPageClient)
+      runtimeElement(AppearanceSettingsPage(), AppearanceSettings)
     ).toBeDefined();
   });
 
@@ -208,19 +316,11 @@ describe("portal route leaf composition", () => {
     });
   });
 
-  it("renders the administrator directory and redirects its index", () => {
-    expect(
-      runtimeElement(AdminUsersPage(), AdminUsersPageClient)
-    ).toBeDefined();
-    expect(() => AdminPage()).toThrow("REDIRECT:/admin/users");
-    return expect(mocks.redirect).toHaveBeenCalledWith("/admin/users");
-  });
-
   it("wires every portal error boundary to its supplied retry action", () => {
     const reset = vi.fn();
     const boundaries = [
-      AccountError({ error: new Error("account"), reset }),
-      AdminError({ error: new Error("admin"), reset }),
+      AccountSettingsError({ error: new Error("account"), reset }),
+      AdministrationSettingsError({ error: new Error("admin"), reset }),
       DashboardError({ reset }),
       FeatureItemsError({ reset }),
     ];
@@ -237,8 +337,8 @@ describe("portal route leaf composition", () => {
 
   return it("announces every portal loading boundary without exposing live data", () => {
     for (const loading of [
-      AccountLoading(),
-      AdminLoading(),
+      AccountSettingsLoading(),
+      AdministrationSettingsLoading(),
       DashboardLoading(),
       FeatureItemsLoading(),
     ]) {

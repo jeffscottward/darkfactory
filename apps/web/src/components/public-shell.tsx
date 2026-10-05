@@ -63,7 +63,7 @@ export const PublicHeader = ({
 
   return (
     <header
-      className="sticky top-0 z-overlay border-border border-b bg-background"
+      className="sticky top-0 z-overlay w-full border-b bg-background"
       ref={headerRef}
     >
       <div className="df-container flex min-h-14 items-center justify-between gap-4">

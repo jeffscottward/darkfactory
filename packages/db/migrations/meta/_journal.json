@@ -71,6 +71,13 @@
       "when": 1791142643004,
       "tag": "0009_appearance_preferences",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1791151487970,
+      "tag": "0010_shadcn_themes",
+      "breakpoints": true
     }
   ]
 }

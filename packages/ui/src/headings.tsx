@@ -44,22 +44,20 @@ export const PageHeader = ({
   >
     <div className={cn("min-w-0", variant === "public" && "space-y-3")}>
       {eyebrow === undefined ? null : (
-        <p className="font-body font-semibold text-primary text-xs uppercase tracking-wide">
-          {eyebrow}
-        </p>
+        <p className="font-medium text-muted-foreground text-sm">{eyebrow}</p>
       )}
       <h1
         className={cn(
-          "font-heading font-semibold text-foreground tracking-tight",
-          variant === "public" ? "text-4xl" : "text-xl"
+          "tracking-tight",
+          variant === "public"
+            ? "font-extrabold text-4xl"
+            : "font-bold text-2xl"
         )}
       >
         {title}
       </h1>
       {description === undefined ? null : (
-        <p className="max-w-reading text-lg text-muted-foreground leading-7">
-          {description}
-        </p>
+        <p className="max-w-reading text-muted-foreground">{description}</p>
       )}
     </div>
     {actions === undefined ? null : (
@@ -94,14 +92,12 @@ export const SectionHeader = ({
   return (
     <div
       className={cn(
-        "flex flex-wrap items-center justify-between gap-2 border-border border-b pb-2",
+        "flex flex-wrap items-center justify-between gap-2",
         className
       )}
       {...props}
     >
-      <Heading className="min-w-0 font-heading font-semibold text-base text-foreground tracking-tight">
-        {title}
-      </Heading>
+      <Heading className="min-w-0 font-medium text-lg">{title}</Heading>
       {actions === undefined ? null : (
         <div className="flex shrink-0 flex-wrap gap-2">{actions}</div>
       )}

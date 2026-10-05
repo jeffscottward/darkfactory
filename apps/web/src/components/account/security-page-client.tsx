@@ -102,7 +102,11 @@ export const SecurityPageClient = () => {
   return (
     <div className="space-y-6">
       <section aria-labelledby="active-sessions" className="space-y-3">
-        <SectionHeader id="active-sessions" title="Active sessions" />
+        <SectionHeader
+          headingLevel={3}
+          id="active-sessions"
+          title="Active sessions"
+        />
         <SecurityPanel
           feedback={sessionFeedback}
           isRevoking={isRevoking}
@@ -112,7 +116,11 @@ export const SecurityPageClient = () => {
         />
       </section>
       <section aria-labelledby="change-password" className="space-y-3">
-        <SectionHeader id="change-password" title="Change password" />
+        <SectionHeader
+          headingLevel={3}
+          id="change-password"
+          title="Change password"
+        />
         <PasswordForm
           feedback={passwordFeedback}
           key={passwordVersion}

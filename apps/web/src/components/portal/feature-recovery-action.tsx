@@ -11,7 +11,7 @@ export interface FeatureRecoveryActionProps {
 
 const returnLabel = (href: "/dashboard" | "/feature-items"): string => {
   return href === "/dashboard"
-    ? "Return to dashboard"
+    ? "Return to overview"
     : "Return to feature items";
 };
 

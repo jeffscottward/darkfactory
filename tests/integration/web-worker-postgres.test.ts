@@ -372,7 +372,7 @@ describe("Vinext Cloudflare Worker node-postgres runtime", {
         theme: "system",
         fontSize: "default",
         density: "default",
-        radius: "small",
+        radius: "medium",
         updatedAt: expect.stringMatching(
           /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/
         ),
@@ -383,7 +383,7 @@ describe("Vinext Cloudflare Worker node-postgres runtime", {
     const updated = await rpc(
       "preferences/theme/update",
       {
-        theme: "nord",
+        theme: "night-owl",
         fontSize: "large",
         density: "comfortable",
         radius: "medium",
@@ -396,7 +396,7 @@ describe("Vinext Cloudflare Worker node-postgres runtime", {
     const updatedPayload = (await updated.json()) as ThemeRpcPayload;
     expect(updatedPayload).toEqual({
       json: {
-        theme: "nord",
+        theme: "night-owl",
         fontSize: "large",
         density: "comfortable",
         radius: "medium",
@@ -425,7 +425,7 @@ describe("Vinext Cloudflare Worker node-postgres runtime", {
     );
     expect(stored).toEqual([
       {
-        theme: "nord",
+        theme: "night-owl",
         font_size: "large",
         density: "comfortable",
         radius: "medium",

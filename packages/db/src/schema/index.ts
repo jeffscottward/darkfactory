@@ -28,16 +28,17 @@ export type AddressType = (typeof ADDRESS_TYPES)[number];
 // Canonical appearance values. Keep in sync with packages/state and packages/ui/src/themes.ts.
 export const APPEARANCE_THEMES = [
   "system",
-  "default-dark",
   "default-light",
+  "default-dark",
+  "graphite",
+  "dracula",
+  "monokai",
   "tokyo-night",
-  "catppuccin-mocha",
-  "catppuccin-latte",
-  "gruvbox-dark",
-  "nord",
-  "everforest",
-  "rose-pine",
-  "kanagawa",
+  "one-dark",
+  "night-owl",
+  "synthwave-84",
+  "github-dark",
+  "github-light",
 ] as const;
 export type AppearanceTheme = (typeof APPEARANCE_THEMES)[number];
 
@@ -270,7 +271,7 @@ export const userPreferences = pgTable(
     theme: text("theme").$type<AppearanceTheme>().default("system").notNull(),
     fontSize: text("font_size").$type<FontSize>().default("default").notNull(),
     density: text("density").$type<Density>().default("default").notNull(),
-    radius: text("radius").$type<Radius>().default("small").notNull(),
+    radius: text("radius").$type<Radius>().default("medium").notNull(),
     emailNotifications: boolean("email_notifications").default(true).notNull(),
     productUpdates: boolean("product_updates").default(true).notNull(),
     analyticsConsent: boolean("analytics_consent").default(false).notNull(),
@@ -288,9 +289,9 @@ export const userPreferences = pgTable(
     check(
       "user_preferences_theme_check",
       sql`${table.theme} in (
-        'system', 'default-dark', 'default-light', 'tokyo-night',
-        'catppuccin-mocha', 'catppuccin-latte', 'gruvbox-dark', 'nord',
-        'everforest', 'rose-pine', 'kanagawa'
+        'system', 'default-light', 'default-dark', 'graphite', 'dracula',
+        'monokai', 'tokyo-night', 'one-dark', 'night-owl', 'synthwave-84',
+        'github-dark', 'github-light'
       )`
     ),
     check(

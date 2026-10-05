@@ -9,8 +9,9 @@ export const Skeleton = ({ className, ...props }: SkeletonProps) => (
   <div
     {...props}
     aria-hidden="true"
+    data-slot="skeleton"
     className={cn(
-      "animate-pulse rounded-sm bg-muted motion-reduce:animate-none",
+      "animate-pulse rounded-md bg-accent motion-reduce:animate-none",
       className
     )}
   />

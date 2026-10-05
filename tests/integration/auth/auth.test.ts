@@ -293,7 +293,7 @@ describe("DF-041 through DF-045 Better Auth integration", {
       theme: "system",
       font_size: "default",
       density: "default",
-      radius: "small",
+      radius: "medium",
       email_notifications: true,
       product_updates: true,
       analytics_consent: false,

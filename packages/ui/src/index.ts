@@ -2,11 +2,17 @@ export type { AvatarProps } from "./avatar.tsx";
 export { Avatar } from "./avatar.tsx";
 export type { BadgeProps } from "./badge.tsx";
 export { Badge, badgeVariants } from "./badge.tsx";
-export type { ButtonProps } from "./button.tsx";
-export { Button, buttonVariants } from "./button.tsx";
+export type { ButtonProps, ButtonSize, ButtonVariant } from "./button.tsx";
+export {
+  Button,
+  buttonBoxVariants,
+  buttonChromeVariants,
+  buttonVariants,
+} from "./button.tsx";
 export type { CardHeadingLevel, CardTitleProps } from "./card.tsx";
 export {
   Card,
+  CardAction,
   CardContent,
   CardDescription,
   CardFooter,
@@ -25,7 +31,7 @@ export type {
 } from "./headings.tsx";
 export { PageHeader, SectionHeader } from "./headings.tsx";
 export type { IconButtonProps } from "./icon-button.tsx";
-export { IconButton, iconButtonVariants } from "./icon-button.tsx";
+export { IconButton } from "./icon-button.tsx";
 export type { InputProps } from "./input.tsx";
 export { Input } from "./input.tsx";
 export type { LabelProps } from "./label.tsx";

@@ -85,7 +85,7 @@ export const SecurityPanel = ({
             state.kind === "unauthorized" ? (
               <a
                 className={buttonVariants({ size: "compact" })}
-                href="/sign-in?callbackURL=%2Faccount%2Fsecurity"
+                href="/sign-in?callbackURL=%2Fsettings%2Faccount%2Fsecurity"
               >
                 Sign in
               </a>
@@ -95,7 +95,7 @@ export const SecurityPanel = ({
                   size: "compact",
                   variant: "secondary",
                 })}
-                href="/account/profile"
+                href="/settings/account/profile"
               >
                 Back to account
               </a>
@@ -136,9 +136,9 @@ export const SecurityPanel = ({
           >
             <div className="min-w-0">
               <div className="flex min-w-0 flex-wrap items-center gap-2">
-                <h3 className="min-w-0 break-words font-heading font-semibold text-foreground text-sm">
+                <h4 className="min-w-0 break-words font-heading font-semibold text-foreground text-sm">
                   {session.userAgent ?? "Unidentified browser"}
-                </h3>
+                </h4>
                 {session.isCurrent ? (
                   <StatusBadge status="success">Current session</StatusBadge>
                 ) : null}

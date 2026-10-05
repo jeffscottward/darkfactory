@@ -29,7 +29,7 @@ DarkFactory is for developers and AI agents evaluating, learning, and adapting a
 
 | Class | Meaning | Design-system examples |
 | --- | --- | --- |
-| **Core** | Present in every DarkFactory project | Public surface, portal surface, accessible semantic tokens, Manrope + Public Sans, responsive shell |
+| **Core** | Present in every DarkFactory project | Public surface, portal surface, shadcn tokens, Geist, responsive shell |
 | **Capability** | Optional and explicitly enabled | Additional marketing sections, charts, richer documentation, product-specific navigation |
 | **Convention** | Rule followed by humans and agents | Token-only styling, complete states, no domain assumptions, visible focus, stable interactions |
 | **Implementation** | Current replaceable technical choice | Tailwind, shadcn/ui primitives, Lucide icons, CSS custom properties |
@@ -56,22 +56,21 @@ Use concise declarative copy. Prefer “Trace a complete request from UI to Post
 
 ## 2. Unified Aesthetic Direction
 
-The shared visual language is **engineered editorial**: quiet neutrals, strong sans-serif typography, disciplined rules, restrained color, and generous negative space.
+The shared visual language is **shadcn/ui**: neutral tokens, Geist, Tailwind spacing, thin borders and restrained color. Public pages add generous negative space.
 
 ### Shared DNA
 
-- Warm, tinted neutrals instead of pure white or pure black.
-- Manrope for display and headings; Public Sans for body and interface text.
-- Thin rules, crisp surfaces, restrained shadows, and moderate radii.
-- Left-aligned content and purposeful asymmetry.
-- Color communicates state, selection, or theme—not decoration.
+- DarkFactory has no custom look. It is **shadcn/ui** (new-york-v4 style): its tokens, Tailwind v4 type scale, radii, sizes and component anatomy. When in doubt, match <https://ui.shadcn.com>.
+- Geist Sans for all text; Geist Mono for code and tabular data.
+- A theme is a set of shadcn CSS variables. Swapping themes changes color only, never layout.
+- Color communicates state, selection, or theme, not decoration.
 - Motion clarifies state changes without moving layout bounds.
 
 ### Surface-specific expression
 
 | Public site | Authenticated portal |
 | --- | --- |
-| Squarespace-inspired editorial restraint | shadcn-blocks-inspired application clarity |
+| shadcn site header and typography | shadcn sidebar-07 / dashboard-01 blocks |
 | Generous whitespace and expressive type scale | Compact, scannable information hierarchy |
 | Asymmetric compositions and image/content rhythm | Clear shell, sidebar, forms, tables, and states |
 | Mostly flat sections separated by space and rules | Bordered surfaces used only where grouping is necessary |
@@ -83,92 +82,101 @@ The two surfaces must look related, not identical. Public pages may be spacious 
 
 ## 3. Foundations and Tokens
 
+The source of truth is shadcn/ui: <https://ui.shadcn.com/docs/theming> and the new-york-v4 registry. DarkFactory keeps shadcn's names and values; the only differences are listed in "Extensions" and "Touch targets".
+
 ### 3.1 Typography
 
-All DarkFactory typography is sans serif.
+| Role | Family | Use |
+| --- | --- | --- |
+| Sans | **Geist** (`@fontsource-variable/geist`) | All text. `--font-sans`. |
+| Mono | **Geist Mono** (`@fontsource-variable/geist-mono`) | Code, IDs, tabular data. `--font-mono`. |
 
-| Role | Family | Weights | Use |
-| --- | --- | --- | --- |
-| Display and headings | **Manrope** | 500, 600, 700 | Public hero, page titles, section headings, portal headings |
-| Body and interface | **Public Sans** | 400, 500, 600, 700 | Paragraphs, navigation, controls, labels, data, code-adjacent copy |
-
-Do not use Libre Bodoni or any other serif. Do not use Inter, Roboto, Arial, or Open Sans. Generic `sans-serif` may appear only as the final system fallback.
-
-```css
-@import url("https://fonts.googleapis.com/css2?family=Manrope:wght@500;600;700&family=Public+Sans:wght@400;500;600;700&display=swap");
-
-:root {
-  --font-heading: "Manrope", ui-sans-serif, system-ui, sans-serif;
-  --font-body: "Public Sans", ui-sans-serif, system-ui, sans-serif;
-}
-```
+Fonts are bundled. No CDN at runtime. `--font-heading` and `--font-body` are legacy aliases of `--font-sans`.
 
 #### Type scale
 
-Every step is multiplied by `--font-scale`. The user sets it with **Appearance → Font size** (`data-font-size` on `<html>`): Small `0.875`, Default `0.9375`, Large `1.0625`. The table shows the base values (scale 1).
+Tailwind's default scale, as in shadcn. Every step is multiplied by `--font-scale`, set by **Appearance → Font size** (`data-font-size` on `<html>`): Small `0.875`, Default `1`, Large `1.125`. At Default the values equal Tailwind.
 
-| Token | Size / line-height | Intended use |
+| Token | Size / line-height | Use (shadcn) |
 | --- | --- | --- |
-| `--text-xs` | `0.75rem / 1rem` | Metadata only; never primary instructions |
-| `--text-sm` | `0.875rem / 1.25rem` | Secondary UI, table metadata, most portal text |
-| `--text-base` | `1rem / 1.5rem` | Default body and controls |
-| `--text-lg` | `1.125rem / 1.625rem` | Lead copy |
-| `--text-xl` | `1.25rem / 1.75rem` | Portal page title |
-| `--text-2xl` | `1.5rem / 2rem` | Large numbers |
-| `--text-3xl` | `1.875rem / 2.25rem` | Public subsection title |
-| `--text-4xl` | `clamp(2.25rem, 1.85rem + 2vw, 3.5rem) / 1.05` | Public page title |
-| `--text-display` | `clamp(3rem, 2rem + 4vw, 6.5rem) / 0.96` | Public hero only |
+| `text-xs` | `0.75rem / 1rem` | Badges, sidebar group labels, metadata |
+| `text-sm` | `0.875rem / 1.25rem` | Default UI text: buttons, menus, tables, labels, descriptions |
+| `text-base` | `1rem / 1.5rem` | Site header page title, card title, inputs on mobile |
+| `text-lg` | `1.125rem / 1.75rem` | Dialog title, settings section title |
+| `text-2xl` | `1.5rem / 2rem` | Page title (`font-bold tracking-tight`), KPI numbers |
+| `text-4xl` | `2.25rem / 2.5rem` | Public page title (`font-extrabold tracking-tight`) |
+| `text-display` | `3rem / 1` | Public hero only |
 
-- Headings use `--font-heading`, weight 600 by default, and slightly tightened tracking.
-- Body and UI use `--font-body`.
-- Use sentence case. Avoid all-caps except short metadata labels with increased tracking.
-- Keep long-form text between 55 and 72 characters per line.
-- Public hero copy should usually stay under 12 words; supporting copy under three lines at its target width.
-- Portal body text remains at least `--text-sm`; controls and form fields remain at least `--text-base`.
+- Weights: `font-medium` for buttons, labels, menu items, tabs and active navigation; `font-semibold` for card and dialog titles; `font-bold` for page titles.
+- Muted copy is `text-sm text-muted-foreground`.
+- Use sentence case.
 
 ### 3.2 Themes and semantic color
 
-Components consume semantic tokens only (`--background`, `--surface`, `--primary`, `--sidebar`, `--chart-1` and the rest). Pages and components must not introduce one-off hex values.
+#### Token contract
 
-The token values live in one place: `packages/ui/src/theme-tokens.ts`. Its `renderThemeCss()` generates `packages/ui/src/themes.css`, which `styles.css` imports. Do not edit `themes.css` by hand. After a token change, regenerate it:
+Components use only the shadcn variables, mapped onto Tailwind colors in `@theme inline` (`packages/ui/src/styles.css`):
 
-```sh
-mise exec -- bun -e 'import { renderThemeCss } from "./packages/ui/src/theme-tokens.ts"; await Bun.write("packages/ui/src/themes.css", renderThemeCss());'
-```
+`background`, `foreground`, `card`, `card-foreground`, `popover`, `popover-foreground`, `primary`, `primary-foreground`, `secondary`, `secondary-foreground`, `muted`, `muted-foreground`, `accent`, `accent-foreground`, `destructive`, `border`, `input`, `ring`, `chart-1` … `chart-5`, `sidebar`, `sidebar-foreground`, `sidebar-primary`, `sidebar-primary-foreground`, `sidebar-accent`, `sidebar-accent-foreground`, `sidebar-border`, `sidebar-ring`, and `--radius`.
 
-`styles.contract.test.ts` fails when the file is stale.
+#### Extensions
+
+Set by each theme next to the shadcn variables:
+
+- `destructive-foreground`: text on a solid destructive button or badge. shadcn hard-codes `text-white` and paints the button at 60% in dark mode; neither passes AA on bright IDE reds, so dark themes use dark text on a solid red and the destructive Button and Badge drop `dark:bg-destructive/60`.
+- `success`, `warning`, `info`: status colors, text-safe on `background` and `card` (shadcn's documented way to add tokens).
+
+Derived by `deriveTokens()` in `theme-tokens.ts`, never set by hand. They exist for app code written before the shadcn contract; new code uses the shadcn names:
+
+`surface` (= card), `surface-raised` (= popover), `border-strong`, `primary-hover`, `primary-active`, `primary-subtle`, `primary-subtle-foreground`, `primary-border`, `destructive-hover`, `destructive-active`, `destructive-subtle`, `destructive-border`, `success|warning|info-subtle`, `-foreground` (text on the subtle fill), `-border`, `disabled`, `disabled-foreground`, `disabled-border`, `overlay`.
+
+The dark Tailwind variant (`dark:`) is active for every dark theme and for System when the OS prefers dark. `themes.css` defines it with `@custom-variant dark`.
 
 #### Theme catalog
 
 The root element carries `data-theme`. `:root` without the attribute uses Default Light. **System** uses Default Light, or Default Dark under `prefers-color-scheme: dark`.
 
-| Theme | Scheme | Background | Surface | Foreground | Primary | Source |
-| --- | --- | --- | --- | --- | --- | --- |
-| Default Dark | dark | `#333333` | `#3a3a3a` | `#ededed` | `#7ab0ff` | DarkFactory (neutral gray, r=g=b) |
-| Default Light | light | `#f5f5f5` | `#fafafa` | `#1f1f1f` | `#1d4ed8` | DarkFactory (neutral gray, r=g=b) |
-| Tokyo Night | dark | `#1a1b26` | `#1f2335` | `#c0caf5` | `#7aa2f7` | [folke/tokyonight.nvim](https://github.com/folke/tokyonight.nvim) night |
-| Catppuccin Mocha | dark | `#1e1e2e` | `#181825` | `#cdd6f4` | `#cba6f7` | [catppuccin/palette](https://github.com/catppuccin/palette) |
-| Catppuccin Latte | light | `#e6e9ef` | `#eff1f5` | `#4c4f69` | `#8738ed` | [catppuccin/palette](https://github.com/catppuccin/palette) |
-| Gruvbox Dark | dark | `#282828` | `#32302f` | `#ebdbb2` | `#fe8019` | [morhetz/gruvbox](https://github.com/morhetz/gruvbox) dark medium |
-| Nord | dark | `#2e3440` | `#3b4252` | `#eceff4` | `#88c0d0` | [nordtheme.com](https://www.nordtheme.com/docs/colors-and-palettes) |
-| Everforest | dark | `#2d353b` | `#343f44` | `#d3c6aa` | `#a7c080` | [sainnhe/everforest](https://github.com/sainnhe/everforest) dark medium |
-| Rosé Pine | dark | `#191724` | `#1f1d2e` | `#e0def4` | `#ebbcba` | [rosepinetheme.com](https://rosepinetheme.com/palette/ingredients/) main |
-| Kanagawa | dark | `#1f1f28` | `#2a2a37` | `#dcd7ba` | `#7e9cd8` | [rebelot/kanagawa.nvim](https://github.com/rebelot/kanagawa.nvim) wave |
+| Theme | Scheme | Background | Primary | Source |
+| --- | --- | --- | --- | --- |
+| Default Light | light | `oklch(1 0 0)` | `oklch(0.205 0 0)` | shadcn Neutral |
+| Default Dark | dark | `oklch(0.145 0 0)` | `oklch(0.922 0 0)` | shadcn Neutral |
+| Graphite | dark | `#333333` | `#ededed` | DarkFactory neutral gray |
+| Dracula | dark | `#282a36` | `#bd93f9` | [draculatheme.com/spec](https://draculatheme.com/spec) |
+| Monokai | dark | `#272822` | `#a6e22e` | Monokai Classic |
+| Tokyo Night | dark | `#1a1b26` | `#7aa2f7` | [folke/tokyonight.nvim](https://github.com/folke/tokyonight.nvim) night |
+| One Dark | dark | `#282c34` | `#61afef` | Atom One Dark |
+| Night Owl | dark | `#011627` | `#c792ea` | [sdras/night-owl-vscode-theme](https://github.com/sdras/night-owl-vscode-theme) |
+| Synthwave '84 | dark | `#262335` | `#ff7edb` | [robb0wen/synthwave-vscode](https://github.com/robb0wen/synthwave-vscode) |
+| GitHub Dark | dark | `#0d1117` | `#4493f8` | [Primer](https://primer.style/foundations/primitives/color) |
+| GitHub Light | light | `#ffffff` | `#1f883d` | [Primer](https://primer.style/foundations/primitives/color) |
 
-`accent` is the neutral hover and selected fill. `primary` is the theme's main color for buttons, links and active navigation. Subtle fills (`*-subtle`) are blends of the color into the surface.
+IDE themes use the official, saturated accent colors. Do not soften them into pastels. In IDE themes the active sidebar item text uses the theme primary when it passes AA on the row.
+
+#### Add a theme
+
+1. Get a shadcn variable set: from [tweakcn](https://tweakcn.com), the shadcn theme page, or by mapping an editor palette.
+2. Add the name to `CONCRETE_THEME_NAMES` in `packages/ui/src/theme-tokens.ts` and an entry to `THEME_DEFINITIONS`: `label`, `source`, `colorScheme`, `adjustments` and `tokens`. Paste the shadcn variables into `tokens` without the `--` prefix (oklch, hex and rgb are accepted). Add `destructive-foreground`, `success`, `warning` and `info`. For an editor palette, `fromPalette()` maps it onto the shadcn variables.
+3. Add the name and label to `THEME_NAMES` and `THEME_OPTIONS` in `packages/ui/src/themes.ts`, and to the light set there if it is light. Add the name to `packages/state`, `packages/api` (`contracts/appearance.ts`) and `packages/db` (schema check plus a migration).
+4. Regenerate `themes.css`:
+
+```sh
+mise exec -- bun -e 'import { renderThemeCss } from "./packages/ui/src/theme-tokens.ts"; await Bun.write("packages/ui/src/themes.css", renderThemeCss());'
+```
+
+`styles.contract.test.ts` fails when `themes.css` is stale. `theme-tokens.test.ts` fails when a pair misses WCAG AA.
 
 #### Contrast
 
-Published colors are used as given when they pass. When a published color fails WCAG AA for its role, the builder moves it toward white (dark themes) or black (light themes) in 1% steps until it passes, and records the change in the theme's `adjustments` list. `theme-tokens.test.ts` checks every pair:
+Published colors are used as given when they pass. When one fails WCAG AA for its role, prefer another color from the same official palette; otherwise lighten (dark themes) or darken (light themes) it just enough, and record it in the theme's `adjustments` as `token: from -> to (reason)`. `theme-tokens.test.ts` checks:
 
-- 4.5:1 for text: foreground, muted, sidebar, accent, primary, destructive and status text on their backgrounds, and primary and destructive on the page and surface.
-- 3:1 for boundaries: ring, `border-strong`, `primary-border`, status borders, chart colors and disabled text.
+- 4.5:1 for text: every `*-foreground` on its fill, `muted-foreground` on background, card and muted, `primary` and `destructive` on background and card, status text on card and its subtle fill, and `destructive-foreground` on a destructive button (60% fill in dark themes, as shadcn paints it).
+- 3:1 for boundaries: `ring`, `border-strong`, status borders, chart colors and disabled text.
 
-Themes must also stay perceptually distinct (Lab distance of background and primary).
+Themes must stay perceptually distinct (Lab distance of background and primary).
 
 #### Status colors
 
-Success, warning, info, and destructive styles must include an icon or text label in addition to color. Status tokens keep their meaning in every theme: red for destructive, green or teal for success, yellow for warning, blue for info.
+Success, warning, info and destructive styles must include an icon or text label in addition to color. Red is destructive, green is success, yellow or amber is warning, blue or cyan is info, in every theme.
 
 #### Swatches
 
@@ -176,41 +184,42 @@ Success, warning, info, and destructive styles must include an icon or text labe
 
 ### 3.3 Spacing and density
 
-Density is one variable. Tailwind spacing utilities (`p-*`, `m-*`, `gap-*`, `w-*`, `h-*`) compute `calc(var(--spacing) * n)`, and **Appearance → Density** (`data-density` on `<html>`) sets `--spacing`:
+Tailwind spacing utilities compute `calc(var(--spacing) * n)`. **Appearance → Density** (`data-density`) sets `--spacing`:
 
 | Density | `--spacing` | `p-4` |
 | --- | --- | --- |
-| Compact | `0.1875rem` | 12px |
-| Default | `0.21875rem` | 14px |
-| Comfortable | `0.25rem` | 16px |
+| Compact | `0.21875rem` | 14px |
+| Default | `0.25rem` (Tailwind and shadcn) | 16px |
+| Comfortable | `0.28125rem` | 18px |
 
-- Steps 11 and 12 (`--spacing-11: 2.75rem`, `--spacing-12: 3rem`) are fixed. They are the 44px and 48px touch-target sizes, so `min-h-11` and `size-11` never shrink.
-- `--space-N` equals `calc(var(--spacing) * N)` for CSS outside Tailwind.
-- Shell tokens: `--header-height: 3rem`, `--sidebar-width: 13rem`, `--target-min: 2.75rem`.
-- Portal pages: stack sections with `gap-4` or `space-y-4`, pad cards and tables with `p-3` or `p-4`, and do not use `py-10` or larger.
+- Steps 11 and 12 (`--spacing-11: 2.75rem`, `--spacing-12: 3rem`) are fixed: they are the 44px and 48px touch-target sizes.
+- Shell: `--header-height: calc(var(--spacing) * 12)` (dashboard-01), sidebar `16rem`, icon mode `3rem`, mobile sheet `18rem`.
 
-### 3.4 Radius, borders, and elevation
+### 3.4 Radius and elevation
 
-| Token | Value | Use |
+shadcn radii derive from `--radius`:
+
+| Token | Value | At default (10px) |
 | --- | --- | --- |
-| `--radius-xs` | `0.25rem × scale` | Code chips and compact tags |
-| `--radius-sm` | `0.375rem × scale` | Inputs and compact controls |
-| `--radius-md` | `0.5rem × scale` | Buttons and menus |
-| `--radius-lg` | `0.75rem × scale` | Grouped portal surfaces |
-| `--radius-xl` | `1rem × scale` | Rare public media frames |
-| `--radius-pill` | `9999px` | Status pills, avatars and swatches (never scaled) |
-| `--shadow-sm` | `0 1px 2px rgb(0 0 0 / 0.08)` | Menus and subtle lift |
-| `--shadow-md` | `0 8px 24px rgb(0 0 0 / 0.12)` | Popovers and dialogs |
-| `--shadow-lg` | `0 20px 48px rgb(0 0 0 / 0.16)` | Rare high-priority overlay |
+| `rounded-sm` | `--radius × 0.6` | 6px |
+| `rounded-md` | `--radius × 0.8` | 8px |
+| `rounded-lg` | `--radius` | 10px |
+| `rounded-xl` | `--radius × 1.4` | 14px |
+| `rounded-2xl` … `4xl` | `× 1.8`, `× 2.2`, `× 2.6` | |
 
-`scale` is `--radius-scale`, set by **Appearance → Roundness** (`data-radius`): None `0`, Small `0.5` (default), Medium `1`, Large `1.5`.
+**Appearance → Roundness** (`data-radius`) sets `--radius`: None `0`, Small `0.375rem`, Medium `0.625rem` (default, shadcn), Large `1rem`.
 
-- Borders and whitespace establish hierarchy before shadows.
-- Cards are not the default container. Prefer flat composition with section spacing.
-- Do not nest cards inside cards.
-- Do not apply hover elevation to non-interactive content.
+Elevation is shadcn's: `shadow-xs` on outline buttons and inputs, `shadow-sm` on cards, `shadow-md` on menus, `shadow-lg` on dialogs and sheets.
 
-### 3.5 Motion
+### 3.5 Touch targets
+
+The 44px gate stays: every link, button, input, select, textarea, `role="button"` and `role="menuitemradio"` has a box of at least 44×44px. Primitives keep shadcn's visible size:
+
+- **Button, IconButton, TabsTrigger, DropdownMenu items, SidebarMenuButton, SidebarTrigger, Dialog close:** the element is a transparent 44px box. The shadcn chrome (background, border, radius, focus ring, text) is an inner span with shadcn's exact size and classes; state classes move from `hover:` to `group-hover/<name>:` on the box. Negative margins give back the extra size, so layout matches shadcn (36px buttons, 32px menu and sidebar rows).
+- **Input:** a text field cannot draw smaller chrome inside a bigger box, so it is 44px tall (`min-h-11`). This is the only visible size difference from shadcn.
+- **`buttonVariants()` on a bare element** (for example a link) adds `min-h-11 min-w-11`, so it is 44px tall. Prefer `<Button asChild>`.
+
+### 3.6 Motion
 
 | Token | Value |
 | --- | --- |
@@ -290,7 +299,7 @@ The default theme is System: Default Light, or Default Dark when the OS prefers 
 
 - Use a calm, left-aligned header with one primary action and a lower-emphasis sign-in link.
 - Build hero compositions from an asymmetrical text/media split, not a centered headline floating above generic cards.
-- Let large Manrope headlines, rules, and whitespace create drama.
+- Let large Geist headlines (`font-extrabold tracking-tight`), rules, and whitespace create drama.
 - Alternate text-led, media-led, and proof/detail sections to avoid repetitive card grids.
 - Use flat editorial bands and hairline separators more often than boxed cards.
 - Keep primary calls to action specific: “Explore the architecture,” “Open the demo,” or “Sign in to the portal.”
@@ -331,16 +340,16 @@ Use [shadcn blocks](https://ui.shadcn.com/blocks) as the continual composition r
 
 ### Portal shell
 
-- Desktop: a narrow left sidebar with **core product navigation only** (in the template: Overview), a 3rem top bar, and a bounded content column.
-- Below 1024px: the sidebar becomes a popover drawer opened from the top bar.
-- Everything else lives in **one user menu** at the top right. Its trigger is the avatar initials and the user name. Order: Features (Feature items and generated features), Account (Profile, Address, Preferences, Security — a flat list, no account hub page), Administration (admins only), Appearance (Theme, Font size, Density, Roundness submenus), Sign out.
-- `/account` redirects to `/account/profile`. Do not add hub pages that only list links.
-- The user menu uses the Radix dropdown primitive (`packages/ui/src/client/dropdown-menu.ts`): arrow keys move, Enter or ArrowRight opens a submenu, Escape closes and returns focus to the trigger.
+- Desktop: shadcn sidebar-07 / dashboard-01 anatomy (`packages/ui/src/client/sidebar.tsx`, `apps/web/src/components/portal-shell.tsx`). `SidebarProvider` → `Sidebar variant="inset" collapsible="icon"` (16rem, 3rem in icon mode, toggled by `SidebarTrigger`, the rail or Ctrl/⌘+B; the state lives in the UI store) → `SidebarInset` with a site header: trigger, vertical separator, page title (`text-base font-medium`) and the user menu on the right. The sidebar has two groups: core navigation without a label (in the template: Overview, the `/dashboard` page) and **Features** (Feature items and every generated feature). The word "Dashboard" does not appear in navigation.
+- Below 768px: the sidebar is a left drawer styled like the shadcn sheet (18rem, `bg-sidebar`, `border-r`, `shadow-lg`, `bg-black/50` backdrop). It uses the native popover API (`#portal-navigation`, `popover="auto"`, named "Navigation"), so it opens and closes before hydration; the "Open portal navigation" button toggles it, "Close portal navigation" gets focus, and links close it.
+- The **user menu** at the top right has exactly two items: Settings and Sign out. Its trigger is the avatar initials and the user name. It uses the Radix dropdown primitive (`packages/ui/src/client/dropdown-menu.ts`): arrow keys move, Escape closes and returns focus to the trigger.
+- **Settings** is one page (`/settings`) with an h1 "Settings" and link tabs, each its own URL: Account (`/settings/account/*`), Administration (`/settings/administration`, admins only; members are sent to their account), and Appearance (`/settings/appearance`). Account has a section list: Profile, Address, Preferences, Security. Each tab or section names itself with an h2.
+- `/settings` and `/settings/account` redirect to `/settings/account/profile`. Old URLs redirect to their tab: `/account` and `/account/profile` → Profile, `/account/{address,preferences,security}` → the same section, `/admin` and `/admin/users` → Administration. The manifest is `apps/web/src/lib/navigation.ts`. Do not add hub pages that only list links.
 - Show active navigation with icon, text, and selected treatment; never color alone.
 
 ### Information hierarchy
 
-- Portal page header: title and actions only (`PageHeader` without `description` or `eyebrow`; the type rejects them unless `variant="public"`). Title: Manrope `--text-xl`.
+- Portal page header: title and actions only (`PageHeader` without `description` or `eyebrow`; the type rejects them unless `variant="public"`). Title: `text-2xl font-bold tracking-tight`.
 - No filler text in the portal: no subtitles that restate the title, no explanatory paragraphs, no empty-state prose. Keep data, actions, labels, error messages and required safety or legal notices.
 - Use section headings before adding containers.
 - Prefer one dominant page task and a small number of secondary actions.
@@ -386,7 +395,7 @@ Public pages may use longer empty-state copy; the portal does not.
 ### Theme controls
 
 - Offer the System option and the ten themes defined in Section 3.2, plus Font size, Density and Roundness.
-- In the portal the controls are the Appearance submenus of the user menu. Public and auth pages use the standalone "Appearance settings" menu (`ThemeMenu`).
+- In the portal the controls are radio groups on the Appearance settings tab (`/settings/appearance`); a change applies at once and saves to the account. Public and auth pages use the compact standalone "Appearance settings" menu (`ThemeMenu`).
 - Each theme option shows a 1.25rem (20px) swatch circle (background and primary), a fixed 0.75rem (12px) gap, then the name. Selection uses radio-item semantics.
 - Persistence: a `darkfactory-theme=<theme>:<fontSize>:<density>:<radius>` cookie for server rendering without a flash, localStorage `darkfactory.anonymous-ui.v2` for anonymous visitors, and the `user_preferences` row (`theme`, `font_size`, `density`, `radius`) for signed-in users.
 - Theme changes update color only; they must not move, resize, or reflow controls.
@@ -398,25 +407,26 @@ Public pages may use longer empty-state copy; the portal does not.
 
 ### Buttons and links
 
-- Variants: primary, secondary, ghost, destructive, and text link.
-- Minimum target: 44×44px, including icon-only controls.
-- Use native `button` and `a` semantics.
-- Primary buttons use `--primary` and `--primary-foreground`.
-- Secondary buttons use a stable border; hover changes surface color without changing border width.
-- Icon-only buttons require an accessible name and tooltip where the icon may be unfamiliar.
+- Use the shadcn variants: `default`, `outline`, `secondary`, `ghost`, `destructive`, `link`; sizes `default` (h-9), `sm` (h-8), `lg` (h-10), `icon`, `icon-sm`, `icon-lg`. Legacy names `primary`, `compact` and `large` map to `default`, `sm` and `lg`.
+- Box at least 44×44px; see 3.5.
+- Use native `button` and `a` semantics. Style a link as a button with `<Button asChild><a …/></Button>`.
+- Icon-only buttons require an accessible name.
 - Do not make every action primary.
+
+### Auth pages
+
+- shadcn login block (login-03/04): a centered `max-w-sm` card on `bg-muted`, title `text-xl font-semibold` (the page `h1`), `CardDescription`, the form in `CardContent`, and an optional muted footer line below the card.
 
 ### Inputs and controls
 
-- Default control height is at least 44px.
-- Inputs use `--surface`, `--foreground`, and `--border-strong`.
+- shadcn `Input` and `Textarea` (`border-input`, `bg-transparent`, `dark:bg-input/30`, `shadow-xs`, `focus-visible:ring-[3px] ring-ring/50`). Inputs are 44px tall (3.5).
 - Placeholder text is an example, never the only label.
-- Focus uses the shared ring treatment; errors retain a visible focus ring.
+- Errors use `aria-invalid`, which turns the border and ring destructive.
 - Checkbox and radio hit areas extend to their labels.
-- Selects reserve stable room for their indicator so labels do not jump.
 
 ### Cards and grouped surfaces
 
+- shadcn `Card` anatomy: `rounded-xl border bg-card py-6 shadow-sm`, `CardHeader`/`CardContent`/`CardFooter` with `px-6`, `CardTitle` `leading-none font-semibold`, optional `CardAction`.
 - Use a card only when a group has a meaningful boundary.
 - Static cards have no pointer cursor or hover treatment.
 - Interactive cards use a real internal link or button, not an unlabeled clickable container.
@@ -426,13 +436,13 @@ Public pages may use longer empty-state copy; the portal does not.
 
 - Prefer inline disclosure or a dedicated page when the task needs context or sustained work.
 - Trap focus in modal surfaces, support Escape, label the surface, and restore focus to the trigger.
-- Use a sufficiently strong scrim without decorative blur.
+- shadcn anatomy: `bg-black/50` overlay, `rounded-lg border bg-background p-6 shadow-lg sm:max-w-lg`, title `text-lg font-semibold`, close icon at the top right; menus `rounded-md border bg-popover p-1 shadow-md` with 32px rows.
 - Drawers and dialogs must remain usable at 375px without clipped actions.
 
 ### Icons
 
 - Use one coherent outline family, preferably Lucide.
-- Standard visible sizes: 16px compact, 20px default, 24px emphasis; targets remain at least 44px.
+- Default icon size is 16px (`size-4`), as in shadcn; targets remain at least 44px.
 - Icons communicate action, status, or structure. Do not add icons merely to decorate headings.
 - Do not use emoji as structural icons.
 - Keep stroke weight consistent within a hierarchy level.
@@ -498,7 +508,7 @@ Never use:
 
 ### System
 
-- [ ] Manrope is used for all headings and Public Sans for body/interface text.
+- [ ] Geist Sans is used for all text and Geist Mono for code; no other families.
 - [ ] No forbidden fonts or serif typography appear.
 - [ ] Every color and spacing value comes from a defined token.
 - [ ] System and all ten themes are coherent and accessible.

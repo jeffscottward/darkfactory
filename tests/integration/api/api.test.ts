@@ -307,7 +307,7 @@ describe("DF-045/051/061-064 real PostgreSQL API integration", {
       theme: "system",
       fontSize: "default",
       density: "default",
-      radius: "small",
+      radius: "medium",
       updatedAt: expect.any(Date),
     });
 
@@ -327,14 +327,14 @@ describe("DF-045/051/061-064 real PostgreSQL API integration", {
         semanticEvents,
         requestId: "theme-request-1",
       }).preferences.theme.update({
-        theme: "nord",
+        theme: "night-owl",
         fontSize: "large",
         density: "comfortable",
         radius: "medium",
         expectedUpdatedAt: memberTheme.updatedAt,
       })
     ).resolves.toMatchObject({
-      theme: "nord",
+      theme: "night-owl",
       fontSize: "large",
       density: "comfortable",
       radius: "medium",
@@ -342,7 +342,7 @@ describe("DF-045/051/061-064 real PostgreSQL API integration", {
     });
     await expectedError(
       apiClient(memberCookie).preferences.theme.update({
-        theme: "everforest",
+        theme: "synthwave-84",
         fontSize: "default",
         density: "comfortable",
         radius: "none",
@@ -355,7 +355,7 @@ describe("DF-045/051/061-064 real PostgreSQL API integration", {
     await expect(
       apiClient(memberCookie).preferences.theme.get({})
     ).resolves.toMatchObject({
-      theme: "nord",
+      theme: "night-owl",
       fontSize: "large",
       density: "comfortable",
       radius: "medium",
@@ -364,14 +364,14 @@ describe("DF-045/051/061-064 real PostgreSQL API integration", {
     const otherTheme = await apiClient(otherCookie).preferences.theme.get({});
     await expect(
       apiClient(otherCookie).preferences.theme.update({
-        theme: "everforest",
+        theme: "synthwave-84",
         fontSize: "default",
         density: "comfortable",
         radius: "none",
         expectedUpdatedAt: otherTheme.updatedAt,
       })
     ).resolves.toMatchObject({
-      theme: "everforest",
+      theme: "synthwave-84",
       fontSize: "default",
       density: "comfortable",
       radius: "none",
@@ -380,7 +380,7 @@ describe("DF-045/051/061-064 real PostgreSQL API integration", {
     await expect(
       apiClient(memberCookie).preferences.theme.get({})
     ).resolves.toMatchObject({
-      theme: "nord",
+      theme: "night-owl",
       fontSize: "large",
       density: "comfortable",
       radius: "medium",
@@ -404,7 +404,7 @@ describe("DF-045/051/061-064 real PostgreSQL API integration", {
     expect(stored).toEqual([
       {
         email: "theme-member@domain.test",
-        theme: "nord",
+        theme: "night-owl",
         font_size: "large",
         density: "comfortable",
         radius: "medium",
@@ -416,7 +416,7 @@ describe("DF-045/051/061-064 real PostgreSQL API integration", {
       },
       {
         email: "theme-other@domain.test",
-        theme: "everforest",
+        theme: "synthwave-84",
         font_size: "default",
         density: "comfortable",
         radius: "none",
@@ -443,7 +443,7 @@ describe("DF-045/051/061-064 real PostgreSQL API integration", {
     });
     expect(events[0]?.correlation.actorId).toBeDefined();
     expect(events[0]?.eventId).not.toBe("theme-request-1");
-    expect(JSON.stringify(events[0])).not.toContain("nord");
+    expect(JSON.stringify(events[0])).not.toContain("night-owl");
     return expect(JSON.stringify(events[0])).not.toContain("comfortable");
   });
 
@@ -536,7 +536,7 @@ describe("DF-045/051/061-064 real PostgreSQL API integration", {
     });
     const initialTheme = await member.preferences.theme.get({});
     await member.preferences.theme.update({
-      theme: "nord",
+      theme: "night-owl",
       fontSize: "large",
       density: "comfortable",
       radius: "medium",
@@ -553,7 +553,7 @@ describe("DF-045/051/061-064 real PostgreSQL API integration", {
         profileVisibility: "members",
       })
     ).resolves.toMatchObject({
-      theme: "nord",
+      theme: "night-owl",
       fontSize: "large",
       density: "comfortable",
       radius: "medium",

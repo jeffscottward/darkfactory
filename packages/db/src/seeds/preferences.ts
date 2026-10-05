@@ -21,7 +21,7 @@ export const DEVELOPMENT_PREFERENCES: readonly UpsertUserPreferencesInput[] =
     }),
     Object.freeze({
       userId: "00000000-0000-4000-8000-000000000002",
-      theme: "nord",
+      theme: "night-owl",
       fontSize: "large",
       density: "comfortable",
       radius: "medium",

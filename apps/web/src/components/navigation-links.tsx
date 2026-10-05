@@ -50,9 +50,9 @@ export const NavigationLinks = ({
               {...(onNavigate === undefined ? {} : { onClick: onNavigate })}
               aria-current={active ? "page" : undefined}
               className={cn(
-                "inline-flex min-h-11 min-w-11 items-center gap-2 rounded-md px-2.5 font-medium text-muted-foreground text-sm transition-colors duration-base ease-out hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background",
+                "inline-flex min-h-11 min-w-11 items-center gap-2 rounded-md px-2 font-medium text-muted-foreground text-sm outline-none transition-colors hover:text-foreground focus-visible:ring-[3px] focus-visible:ring-ring/50",
                 orientation === "vertical" && "w-full",
-                active && "bg-primary-subtle text-primary-subtle-foreground",
+                active && "text-foreground",
                 linkClassName
               )}
               {...(prefetch === undefined ? {} : { prefetch })}

@@ -1,3 +1,6 @@
+// What: Navigation manifest: public, support, auth, portal sidebar, settings tabs, route-page map and legacy redirects.
+// Used by: apps/web/src/components/portal-shell.tsx, apps/web/src/components/user-menu.tsx, apps/web/src/components/settings/settings-navigation.tsx.
+// See: design-system/darkfactory/MASTER.md (Navigation); apps/web/src/features/generated-navigation.ts.
 import type { LucideIcon } from "lucide-react";
 import {
   BookOpen,
@@ -11,11 +14,13 @@ import {
   LockKeyhole,
   Mail,
   MapPin,
+  Palette,
   Settings,
+  ShieldCheck,
+  SlidersHorizontal,
   Sparkles,
   UserPlus,
   UserRound,
-  Wrench,
 } from "lucide-react";
 import {
   GENERATED_FEATURE_NAVIGATION,
@@ -28,6 +33,12 @@ export interface NavigationItem {
   readonly href: `/${string}` | "/";
   readonly icon: LucideIcon;
   readonly label: string;
+}
+
+export interface NavigationGroup {
+  readonly items: readonly NavigationItem[];
+  /** Visible group label; `null` renders the items without a label. */
+  readonly label: string | null;
 }
 
 export const PUBLIC_NAVIGATION: readonly NavigationItem[] = Object.freeze([
@@ -51,12 +62,12 @@ export const AUTH_NAVIGATION: readonly NavigationItem[] = Object.freeze([
   { href: "/reset-password", icon: KeyRound, label: "Reset password" },
 ]);
 
-/** Core product navigation: the only links in the portal sidebar. */
+/** Core product navigation: the unlabelled first sidebar group. */
 export const PORTAL_NAVIGATION: readonly NavigationItem[] = Object.freeze([
   { href: "/dashboard", icon: Gauge, label: "Overview" },
 ]);
 
-/** Feature destinations: listed in the user menu, not the sidebar. */
+/** Feature destinations, including generated features: the sidebar "Features" group. */
 export const FEATURE_NAVIGATION: readonly NavigationItem[] = Object.freeze([
   { href: "/feature-items", icon: LayoutList, label: "Feature items" },
   ...GENERATED_FEATURE_NAVIGATION.map((item) => ({
@@ -65,16 +76,83 @@ export const FEATURE_NAVIGATION: readonly NavigationItem[] = Object.freeze([
   })),
 ]);
 
-export const ACCOUNT_NAVIGATION: readonly NavigationItem[] = Object.freeze([
-  { href: "/account/profile", icon: UserRound, label: "Profile" },
-  { href: "/account/address", icon: MapPin, label: "Address" },
-  { href: "/account/preferences", icon: Settings, label: "Preferences" },
-  { href: "/account/security", icon: LockKeyhole, label: "Security" },
+/** Portal sidebar groups, in display order. Filter items with `isRouteExposed`. */
+export const PORTAL_SIDEBAR_GROUPS: readonly NavigationGroup[] = Object.freeze([
+  { items: PORTAL_NAVIGATION, label: null },
+  { items: FEATURE_NAVIGATION, label: "Features" },
 ]);
 
-export const ADMIN_NAVIGATION: readonly NavigationItem[] = Object.freeze([
-  { href: "/admin/users", icon: Wrench, label: "Users" },
+/** The single settings destination in the user menu. */
+export const SETTINGS_ENTRY: NavigationItem = Object.freeze({
+  href: "/settings",
+  icon: Settings,
+  label: "Settings",
+});
+
+/** First page of the settings area; `/settings` and `/settings/account` redirect here. */
+export const SETTINGS_HOME_PATH = "/settings/account/profile" as const;
+
+/** High-level settings tabs. "Administration" is exposed to administrators only. */
+export const SETTINGS_NAVIGATION: readonly NavigationItem[] = Object.freeze([
+  { href: "/settings/account", icon: UserRound, label: "Account" },
+  {
+    href: "/settings/administration",
+    icon: ShieldCheck,
+    label: "Administration",
+  },
+  { href: "/settings/appearance", icon: Palette, label: "Appearance" },
 ]);
+
+/** Sections inside the Account settings tab. */
+export const ACCOUNT_SETTINGS_NAVIGATION: readonly NavigationItem[] =
+  Object.freeze([
+    { href: "/settings/account/profile", icon: UserRound, label: "Profile" },
+    { href: "/settings/account/address", icon: MapPin, label: "Address" },
+    {
+      href: "/settings/account/preferences",
+      icon: SlidersHorizontal,
+      label: "Preferences",
+    },
+    {
+      href: "/settings/account/security",
+      icon: LockKeyhole,
+      label: "Security",
+    },
+  ]);
+
+/** Routes every signed-in member can open. */
+export const MEMBER_PORTAL_ROUTE_PATHS = Object.freeze([
+  "/dashboard",
+  "/feature-items",
+  ...GENERATED_FEATURE_ROUTE_PATHS,
+  "/settings",
+  "/settings/account",
+  "/settings/account/profile",
+  "/settings/account/address",
+  "/settings/account/preferences",
+  "/settings/account/security",
+  "/settings/appearance",
+] as const);
+
+/** Routes only administrators can open. */
+export const ADMIN_PORTAL_ROUTE_PATHS = Object.freeze([
+  ...MEMBER_PORTAL_ROUTE_PATHS,
+  "/settings/administration",
+] as const);
+
+/**
+ * Old portal URLs and their settings destination. Each keeps a page that
+ * redirects, so bookmarks and deep links keep working.
+ */
+export const LEGACY_ROUTE_REDIRECTS = Object.freeze({
+  "/account": SETTINGS_HOME_PATH,
+  "/account/address": "/settings/account/address",
+  "/account/preferences": "/settings/account/preferences",
+  "/account/profile": "/settings/account/profile",
+  "/account/security": "/settings/account/security",
+  "/admin": "/settings/administration",
+  "/admin/users": "/settings/administration",
+} as const);
 
 export const EXPOSED_ROUTE_PATHS = Object.freeze([
   "/",
@@ -89,27 +167,13 @@ export const EXPOSED_ROUTE_PATHS = Object.freeze([
   "/sign-up",
   "/forgot-password",
   "/reset-password",
-  "/dashboard",
-  "/feature-items",
-  "/account",
-  "/account/profile",
-  "/account/address",
-  "/account/preferences",
-  "/account/security",
-  "/admin/users",
-  ...GENERATED_FEATURE_ROUTE_PATHS,
+  ...ADMIN_PORTAL_ROUTE_PATHS,
 ] as const);
 
 export const ROUTE_PAGE_FILES: Readonly<Record<string, string>> = Object.freeze(
   {
     "/": "(public)/page.tsx",
     "/about": "(public)/about/page.tsx",
-    "/account": "(portal)/account/page.tsx",
-    "/account/address": "(portal)/account/address/page.tsx",
-    "/account/preferences": "(portal)/account/preferences/page.tsx",
-    "/account/profile": "(portal)/account/profile/page.tsx",
-    "/account/security": "(portal)/account/security/page.tsx",
-    "/admin/users": "(portal)/admin/users/page.tsx",
     "/contact": "(public)/contact/page.tsx",
     "/dashboard": "(portal)/dashboard/page.tsx",
     "/feature-items": "(portal)/feature-items/page.tsx",
@@ -119,6 +183,15 @@ export const ROUTE_PAGE_FILES: Readonly<Record<string, string>> = Object.freeze(
     "/legal/terms": "(public)/legal/terms/page.tsx",
     "/reset-password": "(auth)/reset-password/page.tsx",
     "/resources": "(public)/resources/page.tsx",
+    "/settings": "(portal)/settings/page.ts",
+    "/settings/account": "(portal)/settings/account/page.ts",
+    "/settings/account/address": "(portal)/settings/account/address/page.tsx",
+    "/settings/account/preferences":
+      "(portal)/settings/account/preferences/page.tsx",
+    "/settings/account/profile": "(portal)/settings/account/profile/page.tsx",
+    "/settings/account/security": "(portal)/settings/account/security/page.tsx",
+    "/settings/administration": "(portal)/settings/administration/page.tsx",
+    "/settings/appearance": "(portal)/settings/appearance/page.tsx",
     "/sign-in": "(auth)/sign-in/page.tsx",
     "/sign-up": "(auth)/sign-up/page.tsx",
     "/solutions": "(public)/solutions/page.tsx",
@@ -126,14 +199,27 @@ export const ROUTE_PAGE_FILES: Readonly<Record<string, string>> = Object.freeze(
   }
 );
 
+/** Page files of the legacy redirects in `LEGACY_ROUTE_REDIRECTS`. */
+export const LEGACY_ROUTE_PAGE_FILES: Readonly<Record<string, string>> =
+  Object.freeze({
+    "/account": "(portal)/account/page.ts",
+    "/account/address": "(portal)/account/address/page.ts",
+    "/account/preferences": "(portal)/account/preferences/page.ts",
+    "/account/profile": "(portal)/account/profile/page.ts",
+    "/account/security": "(portal)/account/security/page.ts",
+    "/admin": "(portal)/admin/page.ts",
+    "/admin/users": "(portal)/admin/users/page.ts",
+  });
+
 export const ALL_NAVIGATION: readonly NavigationItem[] = Object.freeze([
   ...PUBLIC_NAVIGATION,
   ...SUPPORT_NAVIGATION,
   ...AUTH_NAVIGATION,
   ...PORTAL_NAVIGATION,
   ...FEATURE_NAVIGATION,
-  ...ACCOUNT_NAVIGATION,
-  ...ADMIN_NAVIGATION,
+  SETTINGS_ENTRY,
+  ...SETTINGS_NAVIGATION,
+  ...ACCOUNT_SETTINGS_NAVIGATION,
 ]);
 
 export const isRouteExposed = (

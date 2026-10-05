@@ -1,12 +1,10 @@
 import {
   DropdownMenu,
   DropdownMenuContent,
-  DropdownMenuGroup,
   DropdownMenuItem,
-  DropdownMenuLabel,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@darkfactory/ui/client/dropdown-menu";
-import { AppearanceMenuItems } from "@darkfactory/ui/client/theme";
 import Link from "next/link";
 import type * as ReactModule from "react";
 import {
@@ -17,8 +15,6 @@ import {
 } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, describe, expect, it, vi } from "vitest";
-
-import type { AppearanceSelection } from "./theme-menu.tsx";
 
 const hookRuntime = vi.hoisted(() => {
   const stateSlots: Array<{ value: unknown }> = [];
@@ -86,10 +82,6 @@ const navigationRuntime = vi.hoisted(() => ({
   pathname: "" as string | null,
 }));
 
-const appearanceRuntime = vi.hoisted(() => ({
-  current: undefined as AppearanceSelection | undefined,
-}));
-
 vi.mock("react", async (importOriginal) => {
   const actual = await importOriginal<typeof ReactModule>();
   return {
@@ -103,22 +95,8 @@ vi.mock("next/navigation", () => ({
   usePathname: () => navigationRuntime.pathname,
 }));
 
-vi.mock("./theme-menu.tsx", () => ({
-  useAppearanceSelection: () => {
-    if (appearanceRuntime.current === undefined)
-      throw new Error("Configure the appearance selection before rendering.");
-    return appearanceRuntime.current;
-  },
-}));
-
 import { SignOutError, SignOutMenuItem } from "./account/sign-out-action.tsx";
-import {
-  UserMenu,
-  type UserMenuProps,
-  type UserMenuSection,
-  userInitials,
-  userMenuSections,
-} from "./user-menu.tsx";
+import { UserMenu, type UserMenuProps, userInitials } from "./user-menu.tsx";
 
 type TreeElement = ReactElement<Record<string, unknown>>;
 
@@ -145,17 +123,6 @@ const textOf = (node: unknown): string => {
   return textOf(node.props["children"]);
 };
 
-const appearance = (
-  overrides: Partial<AppearanceSelection> = {}
-): AppearanceSelection => ({
-  disabled: false,
-  error: null,
-  select: vi.fn(),
-  statusMessage: null,
-  triggerLabel: "Appearance settings",
-  ...overrides,
-});
-
 const renderMenu = (props: UserMenuProps): TreeElement => {
   hookRuntime.begin();
   return UserMenu(props);
@@ -163,7 +130,6 @@ const renderMenu = (props: UserMenuProps): TreeElement => {
 
 afterEach(() => {
   hookRuntime.reset();
-  appearanceRuntime.current = undefined;
   navigationRuntime.pathname = "";
   return vi.unstubAllGlobals();
 });
@@ -178,68 +144,18 @@ describe("user menu identity", () =>
     return expect(userInitials(" \t\n ")).toBe("?");
   }));
 
-describe("user menu sections", () => {
-  const hrefs = (sections: readonly UserMenuSection[]) =>
-    sections.map((section) => [
-      section.label,
-      section.items.map((item) => item.href),
-    ]);
-
-  it("lists features and account destinations for members by default", () =>
-    expect(hrefs(userMenuSections({}))).toEqual([
-      ["Features", ["/feature-items"]],
-      [
-        "Account",
-        [
-          "/account/profile",
-          "/account/address",
-          "/account/preferences",
-          "/account/security",
-        ],
-      ],
-    ]));
-
-  it("adds administration only for administrators", () =>
-    expect(hrefs(userMenuSections({ isAdmin: true }))).toEqual([
-      ["Features", ["/feature-items"]],
-      [
-        "Account",
-        [
-          "/account/profile",
-          "/account/address",
-          "/account/preferences",
-          "/account/security",
-        ],
-      ],
-      ["Administration", ["/admin/users"]],
-    ]));
-
-  return it("keeps only exposed routes and drops empty sections", () => {
-    const availableRoutes = ["/account/security", "/dashboard"];
-    expect(hrefs(userMenuSections({ availableRoutes, isAdmin: true }))).toEqual(
-      [["Account", ["/account/security"]]]
-    );
-    expect(
-      hrefs(
-        userMenuSections({
-          availableRoutes: ["/admin/users", "/feature-items"],
-          isAdmin: false,
-        })
-      )
-    ).toEqual([["Features", ["/feature-items"]]]);
-    return expect(
-      userMenuSections({ availableRoutes: [], isAdmin: true })
-    ).toEqual([]);
-  });
-});
+const menuLinks = (tree: unknown) =>
+  elementsOfType(tree, Link).map((link) => ({
+    active: link.props["aria-current"],
+    className: link.props["className"],
+    href: link.props["href"],
+    label: textOf(link),
+    prefetch: link.props["prefetch"],
+  }));
 
 describe("user menu rendering", () => {
-  it("renders the trigger, member destinations, appearance controls, and sign-out", () => {
-    const selection = appearance({
-      statusMessage: "Saving appearance settings.",
-    });
-    appearanceRuntime.current = selection;
-    navigationRuntime.pathname = "/account/preferences";
+  it("renders the trigger and exactly two items: Settings and Sign out", () => {
+    navigationRuntime.pathname = "/dashboard";
 
     let tree = renderMenu({ name: "Ada Lovelace" });
     let trigger = onlyElement(tree, DropdownMenuTrigger);
@@ -247,7 +163,6 @@ describe("user menu rendering", () => {
     expect(trigger.props["aria-controls"]).toBeUndefined();
     expect(trigger.props["data-hydration-state"]).toBe("pending");
     expect(textOf(trigger)).toBe("ALAda Lovelace");
-    expect(textOf(tree)).toContain("Saving appearance settings.");
     expect(onlyElement(tree, DropdownMenu).props["modal"]).toBe(false);
 
     const content = onlyElement(tree, DropdownMenuContent);
@@ -255,72 +170,18 @@ describe("user menu rendering", () => {
       "aria-labelledby": "user-menu-trigger",
       id: "user-menu-content",
     });
-    expect(
-      elementsOfType(tree, DropdownMenuGroup).map(
-        (group) => group.props["aria-label"]
-      )
-    ).toEqual(["Features", "Account"]);
-    expect(
-      elementsOfType(tree, DropdownMenuLabel).map((label) => textOf(label))
-    ).toEqual(["Features", "Account"]);
-    expect(
-      elementsOfType(tree, DropdownMenuItem).every(
-        (item) => item.props["asChild"] === true
-      )
-    ).toBe(true);
-    expect(
-      elementsOfType(tree, Link).map((link) => ({
-        active: link.props["aria-current"],
-        className: link.props["className"],
-        href: link.props["href"],
-        label: textOf(link),
-        prefetch: link.props["prefetch"],
-      }))
-    ).toEqual([
+    expect(onlyElement(tree, DropdownMenuItem).props["asChild"]).toBe(true);
+    expect(elementsOfType(tree, DropdownMenuSeparator)).toHaveLength(1);
+    expect(menuLinks(tree)).toEqual([
       {
         active: undefined,
         className: undefined,
-        href: "/feature-items",
-        label: "Feature items",
-        prefetch: false,
-      },
-      {
-        active: undefined,
-        className: undefined,
-        href: "/account/profile",
-        label: "Profile",
-        prefetch: false,
-      },
-      {
-        active: undefined,
-        className: undefined,
-        href: "/account/address",
-        label: "Address",
-        prefetch: false,
-      },
-      {
-        active: "page",
-        className: "font-semibold",
-        href: "/account/preferences",
-        label: "Preferences",
-        prefetch: false,
-      },
-      {
-        active: undefined,
-        className: undefined,
-        href: "/account/security",
-        label: "Security",
+        href: "/settings",
+        label: "Settings",
         prefetch: false,
       },
     ]);
-    expect(
-      elementsOf(tree).some((element) => element.props["role"] === "alert")
-    ).toBe(false);
-    expect(onlyElement(tree, AppearanceMenuItems).props).toEqual({
-      disabled: false,
-      idPrefix: "user-menu",
-      onPreferenceChange: selection.select,
-    });
+    expect(textOf(content)).not.toMatch(/Appearance|Dashboard|Feature items/u);
     expect(onlyElement(tree, SignOutMenuItem).props).toMatchObject({
       isHydrated: false,
       state: { type: "idle" },
@@ -339,19 +200,35 @@ describe("user menu rendering", () => {
     });
   });
 
-  it("renders administration, appearance failures, and the injected sign-out gateway", async () => {
-    appearanceRuntime.current = appearance({
-      disabled: true,
-      error: "Could not save appearance settings. Try again.",
-    });
+  it("marks Settings as the current page anywhere under /settings", () => {
+    for (const pathname of ["/settings", "/settings/appearance"]) {
+      navigationRuntime.pathname = pathname;
+      hookRuntime.reset();
+      expect(menuLinks(renderMenu({ name: "Ada" }))).toEqual([
+        {
+          active: "page",
+          className: "font-semibold",
+          href: "/settings",
+          label: "Settings",
+          prefetch: false,
+        },
+      ]);
+    }
+    navigationRuntime.pathname = "/settings-archive";
+    hookRuntime.reset();
+    return expect(
+      menuLinks(renderMenu({ name: "Ada" }))[0]?.active
+    ).toBeUndefined();
+  });
+
+  it("drops Settings when the route is not exposed and keeps sign-out failures visible", async () => {
     navigationRuntime.pathname = null;
     const signOut = vi.fn(async () => ({
       message: "Sign out could not be confirmed.",
       ok: false as const,
     }));
     const props: UserMenuProps = {
-      availableRoutes: ["/account/profile", "/admin/users"],
-      isAdmin: true,
+      availableRoutes: ["/dashboard"],
       name: "Grace Hopper",
       signOutGateway: { signOut },
     };
@@ -362,27 +239,9 @@ describe("user menu rendering", () => {
     expect(textOf(onlyElement(tree, DropdownMenuTrigger))).toBe(
       "GHGrace Hopper"
     );
-    expect(
-      elementsOfType(tree, DropdownMenuGroup).map(
-        (group) => group.props["aria-label"]
-      )
-    ).toEqual(["Account", "Administration"]);
-    expect(
-      elementsOfType(tree, Link).map((link) => [
-        link.props["href"],
-        link.props["aria-current"],
-      ])
-    ).toEqual([
-      ["/account/profile", undefined],
-      ["/admin/users", undefined],
-    ]);
-    const alert = elementsOf(tree).find(
-      (element) => element.props["role"] === "alert"
-    );
-    expect(textOf(alert)).toBe(
-      "Could not save appearance settings. Try again."
-    );
-    expect(onlyElement(tree, AppearanceMenuItems).props["disabled"]).toBe(true);
+    expect(elementsOfType(tree, Link)).toEqual([]);
+    expect(elementsOfType(tree, DropdownMenuItem)).toEqual([]);
+    expect(elementsOfType(tree, DropdownMenuSeparator)).toEqual([]);
 
     const onSignOut = onlyElement(tree, SignOutMenuItem).props["onSignOut"];
     if (typeof onSignOut !== "function")
@@ -401,21 +260,17 @@ describe("user menu rendering", () => {
     );
   });
 
-  return it("renders menu destinations through the shared Next.js link boundary", () => {
-    appearanceRuntime.current = appearance();
-    const [link] = elementsOfType(
-      renderMenu({ availableRoutes: ["/feature-items"], name: "Ada" }),
-      Link
-    );
-    expect(link?.props["href"]).toBe("/feature-items");
+  return it("renders the Settings destination through the shared Next.js link boundary", () => {
+    const [link] = elementsOfType(renderMenu({ name: "Ada" }), Link);
+    expect(link?.props["href"]).toBe("/settings");
     return expect(
       renderToStaticMarkup(
         createElement(
           Link,
-          { className: "font-semibold", href: "/feature-items" },
-          "Feature items"
+          { className: "font-semibold", href: "/settings" },
+          "Settings"
         )
       )
-    ).toBe('<a href="/feature-items" class="font-semibold">Feature items</a>');
+    ).toBe('<a href="/settings" class="font-semibold">Settings</a>');
   });
 });

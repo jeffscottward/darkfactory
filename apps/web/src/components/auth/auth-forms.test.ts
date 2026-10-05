@@ -38,21 +38,31 @@ const markup = (
 };
 
 describe("auth form surface", () => {
-  it("provides stable editorial hierarchy without a generic nested card", () => {
+  it("renders the shadcn login card with a labelled heading", () => {
     const html = markup(
       createElement(AuthPanel, {
-        eyebrow: "Account access",
         title: "Welcome back.",
         description: "Use your DarkFactory account.",
         children: createElement("p", {}, "Form body"),
       })
     );
 
-    expect(html).toContain("Account access");
-    expect(html).toContain("Welcome back.");
-    expect(html).toContain("font-heading");
-    expect(html).toContain("border-y");
-    return expect(html).not.toContain("shadow");
+    expect(html).toContain('aria-labelledby="auth-title"');
+    expect(html).toContain(
+      '<h1 class="font-semibold text-xl leading-none" id="auth-title">Welcome back.</h1>'
+    );
+    expect(html).toContain('data-slot="card"');
+    expect(html).toContain("Use your DarkFactory account.");
+    expect(html).not.toContain("<footer");
+    const withFooter = markup(
+      createElement(AuthPanel, {
+        title: "Welcome back.",
+        description: "Use your DarkFactory account.",
+        children: createElement("p", {}, "Form body"),
+        footer: "Need an account?",
+      })
+    );
+    return expect(withFooter).toContain("Need an account?</footer>");
   });
 
   it("renders sign-in with associated fields, recovery links, status semantics, and full-size controls", () => {

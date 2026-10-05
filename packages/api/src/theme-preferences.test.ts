@@ -177,7 +177,7 @@ describe("DF-088 theme preference service", () => {
 
   it("maps projected storage fields and always derives the owner from principal", async () => {
     const stored: UserThemePreference = {
-      theme: "catppuccin-latte",
+      theme: "github-light",
       fontSize: "small",
       density: "default",
       radius: "medium",
@@ -196,7 +196,7 @@ describe("DF-088 theme preference service", () => {
     );
 
     await expect(service.get(memberSession.principal)).resolves.toEqual({
-      theme: "catppuccin-latte",
+      theme: "github-light",
       fontSize: "small",
       density: "default",
       radius: "medium",
@@ -204,14 +204,14 @@ describe("DF-088 theme preference service", () => {
     });
     await expect(
       service.update(memberSession.principal, {
-        theme: "rose-pine",
+        theme: "dracula",
         fontSize: "large",
         density: "compact",
         radius: "large",
         expectedUpdatedAt: THEME_VERSION,
       })
     ).resolves.toEqual({
-      theme: "rose-pine",
+      theme: "dracula",
       fontSize: "large",
       density: "compact",
       radius: "large",
@@ -219,7 +219,7 @@ describe("DF-088 theme preference service", () => {
     });
     return expect(upsertTheme).toHaveBeenCalledWith({
       userId: "member-1",
-      theme: "rose-pine",
+      theme: "dracula",
       fontSize: "large",
       density: "compact",
       radius: "large",
@@ -270,7 +270,7 @@ describe("DF-088 theme preference service", () => {
 
       return await expect(
         service.update(memberSession.principal, {
-          theme: "nord",
+          theme: "night-owl",
           fontSize: "large",
           density: "comfortable",
           radius: "medium",
@@ -323,7 +323,7 @@ describe("DF-088 authenticated theme preference router", () => {
     );
     return await expectError(
       clientFor(null).preferences.theme.update({
-        theme: "nord",
+        theme: "night-owl",
         fontSize: "large",
         density: "comfortable",
         radius: "medium",
@@ -353,14 +353,14 @@ describe("DF-088 authenticated theme preference router", () => {
     });
     await expect(
       client.preferences.theme.update({
-        theme: "nord",
+        theme: "night-owl",
         fontSize: "large",
         density: "comfortable",
         radius: "medium",
         expectedUpdatedAt: null,
       })
     ).resolves.toEqual({
-      theme: "nord",
+      theme: "night-owl",
       fontSize: "large",
       density: "comfortable",
       radius: "medium",
@@ -368,7 +368,7 @@ describe("DF-088 authenticated theme preference router", () => {
     });
     return expect(upsertTheme).toHaveBeenCalledWith({
       userId: "member-1",
-      theme: "nord",
+      theme: "night-owl",
       fontSize: "large",
       density: "comfortable",
       radius: "medium",
@@ -399,7 +399,7 @@ describe("DF-088 authenticated theme preference router", () => {
     );
     await expectError(
       client.preferences.theme.update({
-        theme: "nord",
+        theme: "night-owl",
         fontSize: "large",
         density: "comfortable",
         radius: "medium",
@@ -420,14 +420,14 @@ describe("DF-088 authenticated theme preference router", () => {
         themeRepository(),
         recording.port
       ).preferences.theme.update({
-        theme: "nord",
+        theme: "night-owl",
         fontSize: "large",
         density: "comfortable",
         radius: "medium",
         expectedUpdatedAt: null,
       })
     ).resolves.toEqual({
-      theme: "nord",
+      theme: "night-owl",
       fontSize: "large",
       density: "comfortable",
       radius: "medium",
@@ -453,7 +453,7 @@ describe("DF-088 authenticated theme preference router", () => {
       /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/
     );
     expect(recording.events[0]?.eventId).not.toBe("request-theme-1");
-    expect(JSON.stringify(recording.events[0])).not.toContain("nord");
+    expect(JSON.stringify(recording.events[0])).not.toContain("night-owl");
     return expect(JSON.stringify(recording.events[0])).not.toContain(
       "comfortable"
     );
@@ -471,7 +471,7 @@ describe("DF-088 authenticated theme preference router", () => {
         themeRepository({ upsertTheme }),
         recording.port
       ).preferences.theme.update({
-        theme: "everforest",
+        theme: "synthwave-84",
         fontSize: "default",
         density: "comfortable",
         radius: "none",

@@ -333,7 +333,7 @@ const ROSE_PINE_APPEARANCE: Readonly<AppearancePreference> = {
   density: "compact",
   fontSize: "large",
   radius: "none",
-  theme: "rose-pine",
+  theme: "dracula",
 };
 
 const uiStore = (
@@ -433,11 +433,11 @@ describe("profile page client", () => {
   it.each([
     [
       "unauthorized",
-      "/sign-in?callbackURL=%2Faccount%2Fprofile",
+      "/sign-in?callbackURL=%2Fsettings%2Faccount%2Fprofile",
       "Sign in again to load your profile.",
     ],
     ["forbidden", "/dashboard", "This account cannot open that profile."],
-    ["not-found", "/account", "The profile is no longer available."],
+    ["not-found", "/settings/account", "The profile is no longer available."],
   ] as const)(
     "renders the owner-safe %s load recovery",
     async (code, href, description) => {
@@ -737,17 +737,17 @@ describe("preferences page client", () => {
   it.each([
     [
       "UNAUTHORIZED",
-      "/sign-in?callbackURL=%2Faccount%2Fpreferences",
+      "/sign-in?callbackURL=%2Fsettings%2Faccount%2Fpreferences",
       "Your preferences could not be loaded. Existing settings remain unchanged.",
     ],
     [
       "FORBIDDEN",
-      "/account",
+      "/settings/account",
       "Your preferences could not be loaded. Existing settings remain unchanged.",
     ],
     [
       "NOT_FOUND",
-      "/account",
+      "/settings/account",
       "No saved preferences were found for this account.",
     ],
   ] as const)(
@@ -798,7 +798,7 @@ describe("preferences page client", () => {
       density: "compact" as const,
       fontSize: "default" as const,
       radius: "medium" as const,
-      theme: "gruvbox-dark" as const,
+      theme: "one-dark" as const,
     };
     const getPreferences = vi
       .fn()
@@ -827,7 +827,7 @@ describe("preferences page client", () => {
       density: "compact",
       fontSize: "default",
       radius: "medium",
-      theme: "gruvbox-dark",
+      theme: "one-dark",
     });
     expect(reconciledForm.props["initialPreferences"]).toBe(refreshed);
     expect(reconciledForm.key).toBe(originalForm.key);
@@ -1963,7 +1963,7 @@ describe("preferences appearance reconciliation", () =>
       density: "compact" as const,
       fontSize: "default" as const,
       radius: "medium" as const,
-      theme: "gruvbox-dark" as const,
+      theme: "one-dark" as const,
     };
     const getPreferences = vi
       .fn()
@@ -1973,7 +1973,7 @@ describe("preferences appearance reconciliation", () =>
       density: "compact",
       fontSize: "default",
       radius: "medium",
-      theme: "gruvbox-dark",
+      theme: "one-dark",
     });
     gatewayRuntime.current = gatewayWith({
       getPreferences,

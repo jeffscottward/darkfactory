@@ -10,13 +10,13 @@ export { toast } from "sonner";
 
 const defaultToastClassNames: ToastClassnames = {
   toast:
-    "relative flex w-full items-start gap-3 rounded-md border border-border bg-surface-raised p-4 font-body text-foreground shadow-md",
+    "relative flex w-full items-start gap-3 rounded-md border bg-popover p-4 text-popover-foreground shadow-lg",
   content: "min-w-0 flex-1 space-y-1",
-  title: "font-heading text-sm font-semibold text-foreground",
-  description: "font-body text-sm leading-5 text-muted-foreground",
+  title: "text-sm font-semibold",
+  description: "text-sm text-muted-foreground",
   icon: "mt-0.5 shrink-0 text-foreground",
   loader: "text-primary",
-  default: "border-border bg-surface-raised text-foreground",
+  default: "bg-popover text-popover-foreground",
   success: "border-success-border bg-success-subtle text-success-foreground",
   error: "border-destructive-border bg-destructive-subtle text-destructive",
   info: "border-info-border bg-info-subtle text-info-foreground",
@@ -24,11 +24,11 @@ const defaultToastClassNames: ToastClassnames = {
   loading:
     "border-primary-border bg-primary-subtle text-primary-subtle-foreground",
   actionButton:
-    "min-h-11 min-w-11 rounded-md border border-transparent bg-primary px-3 font-semibold text-primary-foreground hover:bg-primary-hover active:bg-primary-active focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface-raised",
+    "min-h-11 min-w-11 rounded-md border border-transparent bg-primary px-3 text-sm font-medium text-primary-foreground hover:bg-primary/90 outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50",
   cancelButton:
-    "min-h-11 min-w-11 rounded-md border border-border-strong bg-surface px-3 font-semibold text-foreground hover:bg-accent active:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface-raised",
+    "min-h-11 min-w-11 rounded-md border bg-background px-3 text-sm font-medium shadow-xs hover:bg-accent hover:text-accent-foreground outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50",
   closeButton:
-    "size-11 rounded-md border border-border-strong bg-surface-raised text-foreground hover:bg-accent active:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface-raised",
+    "size-11 rounded-md border bg-popover text-popover-foreground hover:bg-accent outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50",
 };
 
 const mergeToastClassNames = (

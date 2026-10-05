@@ -265,8 +265,12 @@ describe("security page states and actions", () => {
   );
 
   it.each([
-    ["unauthorized", "/sign-in?callbackURL=%2Faccount%2Fsecurity", "Sign in"],
-    ["forbidden", 'href="/account/profile"', "Back to account"],
+    [
+      "unauthorized",
+      "/sign-in?callbackURL=%2Fsettings%2Faccount%2Fsecurity",
+      "Sign in",
+    ],
+    ["forbidden", 'href="/settings/account/profile"', "Back to account"],
     ["retryable", "Try again", "Try again"],
   ] as const)(
     "renders the accessible %s recovery path",

@@ -366,7 +366,7 @@ describe("typed recovery actions", () => {
     const dashboardReturn = renderToStaticMarkup(
       <FeatureRecoveryAction kind="forbidden" returnHref="/dashboard" />
     );
-    expect(dashboardReturn).toContain("Return to dashboard");
+    expect(dashboardReturn).toContain("Return to overview");
     return expect(dashboardReturn).toContain('href="/dashboard"');
   });
 

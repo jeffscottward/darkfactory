@@ -14,7 +14,7 @@ const hydratedPreferences = {
   mobileNavigationOpen: true,
   radius: "none" as const,
   sidebar: "collapsed" as const,
-  theme: "nord" as const,
+  theme: "night-owl" as const,
 };
 
 const hydratedSnapshot = {
@@ -45,7 +45,7 @@ describe("createUiStore", () => {
     const store = createUiStore();
     const initialState = store.getState();
 
-    initialState.setTheme("kanagawa");
+    initialState.setTheme("github-dark");
     const themedState = store.getState();
     themedState.setFontSize("small");
     themedState.setDensity("comfortable");
@@ -57,7 +57,7 @@ describe("createUiStore", () => {
     expect(themedState).not.toBe(initialState);
     expect(appearanceState).not.toBe(themedState);
     expect(consentState).not.toBe(appearanceState);
-    expect(consentState.theme).toBe("kanagawa");
+    expect(consentState.theme).toBe("github-dark");
     expect(consentState.fontSize).toBe("small");
     expect(consentState.density).toBe("comfortable");
     expect(consentState.radius).toBe("large");
@@ -78,7 +78,7 @@ describe("createUiStore", () => {
         density: "default",
         fontSize: "default",
         mobileNavigationOpen: false,
-        radius: "small",
+        radius: "medium",
         sidebar: "expanded",
         theme: "system",
       },
@@ -183,7 +183,7 @@ describe("createUiStore", () => {
       return updates.push({ previousState, state });
     });
 
-    store.getState().setTheme("nord");
+    store.getState().setTheme("night-owl");
 
     expect(updates).toHaveLength(1);
     expect(updates[0]?.previousState).toBe(initialState);
@@ -191,7 +191,7 @@ describe("createUiStore", () => {
     expect(updates[0]?.state).not.toBe(initialState);
 
     unsubscribe();
-    store.getState().setTheme("nord");
+    store.getState().setTheme("night-owl");
     return expect(updates).toHaveLength(1);
   });
 

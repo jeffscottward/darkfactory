@@ -1,3 +1,6 @@
+// What: shadcn/ui new-york-v4 Label (native <label>, same classes), with an optional "Optional" hint.
+// Used by: packages/ui/src/index.ts; apps/web forms.
+// See: https://ui.shadcn.com/docs/components/label.
 import type { ComponentPropsWithRef, ReactNode } from "react";
 
 import { cn } from "./utilities.ts";
@@ -17,14 +20,17 @@ export const Label = ({
   // biome-ignore lint/a11y/noLabelWithoutControl: callers associate the control through the forwarded htmlFor prop.
   <label
     className={cn(
-      "flex items-baseline justify-between gap-3 font-body font-semibold text-foreground text-sm",
+      "flex select-none items-center gap-2 font-medium text-sm leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-50 group-data-[disabled=true]:pointer-events-none group-data-[disabled=true]:opacity-50",
       className
     )}
+    data-slot="label"
     {...props}
   >
-    <span>{children}</span>
+    {children}
     {optional ? (
-      <span className="font-normal text-muted-foreground">{optionalLabel}</span>
+      <span className="ml-auto font-normal text-muted-foreground">
+        {optionalLabel}
+      </span>
     ) : null}
   </label>
 );

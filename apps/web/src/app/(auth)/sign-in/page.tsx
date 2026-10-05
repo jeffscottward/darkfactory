@@ -21,7 +21,6 @@ export default async function SignInPage({
   return (
     <AuthPanel
       description="Enter the email and password for your account."
-      eyebrow="Account access"
       title="Welcome back."
     >
       <SessionRedirect callbackURL={callbackURL}>

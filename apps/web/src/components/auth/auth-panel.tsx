@@ -1,7 +1,15 @@
+// What: Auth page panel in the shadcn login block style (login-03/04): one centered card with title, description, form and a footer line.
+// Used by: apps/web/src/app/(auth)/*/page.tsx.
+// See: https://ui.shadcn.com/blocks/login; packages/ui/src/card.tsx.
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+} from "@darkfactory/ui";
 import type { ReactNode } from "react";
 
 export type AuthPanelProps = Readonly<{
-  eyebrow: string;
   title: string;
   description: string;
   children: ReactNode;
@@ -9,33 +17,23 @@ export type AuthPanelProps = Readonly<{
 }>;
 
 export const AuthPanel = ({
-  eyebrow,
   title,
   description,
   children,
   footer,
 }: AuthPanelProps) => (
-  <section
-    aria-labelledby="auth-title"
-    className="border-border border-y py-8 sm:py-10"
-  >
-    <header className="mb-8 grid gap-3">
-      <p className="font-semibold text-muted-foreground text-xs uppercase tracking-[0.16em]">
-        {eyebrow}
-      </p>
-      <h1
-        className="font-heading font-semibold text-3xl text-foreground leading-tight tracking-tight sm:text-4xl"
-        id="auth-title"
-      >
-        {title}
-      </h1>
-      <p className="max-w-prose text-base text-muted-foreground leading-7">
-        {description}
-      </p>
-    </header>
-    {children}
+  <section aria-labelledby="auth-title" className="flex flex-col gap-6">
+    <Card>
+      <CardHeader className="text-center">
+        <h1 className="font-semibold text-xl leading-none" id="auth-title">
+          {title}
+        </h1>
+        <CardDescription>{description}</CardDescription>
+      </CardHeader>
+      <CardContent>{children}</CardContent>
+    </Card>
     {footer ? (
-      <footer className="mt-8 border-border border-t pt-6 text-muted-foreground text-sm leading-6">
+      <footer className="text-balance text-center text-muted-foreground text-sm">
         {footer}
       </footer>
     ) : null}

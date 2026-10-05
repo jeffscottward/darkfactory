@@ -2051,7 +2051,7 @@ describe("DF-031 through DF-039 ordinary Postgres persistence", {
     });
     const themeWinner = await preferencesRepository.upsertTheme({
       userId,
-      theme: "nord",
+      theme: "night-owl",
       fontSize: "large",
       density: "comfortable",
       radius: "medium",
@@ -2063,7 +2063,7 @@ describe("DF-031 through DF-039 ordinary Postgres persistence", {
     await expect(
       preferencesRepository.upsertTheme({
         userId,
-        theme: "everforest",
+        theme: "synthwave-84",
         fontSize: "default",
         density: "comfortable",
         radius: "none",
@@ -2088,7 +2088,7 @@ describe("DF-031 through DF-039 ordinary Postgres persistence", {
     ).toMatchObject({
       analyticsConsent: true,
       productUpdates: true,
-      theme: "nord",
+      theme: "night-owl",
       fontSize: "large",
       density: "comfortable",
       radius: "medium",

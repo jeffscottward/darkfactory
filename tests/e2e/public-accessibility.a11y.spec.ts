@@ -133,12 +133,12 @@ const waitForStableDocument = async (page: Page): Promise<void> => {
   await expectHydrated(page.locator("main"));
   await page.evaluate(async () => {
     await Promise.all([
-      document.fonts.load('16px "Public Sans Variable"'),
-      document.fonts.load('16px "Manrope Variable"'),
+      document.fonts.load('16px "Geist Variable"'),
+      document.fonts.load('600 16px "Geist Variable"'),
     ]);
     await document.fonts.ready;
   });
-  // Public and auth shells expose the standalone picker; the portal folds it into the user menu.
+  // Public and auth shells expose the standalone picker; portal pages use the Appearance settings tab.
   const appearanceControl = page
     .locator("#application-theme-trigger, #user-menu-trigger")
     .first();
@@ -165,6 +165,20 @@ const runAxe = async (
   artifactName: string,
   authenticated = false
 ): Promise<void> => {
+  // shadcn overlays fade and zoom in (tw-animate-css). Audit the settled frame,
+  // not a half-transparent one, so color-contrast sees the real colors.
+  await page.evaluate(() =>
+    Promise.all(
+      document
+        .getAnimations()
+        .filter(
+          (animation) =>
+            animation.effect?.getTiming().iterations !==
+            Number.POSITIVE_INFINITY
+        )
+        .map((animation) => animation.finished.catch(() => undefined))
+    )
+  );
   const results = await new AxeBuilder({ page })
     .withTags([...AXE_TAGS])
     .analyze();
@@ -221,7 +235,7 @@ const assertDocumentContracts = async (
       .map((entry) => entry.name)
       .filter((url) => fontResourcePattern.test(url));
     return {
-      bodyFontLoaded: document.fonts.check('16px "Public Sans Variable"'),
+      bodyFontLoaded: document.fonts.check('16px "Geist Variable"'),
       clientWidth: document.documentElement.clientWidth,
       declaredFontFamilies: [
         ...new Set(
@@ -232,7 +246,7 @@ const assertDocumentContracts = async (
       ],
       fontResourceUrls,
       fontStatus: document.fonts.status,
-      headingFontLoaded: document.fonts.check('16px "Manrope Variable"'),
+      headingFontLoaded: document.fonts.check('600 16px "Geist Variable"'),
       origin: window.location.origin,
       scrollWidth: document.documentElement.scrollWidth,
     };
@@ -244,8 +258,8 @@ const assertDocumentContracts = async (
   expect(documentState.fontStatus).toBe("loaded");
   expect(documentState.bodyFontLoaded).toBe(true);
   expect(documentState.headingFontLoaded).toBe(true);
-  expect(documentState.declaredFontFamilies).toContain("Public Sans Variable");
-  expect(documentState.declaredFontFamilies).toContain("Manrope Variable");
+  expect(documentState.declaredFontFamilies).toContain("Geist Variable");
+  expect(documentState.declaredFontFamilies).toContain("Geist Mono Variable");
   expect(documentState.fontResourceUrls.length).toBeGreaterThanOrEqual(1);
   expect(
     documentState.fontResourceUrls.every(
@@ -673,41 +687,61 @@ test("@a11y contact invalid, pending, and success states pass axe", async ({
 
 const AUTHENTICATED_SURFACES = [
   {
-    heading: "Dashboard",
+    heading: "Overview",
     identity: E2E_IDENTITIES.alice,
     name: "member-dashboard",
     path: "/dashboard",
   },
   {
-    expectedPath: "/account/profile",
-    heading: "Profile",
+    expectedPath: "/settings/account/profile",
+    heading: "Settings",
+    identity: E2E_IDENTITIES.alice,
+    name: "settings-redirect",
+    path: "/settings",
+    sectionHeading: "Profile",
+  },
+  {
+    expectedPath: "/settings/account/profile",
+    heading: "Settings",
     identity: E2E_IDENTITIES.alice,
     name: "account-redirect",
     path: "/account",
+    sectionHeading: "Profile",
   },
   {
-    heading: "Profile",
+    heading: "Settings",
     identity: E2E_IDENTITIES.alice,
     name: "account-profile",
-    path: "/account/profile",
+    path: "/settings/account/profile",
+    sectionHeading: "Profile",
   },
   {
-    heading: "Addresses",
+    heading: "Settings",
     identity: E2E_IDENTITIES.alice,
     name: "account-address",
-    path: "/account/address",
+    path: "/settings/account/address",
+    sectionHeading: "Addresses",
   },
   {
-    heading: "Preferences",
+    heading: "Settings",
     identity: E2E_IDENTITIES.alice,
     name: "account-preferences",
-    path: "/account/preferences",
+    path: "/settings/account/preferences",
+    sectionHeading: "Preferences",
   },
   {
-    heading: "Security",
+    heading: "Settings",
     identity: E2E_IDENTITIES.alice,
     name: "account-security",
-    path: "/account/security",
+    path: "/settings/account/security",
+    sectionHeading: "Security",
+  },
+  {
+    heading: "Settings",
+    identity: E2E_IDENTITIES.alice,
+    name: "settings-appearance",
+    path: "/settings/appearance",
+    sectionHeading: "Appearance",
   },
   {
     heading: "Feature items",
@@ -735,10 +769,19 @@ const AUTHENTICATED_SURFACES = [
     stateText: "Archived records cannot be edited.",
   },
   {
-    heading: "Users",
+    heading: "Settings",
     identity: E2E_IDENTITIES.admin,
     name: "admin-users",
+    path: "/settings/administration",
+    sectionHeading: "Users",
+  },
+  {
+    expectedPath: "/settings/administration",
+    heading: "Settings",
+    identity: E2E_IDENTITIES.admin,
+    name: "admin-users-redirect",
     path: "/admin/users",
+    sectionHeading: "Users",
   },
 ] as const;
 const authenticatedCookies = new Map<string, readonly Cookie[]>();
@@ -782,6 +825,11 @@ for (const surface of AUTHENTICATED_SURFACES) {
       await expect(
         page.getByRole("heading", { level: 1, name: surface.heading })
       ).toBeVisible();
+      if ("sectionHeading" in surface) {
+        await expect(
+          page.getByRole("heading", { level: 2, name: surface.sectionHeading })
+        ).toBeVisible();
+      }
       if ("stateText" in surface) {
         await expect(
           page.getByText(surface.stateText, { exact: true })
@@ -851,7 +899,7 @@ const storeTrustedAppearance = async (
 };
 
 for (const theme of CONCRETE_THEMES) {
-  test(`@a11y ${theme} theme has no WCAG violations on home, sign-in, dashboard, and the open user menu`, async ({
+  test(`@a11y ${theme} theme has no WCAG violations on home, sign-in, overview, the open user menu, and appearance settings`, async ({
     baseURL,
     context,
     page,
@@ -862,7 +910,7 @@ for (const theme of CONCRETE_THEMES) {
     const appearance: Appearance = {
       density: "default",
       fontSize: "default",
-      radius: "small",
+      radius: "medium",
       theme,
     };
     const root = page.locator("html");
@@ -900,7 +948,7 @@ for (const theme of CONCRETE_THEMES) {
       await expect(root).toHaveAttribute("data-theme-authority", "trusted");
       await expect(root).toHaveAttribute("data-theme", theme);
       await expect(
-        page.getByRole("heading", { level: 1, name: "Dashboard" })
+        page.getByRole("heading", { level: 1, name: "Overview" })
       ).toBeVisible();
       await assertDocumentContracts(page, false);
       await runAxe(page, testInfo, `theme-${theme}-dashboard`, true);
@@ -910,19 +958,10 @@ for (const theme of CONCRETE_THEMES) {
       await userMenuTrigger.press("Enter");
       const userMenu = page.locator("#user-menu-content");
       await expect(userMenu).toBeVisible();
-      const themeSubmenuTrigger = page.locator("#user-menu-theme-trigger");
-      await themeSubmenuTrigger.focus();
-      await themeSubmenuTrigger.press("ArrowRight");
-      const themeOptions = page.getByRole("group", {
-        exact: true,
-        name: "Theme",
-      });
-      await expect(
-        themeOptions.getByRole("menuitemradio", { checked: true })
-      ).toHaveAttribute("data-state", "checked");
-      await expect(
-        themeOptions.locator(`.theme-swatch[data-theme-swatch="${theme}"]`)
-      ).toBeVisible();
+      await expect(userMenu.getByRole("menuitem")).toHaveText([
+        "Settings",
+        "Sign out",
+      ]);
       // Every popup reference on the open menu must resolve to a rendered menu.
       expect(
         await page.evaluate(() =>
@@ -942,8 +981,22 @@ for (const theme of CONCRETE_THEMES) {
       ).toEqual([]);
       await runAxe(page, testInfo, `theme-${theme}-user-menu-open`, true);
       await page.keyboard.press("Escape");
-      await page.keyboard.press("Escape");
       await expect(userMenu).toBeHidden();
+
+      await page.goto("/settings/appearance");
+      await waitForStableDocument(page);
+      const themeOptions = page.getByRole("group", {
+        exact: true,
+        name: "Theme",
+      });
+      await expect(
+        themeOptions.getByRole("radio", { checked: true })
+      ).toHaveValue(theme);
+      await expect(
+        themeOptions.locator(`.theme-swatch[data-theme-swatch="${theme}"]`)
+      ).toBeVisible();
+      await assertDocumentContracts(page, false);
+      await runAxe(page, testInfo, `theme-${theme}-appearance-settings`, true);
     } catch (error) {
       failure = error;
     }

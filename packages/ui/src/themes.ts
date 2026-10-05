@@ -3,16 +3,17 @@
 // See: packages/ui/src/theme-tokens.ts (full color tokens); packages/ui/src/themes.css; packages/state/src/index.ts.
 export const THEME_NAMES = [
   "system",
-  "default-dark",
   "default-light",
+  "default-dark",
+  "graphite",
+  "dracula",
+  "monokai",
   "tokyo-night",
-  "catppuccin-mocha",
-  "catppuccin-latte",
-  "gruvbox-dark",
-  "nord",
-  "everforest",
-  "rose-pine",
-  "kanagawa",
+  "one-dark",
+  "night-owl",
+  "synthwave-84",
+  "github-dark",
+  "github-light",
 ] as const;
 
 export const FONT_SIZE_NAMES = ["small", "default", "large"] as const;
@@ -36,7 +37,7 @@ export const DEFAULT_THEME: ThemeName = "system";
 export const DEFAULT_APPEARANCE: Readonly<Appearance> = Object.freeze({
   density: "default",
   fontSize: "default",
-  radius: "small",
+  radius: "medium",
   theme: DEFAULT_THEME,
 });
 
@@ -53,16 +54,17 @@ const option = <Value extends string>(
 export const THEME_OPTIONS: readonly AppearanceOption<ThemeName>[] =
   Object.freeze([
     option("system", "System"),
-    option("default-dark", "Default Dark"),
     option("default-light", "Default Light"),
+    option("default-dark", "Default Dark"),
+    option("graphite", "Graphite"),
+    option("dracula", "Dracula"),
+    option("monokai", "Monokai"),
     option("tokyo-night", "Tokyo Night"),
-    option("catppuccin-mocha", "Catppuccin Mocha"),
-    option("catppuccin-latte", "Catppuccin Latte"),
-    option("gruvbox-dark", "Gruvbox Dark"),
-    option("nord", "Nord"),
-    option("everforest", "Everforest"),
-    option("rose-pine", "Rosé Pine"),
-    option("kanagawa", "Kanagawa"),
+    option("one-dark", "One Dark"),
+    option("night-owl", "Night Owl"),
+    option("synthwave-84", "Synthwave '84"),
+    option("github-dark", "GitHub Dark"),
+    option("github-light", "GitHub Light"),
   ]);
 
 export const FONT_SIZE_OPTIONS: readonly AppearanceOption<FontSizeName>[] =
@@ -108,15 +110,9 @@ export const appearanceAttributes = (
   "data-theme": appearance.theme,
 });
 
-const DARK_THEMES: ReadonlySet<ThemeName> = new Set([
-  "default-dark",
-  "tokyo-night",
-  "catppuccin-mocha",
-  "gruvbox-dark",
-  "nord",
-  "everforest",
-  "rose-pine",
-  "kanagawa",
+const LIGHT_THEMES: ReadonlySet<ThemeName> = new Set([
+  "default-light",
+  "github-light",
 ]);
 
 /** Color scheme of a theme; "system" follows prefers-color-scheme. */
@@ -124,5 +120,5 @@ export const themeColorScheme = (
   theme: ThemeName
 ): "light" | "dark" | "system" => {
   if (theme === "system") return "system";
-  return DARK_THEMES.has(theme) ? "dark" : "light";
+  return LIGHT_THEMES.has(theme) ? "light" : "dark";
 };

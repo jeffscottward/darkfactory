@@ -137,10 +137,13 @@ const defaults = {
 describe("AppearanceMenuItems behavior", () => {
   it("selects only canonical values for each setting through the provider callback", () => {
     const onPreferenceChange = vi.fn<PreferenceChange>();
-    themeRuntime.configure({ ...defaults, theme: "nord" }, onPreferenceChange);
+    themeRuntime.configure(
+      { ...defaults, theme: "night-owl" },
+      onPreferenceChange
+    );
     const tree = AppearanceMenuItems({ idPrefix: "menu" });
 
-    invokeValueChange(groupFor(tree, "Theme"), "kanagawa");
+    invokeValueChange(groupFor(tree, "Theme"), "github-dark");
     invokeValueChange(groupFor(tree, "Font size"), "large");
     invokeValueChange(groupFor(tree, "Density"), "compact");
     invokeValueChange(groupFor(tree, "Roundness"), "none");
@@ -149,10 +152,10 @@ describe("AppearanceMenuItems behavior", () => {
     }
 
     expect(onPreferenceChange.mock.calls).toEqual([
-      [{ ...defaults, theme: "kanagawa" }],
-      [{ ...defaults, fontSize: "large", theme: "nord" }],
-      [{ ...defaults, density: "compact", theme: "nord" }],
-      [{ ...defaults, radius: "none", theme: "nord" }],
+      [{ ...defaults, theme: "github-dark" }],
+      [{ ...defaults, fontSize: "large", theme: "night-owl" }],
+      [{ ...defaults, density: "compact", theme: "night-owl" }],
+      [{ ...defaults, radius: "none", theme: "night-owl" }],
     ]);
     const optionValues = elementsIn(tree)
       .filter((element) => "disabled" in element.props)
@@ -160,16 +163,17 @@ describe("AppearanceMenuItems behavior", () => {
       .filter((value): value is string => typeof value === "string");
     expect(optionValues).toEqual([
       "system",
-      "default-dark",
       "default-light",
+      "default-dark",
+      "graphite",
+      "dracula",
+      "monokai",
       "tokyo-night",
-      "catppuccin-mocha",
-      "catppuccin-latte",
-      "gruvbox-dark",
-      "nord",
-      "everforest",
-      "rose-pine",
-      "kanagawa",
+      "one-dark",
+      "night-owl",
+      "synthwave-84",
+      "github-dark",
+      "github-light",
       "small",
       "default",
       "large",
@@ -182,14 +186,14 @@ describe("AppearanceMenuItems behavior", () => {
       "large",
     ]);
     const text = textOf(tree);
-    expect(text).toContain("ThemeNord");
+    expect(text).toContain("ThemeNight Owl");
     expect(text).toContain("Font sizeDefault");
     expect(text).toContain("RoundnessSmall");
     const swatches = elementsIn(tree).filter(
       (element) => element.props["className"] === "theme-swatch"
     );
-    expect(swatches).toHaveLength(11);
-    return expect(swatches[7]?.props["data-theme-swatch"]).toBe("nord");
+    expect(swatches).toHaveLength(12);
+    return expect(swatches[8]?.props["data-theme-swatch"]).toBe("night-owl");
   });
 
   return it("honors an override and blocks disabled selection", () => {
@@ -211,7 +215,7 @@ describe("AppearanceMenuItems behavior", () => {
       idPrefix: "disabled",
       onPreferenceChange: overrideChange,
     });
-    invokeValueChange(groupFor(disabled, "Theme"), "nord");
+    invokeValueChange(groupFor(disabled, "Theme"), "night-owl");
     return expect(overrideChange).toHaveBeenCalledOnce();
   });
 });

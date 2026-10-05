@@ -1,4 +1,4 @@
-import { buttonVariants, StatusBadge } from "@darkfactory/ui";
+import { Button, StatusBadge } from "@darkfactory/ui";
 import { ArrowRight } from "lucide-react";
 
 import type { DashboardViewModel } from "../../features/dashboard/view-model.ts";
@@ -119,15 +119,11 @@ export const DashboardContent = ({ model }: DashboardContentProps) => {
           <h2 className={SECTION_TITLE_CLASS} id="recent-feature-items-title">
             Recent feature items
           </h2>
-          <a
-            className={buttonVariants({
-              variant: "secondary",
-              size: "compact",
-            })}
-            href="/feature-items"
-          >
-            View all <ArrowRight aria-hidden="true" className="size-4" />
-          </a>
+          <Button asChild size="sm" variant="ghost">
+            <a href="/feature-items">
+              View all <ArrowRight aria-hidden="true" />
+            </a>
+          </Button>
         </div>
 
         {ready === null ? (
