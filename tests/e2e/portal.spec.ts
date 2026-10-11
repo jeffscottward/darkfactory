@@ -171,9 +171,14 @@ const expectDashboardCounts = async (
   await expect(
     page.getByRole("heading", { level: 1, name: "Overview" })
   ).toBeVisible();
+  // Scope to the shell's main region: while dashboard/loading.tsx streams,
+  // React parks the finished page in a hidden <div> at the end of <body>
+  // before swapping it in, so an unscoped locator can briefly match twice
+  // and fail Playwright's strict mode.
+  const main = page.locator("#main-content");
   try {
     await expect(
-      page.getByText(
+      main.getByText(
         `${counts.total} feature ${counts.total === 1 ? "item" : "items"}`,
         { exact: true }
       )
@@ -219,7 +224,7 @@ const expectDashboardCounts = async (
     throw error;
   }
 
-  const section = page.locator(
+  const section = main.locator(
     'section[aria-labelledby="feature-status-counts-title"]'
   );
   for (const [label, count] of [
