@@ -97,13 +97,18 @@ describe("toolchain pins", () => {
     }
   });
 
-  it("keeps doctor's expected tool versions equal to the pnpm catalog", async () => {
+  it("pins every tool doctor checks to an exact version in the pnpm catalog", async () => {
     const { catalog } = parse(await read("pnpm-workspace.yaml")) as Readonly<{
       catalog: Record<string, string>;
     }>;
-    for (const [path, expected] of PINNED_TOOL_MANIFESTS) {
-      const name = /node_modules\/(.+)\/package\.json$/u.exec(path)?.[1] ?? "";
-      expect(catalog[name], path).toBe(expected);
+    for (const [path, name] of PINNED_TOOL_MANIFESTS) {
+      expect(path).toMatch(
+        new RegExp(
+          `node_modules/${name.replaceAll(".", "\\.")}/package\\.json$`,
+          "u"
+        )
+      );
+      expect(catalog[name], path).toMatch(/^\d+\.\d+\.\d+(?:-[\w.]+)?$/u);
     }
   });
 

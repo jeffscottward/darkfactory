@@ -22,15 +22,25 @@ const WITHOUT_GRAPH_OR_HTTPS = MANIFEST.replace(
 
 const TEST_CWD = "/workspace/darkfactory";
 const PINNED_BUN_VERSION = "1.4.2";
+// Fixture versions only: doctor compares installed packages with whatever the
+// pnpm-workspace.yaml catalog pins, so these need not track real upgrades.
 const PINNED_MANIFESTS: Readonly<Record<string, string>> = {
-  "node_modules/typescript/package.json": "7.0.2",
-  "node_modules/turbo/package.json": "2.11.5",
-  "node_modules/vitest/package.json": "5.0.2",
-  "node_modules/@playwright/test/package.json": "1.63.0",
+  "node_modules/typescript/package.json": "7.0.0",
+  "node_modules/turbo/package.json": "2.0.0",
+  "node_modules/vitest/package.json": "5.0.0",
+  "node_modules/@playwright/test/package.json": "1.60.0",
   "apps/web/node_modules/vinext/package.json": "1.0.0",
-  "apps/web/node_modules/@vinext/cloudflare/package.json": "1.0.0",
-  "apps/web/node_modules/vite/package.json": "8.3.1",
+  "apps/web/node_modules/@vinext/cloudflare/package.json": "1.0.1",
+  "apps/web/node_modules/vite/package.json": "8.0.0",
 };
+const catalogYaml = (pins: Readonly<Record<string, string>>): string =>
+  `packages:\n  - apps/*\ncatalog:\n${Object.entries(pins)
+    .map(
+      ([path, version]) =>
+        `  "${/node_modules\/(.+)\/package\.json$/u.exec(path)?.[1]}": ${version}`
+    )
+    .join("\n")}\n`;
+const PINNED_WORKSPACE = catalogYaml(PINNED_MANIFESTS);
 
 const files = (
   overrides: Readonly<Record<string, string | false>> = {}
@@ -42,6 +52,7 @@ const files = (
     if (typeof value === "string") return value;
     if (path === ".bun-version") return `${PINNED_BUN_VERSION}\n`;
     if (path === "capabilities.yaml") return MANIFEST;
+    if (path === "pnpm-workspace.yaml") return PINNED_WORKSPACE;
     if (path === "apps/web/wrangler.jsonc")
       return `{ "name": "darkfactory-web", "main": "vinext/server/fetch-handler" }`;
     if (path in PINNED_MANIFESTS)
@@ -387,6 +398,40 @@ describe("doctor", () => {
         status: "fail",
       })
     );
+  });
+
+  it("takes expected tool versions from the pnpm catalog", async () => {
+    const pinnedToolchain = async (
+      overrides: Readonly<Record<string, string>>
+    ) =>
+      (
+        await runDoctor(healthyDependencies({ files: files(overrides) }))
+      ).checks.find(({ name }) => name === "Pinned toolchain")?.status;
+    const bumped = {
+      ...PINNED_MANIFESTS,
+      "node_modules/turbo/package.json": "2.0.1",
+    };
+
+    // A catalog bump that has not been installed yet is drift.
+    expect(
+      await pinnedToolchain({ "pnpm-workspace.yaml": catalogYaml(bumped) })
+    ).toBe("fail");
+    // Once the bumped version is installed, doctor follows the catalog.
+    expect(
+      await pinnedToolchain({
+        "pnpm-workspace.yaml": catalogYaml(bumped),
+        "node_modules/turbo/package.json": JSON.stringify({ version: "2.0.1" }),
+      })
+    ).toBe("pass");
+    // A tool the catalog does not pin cannot be checked, so it fails.
+    const { "node_modules/vitest/package.json": _vitest, ...unpinned } =
+      PINNED_MANIFESTS;
+    expect(
+      await pinnedToolchain({ "pnpm-workspace.yaml": catalogYaml(unpinned) })
+    ).toBe("fail");
+    return expect(
+      await pinnedToolchain({ "pnpm-workspace.yaml": "x".repeat(262_145) })
+    ).toBe("fail");
   });
 
   it("fails truthfully when required prerequisites are missing", async () => {
