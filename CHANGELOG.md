@@ -25,6 +25,8 @@ Notable changes to DarkFactory will be documented in this file. The format is ba
 
 ### Fixed
 
+- `bun run doctor` takes the expected TypeScript, Turbo, Vitest, Playwright, vinext, `@vinext/cloudflare` and Vite versions from the `pnpm-workspace.yaml` catalog instead of its own copy. Every Dependabot catalog bump used to fail CI until someone edited that copy by hand.
+- Two flaky tests: the generator's same-byte replacement test could get the freed inode back on ext4, and the portal dashboard check could match React's hidden streaming copy of the page and fail Playwright's strict mode.
 - The operator worker starts with the optional `WORKFLOW_*` keys left empty, as `.env.example` ships them; it used to exit, and its CLI printed nothing. It now prints configuration errors (the key, never its value) and only the type of any other startup error.
 - Dev page loads were slow: `lucide-react` was excluded from client dependency pre-bundling, so each cold load fetched about 1,900 icon modules (12.6 MB). It is pre-bundled again: requests per page fell from 2,083 to 216 and time to network idle from 2.4 s to 0.5 s. Production was not affected (31 requests, first contentful paint about 0.1 s). Font files are no longer inlined as base64 in the stylesheet.
 - `bun run dev` and `bun run operator:dev` start again: vinext 1.0 takes Vite's `--host`, not `--hostname`. A test now checks the forwarded flags against the installed CLI. (#51 regression)

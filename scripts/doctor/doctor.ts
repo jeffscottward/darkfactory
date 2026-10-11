@@ -3,6 +3,7 @@ import {
   loadCapabilityManifest,
 } from "@darkfactory/config/server/capabilities";
 import { type ParseError, parse as parseJsonc } from "jsonc-parser";
+import { parse as parseYaml } from "yaml";
 import { inspectBunRuntime } from "../ci/bun-runtime.ts";
 import { DEVELOPMENT_TARGETS, isCanonicalRouteOutput } from "../dev/targets.ts";
 
@@ -480,25 +481,46 @@ const environmentChecks = (
   return Object.freeze(checks);
 };
 
-// Expected installed versions; toolchain-invariants.test.ts keeps them equal
-// to the pnpm-workspace.yaml catalog.
+// Installed packages doctor checks, keyed by their pnpm-workspace.yaml catalog
+// name. The catalog is the one reviewed version, so a Dependabot bump of the
+// catalog moves doctor's expectation with it.
 export const PINNED_TOOL_MANIFESTS: ReadonlyArray<readonly [string, string]> = [
-  ["node_modules/typescript/package.json", "7.0.2"],
-  ["node_modules/turbo/package.json", "2.11.5"],
-  ["node_modules/vitest/package.json", "5.0.2"],
-  ["node_modules/@playwright/test/package.json", "1.63.0"],
-  ["apps/web/node_modules/vinext/package.json", "1.0.0"],
-  ["apps/web/node_modules/@vinext/cloudflare/package.json", "1.0.0"],
-  ["apps/web/node_modules/vite/package.json", "8.3.1"],
+  ["node_modules/typescript/package.json", "typescript"],
+  ["node_modules/turbo/package.json", "turbo"],
+  ["node_modules/vitest/package.json", "vitest"],
+  ["node_modules/@playwright/test/package.json", "@playwright/test"],
+  ["apps/web/node_modules/vinext/package.json", "vinext"],
+  [
+    "apps/web/node_modules/@vinext/cloudflare/package.json",
+    "@vinext/cloudflare",
+  ],
+  ["apps/web/node_modules/vite/package.json", "vite"],
 ];
+
+const MAX_MANIFEST_BYTES = 262_144;
+
+const readBounded = async (
+  dependencies: DoctorDependencies,
+  path: string
+): Promise<string> => {
+  const source = await dependencies.files.readText(path);
+  if (Buffer.byteLength(source, "utf8") > MAX_MANIFEST_BYTES) {
+    throw new Error("large");
+  }
+  return source;
+};
 
 const inspectPinnedToolchain = async (
   dependencies: DoctorDependencies
 ): Promise<DoctorCheck> => {
   try {
-    for (const [path, expected] of PINNED_TOOL_MANIFESTS) {
-      const source = await dependencies.files.readText(path);
-      if (Buffer.byteLength(source, "utf8") > 262_144) throw new Error("large");
+    const workspace = parseYaml(
+      await readBounded(dependencies, "pnpm-workspace.yaml")
+    ) as Readonly<{ catalog?: Readonly<Record<string, unknown>> }> | null;
+    for (const [path, name] of PINNED_TOOL_MANIFESTS) {
+      const expected = workspace?.catalog?.[name];
+      if (typeof expected !== "string") throw new Error("unpinned");
+      const source = await readBounded(dependencies, path);
       const actual = (JSON.parse(source) as Record<string, unknown>)["version"];
       if (actual !== expected) throw new Error("drift");
     }
