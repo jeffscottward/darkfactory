@@ -724,8 +724,12 @@ describe("DF-069 transactional live apply and verification", () => {
       applyGenerationPlan(plan, {
         afterFilePromotion: async (_file, index) => {
           if (index !== 0) return;
-          await unlink(firstPath);
-          await writeFile(firstPath, first.content, "utf8");
+          // Create the copy while the original still holds its inode, then
+          // rename it over the original. Unlinking first lets the filesystem
+          // hand the freed inode straight back, which made this test flaky.
+          const replacement = `${firstPath}.replacement`;
+          await writeFile(replacement, first.content, "utf8");
+          await rename(replacement, firstPath);
           throw new Error("injected same-byte replacement");
         },
       })
