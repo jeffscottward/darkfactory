@@ -22,7 +22,7 @@ Report at most five Nits per review.
 
 - Anything CI already enforces: formatting, lint, type errors, Markdown lint and the coverage number.
 - Generated files: `packages/api/openapi.json`, generated auth schema, Drizzle migration snapshots, `docs/generated/` and `pnpm-lock.yaml`.
-- Files under `docs/archive/`. They are history, not instructions.
+- Archived history documents (the docs archive folder). They are history, not instructions.
 
 ## Evidence
 
