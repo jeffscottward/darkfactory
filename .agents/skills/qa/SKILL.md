@@ -35,6 +35,13 @@ Prove the acceptance criteria at the lowest test layer that can, and keep the ga
 - `bun run verify`: all four CI lanes locally.
 - Gate: all eight required checks green on the PR: the four CI lanes, both CodeQL `Analyze` jobs, `CodeQL` and `Dependency Review`.
 
+## Review rounds
+
+- Review against [REVIEW.md](../../../REVIEW.md) with fresh context: read the diff, the PR's stated intent and the surrounding code.
+- Cite `file:line` for every behavior claim. Tag findings Important, Nit or Pre-existing.
+- Flag the class of a bug once with every instance. Do not repeat earlier findings.
+- Stop after three rounds and ask the author to reconsider the approach.
+
 ## Handoff
 
 - To **security** and **scalability** for review when the change touches their areas.

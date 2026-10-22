@@ -56,6 +56,17 @@ plan → contract → failing test → implement → bun run verify:prepush → 
 - **PR:** done when the eight required checks pass: the four CI lanes `Verification (core)`, `Verification (coverage)`, `Verification (integration)` and `Verification (browser)`, plus `Analyze (actions)`, `Analyze (javascript-typescript)`, `CodeQL` and `Dependency Review` ([docs/deploy.md](docs/deploy.md#branch-protection)).
 - **Exact-SHA evidence** is required only for a release or deploy. Dispatch `ci.yml` on the exact commit and confirm the run's `head_sha` before deploying ([docs/deploy.md](docs/deploy.md#release-checklist)).
 
+### Review
+
+DarkFactory follows the Claude Code team's review practice ([How the Claude Code team does code review](https://claude.dev/blog/solving-code-review-at-anthropic/), 2026-10-15). Machines do most of the reading; a person owns the outcome.
+
+- **Verify before review.** Run the checks and show their output (command and result, or a screenshot) in the PR. "Done" without output is not done.
+- **Fresh-context review before the PR.** A reviewer subagent with no implementation context reads the diff with [REVIEW.md](REVIEW.md). Fix or answer every finding.
+- **Fix repeated findings at the source.** When the same finding appears twice, add a lint rule, a test or a line in this file or `REVIEW.md`.
+- **Converge.** Cap review rounds at three, then rethink the approach. After two rounds, review only the new diff.
+- **Risk sets the approval.** The change sets the risk tier, not the author. An agent's approval never replaces a required human approval. The person who prompted an agent-written change owns it.
+- **Make it undoable.** Keep changes small and state in the PR how to revert them.
+
 Graphify is optional: `bun run graph:build` builds a local graph for navigation. It is never committed or required.
 
 ## Agent roles
