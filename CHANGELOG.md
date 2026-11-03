@@ -10,6 +10,7 @@ Notable changes to DarkFactory will be documented in this file. The format is ba
 - On Linux the agent and git cannot start other processes, as on macOS. bubblewrap loads a seccomp filter under which `fork`, `vfork` and any `clone` that is not a thread fail with `EPERM`; threads still work. `git worktree add`, which runs git itself, is the one exception. Before each run the worker checks that the filter stops a test process from starting, and fails closed; the filter supports x86_64 and arm64. See `docs/operator.md#platform-support`.
 - On Linux the agent has no network and holds no credentials. Each run reaches exactly one model through a relay to a local `omp auth-gateway`, which gets credentials from `omp auth-broker`. DarkFactory pins no model: `WORKFLOW_OMP_MODEL` names yours, and planning, implementation and review all use it. Configure it with `WORKFLOW_OMP_GATEWAY_URL` and `WORKFLOW_OMP_GATEWAY_TOKEN_FILE`; the worker refuses to start with a gateway but no model. Before each run the worker checks the gateway, the model and `nsenter`, and fails closed. See `docs/operator.md#models-and-credentials`.
 - The Docker verifier reaches rootless Docker, or any local daemon, through `DOCKER_HOST`. Only local unix sockets are accepted.
+- `git config darkfactory.prepush static` makes the pre-push hook run only `verify:core` (format, lint, generated files, types, docs) and no tests, for a checkout whose tests must run only in CI. Unset or `full` keeps `verify:prepush`; any other value blocks the push. See `docs/testing.md`.
 
 ### Changed
 

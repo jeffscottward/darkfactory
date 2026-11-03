@@ -200,6 +200,54 @@ export const PRE_PUSH_SCRIPTS: readonly string[] = Object.freeze([
   "verify:prepush",
 ]);
 
+// `git config darkfactory.prepush static` is for a checkout whose tests run
+// only in CI (for example a machine that must not run a public repo's tests).
+// It keeps the static checks (format, lint, generated files, types, docs) and
+// skips the test lanes; CI still runs every lane before merge.
+export const STATIC_PRE_PUSH_SCRIPTS: readonly string[] = Object.freeze([
+  "verify:core",
+]);
+
+const PRE_PUSH_MODE_KEY = "darkfactory.prepush";
+
+function readPrePushScripts(): readonly string[] {
+  const arguments_ = [
+    "--no-replace-objects",
+    "config",
+    "--get",
+    PRE_PUSH_MODE_KEY,
+  ];
+  const result = spawnSync("git", arguments_, {
+    encoding: "utf8",
+    shell: false,
+    stdio: ["ignore", "pipe", "inherit"],
+    maxBuffer: 1024 * 1024,
+    timeout: 30_000,
+  });
+  // `git config --get` exits 1 when the key is not set.
+  if (result.status === 1 && !result.error && !result.signal) {
+    return PRE_PUSH_SCRIPTS;
+  }
+  if (result.error || result.signal || result.status !== 0) {
+    throw new Error(
+      `could not read ${PRE_PUSH_MODE_KEY} (exit ${failureExitCode("git", arguments_, result)})`
+    );
+  }
+  const mode = result.stdout.trim();
+  if (mode === "" || mode === "full") {
+    return PRE_PUSH_SCRIPTS;
+  }
+  if (mode === "static") {
+    console.error(
+      `[hook] ${PRE_PUSH_MODE_KEY}=static: static checks only; tests run in CI`
+    );
+    return STATIC_PRE_PUSH_SCRIPTS;
+  }
+  throw new Error(
+    `${PRE_PUSH_MODE_KEY} must be "full" or "static", not ${JSON.stringify(mode)}`
+  );
+}
+
 const MAX_PUSH_INPUT_BYTES = 64 * 1024;
 const MAX_PUSH_REFS = 256;
 const OBJECT_ID = /^(?:[a-f0-9]{40}|[a-f0-9]{64})$/;
@@ -398,7 +446,7 @@ export function runPrePush(
       return checkoutStatus;
     }
     warnBunRuntime();
-    for (const script of PRE_PUSH_SCRIPTS) {
+    for (const script of readPrePushScripts()) {
       const status = (dependencies.runScripts ?? runPrePushScripts)([script]);
       if (status !== 0) {
         console.error(`[hook] mandatory local lane failed: ${script}`);
