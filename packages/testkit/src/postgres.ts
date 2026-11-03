@@ -12,7 +12,15 @@ const RUN_ID_DIGEST_LENGTH = 12;
 const CONNECTION_TIMEOUT_MILLISECONDS = 5000;
 const STATEMENT_TIMEOUT_MILLISECONDS = 15_000;
 const LOCK_TIMEOUT_MILLISECONDS = 5000;
-const DATABASE_DROP_TIMEOUT_MILLISECONDS = 5000;
+// DROP DATABASE forces an immediate checkpoint and waits for its fsync, and
+// concurrent drops queue behind the same checkpointer. On 2026-11-03 a loaded
+// rig needed 7.3 s for one checkpoint, so 5 s failed CI cleanup. 30 s covers
+// two queued checkpoints with margin and stays below the 60 s cleanup hooks.
+const DATABASE_DROP_TIMEOUT_MILLISECONDS = 30_000;
+// A same-name creation waits on the name lock while a drop holds it, so its
+// lock, statement and query bounds must outlast one full drop.
+const DATABASE_NAME_LOCK_WAIT_MILLISECONDS =
+  DATABASE_DROP_TIMEOUT_MILLISECONDS + LOCK_TIMEOUT_MILLISECONDS;
 const DATABASE_DROP_POLL_MILLISECONDS = 25;
 const DATABASE_LOCK_KEY_PREFIX = "darkfactory-testkit:";
 const UNSAFE_TARGET_PATTERN = /(?:^|[_-])(prod|production|live)(?:$|[_-])/i;
@@ -848,7 +856,12 @@ export const createPostgresTestDatabase = async (
     ...maintenanceConfig,
     database: databaseName,
   };
-  const maintenanceClient = new Client(maintenanceConfig);
+  const maintenanceClient = new Client({
+    ...maintenanceConfig,
+    query_timeout: DATABASE_NAME_LOCK_WAIT_MILLISECONDS,
+    statement_timeout: DATABASE_NAME_LOCK_WAIT_MILLISECONDS,
+    lock_timeout: DATABASE_NAME_LOCK_WAIT_MILLISECONDS,
+  });
   let databaseIdentity: DatabaseIdentity | undefined;
   let isolatedClient: Client | undefined;
 

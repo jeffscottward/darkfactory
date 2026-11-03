@@ -7,7 +7,16 @@ import {
 import { Client } from "pg";
 import { describe, expect, it } from "vitest";
 
-describe("real Postgres test database lifecycle", { concurrent: false }, () => {
+// These tests create and drop real databases. DROP DATABASE waits for a forced
+// checkpoint, which took up to 7.3 s on the loaded rig (2026-11-03), and the
+// testkit bounds each drop at 30 s. A test drops up to two databases, so it
+// gets two drop bounds plus 30 s for creation and queries.
+const LIFECYCLE_TEST_TIMEOUT_MILLISECONDS = 90_000;
+
+describe("real Postgres test database lifecycle", {
+  concurrent: false,
+  timeout: LIFECYCLE_TEST_TIMEOUT_MILLISECONDS,
+}, () => {
   it("rejects remote, production-like, routed, and already-isolated URLs before connecting", async () => {
     await expect(
       createPostgresTestDatabase({
@@ -185,7 +194,7 @@ describe("real Postgres test database lifecycle", { concurrent: false }, () => {
         await dropPostgresTestDatabase(database);
       }
     }
-  }, 15_000);
+  });
 
   it("serializes a same-name recreation behind the original cleanup lock", async () => {
     const runId = `replacement_lock_${randomUUID()}`;
@@ -268,7 +277,7 @@ describe("real Postgres test database lifecycle", { concurrent: false }, () => {
         await dropPostgresTestDatabase(replacement);
       }
     }
-  }, 15_000);
+  });
 
   it("reports a real prepared transaction through preflight diagnostics", async () => {
     const database = await createPostgresTestDatabase({
@@ -334,7 +343,7 @@ describe("real Postgres test database lifecycle", { concurrent: false }, () => {
       }
       if (!dropped) await dropPostgresTestDatabase(database);
     }
-  }, 15_000);
+  });
 
   it("hashes the full run ID so long shared prefixes remain isolated", async () => {
     const sharedPrefix = `long_${randomUUID()}_${"x".repeat(200)}`;

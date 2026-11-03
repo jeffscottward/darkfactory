@@ -1,5 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+// Mirror DATABASE_DROP_TIMEOUT_MILLISECONDS and the name-lock wait in postgres.ts.
+const DROP_DEADLINE_MILLISECONDS = 30_000;
+const NAME_LOCK_WAIT_MILLISECONDS = 35_000;
+
 const cryptoState = vi.hoisted(() => ({
   digestOverride: undefined as string | undefined,
   randomUUID: vi.fn(() => "11111111-1111-4111-8111-111111111111"),
@@ -459,7 +463,7 @@ describe("PostgreSQL test database creation and connections", {
     expect(database.databaseName).toMatch(/^darkfactory_test_[a-z0-9_]+$/);
     expect(database.databaseName.length).toBeLessThanOrEqual(63);
     expect(Object.isFrozen(database)).toBe(true);
-    expect(postgresDriver.clients[0]?.options).toEqual({
+    const maintenanceOptions = {
       host: "::1",
       port: 5432,
       database: "darkfactory_test_maintenance",
@@ -471,6 +475,13 @@ describe("PostgreSQL test database creation and connections", {
       query_timeout: 15_000,
       statement_timeout: 15_000,
       lock_timeout: 5000,
+    };
+    // Creation may wait for a same-name drop to release the name lock.
+    expect(postgresDriver.clients[0]?.options).toEqual({
+      ...maintenanceOptions,
+      query_timeout: NAME_LOCK_WAIT_MILLISECONDS,
+      statement_timeout: NAME_LOCK_WAIT_MILLISECONDS,
+      lock_timeout: NAME_LOCK_WAIT_MILLISECONDS,
     });
     const creationStatements = (
       postgresDriver.clients[0]?.query.mock.calls ?? []
@@ -488,7 +499,7 @@ describe("PostgreSQL test database creation and connections", {
     expect(createIndex).toBeGreaterThan(lockIndex);
     expect(unlockIndex).toBeGreaterThan(createIndex);
     expect(postgresDriver.clients[1]?.options).toEqual({
-      ...(postgresDriver.clients[0]?.options as Record<string, unknown>),
+      ...maintenanceOptions,
       database: database.databaseName,
     });
     const isolatedUrl = new URL(database.databaseUrl);
@@ -504,9 +515,7 @@ describe("PostgreSQL test database creation and connections", {
 
     const connection = await database.openConnection();
     expect(Object.isFrozen(connection)).toBe(true);
-    expect(postgresDriver.clients[2]?.options).toEqual(
-      postgresDriver.clients[0]?.options
-    );
+    expect(postgresDriver.clients[2]?.options).toEqual(maintenanceOptions);
     expect(postgresDriver.clients[3]?.options).toEqual(
       postgresDriver.clients[1]?.options
     );
@@ -526,9 +535,10 @@ describe("PostgreSQL test database creation and connections", {
     await dropPostgresTestDatabase(database);
     expect(postgresDriver.clients[1]?.end).toHaveBeenCalledOnce();
     expect(postgresDriver.clients[4]?.options).toEqual({
-      ...(postgresDriver.clients[0]?.options as Record<string, unknown>),
-      query_timeout: 5000,
-      statement_timeout: 5000,
+      ...maintenanceOptions,
+      connectionTimeoutMillis: DROP_DEADLINE_MILLISECONDS,
+      query_timeout: DROP_DEADLINE_MILLISECONDS,
+      statement_timeout: DROP_DEADLINE_MILLISECONDS,
     });
     const cleanupQueries = postgresDriver.clients[4]?.query.mock.calls ?? [];
     expect(cleanupQueries).toEqual([
@@ -1611,7 +1621,7 @@ describe("PostgreSQL drop cleanup", { concurrent: false }, () => {
         () => undefined,
         (error: unknown) => error
       );
-      await vi.advanceTimersByTimeAsync(5001);
+      await vi.advanceTimersByTimeAsync(DROP_DEADLINE_MILLISECONDS + 1);
       await expect(cleanupOutcome).resolves.toMatchObject({
         message: "Postgres test database cleanup failed",
         errors: [
@@ -1806,7 +1816,7 @@ describe("PostgreSQL drop cleanup", { concurrent: false }, () => {
     const now = vi
       .spyOn(performance, "now")
       .mockReturnValueOnce(0)
-      .mockReturnValue(5001);
+      .mockReturnValue(DROP_DEADLINE_MILLISECONDS + 1);
 
     await expect(dropPostgresTestDatabase(database)).rejects.toMatchObject({
       message: "Postgres test database cleanup failed",
@@ -1845,7 +1855,7 @@ describe("PostgreSQL drop cleanup", { concurrent: false }, () => {
           cleanupClient.end.mockImplementationOnce(
             () => new Promise<void>(() => undefined)
           );
-          nowMillis = 5001;
+          nowMillis = DROP_DEADLINE_MILLISECONDS + 1;
         }
         return postgresDriver.defaultResult(statement, values);
       },
@@ -1896,7 +1906,7 @@ describe("PostgreSQL drop cleanup", { concurrent: false }, () => {
           }
           cleanupClient.end.mockImplementationOnce(async () => {
             await Promise.resolve();
-            nowMillis = 5001;
+            nowMillis = DROP_DEADLINE_MILLISECONDS + 1;
           });
         }
         return postgresDriver.defaultResult(statement, values);
@@ -1933,7 +1943,7 @@ describe("PostgreSQL drop cleanup", { concurrent: false }, () => {
       .spyOn(performance, "now")
       .mockReturnValueOnce(0)
       .mockReturnValueOnce(0)
-      .mockReturnValue(5001);
+      .mockReturnValue(DROP_DEADLINE_MILLISECONDS + 1);
 
     await expect(dropPostgresTestDatabase(database)).rejects.toMatchObject({
       message: "Postgres test database cleanup failed",
@@ -2265,7 +2275,7 @@ describe("PostgreSQL drop cleanup", { concurrent: false }, () => {
         () => undefined,
         (error: unknown) => error
       );
-      await vi.advanceTimersByTimeAsync(5001);
+      await vi.advanceTimersByTimeAsync(DROP_DEADLINE_MILLISECONDS + 1);
       await expect(cleanupResult).resolves.toMatchObject({
         message: "Postgres test database cleanup failed",
         errors: [
@@ -2292,6 +2302,37 @@ describe("PostgreSQL drop cleanup", { concurrent: false }, () => {
     return await expect(
       dropPostgresTestDatabase(database)
     ).resolves.toBeUndefined();
+  });
+
+  it("waits out a DROP DATABASE whose forced checkpoint outlasts five seconds", async () => {
+    // DROP DATABASE forces an immediate checkpoint. On 2026-11-03 a loaded
+    // rig needed 7.3 s for one checkpoint (fsync alone took 7.1 s).
+    const database = await createPostgresTestDatabase({
+      databaseUrl: MAINTENANCE_URL,
+      runId: "slow-checkpoint-drop",
+    });
+    postgresDriver.enqueue({
+      query: async (statement, values) => {
+        if (statement.startsWith("DROP DATABASE")) {
+          await new Promise((resolve) => setTimeout(resolve, 7300));
+        }
+        return postgresDriver.defaultResult(statement, values);
+      },
+    });
+    vi.useFakeTimers();
+    try {
+      const cleanupResult = dropPostgresTestDatabase(database).then(
+        () => "dropped",
+        (error: unknown) => error
+      );
+      await vi.advanceTimersByTimeAsync(7301);
+      await expect(cleanupResult).resolves.toBe("dropped");
+    } finally {
+      vi.useRealTimers();
+    }
+    return await expect(dropPostgresTestDatabase(database)).rejects.toThrow(
+      /already-dropped/
+    );
   });
 
   it("lets ordinary DROP handle non-client backends without inventory gating", async () => {
@@ -2492,7 +2533,7 @@ describe("PostgreSQL drop cleanup", { concurrent: false }, () => {
           return error;
         }
       );
-      await vi.advanceTimersByTimeAsync(5001);
+      await vi.advanceTimersByTimeAsync(DROP_DEADLINE_MILLISECONDS + 1);
       expect(cleanupSettled).toBe(true);
       await expect(cleanupResult).resolves.toMatchObject({
         message: "Postgres test database cleanup failed",
