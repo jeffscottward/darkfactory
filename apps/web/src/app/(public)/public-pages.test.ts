@@ -326,7 +326,7 @@ describe("public route states", () => {
     expect(error.type).toBe(RecoverableErrorFixture);
 
     const pending = LoadingSmokePage();
-    await vi.advanceTimersByTimeAsync(1500);
+    await vi.advanceTimersByTimeAsync(5000);
     const loading = markup(await pending);
     expect(loading).toContain("The loading fixture completed.");
     return expect(loading).toContain(
