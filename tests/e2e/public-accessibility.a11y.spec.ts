@@ -447,21 +447,29 @@ for (const viewport of AXE_VIEWPORTS) {
     browserErrors,
     page,
   }, testInfo) => {
-    // Three guarded states, one behind the 5 s loading fixture. At half a CPU
+    // Three guarded states, one behind the held loading fixture. At half a CPU
     // core passing runs took up to 26 s, close to the 30 s default budget.
     test.setTimeout(60_000);
     await page.emulateMedia({ reducedMotion: "reduce" });
     await page.setViewportSize(viewport);
 
-    await page.goto("/loading-smoke", { waitUntil: "commit" });
-    await expect(
-      page.getByRole("status", { name: "Loading this page" })
-    ).toBeVisible();
+    // The fixture holds the loading boundary until this test releases it, so
+    // axe audits the boundary itself and never the completed page.
+    const holdId = `a11y-${viewport.name}-${testInfo.workerIndex}-${testInfo.retry}-${Date.now()}`;
+    await page.goto(`/loading-smoke?hold=${holdId}`, { waitUntil: "commit" });
+    const loadingStatus = page.getByRole("status", {
+      name: "Loading this page",
+    });
+    await expect(loadingStatus).toBeVisible();
     // The document is still streaming; let the web fonts settle before the
     // font contract reads document.fonts.status.
     await waitForFonts(page);
     await assertDocumentContracts(page);
     await runAxe(page, testInfo, `public-loading-${viewport.name}`);
+    // Proof that axe ran on the held boundary: it is still on screen.
+    expect(await loadingStatus.isVisible()).toBe(true);
+    const release = await page.request.get(`/loading-smoke?release=${holdId}`);
+    expect(release.status()).toBe(200);
     await expect(
       page.getByRole("heading", {
         level: 1,
