@@ -447,6 +447,9 @@ for (const viewport of AXE_VIEWPORTS) {
     browserErrors,
     page,
   }, testInfo) => {
+    // Three guarded states, one behind the 5 s loading fixture. At half a CPU
+    // core passing runs took up to 26 s, close to the 30 s default budget.
+    test.setTimeout(60_000);
     await page.emulateMedia({ reducedMotion: "reduce" });
     await page.setViewportSize(viewport);
 
@@ -464,7 +467,7 @@ for (const viewport of AXE_VIEWPORTS) {
         level: 1,
         name: "The loading fixture completed.",
       })
-    ).toBeVisible({ timeout: 10_000 });
+    ).toBeVisible({ timeout: 15_000 });
     await installExpectedErrorConsoleNormalization(page);
     browserErrors.allowConsoleError({
       message: `Error: ${EXPECTED_ERROR_FIXTURE_MESSAGE}`,
