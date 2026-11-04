@@ -3,7 +3,11 @@ import { notFound } from "next/navigation";
 import { isE2eFixtureEnabled } from "../../../lib/e2e-fixtures.ts";
 import { PublicPage } from "../_components/public-content.tsx";
 
-const fixtureDelayMilliseconds = 1500;
+// The loading boundary must stay on screen long enough to be seen and audited
+// on a loaded runner. At half a CPU core, with a 1500 ms delay, the browser
+// showed the boundary 1-3 s after the first byte for only 0.1-1.5 s, and
+// Playwright missed it in 3 of 6 loads.
+const fixtureDelayMilliseconds = 5000;
 
 export default async function LoadingSmokePage() {
   if (!isE2eFixtureEnabled()) notFound();

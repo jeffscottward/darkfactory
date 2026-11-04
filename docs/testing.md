@@ -59,6 +59,7 @@ One `playwright test` run covers both projects. Everything uses Playwright built
 - **webServer:** Playwright starts two servers and stops them afterwards. The first is a private portless HTTPS proxy with its own state directory and port. The second is the production build of the web app behind that proxy.
 - **globalSetup:** creates the run database, migrates, resets and seeds it (exactly three identities), and starts the email preview capture server. Its teardown drops the database and removes the previews.
 - **Per-file isolation:** each database-backed spec calls `resetDatabase` in `test.beforeAll`.
+- **Browser:** both projects use stable Google Chrome (`channel: "chrome"`) with the Chromium sandbox on (`chromiumSandbox: true`). Playwright's bundled Chromium is not used because it lags Chrome security releases. CI installs the current stable Chrome with `playwright install --with-deps --force chrome`.
 - **TLS:** there is no `ignoreHTTPSErrors`. Chromium trusts only the portless CA, through an SPKI pin (`--ignore-certificate-errors-spki-list`), and Node-side requests trust it through `NODE_EXTRA_CA_CERTS`.
 - **CI policy:** `forbidOnly`, `retries: 1` and `failOnFlakyTests`. A test that passes only on retry fails the run. Traces are recorded on the first retry.
 
@@ -80,6 +81,8 @@ The browser lane (`bun run verify:browser`) needs the same two variables.
 | browser | `verify:browser` | production build, Playwright `e2e` and `a11y` |
 
 `bun run verify` runs all four locally. `bun run verify:prepush` runs the fast subset on every push: everything except the tests that need Postgres, a build, or a fresh install (integration, browser, acceptance). Playwright reports and traces are uploaded only when the browser lane fails.
+
+A clone that must not run tests locally (for example on a shared machine) can set `git config darkfactory.prepush static`; the setting applies to all worktrees of that clone. The hook then runs only `verify:core` (no tests), and CI runs every lane before merge. An unset or empty value means `full`. Any other value, or a failed read of the setting, blocks the push.
 
 ## Writing good tests
 

@@ -129,8 +129,7 @@ const installExpectedErrorConsoleNormalization = async (
   }, EXPECTED_ERROR_FIXTURE_MESSAGE);
 };
 
-const waitForStableDocument = async (page: Page): Promise<void> => {
-  await expectHydrated(page.locator("main"));
+const waitForFonts = async (page: Page): Promise<void> => {
   await page.evaluate(async () => {
     await Promise.all([
       document.fonts.load('16px "Geist Variable"'),
@@ -138,6 +137,11 @@ const waitForStableDocument = async (page: Page): Promise<void> => {
     ]);
     await document.fonts.ready;
   });
+};
+
+const waitForStableDocument = async (page: Page): Promise<void> => {
+  await expectHydrated(page.locator("main"));
+  await waitForFonts(page);
   // Public and auth shells expose the standalone picker; portal pages use the Appearance settings tab.
   const appearanceControl = page
     .locator("#application-theme-trigger, #user-menu-trigger")
@@ -443,6 +447,9 @@ for (const viewport of AXE_VIEWPORTS) {
     browserErrors,
     page,
   }, testInfo) => {
+    // Three guarded states, one behind the 5 s loading fixture. At half a CPU
+    // core passing runs took up to 26 s, close to the 30 s default budget.
+    test.setTimeout(60_000);
     await page.emulateMedia({ reducedMotion: "reduce" });
     await page.setViewportSize(viewport);
 
@@ -450,6 +457,9 @@ for (const viewport of AXE_VIEWPORTS) {
     await expect(
       page.getByRole("status", { name: "Loading this page" })
     ).toBeVisible();
+    // The document is still streaming; let the web fonts settle before the
+    // font contract reads document.fonts.status.
+    await waitForFonts(page);
     await assertDocumentContracts(page);
     await runAxe(page, testInfo, `public-loading-${viewport.name}`);
     await expect(
@@ -457,7 +467,7 @@ for (const viewport of AXE_VIEWPORTS) {
         level: 1,
         name: "The loading fixture completed.",
       })
-    ).toBeVisible({ timeout: 10_000 });
+    ).toBeVisible({ timeout: 15_000 });
     await installExpectedErrorConsoleNormalization(page);
     browserErrors.allowConsoleError({
       message: `Error: ${EXPECTED_ERROR_FIXTURE_MESSAGE}`,

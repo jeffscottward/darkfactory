@@ -53,9 +53,14 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Install Playwright browser
+      # Stable Google Chrome, not the bundled Chromium build, which lags Chrome
+      # security releases. --force replaces the runner's preinstalled Chrome
+      # with the current stable release.
+      - name: Install Google Chrome (stable)
         if: matrix.lane == 'browser'
-        run: bunx --bun --no-install playwright install --with-deps chromium
+        run: |
+          bunx --bun --no-install playwright install --with-deps --force chrome
+          google-chrome --version
 
       - name: Start PostgreSQL integration service
         if: matrix.lane == 'integration' || matrix.lane == 'browser'

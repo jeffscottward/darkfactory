@@ -11,6 +11,9 @@ const env = e2eEnvironment();
 const isCI = Boolean(process.env["CI"]);
 const isWorker = process.env["TEST_WORKER_INDEX"] !== undefined;
 ensurePrivateStateDirectory(env.stateDir);
+// Stable Google Chrome, not Playwright's bundled Chromium build, which lags
+// Chrome security releases.
+const browser = { ...devices["Desktop Chrome"], channel: "chrome" } as const;
 
 export default defineConfig({
   testDir: "./tests/e2e",
@@ -32,7 +35,11 @@ export default defineConfig({
   use: {
     baseURL: env.appUrl,
     // The runner never launches a browser and runs before the CA exists.
-    launchOptions: { args: isWorker ? spkiPinArguments(env.caPath) : [] },
+    // The Chromium sandbox stays on; Playwright turns it off by default.
+    launchOptions: {
+      args: isWorker ? spkiPinArguments(env.caPath) : [],
+      chromiumSandbox: true,
+    },
     screenshot: "only-on-failure",
     trace: "on-first-retry",
     video: "off",
@@ -41,12 +48,12 @@ export default defineConfig({
     {
       name: "e2e",
       testIgnore: /\.a11y\.spec\.ts$/u,
-      use: { ...devices["Desktop Chrome"] },
+      use: browser,
     },
     {
       name: "a11y",
       testMatch: /\.a11y\.spec\.ts$/u,
-      use: { ...devices["Desktop Chrome"] },
+      use: browser,
     },
   ],
   webServer: [

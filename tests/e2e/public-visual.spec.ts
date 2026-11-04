@@ -327,7 +327,7 @@ for (const viewport of RESPONSIVE_VIEWPORTS) {
         level: 1,
         name: "The loading fixture completed.",
       })
-    ).toBeVisible({ timeout: 10_000 });
+    ).toBeVisible({ timeout: 15_000 });
 
     await page.addInitScript(() => {
       const state = window as typeof window & {
