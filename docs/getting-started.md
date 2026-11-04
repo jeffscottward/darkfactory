@@ -62,7 +62,7 @@ A failed migration or seed does not stop the run; `setup` lists the problems and
 
 `bun run setup -- --check` reports missing tools, dependencies, `.env` and `.dev.vars` without changing anything. It does not probe the database.
 
-Browser tests need Chromium once: `pnpm exec playwright install chromium`.
+Browser tests run on stable Google Chrome (`channel: "chrome"`), not Playwright's bundled Chromium, which lags Chrome security releases. Install Google Chrome from your OS packages, or run `pnpm exec playwright install chrome` once (on Linux it installs the Chrome package with `sudo`). Keep it updated.
 
 ## Run
 
@@ -95,7 +95,7 @@ git push                                       # runs verify:prepush
 
 `bun run dev` rewrites `apps/web/.dev.vars` from `.env` on every start; `bun run dev:bindings` refreshes it alone. Never commit `.env` or `.dev.vars`, and do not `source .env` as a shell script. Variables exported in your shell win over `.env`.
 
-`bun run test` needs the local Postgres that `setup` starts (`bun run db:test:up` restarts it) and Chromium. Its database suites run through `scripts/with-test-env.ts`, which sets `APP_ENV=test` and points `DATABASE_URL` at `TEST_DATABASE_URL`, or at the compose test role when that is empty. The app database in `.env` is never used.
+`bun run test` needs the local Postgres that `setup` starts (`bun run db:test:up` restarts it) and Google Chrome. Its database suites run through `scripts/with-test-env.ts`, which sets `APP_ENV=test` and points `DATABASE_URL` at `TEST_DATABASE_URL`, or at the compose test role when that is empty. The app database in `.env` is never used.
 
 Database commands:
 

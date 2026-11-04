@@ -119,7 +119,7 @@ describe("Playwright harness", () => {
     const config = await loadConfig();
     expect(config.use).toMatchObject({
       baseURL: "https://darkfactory.localhost:1356",
-      launchOptions: { args: [] },
+      launchOptions: { args: [], chromiumSandbox: true },
       screenshot: "only-on-failure",
       trace: "on-first-retry",
     });
@@ -146,6 +146,19 @@ describe("Playwright harness", () => {
     });
     expect(proxy?.gracefulShutdown).toBeDefined();
     return expect(app?.gracefulShutdown).toBeDefined();
+  });
+
+  it("runs every project on stable Google Chrome, not bundled Chromium", async () => {
+    const config = await loadConfig();
+    const projects = config.projects ?? [];
+    expect(projects).not.toHaveLength(0);
+    for (const project of projects) {
+      expect(project.use).toMatchObject({
+        defaultBrowserType: "chromium",
+        channel: "chrome",
+      });
+    }
+    return expect(config.use?.launchOptions?.chromiumSandbox).toBe(true);
   });
 
   it("never bypasses TLS: no ignoreHTTPSErrors anywhere", async () => {
