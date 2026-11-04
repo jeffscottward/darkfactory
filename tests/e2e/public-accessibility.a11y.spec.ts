@@ -129,8 +129,7 @@ const installExpectedErrorConsoleNormalization = async (
   }, EXPECTED_ERROR_FIXTURE_MESSAGE);
 };
 
-const waitForStableDocument = async (page: Page): Promise<void> => {
-  await expectHydrated(page.locator("main"));
+const waitForFonts = async (page: Page): Promise<void> => {
   await page.evaluate(async () => {
     await Promise.all([
       document.fonts.load('16px "Geist Variable"'),
@@ -138,6 +137,11 @@ const waitForStableDocument = async (page: Page): Promise<void> => {
     ]);
     await document.fonts.ready;
   });
+};
+
+const waitForStableDocument = async (page: Page): Promise<void> => {
+  await expectHydrated(page.locator("main"));
+  await waitForFonts(page);
   // Public and auth shells expose the standalone picker; portal pages use the Appearance settings tab.
   const appearanceControl = page
     .locator("#application-theme-trigger, #user-menu-trigger")
@@ -450,6 +454,9 @@ for (const viewport of AXE_VIEWPORTS) {
     await expect(
       page.getByRole("status", { name: "Loading this page" })
     ).toBeVisible();
+    // The document is still streaming; let the web fonts settle before the
+    // font contract reads document.fonts.status.
+    await waitForFonts(page);
     await assertDocumentContracts(page);
     await runAxe(page, testInfo, `public-loading-${viewport.name}`);
     await expect(
