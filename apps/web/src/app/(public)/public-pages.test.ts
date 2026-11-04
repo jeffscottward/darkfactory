@@ -329,8 +329,38 @@ describe("public route states", () => {
     await vi.advanceTimersByTimeAsync(5000);
     const loading = markup(await pending);
     expect(loading).toContain("The loading fixture completed.");
-    return expect(loading).toContain(
+    expect(loading).toContain(
       "This route is available only to the isolated end-to-end server."
+    );
+
+    const held = LoadingSmokePage({
+      searchParams: Promise.resolve({ hold: "unit-hold" }),
+    });
+    let heldOutcome: string | undefined;
+    const heldMarkup = held.then((element) => {
+      heldOutcome = markup(element);
+      return heldOutcome;
+    });
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(heldOutcome).toBeUndefined();
+
+    const release = markup(
+      await LoadingSmokePage({
+        searchParams: Promise.resolve({ release: "unit-hold" }),
+      })
+    );
+    expect(release).toContain("The loading hold was released.");
+    await vi.advanceTimersByTimeAsync(100);
+    await expect(heldMarkup).resolves.toContain(
+      "The loading fixture completed."
+    );
+
+    const invalid = LoadingSmokePage({
+      searchParams: Promise.resolve({ hold: "../bad" }),
+    });
+    await vi.advanceTimersByTimeAsync(5000);
+    return expect(markup(await invalid)).toContain(
+      "The loading fixture completed."
     );
   });
 });
