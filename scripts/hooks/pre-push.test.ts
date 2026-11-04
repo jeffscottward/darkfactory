@@ -192,10 +192,10 @@ describe("source-bound pre-push", () => {
     return expect(invokedLanes()).toEqual(["verify:prepush"]);
   });
 
-  const withPrePushMode = (status: number, stdout = "") =>
+  const withPrePushMode = (status: number | null, stdout = "", extra = {}) =>
     mocks.spawnSync.mockImplementation((executable, arguments_) =>
       executable === "git" && arguments_[1] === "config"
-        ? result(status, stdout)
+        ? result(status, stdout, extra)
         : gitSuccess(executable, arguments_)
     );
 
@@ -227,12 +227,14 @@ describe("source-bound pre-push", () => {
   });
 
   it.each([
-    [0, "none\n"],
-    [2, ""],
+    [0, "none\n", {}],
+    [2, "", {}],
+    [1, "", { signal: "SIGTERM" }],
+    [null, "", { error: new Error("git unavailable") }],
   ])(
-    "blocks an invalid or unreadable pre-push mode (exit %i)",
-    (status, stdout) => {
-      withPrePushMode(status, stdout);
+    "blocks an invalid or unreadable pre-push mode (exit %s)",
+    (status, stdout, extra) => {
+      withPrePushMode(status, stdout, extra);
       expect(run()).toBe(1);
       return expect(invokedLanes()).toEqual([]);
     }
