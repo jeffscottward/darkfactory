@@ -82,6 +82,8 @@ The browser lane (`bun run verify:browser`) needs the same two variables.
 
 `bun run verify` runs all four locally. `bun run verify:prepush` runs the fast subset on every push: everything except the tests that need Postgres, a build, or a fresh install (integration, browser, acceptance). Playwright reports and traces are uploaded only when the browser lane fails.
 
+A clone that must not run tests locally (for example on a shared machine) can set `git config darkfactory.prepush static`; the setting applies to all worktrees of that clone. The hook then runs only `verify:core` (no tests), and CI runs every lane before merge. An unset or empty value means `full`. Any other value, or a failed read of the setting, blocks the push.
+
 ## Writing good tests
 
 - Use fakes from each brick's `./test` export instead of mocking SDKs.

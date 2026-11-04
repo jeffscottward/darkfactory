@@ -47,7 +47,11 @@ vi.mock("node:fs", async (importOriginal) => ({
   readSync: mocks.readSync,
 }));
 
-import { PRE_PUSH_SCRIPTS, runPrePush } from "./index.ts";
+import {
+  PRE_PUSH_SCRIPTS,
+  runPrePush,
+  STATIC_PRE_PUSH_SCRIPTS,
+} from "./index.ts";
 
 const BUN_VERSION = "1.4.2";
 
@@ -187,6 +191,54 @@ describe("source-bound pre-push", () => {
     expect(run()).toBe(23);
     return expect(invokedLanes()).toEqual(["verify:prepush"]);
   });
+
+  const withPrePushMode = (status: number | null, stdout = "", extra = {}) =>
+    mocks.spawnSync.mockImplementation((executable, arguments_) =>
+      executable === "git" && arguments_[1] === "config"
+        ? result(status, stdout, extra)
+        : gitSuccess(executable, arguments_)
+    );
+
+  it("runs the full lane when darkfactory.prepush is unset or full", () => {
+    for (const [status, stdout] of [
+      [1, ""],
+      [0, "full\n"],
+    ] as const) {
+      mocks.spawnSync.mockClear();
+      withPrePushMode(status, stdout);
+      expect(run()).toBe(0);
+      expect(invokedLanes()).toEqual(lanes);
+    }
+    return expect(mocks.spawnSync).toHaveBeenCalledWith(
+      "git",
+      ["--no-replace-objects", "config", "--get", "darkfactory.prepush"],
+      expect.objectContaining({ shell: false })
+    );
+  });
+
+  it("runs only the static checks when darkfactory.prepush is static", () => {
+    withPrePushMode(0, "static\n");
+    expect(run()).toBe(0);
+    expect(invokedLanes()).toEqual(["verify:core"]);
+    expect(() => (STATIC_PRE_PUSH_SCRIPTS as string[]).push("skip")).toThrow();
+    return expect(console.error).toHaveBeenCalledWith(
+      expect.stringContaining("static checks only")
+    );
+  });
+
+  it.each([
+    [0, "none\n", {}],
+    [2, "", {}],
+    [1, "", { signal: "SIGTERM" }],
+    [null, "", { error: new Error("git unavailable") }],
+  ])(
+    "blocks an invalid or unreadable pre-push mode (exit %s)",
+    (status, stdout, extra) => {
+      withPrePushMode(status, stdout, extra);
+      expect(run()).toBe(1);
+      return expect(invokedLanes()).toEqual([]);
+    }
+  );
 
   it("does not let consumers mutate the mandatory lanes", () => {
     expect(() => (PRE_PUSH_SCRIPTS as string[]).push("skip")).toThrow();
