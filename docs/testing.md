@@ -59,6 +59,7 @@ One `playwright test` run covers both projects. Everything uses Playwright built
 - **webServer:** Playwright starts two servers and stops them afterwards. The first is a private portless HTTPS proxy with its own state directory and port. The second is the production build of the web app behind that proxy.
 - **globalSetup:** creates the run database, migrates, resets and seeds it (exactly three identities), and starts the email preview capture server. Its teardown drops the database and removes the previews.
 - **Per-file isolation:** each database-backed spec calls `resetDatabase` in `test.beforeAll`.
+- **Browser:** both projects use stable Google Chrome (`channel: "chrome"`) with the Chromium sandbox on (`chromiumSandbox: true`). Playwright's bundled Chromium is not used because it lags Chrome security releases. CI installs the current stable Chrome with `playwright install --with-deps --force chrome`.
 - **TLS:** there is no `ignoreHTTPSErrors`. Chromium trusts only the portless CA, through an SPKI pin (`--ignore-certificate-errors-spki-list`), and Node-side requests trust it through `NODE_EXTRA_CA_CERTS`.
 - **CI policy:** `forbidOnly`, `retries: 1` and `failOnFlakyTests`. A test that passes only on retry fails the run. Traces are recorded on the first retry.
 
