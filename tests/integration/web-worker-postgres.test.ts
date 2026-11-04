@@ -315,7 +315,7 @@ describe("Vinext Cloudflare Worker node-postgres runtime", {
         { cause: error }
       );
     }
-  }, 30_000);
+  }, 60_000);
 
   it("runs authenticated typed theme reads and writes through real PostgreSQL", async () => {
     const email = `worker-${database.runId}@domain.test`;

@@ -1175,112 +1175,111 @@ describe("DF-070 deterministic reports and thin CLI", () => {
   });
 });
 
-describe("DF-069 deterministic filesystem fault handling", () =>
-  it("covers safe-parent, lock, owned-root, cleanup, and removal races", async () => {
-    const faults = {
-      kind: "none",
-      target: "",
-      code: "EIO",
-      lstatCalls: 0,
-    };
-    const injectedError = (code: string): NodeJS.ErrnoException => {
-      return Object.assign(new Error(`injected ${code}`), { code });
-    };
-    const configure = (kind: string, target: string, code = "EIO"): void => {
-      faults.kind = kind;
-      faults.target = target;
-      faults.code = code;
-      faults.lstatCalls = 0;
-    };
-    const observeLstat = async (path: string): Promise<void> => {
-      if (faults.kind !== "rollback-disappears" || path !== faults.target)
-        return;
-      faults.lstatCalls += 1;
-      if (faults.lstatCalls === 3) {
-        await unlink(path);
+describe("DF-069 deterministic filesystem fault handling", () => {
+  const faults = {
+    kind: "none",
+    target: "",
+    code: "EIO",
+    lstatCalls: 0,
+  };
+  const injectedError = (code: string): NodeJS.ErrnoException => {
+    return Object.assign(new Error(`injected ${code}`), { code });
+  };
+  const configure = (kind: string, target: string, code = "EIO"): void => {
+    faults.kind = kind;
+    faults.target = target;
+    faults.code = code;
+    faults.lstatCalls = 0;
+  };
+  const observeLstat = async (path: string): Promise<void> => {
+    if (faults.kind !== "rollback-disappears" || path !== faults.target) return;
+    faults.lstatCalls += 1;
+    if (faults.lstatCalls === 3) {
+      await unlink(path);
+    }
+  };
+  const faultDependencies: Readonly<Partial<ApplyGenerationDependencies>> = {
+    assertNoSymlinkPath: async (root, relativePath) => {
+      await observeLstat(join(root, ...relativePath.split("/")));
+      return assertNoSymlinkPath(root, relativePath);
+    },
+    hasIdentity: async (expected) => {
+      await observeLstat(expected.path);
+      return hasIdentity(expected);
+    },
+    identityAt: async (path) => {
+      if (
+        faults.kind === "temp-identity-error" &&
+        path.startsWith(join(faults.target, ".generate-feature-"))
+      )
+        throw injectedError(faults.code);
+      return identityAt(path);
+    },
+    link: async (existingPath, newPath) => {
+      if (faults.kind === "link-error" && newPath === faults.target) {
+        throw injectedError(faults.code);
       }
-    };
-    const faultDependencies: Readonly<Partial<ApplyGenerationDependencies>> = {
-      assertNoSymlinkPath: async (root, relativePath) => {
-        await observeLstat(join(root, ...relativePath.split("/")));
-        return assertNoSymlinkPath(root, relativePath);
+      return link(existingPath, newPath);
+    },
+    lstat: async (path) => {
+      await observeLstat(path);
+      return lstat(path);
+    },
+    mkdir: async (path, options) => {
+      if (faults.kind === "mkdir-error" && path === faults.target) {
+        throw injectedError(faults.code);
+      }
+      if (faults.kind === "mkdir-eexist-file" && path === faults.target) {
+        await writeFile(path, "raced parent", "utf8");
+        throw injectedError("EEXIST");
+      }
+      if (faults.kind === "mkdir-eexist-directory" && path === faults.target) {
+        await mkdir(path);
+        throw injectedError("EEXIST");
+      }
+      return mkdir(path, options);
+    },
+    pathExists: async (path) => {
+      await observeLstat(path);
+      return pathExists(path);
+    },
+    rm: async (path, options) => {
+      if (
+        faults.kind === "rm-error" &&
+        path.startsWith(join(faults.target, ".generate-feature-"))
+      )
+        throw injectedError(faults.code);
+      return rm(path, options);
+    },
+    rmdir: async (path) => {
+      if (faults.kind === "rmdir-enoent" && path === faults.target) {
+        await rmdir(path);
+        throw injectedError("ENOENT");
+      }
+      return rmdir(path);
+    },
+  };
+  const applyWithFaults = (
+    plan: GenerationPlan,
+    options: ApplyGenerationOptions = {}
+  ): ReturnType<typeof applyGenerationPlan> => {
+    return applyGenerationPlan(plan, {
+      ...options,
+      dependencies: {
+        ...options.dependencies,
+        ...faultDependencies,
       },
-      hasIdentity: async (expected) => {
-        await observeLstat(expected.path);
-        return hasIdentity(expected);
-      },
-      identityAt: async (path) => {
-        if (
-          faults.kind === "temp-identity-error" &&
-          path.startsWith(join(faults.target, ".generate-feature-"))
-        )
-          throw injectedError(faults.code);
-        return identityAt(path);
-      },
-      link: async (existingPath, newPath) => {
-        if (faults.kind === "link-error" && newPath === faults.target) {
-          throw injectedError(faults.code);
-        }
-        return link(existingPath, newPath);
-      },
-      lstat: async (path) => {
-        await observeLstat(path);
-        return lstat(path);
-      },
-      mkdir: async (path, options) => {
-        if (faults.kind === "mkdir-error" && path === faults.target) {
-          throw injectedError(faults.code);
-        }
-        if (faults.kind === "mkdir-eexist-file" && path === faults.target) {
-          await writeFile(path, "raced parent", "utf8");
-          throw injectedError("EEXIST");
-        }
-        if (
-          faults.kind === "mkdir-eexist-directory" &&
-          path === faults.target
-        ) {
-          await mkdir(path);
-          throw injectedError("EEXIST");
-        }
-        return mkdir(path, options);
-      },
-      pathExists: async (path) => {
-        await observeLstat(path);
-        return pathExists(path);
-      },
-      rm: async (path, options) => {
-        if (
-          faults.kind === "rm-error" &&
-          path.startsWith(join(faults.target, ".generate-feature-"))
-        )
-          throw injectedError(faults.code);
-        return rm(path, options);
-      },
-      rmdir: async (path) => {
-        if (faults.kind === "rmdir-enoent" && path === faults.target) {
-          await rmdir(path);
-          throw injectedError("ENOENT");
-        }
-        return rmdir(path);
-      },
-    };
-    const applyWithFaults = (
-      plan: GenerationPlan,
-      options: ApplyGenerationOptions = {}
-    ): ReturnType<typeof applyGenerationPlan> => {
-      return applyGenerationPlan(plan, {
-        ...options,
-        dependencies: {
-          ...options.dependencies,
-          ...faultDependencies,
-        },
-      });
-    };
-    const planFor = async (root: string): Promise<GenerationPlan> => {
-      configure("none", "");
-      return createGenerationPlan(root, validateFeatureName("order-item"));
-    };
+    });
+  };
+  const planFor = async (root: string): Promise<GenerationPlan> => {
+    configure("none", "");
+    return createGenerationPlan(root, validateFeatureName("order-item"));
+  };
+  afterEach(() => {
+    configure("none", "");
+  });
 
+  it("reports rollback-unsafe and keeps staging when a temporary identity read fails", async () => {
     const tempIdentityFixture = await fixture();
     const tempIdentityPlan = await planFor(tempIdentityFixture.root);
     configure("temp-identity-error", tempIdentityPlan.targetRoot, "EIO");
@@ -1288,12 +1287,14 @@ describe("DF-069 deterministic filesystem fault handling", () =>
       code: "ROLLBACK_UNSAFE",
       cause: { code: "EIO" },
     });
-    expect(
+    return expect(
       (await listFixtureEntries(tempIdentityFixture.root)).some((entry) =>
         entry.startsWith(".generate-feature-")
       )
     ).toBe(true);
+  });
 
+  it("leaves the workspace unchanged when the global lock cannot be created", async () => {
     const lockFixture = await fixture();
     const lockPlan = await planFor(lockFixture.root);
     const lockBefore = await listFixtureEntries(lockFixture.root);
@@ -1305,8 +1306,12 @@ describe("DF-069 deterministic filesystem fault handling", () =>
     await expect(applyWithFaults(lockPlan)).rejects.toMatchObject({
       code: "EACCES",
     });
-    expect(await listFixtureEntries(lockFixture.root)).toEqual(lockBefore);
+    return expect(await listFixtureEntries(lockFixture.root)).toEqual(
+      lockBefore
+    );
+  });
 
+  it("leaves the workspace unchanged when a safe parent cannot be created", async () => {
     const parentFailureFixture = await fixture();
     const parentFailurePlan = await planFor(parentFailureFixture.root);
     const parentFailureBefore = await listFixtureEntries(
@@ -1320,10 +1325,12 @@ describe("DF-069 deterministic filesystem fault handling", () =>
     await expect(applyWithFaults(parentFailurePlan)).rejects.toMatchObject({
       code: "EACCES",
     });
-    expect(await listFixtureEntries(parentFailureFixture.root)).toEqual(
+    return expect(await listFixtureEntries(parentFailureFixture.root)).toEqual(
       parentFailureBefore
     );
+  });
 
+  it("refuses a file raced in place of a safe parent", async () => {
     const parentRaceFixture = await fixture();
     const parentRacePlan = await planFor(parentRaceFixture.root);
     const parentRacePath = join(parentRacePlan.targetRoot, "apps/web/src/app");
@@ -1331,10 +1338,12 @@ describe("DF-069 deterministic filesystem fault handling", () =>
     await expect(applyWithFaults(parentRacePlan)).rejects.toMatchObject({
       code: "SYMLINK_UNSAFE",
     });
-    await expect(readFile(parentRacePath, "utf8")).resolves.toBe(
+    return await expect(readFile(parentRacePath, "utf8")).resolves.toBe(
       "raced parent"
     );
+  });
 
+  it("accepts a directory raced in place of a safe parent", async () => {
     const directoryRaceFixture = await fixture();
     const directoryRacePlan = await planFor(directoryRaceFixture.root);
     configure(
@@ -1344,7 +1353,7 @@ describe("DF-069 deterministic filesystem fault handling", () =>
     await expect(applyWithFaults(directoryRacePlan)).resolves.toMatchObject({
       cleanup: "complete",
     });
-    await expect(
+    return await expect(
       readFile(
         join(
           directoryRaceFixture.root,
@@ -1353,7 +1362,9 @@ describe("DF-069 deterministic filesystem fault handling", () =>
         "utf8"
       )
     ).resolves.toContain("OrderItems");
+  });
 
+  it("fails closed when an existing parent is replaced before promotion", async () => {
     const existingParentFixture = await fixture();
     const existingParentPlan = await planFor(existingParentFixture.root);
     const existingParentPath = join(
@@ -1379,10 +1390,12 @@ describe("DF-069 deterministic filesystem fault handling", () =>
     await expect(readFile(existingParentPath, "utf8")).resolves.toBe(
       "raced parent"
     );
-    expect(
+    return expect(
       await readGeneratedFiles(existingParentFixture.root, registryPaths)
     ).toEqual(existingParentRegistries);
+  });
 
+  it("leaves the workspace unchanged when the owned feature root cannot be created", async () => {
     const ownedRootFixture = await fixture();
     const ownedRootPlan = await planFor(ownedRootFixture.root);
     const ownedRootBefore = await listFixtureEntries(ownedRootFixture.root);
@@ -1394,10 +1407,12 @@ describe("DF-069 deterministic filesystem fault handling", () =>
     await expect(applyWithFaults(ownedRootPlan)).rejects.toMatchObject({
       code: "EIO",
     });
-    expect(await listFixtureEntries(ownedRootFixture.root)).toEqual(
+    return expect(await listFixtureEntries(ownedRootFixture.root)).toEqual(
       ownedRootBefore
     );
+  });
 
+  it("rolls back files and registries when a promotion link fails", async () => {
     const linkFailureFixture = await fixture();
     const linkFailurePlan = await planFor(linkFailureFixture.root);
     const linkFailureBefore = await listFixtureEntries(linkFailureFixture.root);
@@ -1419,10 +1434,12 @@ describe("DF-069 deterministic filesystem fault handling", () =>
     expect(await listFixtureEntries(linkFailureFixture.root)).toEqual(
       linkFailureBefore
     );
-    expect(
+    return expect(
       await readGeneratedFiles(linkFailureFixture.root, registryPaths)
     ).toEqual(linkFailureRegistries);
+  });
 
+  it("reports rollback-unsafe when a promoted file disappears during rollback", async () => {
     const disappearingFixture = await fixture();
     const disappearingPlan = await planFor(disappearingFixture.root);
     const disappearingFile = disappearingPlan.files.find(
@@ -1452,13 +1469,15 @@ describe("DF-069 deterministic filesystem fault handling", () =>
     await expect(readFile(disappearingPath, "utf8")).rejects.toMatchObject({
       code: "ENOENT",
     });
-    await expect(
+    return await expect(
       readFile(
         join(disappearingFixture.root, ".darkfactory/features.json"),
         "utf8"
       )
     ).resolves.toBe(disappearingDescriptor);
+  });
 
+  it("completes when the lock directory disappears during removal", async () => {
     const lockRemovalFixture = await fixture();
     const lockRemovalPlan = await planFor(lockRemovalFixture.root);
     configure(
@@ -1468,10 +1487,12 @@ describe("DF-069 deterministic filesystem fault handling", () =>
     await expect(applyWithFaults(lockRemovalPlan)).resolves.toMatchObject({
       cleanup: "complete",
     });
-    expect(await listFixtureEntries(lockRemovalFixture.root)).not.toContain(
-      ".darkfactory/.generate-feature.lock"
-    );
+    return expect(
+      await listFixtureEntries(lockRemovalFixture.root)
+    ).not.toContain(".darkfactory/.generate-feature.lock");
+  });
 
+  return it("reports manual cleanup when staging removal fails", async () => {
     const cleanupFailureFixture = await fixture();
     const cleanupFailurePlan = await planFor(cleanupFailureFixture.root);
     configure("rm-error", cleanupFailurePlan.targetRoot, "EBUSY");
@@ -1483,4 +1504,5 @@ describe("DF-069 deterministic filesystem fault handling", () =>
         entry.startsWith(".generate-feature-")
       )
     ).toBe(true);
-  }));
+  });
+});

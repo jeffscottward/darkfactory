@@ -237,6 +237,12 @@ import { createLocalWayfinderExecutionAdapter } from "./wayfinder.ts";
 
 // The operator's own model (WORKFLOW_OMP_MODEL); DarkFactory pins none.
 const TEST_OMP_MODEL = "anthropic/claude-opus-5-5";
+// These tests drive the adapter through hundreds of real filesystem entries or
+// many adapter runs. With coverage under CPUQuota=10% (about the rig CI load,
+// 2026-11-03) the slowest run of each took 2.6 to 10.5 s, more than half of the
+// 5 s default. The bound is about 3 times the slowest measurement and still
+// stops a hung test.
+const HEAVY_ADAPTER_TEST_TIMEOUT_MS = 30_000;
 const UNSERVED_OMP_MODEL = "openrouter/google/gemini-3.8-flash";
 
 const TEST_FILESYSTEM_SANDBOX_BACKEND = Object.freeze({
@@ -1025,7 +1031,9 @@ describe("OMP CLI adapter", () => {
     }
   });
 
-  it("runs git and the agent inside bubblewrap on Linux", async () => {
+  it("runs git and the agent inside bubblewrap on Linux", {
+    timeout: HEAVY_ADAPTER_TEST_TIMEOUT_MS,
+  }, async () => {
     const platform = vi
       .spyOn(process, "platform", "get")
       .mockReturnValue("linux");
@@ -1334,7 +1342,9 @@ describe("OMP CLI adapter", () => {
     }
   });
 
-  it("fails closed when the Linux model relay is missing, insecure or unreachable", async () => {
+  it("fails closed when the Linux model relay is missing, insecure or unreachable", {
+    timeout: HEAVY_ADAPTER_TEST_TIMEOUT_MS,
+  }, async () => {
     const platform = vi
       .spyOn(process, "platform", "get")
       .mockReturnValue("linux");
@@ -2596,7 +2606,9 @@ describe("OMP CLI adapter", () => {
     ).rejects.toThrow("OMP dirty workspace has no clean baseline");
   });
 
-  it("fails implementation evidence when more than 512 scoped paths change", async () => {
+  it("fails implementation evidence when more than 512 scoped paths change", {
+    timeout: HEAVY_ADAPTER_TEST_TIMEOUT_MS,
+  }, async () => {
     callbackWith(null, "", "", async (cwd) => {
       const directory = join(cwd, "packages", "jobs");
       await mkdir(directory, { recursive: true });
@@ -3069,62 +3081,66 @@ describe("OMP CLI adapter", () => {
     return await result.lifecycle!.finalize("unpersisted");
   });
 
-  it("fails closed for nonzero, timeout, abort, empty, and oversized verifier results", async () => {
-    const cases: readonly Readonly<{
-      name: string;
-      expected: OmpVerifierRunnerResult["status"] | "failed";
-      result: OmpVerifierRunnerResult;
-    }>[] = [
-      {
-        name: "nonzero",
-        expected: "failed",
-        result: verifierRunnerResult({ status: "failed", exitCode: 2 }),
-      },
-      {
-        name: "timeout",
-        expected: "timed-out",
-        result: verifierRunnerResult({
-          status: "timed-out",
-          exitCode: null,
-          signal: "SIGTERM",
-        }),
-      },
-      {
-        name: "abort",
-        expected: "aborted",
-        result: verifierRunnerResult({ status: "aborted", exitCode: null }),
-      },
-      {
-        name: "empty",
-        expected: "failed",
-        result: verifierRunnerResult({
-          output: {
-            stdout: "",
-            stderr: "",
-            stdoutBytes: 0,
-            stderrBytes: 0,
-            truncated: false,
-            redacted: false,
-          },
-        }),
-      },
-      {
-        name: "oversized",
-        expected: "output-limit",
-        result: verifierRunnerResult({
-          output: {
-            stdout: "x".repeat(32 * 1024 + 1),
-            stderr: "",
-            stdoutBytes: 32 * 1024 + 1,
-            stderrBytes: 0,
-            truncated: false,
-            redacted: false,
-          },
-        }),
-      },
-    ];
+  // One test per verifier result: each case prepares and verifies its own
+  // workspace; in rig CI job 514 (2026-11-03) the five cases together timed
+  // out at 5 s.
+  const failClosedVerifierCases: readonly Readonly<{
+    name: string;
+    expected: OmpVerifierRunnerResult["status"] | "failed";
+    result: OmpVerifierRunnerResult;
+  }>[] = [
+    {
+      name: "nonzero",
+      expected: "failed",
+      result: verifierRunnerResult({ status: "failed", exitCode: 2 }),
+    },
+    {
+      name: "timeout",
+      expected: "timed-out",
+      result: verifierRunnerResult({
+        status: "timed-out",
+        exitCode: null,
+        signal: "SIGTERM",
+      }),
+    },
+    {
+      name: "abort",
+      expected: "aborted",
+      result: verifierRunnerResult({ status: "aborted", exitCode: null }),
+    },
+    {
+      name: "empty",
+      expected: "failed",
+      result: verifierRunnerResult({
+        output: {
+          stdout: "",
+          stderr: "",
+          stdoutBytes: 0,
+          stderrBytes: 0,
+          truncated: false,
+          redacted: false,
+        },
+      }),
+    },
+    {
+      name: "oversized",
+      expected: "output-limit",
+      result: verifierRunnerResult({
+        output: {
+          stdout: "x".repeat(32 * 1024 + 1),
+          stderr: "",
+          stdoutBytes: 32 * 1024 + 1,
+          stderrBytes: 0,
+          truncated: false,
+          redacted: false,
+        },
+      }),
+    },
+  ];
 
-    for (const testCase of cases) {
+  it.each(failClosedVerifierCases)(
+    "fails closed for the $name verifier result",
+    async (testCase) => {
       const adapter = createOmpCliAdapter({
         repositoriesRoot,
         verificationRunner: async () => testCase.result,
@@ -3137,9 +3153,9 @@ describe("OMP CLI adapter", () => {
       expect(result.status).toBe(testCase.expected);
       expect(result.verification?.digest).toBeNull();
       expect(result.verification?.resultBytes).toBeLessThanOrEqual(32 * 1024);
-      await result.lifecycle!.finalize("persisted");
+      return await result.lifecycle!.finalize("persisted");
     }
-  });
+  );
 
   it("disposes plan worktrees when durable persistence retries", async () => {
     callbackWith(null, "planned");
@@ -3604,7 +3620,9 @@ describe("OMP CLI adapter", () => {
     }
   });
 
-  it("normalizes combined verifier output and fails closed on verifier exceptions", async () => {
+  it("normalizes combined verifier output and fails closed on verifier exceptions", {
+    timeout: HEAVY_ADAPTER_TEST_TIMEOUT_MS,
+  }, async () => {
     const combined = createOmpCliAdapter({
       repositoriesRoot,
       verifierMaxResultBytes: 64,
@@ -4585,22 +4603,26 @@ describe("OMP CLI adapter", () => {
       "packages/jobs/package.json"
     );
   });
-  it("rejects unsafe verifier workspace package layouts before injected checks", async () => {
-    const verifyRejectedLayout = async (workspaceId: string): Promise<void> => {
-      const verificationRunner = vi.fn(async () => verifierRunnerResult());
-      const adapter = createOmpCliAdapter({
-        repositoriesRoot,
-        verificationRunner,
-      });
-      const prepared = await prepareVerificationWorkspace(adapter, workspaceId);
-      await prepared.implementation.lifecycle!.finalize("persisted");
-      callbackWith(null, "verification");
-      const result = await adapter.execute(verificationRequestFor(prepared));
-      expect(result).toMatchObject({ status: "failed", verification: null });
-      expect(verificationRunner).not.toHaveBeenCalled();
-      await result.lifecycle!.finalize("unpersisted");
-    };
+  // One test per unsafe layout: each case prepares and verifies its own
+  // workspace; in rig CI job 514 (2026-11-03) the five cases together timed
+  // out at 5 s. The beforeEach repository is fresh for each case, so no case
+  // cleans up.
+  const verifyRejectedLayout = async (workspaceId: string): Promise<void> => {
+    const verificationRunner = vi.fn(async () => verifierRunnerResult());
+    const adapter = createOmpCliAdapter({
+      repositoriesRoot,
+      verificationRunner,
+    });
+    const prepared = await prepareVerificationWorkspace(adapter, workspaceId);
+    await prepared.implementation.lifecycle!.finalize("persisted");
+    callbackWith(null, "verification");
+    const result = await adapter.execute(verificationRequestFor(prepared));
+    expect(result).toMatchObject({ status: "failed", verification: null });
+    expect(verificationRunner).not.toHaveBeenCalled();
+    await result.lifecycle!.finalize("unpersisted");
+  };
 
+  it("rejects a verifier workspace package with a too-long name before injected checks", async () => {
     const longDirectory = "x".repeat(129);
     const longManifest = `packages/${longDirectory}/package.json`;
     await mkdir(join(repositoryDirectory, "packages", longDirectory));
@@ -4609,12 +4631,10 @@ describe("OMP CLI adapter", () => {
       JSON.stringify({ name: `@darkfactory/${longDirectory}` })
     );
     trackedPaths.add(longManifest);
-    await verifyRejectedLayout("verifier-package-long-name");
-    trackedPaths.delete(longManifest);
-    await rm(join(repositoryDirectory, "packages", longDirectory), {
-      recursive: true,
-    });
+    return await verifyRejectedLayout("verifier-package-long-name");
+  });
 
+  it("rejects a symlinked verifier workspace package before injected checks", async () => {
     const linkedDirectory = join(
       repositoryDirectory,
       "packages",
@@ -4622,10 +4642,10 @@ describe("OMP CLI adapter", () => {
     );
     await symlink("jobs", linkedDirectory);
     trackedPaths.add("packages/linked-package");
-    await verifyRejectedLayout("verifier-package-symlink");
-    trackedPaths.delete("packages/linked-package");
-    await rm(linkedDirectory);
+    return await verifyRejectedLayout("verifier-package-symlink");
+  });
 
+  it("rejects a verifier workspace package with an invalid manifest before injected checks", async () => {
     const invalidManifest = "packages/invalid-package/package.json";
     await mkdir(dirname(join(repositoryDirectory, invalidManifest)));
     await writeFile(
@@ -4633,22 +4653,22 @@ describe("OMP CLI adapter", () => {
       JSON.stringify({ name: "not-darkfactory" })
     );
     trackedPaths.add(invalidManifest);
-    await verifyRejectedLayout("verifier-package-invalid-manifest");
-    trackedPaths.delete(invalidManifest);
-    await rm(join(repositoryDirectory, "packages", "invalid-package"), {
-      recursive: true,
-    });
+    return await verifyRejectedLayout("verifier-package-invalid-manifest");
+  });
 
+  it("rejects an occupied verifier workspace package link before injected checks", async () => {
     const existingLink = "node_modules/@darkfactory/jobs";
     await mkdir(dirname(join(repositoryDirectory, existingLink)), {
       recursive: true,
     });
     await writeFile(join(repositoryDirectory, existingLink), "occupied");
     trackedPaths.add(existingLink);
-    await verifyRejectedLayout("verifier-package-existing-link");
-    trackedPaths.delete(existingLink);
-    await rm(join(repositoryDirectory, "node_modules"), { recursive: true });
+    return await verifyRejectedLayout("verifier-package-existing-link");
+  });
 
+  it("rejects more than 256 verifier workspace packages before injected checks", {
+    timeout: HEAVY_ADAPTER_TEST_TIMEOUT_MS,
+  }, async () => {
     const extraManifests = Array.from({ length: 257 }, (_, index) => {
       return `packages/extra-${String(index).padStart(3, "0")}/package.json`;
     });
@@ -4661,13 +4681,7 @@ describe("OMP CLI adapter", () => {
       );
       trackedPaths.add(manifestPath);
     }
-    await verifyRejectedLayout("verifier-package-count");
-    for (const manifestPath of extraManifests) {
-      trackedPaths.delete(manifestPath);
-      await rm(dirname(join(repositoryDirectory, manifestPath)), {
-        recursive: true,
-      });
-    }
+    return await verifyRejectedLayout("verifier-package-count");
   });
 
   it("normalizes nullish injected verifier streams", async () => {
@@ -4827,7 +4841,9 @@ describe("OMP CLI adapter", () => {
     }
   });
 
-  it("WP1 bounds an implementation manifest at 20,001 unique entries", async () => {
+  it("WP1 bounds an implementation manifest at 20,001 unique entries", {
+    timeout: HEAVY_ADAPTER_TEST_TIMEOUT_MS,
+  }, async () => {
     const unsupportedMetadata = await unsupportedMetadataFor(
       join(repositoryDirectory, "package.json")
     );
@@ -4944,7 +4960,9 @@ describe("OMP CLI adapter", () => {
     return (mocks.WP1lstatDelegate = undefined);
   });
 
-  it("WP1 rejects every retained baseline identity and entry mismatch", async () => {
+  it("WP1 rejects every retained baseline identity and entry mismatch", {
+    timeout: HEAVY_ADAPTER_TEST_TIMEOUT_MS,
+  }, async () => {
     await writeFile(scopedFile, "before");
     trackedPaths.add("packages/jobs/representative.civet");
     const cases = [
@@ -5460,7 +5478,9 @@ describe("OMP CLI adapter", () => {
     }
   });
 
-  it("WP2 fails closed across cleanup path, root, git, and filesystem boundaries", async () => {
+  it("WP2 fails closed across cleanup path, root, git, and filesystem boundaries", {
+    timeout: HEAVY_ADAPTER_TEST_TIMEOUT_MS,
+  }, async () => {
     const adapter = createOmpCliAdapter({ repositoriesRoot });
     const worktreesRoot = await realpath(
       join(tmpdir(), "darkfactory-omp-worktrees")
@@ -7409,7 +7429,9 @@ describe("OMP CLI adapter", () => {
     }
   });
 
-  it("fails closed for every Wayfinder skill bundle security limit", async () => {
+  it("fails closed for every Wayfinder skill bundle security limit", {
+    timeout: HEAVY_ADAPTER_TEST_TIMEOUT_MS,
+  }, async () => {
     const skillsRootFor = async (name: string): Promise<string> => {
       const root = join(repositoriesRoot, `skills-${name}-${randomUUID()}`);
       for (const skillName of OMP_WAYFINDER_SKILLS) {
