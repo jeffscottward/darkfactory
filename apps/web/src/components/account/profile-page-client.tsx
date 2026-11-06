@@ -33,9 +33,9 @@ export const ProfilePageClient = () => {
     setState({ type: "loading" });
     try {
       const account = await gateway.getProfile();
-      return setState({ type: "ready", account, version: 0 });
+      return setState({ account, type: "ready", version: 0 });
     } catch (error) {
-      return setState({ type: "error", kind: accountFailureKind(error) });
+      return setState({ kind: accountFailureKind(error), type: "error" });
     }
   }, [gateway]);
 
@@ -112,10 +112,10 @@ export const ProfilePageClient = () => {
       const account = await gateway.updateProfile(input);
       setState((current) =>
         current.type === "ready"
-          ? { type: "ready", account, version: current.version + 1 }
+          ? { account, type: "ready", version: current.version + 1 }
           : current
       );
-      setFeedback({ tone: "success", message: "Profile saved." });
+      setFeedback({ message: "Profile saved.", tone: "success" });
     } catch (error) {
       if (accountFailureKind(error) === "conflict") {
         try {
@@ -127,12 +127,12 @@ export const ProfilePageClient = () => {
           // The current form stays mounted with its unsaved values.
         }
         setFeedback({
-          tone: "error",
           message:
             "This profile changed elsewhere. Your entries are preserved; review them and save again.",
+          tone: "error",
         });
       } else {
-        setFeedback({ tone: "error", message: safeAccountFeedback(error) });
+        setFeedback({ message: safeAccountFeedback(error), tone: "error" });
       }
     }
   };

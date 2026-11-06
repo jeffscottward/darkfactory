@@ -23,75 +23,75 @@ type ProfileFieldName =
   | "dateOfBirth";
 
 interface ProfileFieldDefinition {
-  readonly name: ProfileFieldName;
+  readonly autoComplete?: string;
   readonly label: string;
   readonly maximum: number;
-  readonly type?: "text" | "url" | "tel" | "date";
   readonly multiline?: boolean;
+  readonly name: ProfileFieldName;
   readonly required?: boolean;
-  readonly autoComplete?: string;
+  readonly type?: "text" | "url" | "tel" | "date";
 }
 
 const profileFields: readonly ProfileFieldDefinition[] = [
   {
-    name: "firstName",
+    autoComplete: "given-name",
     label: "First name",
     maximum: 200,
-    autoComplete: "given-name",
+    name: "firstName",
   },
   {
-    name: "lastName",
+    autoComplete: "family-name",
     label: "Last name",
     maximum: 200,
-    autoComplete: "family-name",
+    name: "lastName",
   },
   {
-    name: "displayName",
+    autoComplete: "nickname",
     label: "Display name",
     maximum: 200,
-    autoComplete: "nickname",
+    name: "displayName",
   },
   {
-    name: "avatarUrl",
+    autoComplete: "url",
     label: "Avatar URL",
     maximum: 2048,
+    name: "avatarUrl",
     type: "url",
-    autoComplete: "url",
   },
   {
-    name: "phone",
+    autoComplete: "tel",
     label: "Phone",
     maximum: 64,
+    name: "phone",
     type: "tel",
-    autoComplete: "tel",
   },
   {
-    name: "businessName",
+    autoComplete: "organization",
     label: "Business name",
     maximum: 200,
-    autoComplete: "organization",
+    name: "businessName",
   },
   {
-    name: "jobTitle",
+    autoComplete: "organization-title",
     label: "Job title",
     maximum: 200,
-    autoComplete: "organization-title",
+    name: "jobTitle",
   },
-  { name: "biography", label: "Biography", maximum: 5000, multiline: true },
-  { name: "timezone", label: "Timezone", maximum: 64, required: true },
+  { label: "Biography", maximum: 5000, multiline: true, name: "biography" },
+  { label: "Timezone", maximum: 64, name: "timezone", required: true },
   {
-    name: "locale",
+    autoComplete: "language",
     label: "Locale",
     maximum: 64,
+    name: "locale",
     required: true,
-    autoComplete: "language",
   },
   {
-    name: "dateOfBirth",
+    autoComplete: "bday",
     label: "Date of birth",
     maximum: 10,
+    name: "dateOfBirth",
     type: "date",
-    autoComplete: "bday",
   },
 ];
 
@@ -101,17 +101,17 @@ const nullableText = (value: string): string | null => {
 };
 
 const defaultsFor = (profile: ProfileOutput) => ({
-  firstName: profile.firstName ?? "",
-  lastName: profile.lastName ?? "",
-  displayName: profile.displayName ?? "",
   avatarUrl: profile.avatarUrl ?? "",
-  phone: profile.phone ?? "",
-  businessName: profile.businessName ?? "",
-  jobTitle: profile.jobTitle ?? "",
   biography: profile.biography ?? "",
-  timezone: profile.timezone,
-  locale: profile.locale,
+  businessName: profile.businessName ?? "",
   dateOfBirth: profile.dateOfBirth ?? "",
+  displayName: profile.displayName ?? "",
+  firstName: profile.firstName ?? "",
+  jobTitle: profile.jobTitle ?? "",
+  lastName: profile.lastName ?? "",
+  locale: profile.locale,
+  phone: profile.phone ?? "",
+  timezone: profile.timezone,
 });
 
 export const changedProfileInput = (

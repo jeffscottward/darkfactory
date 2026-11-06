@@ -14,14 +14,14 @@ import {
 } from "./account-feedback.tsx";
 
 const emptyAddress = {
-  type: "home" as const,
-  line1: "",
-  line2: "",
   city: "",
-  region: "",
-  postalCode: "",
   country: "",
   isPrimary: false,
+  line1: "",
+  line2: "",
+  postalCode: "",
+  region: "",
+  type: "home" as const,
 };
 type AddressTextFieldName =
   | "line1"
@@ -32,45 +32,45 @@ type AddressTextFieldName =
   | "country";
 
 interface AddressTextFieldDefinition {
-  readonly name: AddressTextFieldName;
+  readonly autoComplete: string;
   readonly label: string;
   readonly maximum: number;
+  readonly name: AddressTextFieldName;
   readonly optional?: boolean;
-  readonly autoComplete: string;
 }
 
 const textFields: readonly AddressTextFieldDefinition[] = [
   {
-    name: "line1",
+    autoComplete: "address-line1",
     label: "Address line 1",
     maximum: 200,
-    autoComplete: "address-line1",
+    name: "line1",
   },
   {
-    name: "line2",
+    autoComplete: "address-line2",
     label: "Address line 2",
     maximum: 200,
+    name: "line2",
     optional: true,
-    autoComplete: "address-line2",
   },
-  { name: "city", label: "City", maximum: 100, autoComplete: "address-level2" },
+  { autoComplete: "address-level2", label: "City", maximum: 100, name: "city" },
   {
-    name: "region",
+    autoComplete: "address-level1",
     label: "State or region",
     maximum: 100,
-    autoComplete: "address-level1",
+    name: "region",
   },
   {
-    name: "postalCode",
+    autoComplete: "postal-code",
     label: "Postal code",
     maximum: 32,
-    autoComplete: "postal-code",
+    name: "postalCode",
   },
   {
-    name: "country",
+    autoComplete: "country",
     label: "Country code",
     maximum: 2,
-    autoComplete: "country",
+    name: "country",
   },
 ];
 
@@ -78,14 +78,14 @@ const defaultsFor = (address?: AddressOutput | null) =>
   address === undefined || address === null
     ? emptyAddress
     : {
-        type: address.type,
-        line1: address.line1,
-        line2: address.line2 ?? "",
         city: address.city,
-        region: address.region,
-        postalCode: address.postalCode,
         country: address.country,
         isPrimary: address.isPrimary,
+        line1: address.line1,
+        line2: address.line2 ?? "",
+        postalCode: address.postalCode,
+        region: address.region,
+        type: address.type,
       };
 
 const requiredError = (
@@ -104,8 +104,8 @@ export const changedAddressUpdateInput = (
   current: ReturnType<typeof defaultsFor> | AddressOutput
 ): AddressUpdateInput => {
   const patch: Record<string, unknown> = {
-    id: initial.id,
     expectedUpdatedAt: initial.updatedAt,
+    id: initial.id,
   };
   const fields = [
     "type",
@@ -131,8 +131,8 @@ export const changedAddressUpdateInput = (
 };
 
 export interface AddressFormProps {
-  readonly feedback?: AccountFeedback | null | undefined;
   readonly disabled?: boolean | undefined;
+  readonly feedback?: AccountFeedback | null | undefined;
   readonly initialAddress?: AddressOutput | null;
   readonly onCancel: () => void;
   readonly onSave: (
@@ -152,14 +152,14 @@ export const AddressForm = ({
     defaultValues: defaultsFor(initialAddress),
     onSubmit: async ({ value }) => {
       const fields: AddressCreateInput = {
-        type: value.type,
-        line1: value.line1.trim(),
-        line2: value.line2.trim().length === 0 ? null : value.line2.trim(),
         city: value.city.trim(),
-        region: value.region.trim(),
-        postalCode: value.postalCode.trim(),
         country: value.country.trim().toUpperCase(),
         isPrimary: value.isPrimary,
+        line1: value.line1.trim(),
+        line2: value.line2.trim().length === 0 ? null : value.line2.trim(),
+        postalCode: value.postalCode.trim(),
+        region: value.region.trim(),
+        type: value.type,
       };
       if (isEditing) {
         return await onSave(changedAddressUpdateInput(initialAddress, value));

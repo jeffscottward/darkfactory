@@ -43,9 +43,9 @@ export const createCurrentSessionGateway = (
       });
       return (await isConfirmedSignOut(response))
         ? { ok: true }
-        : { ok: false, message: SIGN_OUT_FAILED_MESSAGE };
+        : { message: SIGN_OUT_FAILED_MESSAGE, ok: false };
     } catch {
-      return { ok: false, message: SIGN_OUT_FAILED_MESSAGE };
+      return { message: SIGN_OUT_FAILED_MESSAGE, ok: false };
     }
   },
 });
