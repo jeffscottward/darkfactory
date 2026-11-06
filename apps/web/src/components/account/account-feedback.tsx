@@ -17,7 +17,8 @@ export const AccountFeedbackMessage = ({
       className={cn(
         "border-l-2 py-1 pl-3 text-sm",
         feedback.tone === "error" && "border-destructive text-destructive",
-        feedback.tone === "success" && "border-primary text-foreground",
+        feedback.tone === "success" &&
+          "animate-success-pulse border-primary text-foreground",
         feedback.tone === "info" && "border-border-strong text-muted-foreground"
       )}
       role={feedback.tone === "error" ? "alert" : "status"}

@@ -131,7 +131,7 @@ export const DashboardContent = ({ model }: DashboardContentProps) => {
             Recent items could not be loaded.
           </p>
         ) : ready.recentItems.length === 0 ? null : (
-          <div className="mt-2 divide-y divide-border border-border border-y">
+          <div className="stagger-children mt-2 divide-y divide-border border-border border-y">
             {ready.recentItems.map((item) => (
               <a
                 className="flex min-h-11 items-center justify-between gap-3 py-2 text-foreground text-sm transition-colors duration-base ease-out hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"

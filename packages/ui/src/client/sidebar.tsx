@@ -194,11 +194,11 @@ export const Sidebar = ({
     return (
       <DialogPrimitive.Root onOpenChange={setOpenMobile} open={openMobile}>
         <DialogPrimitive.Portal>
-          <DialogPrimitive.Overlay className="data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 fixed inset-0 z-50 bg-black/50 data-[state=closed]:animate-out data-[state=open]:animate-in" />
+          <DialogPrimitive.Overlay className="data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 fixed inset-0 z-50 bg-black/50 duration-slow ease-out data-[state=closed]:animate-out data-[state=open]:animate-in data-[state=closed]:duration-exit-slow" />
           <DialogPrimitive.Content
             aria-describedby={undefined}
             className={cn(
-              "fixed z-50 flex w-(--sidebar-width) flex-col gap-4 bg-sidebar p-0 text-sidebar-foreground shadow-lg transition ease-in-out data-[state=closed]:animate-out data-[state=open]:animate-in data-[state=closed]:duration-300 data-[state=open]:duration-500",
+              "fixed z-50 flex w-(--sidebar-width) flex-col gap-4 bg-sidebar p-0 text-sidebar-foreground shadow-lg transition duration-slow ease-out data-[state=closed]:animate-out data-[state=open]:animate-in data-[state=closed]:duration-exit-slow",
               side === "left"
                 ? "data-[state=closed]:slide-out-to-left data-[state=open]:slide-in-from-left inset-y-0 left-0 h-full border-r"
                 : "data-[state=closed]:slide-out-to-right data-[state=open]:slide-in-from-right inset-y-0 right-0 h-full border-l"
@@ -238,7 +238,7 @@ export const Sidebar = ({
     >
       <div
         className={cn(
-          "relative w-(--sidebar-width) bg-transparent transition-[width] duration-200 ease-linear",
+          "relative w-(--sidebar-width) bg-transparent transition-[width] duration-200 ease-in-out",
           "group-data-[collapsible=offcanvas]:w-0",
           "group-data-[side=right]:rotate-180",
           floating
@@ -249,7 +249,7 @@ export const Sidebar = ({
       />
       <div
         className={cn(
-          "fixed inset-y-0 z-10 hidden h-svh w-(--sidebar-width) transition-[left,right,width] duration-200 ease-linear md:flex",
+          "fixed inset-y-0 z-10 hidden h-svh w-(--sidebar-width) transition-[left,right,width] duration-200 ease-in-out md:flex",
           side === "left"
             ? "left-0 group-data-[collapsible=offcanvas]:left-[calc(var(--sidebar-width)*-1)]"
             : "right-0 group-data-[collapsible=offcanvas]:right-[calc(var(--sidebar-width)*-1)]",
@@ -375,7 +375,7 @@ export const SidebarGroup = sidebarSection(
 );
 export const SidebarGroupLabel = sidebarSection(
   "group-label",
-  "flex h-8 shrink-0 items-center rounded-md px-2 text-xs font-medium text-sidebar-foreground/70 ring-sidebar-ring outline-hidden transition-[margin,opacity] duration-200 ease-linear focus-visible:ring-2 [&>svg]:size-4 [&>svg]:shrink-0 group-data-[collapsible=icon]:-mt-8 group-data-[collapsible=icon]:opacity-0"
+  "flex h-8 shrink-0 items-center rounded-md px-2 text-xs font-medium text-sidebar-foreground/70 ring-sidebar-ring outline-hidden transition-[margin,opacity] duration-200 ease-in-out focus-visible:ring-2 [&>svg]:size-4 [&>svg]:shrink-0 group-data-[collapsible=icon]:-mt-8 group-data-[collapsible=icon]:opacity-0"
 );
 export const SidebarGroupContent = sidebarSection(
   "group-content",
@@ -512,7 +512,7 @@ export const SidebarMenuButton = ({
       <TooltipPrimitive.Portal>
         <TooltipPrimitive.Content
           align="center"
-          className="fade-in-0 zoom-in-95 data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2 data-[state=closed]:fade-out-0 data-[state=closed]:zoom-out-95 z-50 w-fit origin-(--radix-tooltip-content-transform-origin) animate-in text-balance rounded-md bg-foreground px-3 py-1.5 text-background text-xs data-[state=closed]:animate-out"
+          className="fade-in-0 zoom-in-95 data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2 data-[state=closed]:fade-out-0 data-[state=closed]:zoom-out-95 z-50 w-fit origin-(--radix-tooltip-content-transform-origin) animate-in text-balance rounded-md bg-foreground px-3 py-1.5 text-background text-xs duration-fast ease-out data-[state=closed]:animate-out data-[state=closed]:duration-exit-fast"
           hidden={state !== "collapsed" || isMobile}
           side="right"
           sideOffset={0}

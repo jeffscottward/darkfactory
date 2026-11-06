@@ -80,11 +80,10 @@ export const PasswordField = ({
           onClick={() => setIsVisible((visible) => !visible)}
           type="button"
         >
-          {isVisible ? (
-            <EyeOff aria-hidden="true" size={18} />
-          ) : (
-            <Eye aria-hidden="true" size={18} />
-          )}
+          <span aria-hidden="true" className="icon-swap">
+            <Eye data-state={isVisible ? "off" : "on"} size={18} />
+            <EyeOff data-state={isVisible ? "on" : "off"} size={18} />
+          </span>
         </button>
       </div>
       {error ? (

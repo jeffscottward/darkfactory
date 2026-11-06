@@ -221,14 +221,39 @@ The 44px gate stays: every link, button, input, select, textarea, `role="button"
 
 ### 3.6 Motion
 
-| Token | Value |
-| --- | --- |
-| `--duration-fast` | `120ms` |
-| `--duration-base` | `180ms` |
-| `--duration-slow` | `240ms` |
-| `--ease-out` | `cubic-bezier(0.16, 1, 0.3, 1)` |
+Tokens live in `packages/ui/src/styles.css`.
 
-Animate color, background, border, opacity, and shadow. Do not change padding, borders, font weight, width, or height on interaction. Buttons and cards must not jump, bounce, scale, or translate on hover.
+| Token | Value | Use |
+| --- | --- | --- |
+| `--duration-fast` | `120ms` | Tooltips, small state changes |
+| `--duration-base` | `180ms` | Menus, dialogs, icon swaps, list rows |
+| `--duration-slow` | `240ms` | Sheets (mobile sidebar) |
+| `--duration-exit-fast` / `-base` / `-slow` | entrance × 0.8 (96, 144, 192ms) | The matching exit |
+| `--ease-out` | `cubic-bezier(0.16, 1, 0.3, 1)` | Everything that enters or leaves |
+| `--ease-in-out` | `cubic-bezier(0.65, 0, 0.35, 1)` | An element that moves from one on-screen place to another |
+| `--stagger-step` | `30ms` | Delay between list rows |
+| `--press-scale` | `0.97` | Button chrome while pressed |
+
+Utilities: `duration-fast|base|slow` and `duration-exit-fast|base|slow` set both the transition duration and the tw-animate-css enter/exit duration. `stagger-children`, `animate-success-pulse` and `icon-swap` are described below.
+
+#### Motion rules
+
+1. **Entrances and exits use `ease-out`.** Elements that move on screen use `ease-in-out`. Never `linear` for movement.
+2. **Menus and popovers enter in 180ms and leave in 144ms.** Use `duration-base` in and `data-[state=closed]:duration-exit-base` out. Tooltips use `duration-fast` and `duration-exit-fast`; sheets use `duration-slow` and `duration-exit-slow`. Exits are 20% shorter than entrances. Keep a menu entrance between 150 and 250ms.
+3. **Popovers start at scale 0.95 from the trigger** (`zoom-in-95` with `origin-(--radix-…-transform-origin)`) and leave the same way. Never scale from 0 or from the center of the screen. Dialogs are modal and open from the center.
+4. **No bounce.** No spring overshoot and no curve with a value above 1 in everyday UI.
+5. **Press feedback, not hover motion.** The button chrome scales to `--press-scale` while pressed (`motion-safe:group-active/button:` on `<Button>`, `motion-safe:active:` on a bare `buttonVariants()` element), with the default 150ms transition. A transform does not move layout. Hover changes only color, background, border, opacity and shadow. Buttons and cards must not jump, bounce, scale, or translate on hover. Link buttons do not scale.
+6. **Stagger list rows** with `stagger-children` on the list: each row fades in (opacity only) `--stagger-step` after the previous one, capped at 7 steps. Use it only for a list that appears as one unit, not for every re-render.
+7. **Confirm success once.** Add `animate-success-pulse` to the element that shows the success state: one ring in the primary colour grows and fades (box-shadow only). Do not repeat it.
+8. **Overlap old and new states.** When a state changes in place, the new state comes in while the old one leaves, with no blank frame. Reserve the size of the larger state.
+9. **Swap icons with `icon-swap`.** Put both icons in one `icon-swap` cell and mark the hidden one `data-state="off"`: it shrinks to 0.25, fades and blurs 4px while the other comes in. The cell size never changes.
+10. **Direct manipulation is not tweened.** While the pointer is down on a drag or slider, the element follows the pointer with no transition. Animate only after release. Past a drag limit, give diminishing resistance and return; never a hard stop.
+11. **Shared objects keep their identity.** When a card opens into a detail view, use the View Transitions API (`view-transition-name`) so the same object expands. Do not add an animation library for this.
+12. **Reveal with masks.** Reveal a selection or colour change with `clip-path`, not a crossfade of two text layers.
+
+Do not change padding, borders, font weight, width, or height on interaction. Animate `opacity`, `transform`/`scale`, `filter`, `clip-path`, colors and shadows only.
+
+Rules 10–12 have no current surface in DarkFactory. They apply when a product adds a slider, a drag surface, a card-to-detail view or a segmented control.
 
 Reduced-motion support is CSS safety, not a saved user profile preference:
 

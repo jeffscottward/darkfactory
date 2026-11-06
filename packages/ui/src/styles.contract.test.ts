@@ -28,4 +28,47 @@ describe("CSS theme contract", () => {
     expect(css).not.toMatch(/data-mode|data-palette|\.palette-|--palette-/);
     return expect(css).not.toMatch(/^\s*--background: #/m);
   });
+
+  it("defines the motion tokens and keeps new motion behind the user's motion preference", async () => {
+    const css = await readFile(stylesheetUrl, "utf8");
+
+    for (const token of [
+      "--duration-exit-fast: calc(var(--duration-fast) * 0.8);",
+      "--duration-exit-base: calc(var(--duration-base) * 0.8);",
+      "--duration-exit-slow: calc(var(--duration-slow) * 0.8);",
+      "--ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);",
+      "--stagger-step: 30ms;",
+      "--press-scale: 0.97;",
+    ]) {
+      expect(css).toContain(token);
+    }
+    for (const name of [
+      "fast",
+      "base",
+      "slow",
+      "exit-fast",
+      "exit-base",
+      "exit-slow",
+    ]) {
+      expect(css).toMatch(
+        new RegExp(
+          `@utility duration-${name} \\{\\s*--tw-duration: var\\(--duration-${name}\\);\\s*transition-duration: var\\(--duration-${name}\\);`
+        )
+      );
+    }
+    for (const utility of ["stagger-children", "animate-success-pulse"]) {
+      expect(css).toMatch(
+        new RegExp(
+          `@utility ${utility} \\{\\s*@media \\(prefers-reduced-motion: no-preference\\)`
+        )
+      );
+    }
+    // icon-swap uses transitions, which the global reduced-motion rule cuts to 0.01ms.
+    expect(css).toMatch(
+      /@utility icon-swap \{[^@]*transition-property: opacity, scale, filter;/
+    );
+    return expect(css).toMatch(
+      /@media \(prefers-reduced-motion: reduce\) \{[^}]*animation-duration: 0\.01ms !important;[^}]*transition-duration: 0\.01ms !important;/
+    );
+  });
 });
