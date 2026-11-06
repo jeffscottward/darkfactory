@@ -42,15 +42,33 @@ describe("CSS theme contract", () => {
     ]) {
       expect(css).toContain(token);
     }
-    for (const utility of ["stagger-children", "animate-success-pulse"]) {
+    for (const name of [
+      "fast",
+      "base",
+      "slow",
+      "exit-fast",
+      "exit-base",
+      "exit-slow",
+    ]) {
       expect(css).toMatch(
         new RegExp(
-          `@utility ${utility} \\{\\n {2}@media \\(prefers-reduced-motion: no-preference\\)`
+          `@utility duration-${name} \\{\\s*--tw-duration: var\\(--duration-${name}\\);\\s*transition-duration: var\\(--duration-${name}\\);`
         )
       );
     }
+    for (const utility of ["stagger-children", "animate-success-pulse"]) {
+      expect(css).toMatch(
+        new RegExp(
+          `@utility ${utility} \\{\\s*@media \\(prefers-reduced-motion: no-preference\\)`
+        )
+      );
+    }
+    // icon-swap uses transitions, which the global reduced-motion rule cuts to 0.01ms.
+    expect(css).toMatch(
+      /@utility icon-swap \{[^@]*transition-property: opacity, scale, filter;/
+    );
     return expect(css).toMatch(
-      /@utility duration-exit-base \{\n {2}--tw-duration: var\(--duration-exit-base\);/
+      /@media \(prefers-reduced-motion: reduce\) \{[^}]*animation-duration: 0\.01ms !important;[^}]*transition-duration: 0\.01ms !important;/
     );
   });
 });

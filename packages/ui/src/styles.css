@@ -291,8 +291,9 @@
 }
 
 /*
- * One success pulse: a ring that grows and fades once (box-shadow only, so
- * layout does not move). Add the class when the success state appears.
+ * One success pulse: a ring in the primary colour (as the success message
+ * border) grows and fades once (box-shadow only, so layout does not move).
+ * Add the class when the success state appears.
  */
 @utility animate-success-pulse {
   @media (prefers-reduced-motion: no-preference) {
@@ -329,11 +330,11 @@
 
 @keyframes df-success-pulse {
   from {
-    box-shadow: 0 0 0 0 color-mix(in oklab, var(--success) 45%, transparent);
+    box-shadow: 0 0 0 0 color-mix(in oklab, var(--primary) 45%, transparent);
   }
   to {
     box-shadow: 0 0 0 0.375rem
-      color-mix(in oklab, var(--success) 0%, transparent);
+      color-mix(in oklab, var(--primary) 0%, transparent);
   }
 }
 

@@ -1,8 +1,9 @@
+import { readFile } from "node:fs/promises";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 
 import { Badge } from "./badge.tsx";
-import { Button, buttonVariants } from "./button.tsx";
+import { Button, buttonChromeVariants, buttonVariants } from "./button.tsx";
 import { CardAction } from "./card.tsx";
 import { DropdownMenuShortcut } from "./client/dropdown-menu.ts";
 import { IconButton } from "./icon-button.tsx";
@@ -48,6 +49,34 @@ describe("Button", () => {
     expect(loading).toContain("flex w-full");
     expect(loading).toContain('<span class="sr-only">Saving</span>');
     return expect(loading).toContain('type="submit"');
+  });
+
+  it("scales every pressable variant on press only, and never link buttons", async () => {
+    const variants = [
+      "default",
+      "primary",
+      "destructive",
+      "outline",
+      "secondary",
+      "ghost",
+    ] as const;
+    for (const variant of variants) {
+      expect(buttonVariants({ variant })).toContain(
+        "motion-safe:active:scale-(--press-scale)"
+      );
+      expect(buttonChromeVariants({ variant })).toContain(
+        "motion-safe:group-active/button:scale-(--press-scale)"
+      );
+    }
+    expect(buttonVariants({ variant: "link" })).not.toContain("scale-");
+    expect(buttonChromeVariants({ variant: "link" })).not.toContain("scale-");
+    const source = await readFile(
+      new URL("./button.tsx", import.meta.url),
+      "utf8"
+    );
+    return expect(source).not.toMatch(
+      /hover(?:\/button)?:(?:-?scale|-?translate)/
+    );
   });
 
   it("exposes single-element shadcn classes for links", () => {

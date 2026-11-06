@@ -239,12 +239,12 @@ Utilities: `duration-fast|base|slow` and `duration-exit-fast|base|slow` set both
 #### Motion rules
 
 1. **Entrances and exits use `ease-out`.** Elements that move on screen use `ease-in-out`. Never `linear` for movement.
-2. **Menus and popovers run 150–250ms.** Use `duration-base` in and `data-[state=closed]:duration-exit-base` out. Exits are 20% shorter than entrances.
+2. **Menus and popovers enter in 180ms and leave in 144ms.** Use `duration-base` in and `data-[state=closed]:duration-exit-base` out. Tooltips use `duration-fast` and `duration-exit-fast`; sheets use `duration-slow` and `duration-exit-slow`. Exits are 20% shorter than entrances. Keep a menu entrance between 150 and 250ms.
 3. **Popovers start at scale 0.95 from the trigger** (`zoom-in-95` with `origin-(--radix-…-transform-origin)`) and leave the same way. Never scale from 0 or from the center of the screen. Dialogs are modal and open from the center.
 4. **No bounce.** No spring overshoot and no curve with a value above 1 in everyday UI.
-5. **Press feedback, not hover motion.** The button chrome scales to `--press-scale` while pressed (`motion-safe:group-active/button:`). A transform does not move layout. Hover changes only color, background, border, opacity and shadow. Buttons and cards must not jump, bounce, scale, or translate on hover. Link buttons do not scale.
+5. **Press feedback, not hover motion.** The button chrome scales to `--press-scale` while pressed (`motion-safe:group-active/button:` on `<Button>`, `motion-safe:active:` on a bare `buttonVariants()` element), with the default 150ms transition. A transform does not move layout. Hover changes only color, background, border, opacity and shadow. Buttons and cards must not jump, bounce, scale, or translate on hover. Link buttons do not scale.
 6. **Stagger list rows** with `stagger-children` on the list: each row fades in (opacity only) `--stagger-step` after the previous one, capped at 7 steps. Use it only for a list that appears as one unit, not for every re-render.
-7. **Confirm success once.** Add `animate-success-pulse` to the element that shows the success state: one ring grows and fades (box-shadow only). Do not repeat it.
+7. **Confirm success once.** Add `animate-success-pulse` to the element that shows the success state: one ring in the primary colour grows and fades (box-shadow only). Do not repeat it.
 8. **Overlap old and new states.** When a state changes in place, the new state comes in while the old one leaves, with no blank frame. Reserve the size of the larger state.
 9. **Swap icons with `icon-swap`.** Put both icons in one `icon-swap` cell and mark the hidden one `data-state="off"`: it shrinks to 0.25, fades and blurs 4px while the other comes in. The cell size never changes.
 10. **Direct manipulation is not tweened.** While the pointer is down on a drag or slider, the element follows the pointer with no transition. Animate only after release. Past a drag limit, give diminishing resistance and return; never a hard stop.
