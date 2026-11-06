@@ -28,4 +28,29 @@ describe("CSS theme contract", () => {
     expect(css).not.toMatch(/data-mode|data-palette|\.palette-|--palette-/);
     return expect(css).not.toMatch(/^\s*--background: #/m);
   });
+
+  it("defines the motion tokens and keeps new motion behind the user's motion preference", async () => {
+    const css = await readFile(stylesheetUrl, "utf8");
+
+    for (const token of [
+      "--duration-exit-fast: calc(var(--duration-fast) * 0.8);",
+      "--duration-exit-base: calc(var(--duration-base) * 0.8);",
+      "--duration-exit-slow: calc(var(--duration-slow) * 0.8);",
+      "--ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);",
+      "--stagger-step: 30ms;",
+      "--press-scale: 0.97;",
+    ]) {
+      expect(css).toContain(token);
+    }
+    for (const utility of ["stagger-children", "animate-success-pulse"]) {
+      expect(css).toMatch(
+        new RegExp(
+          `@utility ${utility} \\{\\n {2}@media \\(prefers-reduced-motion: no-preference\\)`
+        )
+      );
+    }
+    return expect(css).toMatch(
+      /@utility duration-exit-base \{\n {2}--tw-duration: var\(--duration-exit-base\);/
+    );
+  });
 });

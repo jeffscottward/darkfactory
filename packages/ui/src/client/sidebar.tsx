@@ -194,11 +194,11 @@ export const Sidebar = ({
     return (
       <DialogPrimitive.Root onOpenChange={setOpenMobile} open={openMobile}>
         <DialogPrimitive.Portal>
-          <DialogPrimitive.Overlay className="data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 fixed inset-0 z-50 bg-black/50 data-[state=closed]:animate-out data-[state=open]:animate-in" />
+          <DialogPrimitive.Overlay className="data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 fixed inset-0 z-50 bg-black/50 duration-slow ease-out data-[state=closed]:animate-out data-[state=open]:animate-in data-[state=closed]:duration-exit-slow" />
           <DialogPrimitive.Content
             aria-describedby={undefined}
             className={cn(
-              "fixed z-50 flex w-(--sidebar-width) flex-col gap-4 bg-sidebar p-0 text-sidebar-foreground shadow-lg transition ease-in-out data-[state=closed]:animate-out data-[state=open]:animate-in data-[state=closed]:duration-300 data-[state=open]:duration-500",
+              "fixed z-50 flex w-(--sidebar-width) flex-col gap-4 bg-sidebar p-0 text-sidebar-foreground shadow-lg transition duration-slow ease-out data-[state=closed]:animate-out data-[state=open]:animate-in data-[state=closed]:duration-exit-slow",
               side === "left"
                 ? "data-[state=closed]:slide-out-to-left data-[state=open]:slide-in-from-left inset-y-0 left-0 h-full border-r"
                 : "data-[state=closed]:slide-out-to-right data-[state=open]:slide-in-from-right inset-y-0 right-0 h-full border-l"
@@ -512,7 +512,7 @@ export const SidebarMenuButton = ({
       <TooltipPrimitive.Portal>
         <TooltipPrimitive.Content
           align="center"
-          className="fade-in-0 zoom-in-95 data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2 data-[state=closed]:fade-out-0 data-[state=closed]:zoom-out-95 z-50 w-fit origin-(--radix-tooltip-content-transform-origin) animate-in text-balance rounded-md bg-foreground px-3 py-1.5 text-background text-xs data-[state=closed]:animate-out"
+          className="fade-in-0 zoom-in-95 data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2 data-[state=closed]:fade-out-0 data-[state=closed]:zoom-out-95 z-50 w-fit origin-(--radix-tooltip-content-transform-origin) animate-in text-balance rounded-md bg-foreground px-3 py-1.5 text-background text-xs duration-fast ease-out data-[state=closed]:animate-out data-[state=closed]:duration-exit-fast"
           hidden={state !== "collapsed" || isMobile}
           side="right"
           sideOffset={0}
