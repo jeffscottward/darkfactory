@@ -11,11 +11,12 @@ import {
 import { useForm } from "@tanstack/react-form";
 import { KeyRound, RotateCcw } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
-import { InlineNotice } from "../inline-notice.tsx";
+
 import {
   type AccountFeedback,
   AccountFeedbackMessage,
 } from "./account-feedback.tsx";
+import { InlineNotice } from "../inline-notice.tsx";
 import type {
   ChangePasswordInput,
   SafeSession,
@@ -218,9 +219,9 @@ export interface PasswordFormProps {
 export const PasswordForm = ({ feedback, onSave }: PasswordFormProps) => {
   const form = useForm({
     defaultValues: {
-      confirmPassword: "",
       currentPassword: "",
       newPassword: "",
+      confirmPassword: "",
       revokeOtherSessions: true,
     },
     onSubmit: async ({ value }) => {
@@ -249,9 +250,9 @@ export const PasswordForm = ({ feedback, onSave }: PasswordFormProps) => {
     >
       <AccountFeedbackMessage feedback={feedback} />
       {[
-        { label: "Current password", name: "currentPassword" },
-        { label: "New password", name: "newPassword" },
-        { label: "Confirm new password", name: "confirmPassword" },
+        { name: "currentPassword", label: "Current password" },
+        { name: "newPassword", label: "New password" },
+        { name: "confirmPassword", label: "Confirm new password" },
       ].map((definition) => (
         <form.Field
           key={definition.name}

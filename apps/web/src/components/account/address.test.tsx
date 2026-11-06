@@ -8,16 +8,16 @@ import { changedAddressUpdateInput } from "./address-form.tsx";
 import { addressMutationMessage } from "./address-page-client.tsx";
 
 const address = {
-  city: "Example City",
-  country: "US",
-  createdAt: new Date("2026-01-01T00:00:00.000Z"),
   id: "address-1",
-  isPrimary: true,
+  type: "work" as const,
   line1: "100 Example Avenue",
   line2: "Suite 200",
-  postalCode: "20001",
+  city: "Example City",
   region: "DC",
-  type: "work" as const,
+  postalCode: "20001",
+  country: "US",
+  isPrimary: true,
+  createdAt: new Date("2026-01-01T00:00:00.000Z"),
   updatedAt: new Date("2026-01-02T00:00:00.000Z"),
 };
 
@@ -93,16 +93,16 @@ const activate = (control: ElementRecord): void => {
 describe("typed address gateway", () => {
   it("uses create, update, primary, and confirmed remove procedures", async () => {
     const addresses = {
-      create: vi.fn(async () => address),
       list: vi.fn(async () => [address]),
-      remove: vi.fn(async () => ({ removed: true as const })),
-      setPrimary: vi.fn(async () => address),
+      create: vi.fn(async () => address),
       update: vi.fn(async () => ({ ...address, city: "Changed City" })),
+      setPrimary: vi.fn(async () => address),
+      remove: vi.fn(async () => ({ removed: true as const })),
     };
     const gateway = createAccountGateway({
       account: {
-        addresses,
         profile: { get: vi.fn(), update: vi.fn() },
+        addresses,
       },
       preferences: { get: vi.fn(), update: vi.fn() },
     } as never);
@@ -110,21 +110,21 @@ describe("typed address gateway", () => {
     await expect(gateway.listAddresses()).resolves.toHaveLength(1);
     await expect(
       gateway.createAddress({
-        city: address.city,
-        country: address.country,
-        isPrimary: true,
+        type: "work",
         line1: address.line1,
         line2: address.line2,
-        postalCode: address.postalCode,
+        city: address.city,
         region: address.region,
-        type: "work",
+        postalCode: address.postalCode,
+        country: address.country,
+        isPrimary: true,
       })
     ).resolves.toMatchObject({ id: "address-1" });
     await expect(
       gateway.updateAddress({
-        city: "Changed City",
-        expectedUpdatedAt: address.updatedAt,
         id: address.id,
+        expectedUpdatedAt: address.updatedAt,
+        city: "Changed City",
       })
     ).resolves.toMatchObject({ city: "Changed City" });
     await expect(
@@ -134,33 +134,33 @@ describe("typed address gateway", () => {
       gateway.removeAddress(address.id, address.updatedAt)
     ).resolves.toEqual({ removed: true });
     expect(addresses.setPrimary).toHaveBeenCalledWith({
-      expectedUpdatedAt: address.updatedAt,
       id: address.id,
+      expectedUpdatedAt: address.updatedAt,
     });
     return expect(addresses.remove).toHaveBeenCalledWith({
-      expectedUpdatedAt: address.updatedAt,
       id: address.id,
+      expectedUpdatedAt: address.updatedAt,
     });
   });
 
   it("distinguishes create and update confirmations", () => {
     expect(
       addressMutationMessage({
-        city: address.city,
-        country: address.country,
-        isPrimary: true,
+        type: address.type,
         line1: address.line1,
         line2: address.line2,
-        postalCode: address.postalCode,
+        city: address.city,
         region: address.region,
-        type: address.type,
+        postalCode: address.postalCode,
+        country: address.country,
+        isPrimary: true,
       })
     ).toBe("Address created.");
     return expect(
       addressMutationMessage({
-        city: "Changed City",
-        expectedUpdatedAt: address.updatedAt,
         id: address.id,
+        expectedUpdatedAt: address.updatedAt,
+        city: "Changed City",
       })
     ).toBe("Address updated.");
   });
@@ -168,44 +168,44 @@ describe("typed address gateway", () => {
     expect(
       changedAddressUpdateInput(address, { ...address, city: "Changed City" })
     ).toEqual({
-      city: "Changed City",
-      expectedUpdatedAt: address.updatedAt,
       id: address.id,
+      expectedUpdatedAt: address.updatedAt,
+      city: "Changed City",
     }));
 
   return it("normalizes every editable field while preserving identity, version, and primary status", () => {
     expect(changedAddressUpdateInput(address, address)).toEqual({
-      expectedUpdatedAt: address.updatedAt,
       id: address.id,
+      expectedUpdatedAt: address.updatedAt,
     });
     expect(
       changedAddressUpdateInput(address, {
         ...address,
-        city: "  Changed City  ",
-        country: "  CA  ",
-        isPrimary: false,
+        type: "home",
         line1: "  200 Changed Road  ",
         line2: "   ",
-        postalCode: "  22030  ",
+        city: "  Changed City  ",
         region: "  VA  ",
-        type: "home",
+        postalCode: "  22030  ",
+        country: "  CA  ",
+        isPrimary: false,
       })
     ).toEqual({
-      city: "Changed City",
-      country: "CA",
-      expectedUpdatedAt: address.updatedAt,
       id: address.id,
+      expectedUpdatedAt: address.updatedAt,
+      type: "home",
       line1: "200 Changed Road",
       line2: null,
-      postalCode: "22030",
+      city: "Changed City",
       region: "VA",
-      type: "home",
+      postalCode: "22030",
+      country: "CA",
     });
     return expect(
       changedAddressUpdateInput(address, { ...address, line2: null })
     ).toEqual({
-      expectedUpdatedAt: address.updatedAt,
       id: address.id,
+      expectedUpdatedAt: address.updatedAt,
       line2: null,
     });
   });
@@ -222,7 +222,7 @@ describe("address book states and actions", () => {
 
   it("renders an instructive create path when no address exists", () => {
     const html = renderToStaticMarkup(
-      <AddressBook state={{ addresses: [], type: "ready" }} />
+      <AddressBook state={{ type: "ready", addresses: [] }} />
     );
     expect(html).toContain("No addresses saved");
     return expect(html).toContain("Add an address");
@@ -230,7 +230,7 @@ describe("address book states and actions", () => {
 
   it("renders persisted address fields and accessible edit/primary/remove actions", () => {
     const html = renderToStaticMarkup(
-      <AddressBook state={{ addresses: [address], type: "ready" }} />
+      <AddressBook state={{ type: "ready", addresses: [address] }} />
     );
     expect(html).toContain("100 Example Avenue");
     expect(html).toContain("Suite 200");
@@ -244,7 +244,7 @@ describe("address book states and actions", () => {
     const html = renderToStaticMarkup(
       <AddressBook
         confirmingRemoveId="address-1"
-        state={{ addresses: [address], type: "ready" }}
+        state={{ type: "ready", addresses: [address] }}
       />
     );
     expect(html).toContain("Remove this address?");
@@ -256,18 +256,18 @@ describe("address book states and actions", () => {
     const failed = renderToStaticMarkup(
       <AddressBook
         feedback={{
-          message: "Addresses are temporarily unavailable.",
           tone: "error",
+          message: "Addresses are temporarily unavailable.",
         }}
-        state={{ addresses: [address], type: "ready" }}
+        state={{ type: "ready", addresses: [address] }}
       />
     );
     expect(failed).toContain("Addresses are temporarily unavailable");
     expect(failed).toContain("100 Example Avenue");
     const success = renderToStaticMarkup(
       <AddressBook
-        feedback={{ message: "Primary address updated.", tone: "success" }}
-        state={{ addresses: [address], type: "ready" }}
+        feedback={{ tone: "success", message: "Primary address updated." }}
+        state={{ type: "ready", addresses: [address] }}
       />
     );
     return expect(success).toContain("Primary address updated");
@@ -288,7 +288,7 @@ describe("address book states and actions", () => {
     (kind, recovery, label) => {
       const html = renderToStaticMarkup(
         <AddressBook
-          state={{ kind, message: "Addresses are unavailable.", type: "error" }}
+          state={{ type: "error", kind, message: "Addresses are unavailable." }}
         />
       );
       expect(html).toContain('role="alert"');
@@ -302,14 +302,14 @@ describe("address book states and actions", () => {
     const secondary = {
       ...address,
       id: "address-2",
-      isPrimary: false,
-      line2: null,
       type: "home" as const,
+      line2: null,
+      isPrimary: false,
     };
     const onCreate = vi.fn();
     const emptyTree = AddressBook({
       onCreate,
-      state: { addresses: [], type: "ready" },
+      state: { type: "ready", addresses: [] },
     }) as ReactElement;
     activate(controlByText(emptyTree, "Add an address"));
     expect(onCreate).toHaveBeenCalledOnce();
@@ -318,9 +318,9 @@ describe("address book states and actions", () => {
     const errorTree = AddressBook({
       onRetry,
       state: {
+        type: "error",
         kind: "retryable",
         message: "Try loading again.",
-        type: "error",
       },
     }) as ReactElement;
     activate(controlByText(errorTree, "Try again"));
@@ -333,7 +333,7 @@ describe("address book states and actions", () => {
       onEdit,
       onRequestRemove,
       onSetPrimary,
-      state: { addresses: [address, secondary], type: "ready" },
+      state: { type: "ready", addresses: [address, secondary] },
     }) as ReactElement;
     activate(controlByLabel(readyTree, "Edit home address"));
     activate(controlByLabel(readyTree, "Make home address primary"));
@@ -348,7 +348,7 @@ describe("address book states and actions", () => {
       confirmingRemoveId: secondary.id,
       onCancelRemove,
       onConfirmRemove,
-      state: { addresses: [address, secondary], type: "ready" },
+      state: { type: "ready", addresses: [address, secondary] },
     }) as ReactElement;
     activate(
       controlByLabel(confirmationTree, "Confirm removal of home address")
@@ -362,13 +362,13 @@ describe("address book states and actions", () => {
     const secondary = {
       ...address,
       id: "address-2",
-      isPrimary: false,
-      line2: null,
       type: "home" as const,
+      line2: null,
+      isPrimary: false,
     };
     const tree = AddressBook({
       busyId: secondary.id,
-      state: { addresses: [address, secondary], type: "ready" },
+      state: { type: "ready", addresses: [address, secondary] },
     }) as ReactElement;
     expect(controlByLabel(tree, "Edit work address").props["disabled"]).toBe(
       true

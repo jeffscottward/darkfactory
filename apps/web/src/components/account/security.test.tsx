@@ -12,23 +12,19 @@ import {
 import { PasswordForm, SecurityPanel } from "./security-panel.tsx";
 
 const session = {
-  createdAt: new Date("2026-01-01T00:00:00.000Z"),
-  expiresAt: new Date("2026-02-01T00:00:00.000Z"),
   id: "session-current",
+  createdAt: new Date("2026-01-01T00:00:00.000Z"),
+  updatedAt: new Date("2026-01-02T00:00:00.000Z"),
+  expiresAt: new Date("2026-02-01T00:00:00.000Z"),
+  userAgent: "Example Browser on Example OS",
   ipAddress: "192.0.2.1",
   token: "never-render-this-session-token",
-  updatedAt: new Date("2026-01-02T00:00:00.000Z"),
-  userAgent: "Example Browser on Example OS",
   userId: "user-1",
 };
 
 describe("supported Better Auth security gateway", () => {
   it("uses typed session, revoke-other, and change-password methods", async () => {
     const auth = {
-      changePassword: vi.fn(async () => ({
-        data: { token: null },
-        error: null,
-      })),
       getSession: vi.fn(async () => ({
         data: { session, user: {} },
         error: null,
@@ -36,6 +32,10 @@ describe("supported Better Auth security gateway", () => {
       listSessions: vi.fn(async () => ({ data: [session], error: null })),
       revokeOtherSessions: vi.fn(async () => ({
         data: { status: true },
+        error: null,
+      })),
+      changePassword: vi.fn(async () => ({
+        data: { token: null },
         error: null,
       })),
     };
@@ -127,14 +127,14 @@ describe("supported Better Auth security gateway", () => {
         null,
         "not-a-session",
         { ...session, id: "" },
-        { ...session, createdAt: "not-a-date", id: "bad-created" },
+        { ...session, id: "bad-created", createdAt: "not-a-date" },
         { ...session, id: "bad-updated", updatedAt: Number.NaN },
-        { ...session, expiresAt: {}, id: "bad-expiry" },
+        { ...session, id: "bad-expiry", expiresAt: {} },
         {
-          createdAt: "2026-01-01T00:00:00.000Z",
-          expiresAt: "2026-02-01T00:00:00.000Z",
           id: "session-other",
+          createdAt: "2026-01-01T00:00:00.000Z",
           updatedAt: 1_767_312_000_000,
+          expiresAt: "2026-02-01T00:00:00.000Z",
           userAgent: "   ",
         },
       ],
@@ -153,13 +153,13 @@ describe("supported Better Auth security gateway", () => {
 
   it("tolerates missing session data but rejects every Better Auth operation failure", async () => {
     const emptyGateway = createSecurityGateway({
-      changePassword: vi.fn(async () => ({ data: null, error: null })),
       getSession: vi.fn(async () => ({ data: null, error: null })),
       listSessions: vi.fn(async () => ({
         data: { unexpected: true },
         error: null,
       })),
       revokeOtherSessions: vi.fn(async () => ({ data: null, error: null })),
+      changePassword: vi.fn(async () => ({ data: null, error: null })),
     } as never);
     await expect(emptyGateway.listSessions()).resolves.toEqual({
       currentSessionId: null,
@@ -230,8 +230,8 @@ describe("security page states and actions", () => {
     const html = renderToStaticMarkup(
       <SecurityPanel
         state={{
-          sessions: toSafeSessions([session], "session-current"),
           type: "ready",
+          sessions: toSafeSessions([session], "session-current"),
         }}
       />
     );
@@ -248,14 +248,14 @@ describe("security page states and actions", () => {
     [{ type: "loading" } as const, "Loading sessions"],
     [
       {
+        type: "error",
         kind: "retryable",
         message: "Sessions could not be loaded.",
-        type: "error",
       } as const,
       "Sessions could not be loaded",
     ],
     [
-      { sessions: [], type: "ready" } as const,
+      { type: "ready", sessions: [] } as const,
       "No active sessions were returned",
     ],
   ])("renders supported %s state", (state, expected) =>
@@ -278,9 +278,9 @@ describe("security page states and actions", () => {
       const html = renderToStaticMarkup(
         <SecurityPanel
           state={{
+            type: "error",
             kind,
             message: "Security details are unavailable.",
-            type: "error",
           }}
         />
       );
@@ -295,13 +295,13 @@ describe("security page states and actions", () => {
     const html = renderToStaticMarkup(
       <SecurityPanel
         state={{
+          type: "ready",
           sessions: [
             {
               ...toSafeSessions([session], "session-current")[0]!,
               userAgent: null,
             },
           ],
-          type: "ready",
         }}
       />
     );

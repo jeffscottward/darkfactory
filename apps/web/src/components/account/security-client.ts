@@ -3,12 +3,12 @@
 import { authClient } from "@darkfactory/auth/client";
 
 export interface SafeSession {
-  readonly createdAt: Date;
-  readonly expiresAt: Date;
   readonly id: string;
-  readonly isCurrent: boolean;
+  readonly createdAt: Date;
   readonly updatedAt: Date;
+  readonly expiresAt: Date;
   readonly userAgent: string | null;
+  readonly isCurrent: boolean;
 }
 
 export interface SecuritySessions {
@@ -23,9 +23,9 @@ export interface ChangePasswordInput {
 }
 
 export interface SecurityGateway {
-  readonly changePassword: (input: ChangePasswordInput) => Promise<void>;
   readonly listSessions: () => Promise<SecuritySessions>;
   readonly revokeOtherSessions: () => Promise<void>;
+  readonly changePassword: (input: ChangePasswordInput) => Promise<void>;
 }
 
 type SecurityAuthClient = Pick<
@@ -73,16 +73,16 @@ export const toSafeSessions = (
       return [];
     return [
       {
-        createdAt,
-        expiresAt,
         id,
-        isCurrent: currentSessionId === id,
+        createdAt,
         updatedAt,
+        expiresAt,
         userAgent:
           typeof record["userAgent"] === "string" &&
           record["userAgent"].trim().length > 0
             ? record["userAgent"]
             : null,
+        isCurrent: currentSessionId === id,
       },
     ];
   });
@@ -99,10 +99,6 @@ const ensureAuthSuccess = (result: unknown): void => {
 export const createSecurityGateway = (
   client: SecurityAuthClient
 ): SecurityGateway => ({
-  changePassword: async (input) => {
-    const result = await client.changePassword(input);
-    return ensureAuthSuccess(result);
-  },
   listSessions: async () => {
     const [currentResult, sessionsResult] = await Promise.all([
       client.getSession({ query: { disableCookieCache: true } }),
@@ -121,6 +117,10 @@ export const createSecurityGateway = (
   },
   revokeOtherSessions: async () => {
     const result = await client.revokeOtherSessions();
+    return ensureAuthSuccess(result);
+  },
+  changePassword: async (input) => {
+    const result = await client.changePassword(input);
     return ensureAuthSuccess(result);
   },
 });

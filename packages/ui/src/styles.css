@@ -205,19 +205,19 @@
  */
 @utility touch-target {
   position: relative;
-  min-width: var(--target-min);
-  min-height: var(--target-min);
-  background-clip: content-box;
   isolation: isolate;
+  min-height: var(--target-min);
+  min-width: var(--target-min);
+  background-clip: content-box;
   &::before {
+    content: "";
     position: absolute;
+    z-index: -1;
     inset-inline: 0;
     top: 50%;
-    z-index: -1;
     height: var(--chrome-h, 100%);
-    pointer-events: none;
-    content: "";
     transform: translateY(-50%);
+    pointer-events: none;
   }
 }
 
@@ -311,14 +311,14 @@
   place-items: center;
   & > * {
     grid-area: 1 / 1;
-    transition-timing-function: var(--ease-out);
-    transition-duration: var(--duration-base);
     transition-property: opacity, scale, filter;
+    transition-duration: var(--duration-base);
+    transition-timing-function: var(--ease-out);
   }
   & > [data-state="off"] {
     opacity: 0;
-    filter: blur(4px);
     scale: 0.25;
+    filter: blur(4px);
   }
 }
 
@@ -363,10 +363,9 @@
 
   body {
     /* text-base: 16px at Font size Default (shadcn); Small and Large scale it. */
+    @apply bg-background text-foreground font-sans text-base antialiased;
     min-height: 100dvh;
     margin: 0;
-    /* text-base: 16px at Font size Default (shadcn); Small and Large scale it. */
-    @apply bg-background text-foreground font-sans text-base antialiased;
   }
 
   h1,
@@ -398,8 +397,8 @@
   .df-container-portal,
   .df-reading {
     width: 100%;
-    padding-inline: var(--gutter-mobile);
     margin-inline: auto;
+    padding-inline: var(--gutter-mobile);
   }
 
   .df-container {
@@ -421,12 +420,12 @@
     z-index: 100;
     min-height: 2.75rem;
     padding: calc(var(--spacing) * 3) calc(var(--spacing) * 4);
-    font-size: var(--text-sm);
-    font-weight: 500;
-    color: var(--primary-foreground);
-    background: var(--primary);
-    border-radius: var(--radius-md);
     transform: translateY(calc(-100% - var(--spacing) * 4));
+    border-radius: var(--radius-md);
+    background: var(--primary);
+    color: var(--primary-foreground);
+    font-weight: 500;
+    font-size: var(--text-sm);
     transition: transform var(--duration-base) var(--ease-out);
   }
 

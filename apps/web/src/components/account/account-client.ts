@@ -14,10 +14,13 @@ import {
 } from "@darkfactory/api";
 
 export interface AccountGateway {
-  readonly createAddress: (input: AddressCreateInput) => Promise<AddressOutput>;
-  readonly getPreferences: () => Promise<PreferencesOutput>;
   readonly getProfile: () => Promise<AccountProfileOutput>;
+  readonly updateProfile: (
+    input: ProfileUpdateInput
+  ) => Promise<AccountProfileOutput>;
   readonly listAddresses: () => Promise<AddressOutput[]>;
+  readonly createAddress: (input: AddressCreateInput) => Promise<AddressOutput>;
+  readonly updateAddress: (input: AddressUpdateInput) => Promise<AddressOutput>;
   readonly removeAddress: (
     id: string,
     expectedUpdatedAt: Date
@@ -26,27 +29,24 @@ export interface AccountGateway {
     id: string,
     expectedUpdatedAt: Date
   ) => Promise<AddressOutput>;
-  readonly updateAddress: (input: AddressUpdateInput) => Promise<AddressOutput>;
+  readonly getPreferences: () => Promise<PreferencesOutput>;
   readonly updatePreferences: (
     input: PreferencesUpdateInput
   ) => Promise<PreferencesOutput>;
-  readonly updateProfile: (
-    input: ProfileUpdateInput
-  ) => Promise<AccountProfileOutput>;
 }
 
 export const createAccountGateway = (client: ApiClient): AccountGateway => ({
-  createAddress: (input) => client.account.addresses.create(input),
-  getPreferences: () => client.preferences.get({}),
   getProfile: () => client.account.profile.get({}),
-  listAddresses: () => client.account.addresses.list({}),
-  removeAddress: (id, expectedUpdatedAt) =>
-    client.account.addresses.remove({ expectedUpdatedAt, id }),
-  setPrimaryAddress: (id, expectedUpdatedAt) =>
-    client.account.addresses.setPrimary({ expectedUpdatedAt, id }),
-  updateAddress: (input) => client.account.addresses.update(input),
-  updatePreferences: (input) => client.preferences.update(input),
   updateProfile: (input) => client.account.profile.update(input),
+  listAddresses: () => client.account.addresses.list({}),
+  createAddress: (input) => client.account.addresses.create(input),
+  updateAddress: (input) => client.account.addresses.update(input),
+  removeAddress: (id, expectedUpdatedAt) =>
+    client.account.addresses.remove({ id, expectedUpdatedAt }),
+  setPrimaryAddress: (id, expectedUpdatedAt) =>
+    client.account.addresses.setPrimary({ id, expectedUpdatedAt }),
+  getPreferences: () => client.preferences.get({}),
+  updatePreferences: (input) => client.preferences.update(input),
 });
 
 type BrowserAccountGatewayOptions = Readonly<{
@@ -70,17 +70,17 @@ export const createBrowserAccountGateway = (
   };
 
   return {
-    createAddress: (input) => getGateway().createAddress(input),
-    getPreferences: () => getGateway().getPreferences(),
     getProfile: () => getGateway().getProfile(),
+    updateProfile: (input) => getGateway().updateProfile(input),
     listAddresses: () => getGateway().listAddresses(),
+    createAddress: (input) => getGateway().createAddress(input),
+    updateAddress: (input) => getGateway().updateAddress(input),
     removeAddress: (id, expectedUpdatedAt) =>
       getGateway().removeAddress(id, expectedUpdatedAt),
     setPrimaryAddress: (id, expectedUpdatedAt) =>
       getGateway().setPrimaryAddress(id, expectedUpdatedAt),
-    updateAddress: (input) => getGateway().updateAddress(input),
+    getPreferences: () => getGateway().getPreferences(),
     updatePreferences: (input) => getGateway().updatePreferences(input),
-    updateProfile: (input) => getGateway().updateProfile(input),
   };
 };
 
@@ -99,15 +99,15 @@ export const isAmbiguousAccountFailure = (error: unknown): boolean => {
 };
 
 export interface LatestRequestGuard {
-  readonly isLatest: (generation: number) => boolean;
   readonly next: () => number;
+  readonly isLatest: (generation: number) => boolean;
 }
 
 export const createLatestRequestGuard = (): LatestRequestGuard => {
   let generation = 0;
   return {
-    isLatest: (candidate) => candidate === generation,
     next: () => ++generation,
+    isLatest: (candidate) => candidate === generation,
   };
 };
 

@@ -31,12 +31,12 @@ export const SecurityPageClient = () => {
     setState({ type: "loading" });
     try {
       const result = await gateway.listSessions();
-      return setState({ sessions: result.sessions, type: "ready" });
+      return setState({ type: "ready", sessions: result.sessions });
     } catch (error) {
       return setState({
+        type: "error",
         kind: securityFailureKind(error),
         message: safeSecurityFeedback(error),
-        type: "error",
       });
     }
   }, [gateway]);
@@ -52,23 +52,23 @@ export const SecurityPageClient = () => {
     try {
       await gateway.revokeOtherSessions();
       setSessionFeedback({
-        message: "Other sessions signed out.",
         tone: "success",
+        message: "Other sessions signed out.",
       });
       try {
         const result = await gateway.listSessions();
-        setState({ sessions: result.sessions, type: "ready" });
+        setState({ type: "ready", sessions: result.sessions });
       } catch {
         setSessionFeedback({
+          tone: "info",
           message:
             "Other sessions were signed out, but the session list could not be refreshed.",
-          tone: "info",
         });
       }
     } catch (error) {
       setSessionFeedback({
-        message: safeSecurityFeedback(error),
         tone: "error",
+        message: safeSecurityFeedback(error),
       });
     } finally {
       setIsRevoking(false);
@@ -80,21 +80,21 @@ export const SecurityPageClient = () => {
     try {
       await gateway.changePassword(input);
       setPasswordVersion((version) => version + 1);
-      setPasswordFeedback({ message: "Password changed.", tone: "success" });
+      setPasswordFeedback({ tone: "success", message: "Password changed." });
       try {
         const result = await gateway.listSessions();
-        setState({ sessions: result.sessions, type: "ready" });
+        setState({ type: "ready", sessions: result.sessions });
       } catch {
         setSessionFeedback({
+          tone: "info",
           message:
             "Password changed, but the session list could not be refreshed.",
-          tone: "info",
         });
       }
     } catch (error) {
       setPasswordFeedback({
-        message: safeSecurityFeedback(error),
         tone: "error",
+        message: safeSecurityFeedback(error),
       });
     }
   };

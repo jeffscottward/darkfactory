@@ -58,7 +58,7 @@ export const AddressPageClient = () => {
   const focusOrigin = useRef<HTMLElement | null>(null);
 
   const commitAddresses = useCallback((addresses: readonly AddressOutput[]) => {
-    setState({ addresses, type: "ready" });
+    setState({ type: "ready", addresses });
     return setFormTarget((current) => {
       if (current === null || current === "new") return current;
       return addresses.find((address) => address.id === current.id) ?? current;
@@ -75,9 +75,9 @@ export const AddressPageClient = () => {
       } catch {
         if (requests.isLatest(request) && warnOnFailure) {
           setFeedback({
+            tone: "info",
             message:
               "The change was saved, but the address list could not be refreshed.",
-            tone: "info",
           });
         }
         return false;
@@ -97,9 +97,9 @@ export const AddressPageClient = () => {
     } catch (error) {
       if (requests.isLatest(request)) {
         return setState({
+          type: "error",
           kind: accountFailureKind(error),
           message: safeAccountFeedback(error),
-          type: "error",
         });
       }
       return;
@@ -123,15 +123,15 @@ export const AddressPageClient = () => {
           ? await gateway.updateAddress(input)
           : await gateway.createAddress(input);
       setState((current) => ({
+        type: "ready",
         addresses: upsertAddress(
           (current as ReadyAddressBookState).addresses,
           result
         ),
-        type: "ready",
       }));
       setFormTarget(null);
       setFormVersion((version) => version + 1);
-      setFeedback({ message: addressMutationMessage(input), tone: "success" });
+      setFeedback({ tone: "success", message: addressMutationMessage(input) });
       void refresh(true);
     } catch (error) {
       if (!("id" in input) && isAmbiguousAccountFailure(error)) {
@@ -140,27 +140,27 @@ export const AddressPageClient = () => {
         const refreshed = await refresh(false);
         if (refreshed) {
           setFeedback({
+            tone: "info",
             message:
               "The address creation outcome could not be confirmed. Review the refreshed list before creating another.",
-            tone: "info",
           });
         } else {
           setState({
+            type: "error",
             kind: "retryable",
             message:
               "The address creation outcome is unknown. Reload the address list before creating another.",
-            type: "error",
           });
         }
       } else if (accountFailureKind(error) === "conflict") {
         await refresh(false);
         setFormFeedback({
+          tone: "error",
           message:
             "This address changed elsewhere. Your entries are preserved; review them and save again.",
-          tone: "error",
         });
       } else {
-        setFormFeedback({ message: safeAccountFeedback(error), tone: "error" });
+        setFormFeedback({ tone: "error", message: safeAccountFeedback(error) });
       }
     } finally {
       mutationLock.current = false;
@@ -179,16 +179,16 @@ export const AddressPageClient = () => {
         address.updatedAt
       );
       setState((current) => ({
+        type: "ready",
         addresses: (current as ReadyAddressBookState).addresses.map(
           (entry) => ({ ...entry, isPrimary: entry.id === result.id })
         ),
-        type: "ready",
       }));
-      setFeedback({ message: "Primary address updated.", tone: "success" });
+      setFeedback({ tone: "success", message: "Primary address updated." });
       void refresh(true);
     } catch (error) {
       if (accountFailureKind(error) === "conflict") await refresh(false);
-      setFeedback({ message: safeAccountFeedback(error), tone: "error" });
+      setFeedback({ tone: "error", message: safeAccountFeedback(error) });
     } finally {
       mutationLock.current = false;
       setBusyId(null);
@@ -203,13 +203,13 @@ export const AddressPageClient = () => {
     try {
       await gateway.removeAddress(address.id, address.updatedAt);
       setState((current) => ({
+        type: "ready",
         addresses: (current as ReadyAddressBookState).addresses.filter(
           (entry) => entry.id !== address.id
         ),
-        type: "ready",
       }));
       setConfirmingRemoveId(null);
-      setFeedback({ message: "Address removed.", tone: "success" });
+      setFeedback({ tone: "success", message: "Address removed." });
       window.setTimeout(
         () => document.getElementById("add-address")?.focus(),
         0
@@ -217,7 +217,7 @@ export const AddressPageClient = () => {
       void refresh(true);
     } catch (error) {
       if (accountFailureKind(error) === "conflict") await refresh(false);
-      setFeedback({ message: safeAccountFeedback(error), tone: "error" });
+      setFeedback({ tone: "error", message: safeAccountFeedback(error) });
     } finally {
       mutationLock.current = false;
       setBusyId(null);
