@@ -258,8 +258,8 @@
 
 /*
  * List rows fade in one after another, --stagger-step apart (opacity only, so
- * nothing moves). Rows after the eighth share the eighth delay. Without a
- * motion preference the rows render at once.
+ * nothing moves). Rows after the eighth share the eighth delay. When the user
+ * asks for reduced motion, all rows render at once without animation.
  */
 @utility stagger-children {
   @media (prefers-reduced-motion: no-preference) {
