@@ -23,7 +23,15 @@ import { homedir, tmpdir } from "node:os";
 import { basename, dirname, join } from "node:path";
 import { PassThrough } from "node:stream";
 import { MAX_WORKFLOW_SCOPE_PATHS } from "../workflow/index.ts";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  afterAll,
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vitest";
 
 type WPFilesystemDelegate = (
   actual: (...arguments_: any[]) => any,
@@ -62,6 +70,22 @@ const mocks = vi.hoisted(() => ({
   // Replaces model-relay.ts#openOmpModelRelay when set.
   openModelRelay: undefined as WPFilesystemDelegate | undefined,
 }));
+
+// One private temporary directory per test run. Tests below remove and chmod
+// the OMP worktree root; other runs of this file on the same host (parallel
+// worktrees, CI-mode loops) must never share that root.
+const runTemporaryDirectory = vi.hoisted(() => {
+  const { mkdtempSync, realpathSync } = process.getBuiltinModule("node:fs");
+  const { tmpdir: hostTemporaryDirectory } =
+    process.getBuiltinModule("node:os");
+  const { join: joinPath } = process.getBuiltinModule("node:path");
+  return {
+    path: realpathSync(
+      mkdtempSync(joinPath(hostTemporaryDirectory(), "df-omp-run-"))
+    ),
+    previous: process.env["TMPDIR"],
+  };
+});
 
 vi.mock("node:child_process", () => ({
   execFile: mocks.execFile,
@@ -729,6 +753,9 @@ afterEach(async () => {
     delete process.env["PATH"];
   } else process.env["PATH"] = originalProcessPath;
   return await removeOwnedTestArtifacts();
+});
+afterAll(async () => {
+  return await rm(runTemporaryDirectory.path, { recursive: true, force: true });
 });
 const requestFor = (
   overrides: Partial<OmpExecutionRequest> = {}
@@ -4430,6 +4457,16 @@ describe("OMP CLI adapter", () => {
     ).resolves.toBeUndefined();
     await mkdir(worktreesRoot, { mode: 0o700 });
     return await chmod(worktreesRoot, 0o700);
+  });
+  it("keeps the OMP worktree root private to this test run", async () => {
+    const prepared = await prepareVerificationWorkspace(
+      createOmpCliAdapter({ repositoriesRoot }),
+      "private-worktree-root"
+    );
+    await prepared.implementation.lifecycle!.finalize("unpersisted");
+    expect(dirname(prepared.workspaceDirectory)).toBe(
+      join(runTemporaryDirectory.path, "darkfactory-omp-worktrees")
+    );
   });
   it("covers Docker inspection rejection, abort, cleanup cid, and process-group races", async () => {
     const inspectIdentity = `${VERIFIER_IMAGE_DIGEST}|${OMP_VERIFIER_CONFIG_DIGEST}|${OMP_VERIFIER_ARGV_IDENTITY}`;
