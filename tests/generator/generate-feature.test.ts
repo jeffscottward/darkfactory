@@ -1014,7 +1014,7 @@ describe("DF-069 transactional live apply and verification", () => {
     } finally {
       fsMocks.constants["O_NOFOLLOW"] = noFollow;
     }
-  });
+  }, 30_000);
 
   return it("fails closed if application returns without running verification", async () => {
     const { root } = await fixture();

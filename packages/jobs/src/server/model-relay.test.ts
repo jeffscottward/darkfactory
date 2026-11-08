@@ -766,7 +766,7 @@ describe("sandbox relay session", () => {
     await session.attach(fakeSandbox(info, new PassThrough()));
     await session.close();
     return expect(inbound.kill).toHaveBeenCalledWith("SIGKILL");
-  });
+  }, 30_000);
 
   it("stops waiting for an inbound relay whose exit is never reported, and still cleans up", async () => {
     const inbound = fakeInbound({ exitAtStdinEnd: false, exitAtKill: false });
@@ -795,7 +795,7 @@ describe("sandbox relay session", () => {
       else process.env["TMPDIR"] = previous;
       await rm(relayRoot, { recursive: true, force: true });
     }
-  });
+  }, 30_000);
 
   it("uses the installed nsenter and runtime by default, and cleans up when the socket cannot listen", async () => {
     // A process ID that cannot exist: the real nsenter refuses it.

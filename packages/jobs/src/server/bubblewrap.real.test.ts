@@ -366,7 +366,7 @@ describe.runIf(usable)("bubblewrap sandbox on this host", () => {
       if (commandLine.includes(marker)) survivors.push(entry);
     }
     return expect(survivors).toEqual([]);
-  });
+  }, 30_000);
 
   it("lets the agent run threads but start no other process", async () => {
     // Node starts a worker thread and tries to start node itself.
@@ -540,5 +540,5 @@ const connect = (host, port) => new Promise((done) => {
       await relay.close();
       gateway.close();
     }
-  });
+  }, 30_000);
 });

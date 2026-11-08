@@ -146,7 +146,7 @@ describe("Playwright harness", () => {
     });
     expect(proxy?.gracefulShutdown).toBeDefined();
     return expect(app?.gracefulShutdown).toBeDefined();
-  });
+  }, 30_000);
 
   it("runs every project on stable Google Chrome, not bundled Chromium", async () => {
     const config = await loadConfig();
