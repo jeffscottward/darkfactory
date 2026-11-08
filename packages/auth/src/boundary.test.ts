@@ -1,6 +1,6 @@
 import { spawnSync } from "node:child_process";
 import { readFile } from "node:fs/promises";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import * as client from "@darkfactory/auth/client";
 import * as databaseAuth from "@darkfactory/auth/db";
 import * as server from "@darkfactory/auth/server";
@@ -50,7 +50,13 @@ describe("auth package boundaries", () => {
 
     expect(result.status).toBe(1);
     expect(output).toContain(browserError);
-    expect(output).not.toMatch(forbiddenServerDependencies);
+    // Stack traces carry absolute paths; drop only the checkout prefix so a
+    // directory named like "...-wt-pg-..." cannot trip the dependency check.
+    expect(
+      output
+        .replaceAll(pathToFileURL(workspaceRoot).href, "<workspace>/")
+        .replaceAll(workspaceRoot, "<workspace>/")
+    ).not.toMatch(forbiddenServerDependencies);
 
     for (const workerCondition of ["workerd", "worker"]) {
       const resolution = spawnSync(
