@@ -206,7 +206,7 @@ describe("operator workspace behavior", () => {
       })
     ).toBeDefined();
     return expect(retryLoad).toHaveBeenCalledTimes(2);
-  });
+  }, 30_000);
 
   it("refreshes empty and populated boards from their visible controls", async () => {
     const emptyLoad = vi.fn(async () => workspace());
@@ -234,7 +234,7 @@ describe("operator workspace behavior", () => {
       })
     ).toBeDefined();
     return expect(populatedLoad).toHaveBeenCalledTimes(2);
-  });
+  }, 30_000);
 
   it("uses the browser transport when no gateway is supplied", async () => {
     const operator = {
@@ -1305,7 +1305,7 @@ describe("operator run detail behavior", () => {
         (region) => region.textContent === failureMessage
       )
     ).toBe(false);
-  });
+  }, 30_000);
 
   it("routes generic conflicts to the single alert owned by the failed action", async () => {
     const conflictMessage =

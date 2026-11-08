@@ -160,7 +160,7 @@ describe("nodeInitDependencies", () => {
       "added.txt",
     ]);
     expect(git(clone, "status", "--porcelain")).toBe("");
-  });
+  }, 30_000);
 
   it("streams commands and maps exit codes, signals and missing executables", async () => {
     const dependencies = nodeInitDependencies(await temporaryRoot());

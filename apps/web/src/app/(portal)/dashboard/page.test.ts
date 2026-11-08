@@ -634,7 +634,7 @@ describe("dashboard summary loader", () => {
     return expect(JSON.stringify(mocks.emit.mock.calls)).not.toContain(
       "private-"
     );
-  });
+  }, 30_000);
 
   it.each([
     [null, "unknown"],

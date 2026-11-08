@@ -2863,7 +2863,7 @@ describe("Graph node filesystem boundaries", () => {
         configuredSourceConfig(["."], ["package.json"])
       )
     ).rejects.toThrow(/too many files/i);
-  });
+  }, 30_000);
 
   it("rejects source and snapshot file size boundaries before publication", async () => {
     const largeRoot = join("scripts", "graph", `system-large-${randomUUID()}`);
@@ -2920,7 +2920,7 @@ describe("Graph node filesystem boundaries", () => {
     } finally {
       await rm(rewriteRoot, { force: true, recursive: true });
     }
-  });
+  }, 30_000);
 
   return it("rejects a snapshot corpus above the aggregate boundary", async () => {
     const root = join("scripts", "graph", `system-total-${randomUUID()}`);

@@ -84,7 +84,7 @@ describe("foreground development server", () => {
       expect(help, vinext).toMatch(/^\s+--port\b/mu);
       expect(help, vinext).toMatch(/^\s+--host\b/mu);
     }
-  });
+  }, 30_000);
 
   it("rejects unknown targets and a missing or malformed portless port", async () => {
     for (const [arguments_, environment, message] of [

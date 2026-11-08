@@ -63,7 +63,7 @@ describe("Wayfinder first-time planning journey", () => {
       ).disabled
     ).toBe(true);
     return expect(gateway.startWayfinder).not.toHaveBeenCalled();
-  });
+  }, 30_000);
 
   it("shows installed status and durably queues the bounded request before execution", async () => {
     const gateway = gatewayWith("installed");

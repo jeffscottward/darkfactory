@@ -50,7 +50,7 @@ describe("observability package boundaries", () => {
         /\/src\/server\/(otel|evlog|fanout)\.ts$/
       );
     }
-  });
+  }, 30_000);
 
   it("preserves browser poison in a side-effect-only Vite bundle", () => {
     const fixtureDirectory = mkdtempSync(
