@@ -1,39 +1,35 @@
 import type { DatabaseExecutor } from "@darkfactory/db/server";
+import type * as Redaction from "@darkfactory/observability/redaction";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import {
+  createWorkflowRepository,
+  WorkflowPersistenceInputError,
+} from "./workflow-repository.ts";
 
-const REDACTION_MODULE = "@darkfactory/observability/redaction";
+// A file-wide mock and a static import load the repository's module graph
+// (drizzle-orm and @darkfactory/db) once, in the import phase. Loading it
+// inside a test took 3 s or more on a busy machine, and the test timed out.
+const redact = vi.hoisted(() => vi.fn());
 
-const repositoryWithRedaction = async (redacted: unknown) => {
-  vi.resetModules();
-  vi.doMock(REDACTION_MODULE, async (importOriginal) => {
-    const actual =
-      await importOriginal<
-        typeof import("@darkfactory/observability/redaction")
-      >();
-    return {
-      ...actual,
-      redact: vi.fn(() => redacted),
-    };
-  });
-  const module = await import("./workflow-repository.ts");
+vi.mock("@darkfactory/observability/redaction", async (importOriginal) => ({
+  ...(await importOriginal<typeof Redaction>()),
+  redact,
+}));
+
+const repositoryWithRedaction = (redacted: unknown) => {
+  redact.mockReturnValue(redacted);
   const execute = vi.fn();
   const database = { execute } as unknown as DatabaseExecutor;
-  return {
-    execute,
-    repository: module.createWorkflowRepository(database),
-    WorkflowPersistenceInputError: module.WorkflowPersistenceInputError,
-  };
+  return { execute, repository: createWorkflowRepository(database) };
 };
 
 afterEach(() => {
-  vi.doUnmock(REDACTION_MODULE);
-  return vi.resetModules();
+  redact.mockReset();
 });
 
 describe("workflow persistence redaction failures", () => {
   it("rejects a text redaction that does not remain text", async () => {
-    const { execute, repository, WorkflowPersistenceInputError } =
-      await repositoryWithRedaction({ redacted: true });
+    const { execute, repository } = repositoryWithRedaction({ redacted: true });
 
     const failure = repository.failRetainedResource({
       runId: "run-1",
@@ -47,8 +43,9 @@ describe("workflow persistence redaction failures", () => {
   });
 
   return it("rejects text that expands beyond its limit during redaction", async () => {
-    const { execute, repository, WorkflowPersistenceInputError } =
-      await repositoryWithRedaction("x".repeat(4 * 1024 + 1));
+    const { execute, repository } = repositoryWithRedaction(
+      "x".repeat(4 * 1024 + 1)
+    );
 
     const failure = repository.failRetainedResource({
       runId: "run-1",
