@@ -204,12 +204,14 @@ const configuredSourceConfig = (
       verificationPath: ["from", "to"],
     })
   );
-const isolatedSnapshotFileSystem = () => {
+const isolatedSnapshotFileSystem = (
+  createFileSystem = createNodeGraphFileSystem
+) => {
   const namespace = randomUUID();
   const snapshotKey = `.graphify/source-snapshot-${createHash("sha256").update(namespace).digest("hex")}`;
   const temporaryNamePrefix = `darkfactory-graph-${createHash("sha256").update(snapshotKey).digest("hex").slice(0, 16)}-`;
   return {
-    fileSystem: createNodeGraphFileSystem(namespace),
+    fileSystem: createFileSystem(namespace),
     get privateParents(): ReadonlySet<string> {
       return new Set(
         [...mocks.snapshotPrivateParents].filter((parent) => {
@@ -219,6 +221,25 @@ const isolatedSnapshotFileSystem = () => {
     },
     temporaryNamePrefix,
   };
+};
+// system.ts takes its repository root from process.cwd() when it loads and
+// reads workspace manifests only at packages/*/package.json under that root.
+// A test that needs a workspace package loads a second copy (a fresh dynamic
+// import; the static import is bound to the real repository) rooted in a
+// temporary repository. A fixture package in the real packages/ tree races
+// other test files that glob packages/*/package.json.
+const temporaryRepositorySystem = async () => {
+  const root = await mkdtemp(join(tmpdir(), "darkfactory-graph-repository-"));
+  // The snapshot configs below name the root package.json as a source file.
+  await writeFile(join(root, "package.json"), "{}\n");
+  vi.resetModules();
+  const cwd = vi.spyOn(process, "cwd").mockReturnValue(root);
+  try {
+    const system = await import("./system.ts");
+    return { root, createFileSystem: system.createNodeGraphFileSystem };
+  } finally {
+    cwd.mockRestore();
+  }
 };
 const expectPrivateParentsRemoved = async (
   privateParents: ReadonlySet<string>,
@@ -2517,21 +2538,23 @@ describe("Graph node filesystem boundaries", () => {
   });
 
   it("snapshots TypeScript sources and rewrites discovered workspace aliases", async () => {
+    const repository = await temporaryRepositorySystem();
     const packageName = `graph-system-${randomUUID()}`;
     const root = join("packages", packageName);
-    await mkdir(join(root, "src"), { recursive: true });
+    const fixture = join(repository.root, root);
+    await mkdir(join(fixture, "src"), { recursive: true });
     await Promise.all([
       writeFile(
-        join(root, "package.json"),
+        join(fixture, "package.json"),
         JSON.stringify({
           name: `@darkfactory/${packageName}`,
           version: "1.0.0",
           exports: { ".": "./src/index.ts" },
         })
       ),
-      writeFile(join(root, "src/index.ts"), "export const value = 1\n"),
+      writeFile(join(fixture, "src/index.ts"), "export const value = 1\n"),
       writeFile(
-        join(root, "src/consumer.tsx"),
+        join(fixture, "src/consumer.tsx"),
         `import { value } from "@darkfactory/${packageName}"\nexport const consumer = value\n`
       ),
     ]);
@@ -2549,7 +2572,7 @@ describe("Graph node filesystem boundaries", () => {
         verificationPath: ["from", "to"],
       })
     );
-    const isolated = isolatedSnapshotFileSystem();
+    const isolated = isolatedSnapshotFileSystem(repository.createFileSystem);
 
     try {
       const snapshot = await isolated.fileSystem.createSourceSnapshot(config);
@@ -2573,17 +2596,19 @@ describe("Graph node filesystem boundaries", () => {
         await snapshot.cleanup();
       }
     } finally {
-      await rm(root, { force: true, recursive: true });
+      await rm(repository.root, { force: true, recursive: true });
     }
   });
 
   it("removes a failed snapshot corpus and diagnoses a missing ownership marker", async () => {
+    const repository = await temporaryRepositorySystem();
     const invalidPackage = join(
       "packages",
       `graph-system-invalid-${randomUUID()}`
     );
-    await mkdir(invalidPackage, { recursive: true });
-    await writeFile(join(invalidPackage, "package.json"), "{");
+    const invalidFixture = join(repository.root, invalidPackage);
+    await mkdir(invalidFixture, { recursive: true });
+    await writeFile(join(invalidFixture, "package.json"), "{");
     const invalidConfig = parseGraphConfig(
       JSON.stringify({
         version: 1,
@@ -2598,14 +2623,18 @@ describe("Graph node filesystem boundaries", () => {
         verificationPath: ["from", "to"],
       })
     );
-    const invalidSnapshot = isolatedSnapshotFileSystem();
+    const invalidSnapshot = isolatedSnapshotFileSystem(
+      repository.createFileSystem
+    );
     try {
+      // Only the invalid workspace manifest throws a SyntaxError, so a
+      // snapshot that never read the temporary repository cannot pass.
       await expect(
         invalidSnapshot.fileSystem.createSourceSnapshot(invalidConfig)
-      ).rejects.toThrow();
+      ).rejects.toThrow(SyntaxError);
       await expectPrivateParentsRemoved(invalidSnapshot.privateParents);
     } finally {
-      await rm(invalidPackage, { force: true, recursive: true });
+      await rm(repository.root, { force: true, recursive: true });
     }
 
     const root = join("scripts", "graph", `system-owner-${randomUUID()}`);
