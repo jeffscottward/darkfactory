@@ -1,6 +1,6 @@
 import { spawnSync } from "node:child_process";
 import { readFile } from "node:fs/promises";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { describe, expect, it } from "vitest";
 
 const workspaceRoot = fileURLToPath(new URL("../../..", import.meta.url));
@@ -9,6 +9,15 @@ const webPackageRoot = fileURLToPath(
 );
 const forbiddenServerDependencies =
   /better-auth|drizzle|\bpg\b|resend|node:fs|DATABASE_URL|BETTER_AUTH_SECRET/i;
+const workspaceRootUrl = pathToFileURL(workspaceRoot).href;
+
+// Stack traces carry absolute paths; a checkout directory named like
+// "...-wt-pg-..." must not trip the dependency check. Only the workspace
+// prefix is replaced, so leaks such as node_modules/pg still match.
+const withoutWorkspaceRoot = (output: string): string =>
+  output
+    .replaceAll(workspaceRootUrl, "<workspace>/")
+    .replaceAll(workspaceRoot, "<workspace>/");
 
 const importWithConditions = (
   specifier: string,
@@ -35,7 +44,7 @@ const expectBrowserImportToFailClosed = (
 
   expect(result.status).toBe(1);
   expect(output).toContain(expectedMessage);
-  expect(output).not.toMatch(forbiddenServerDependencies);
+  expect(withoutWorkspaceRoot(output)).not.toMatch(forbiddenServerDependencies);
 };
 
 const bundleBrowserPoisonModule = (specifier: string) => {
@@ -78,6 +87,22 @@ const bundleBrowserPoisonModule = (specifier: string) => {
 };
 
 describe("config package boundaries", () => {
+  it("ignores the checkout path but still catches leaked server dependencies", () => {
+    const frame = `at ${workspaceRootUrl}packages/config/src/server/unsupported.js:1:7`;
+
+    expect(withoutWorkspaceRoot(frame)).toBe(
+      "at <workspace>/packages/config/src/server/unsupported.js:1:7"
+    );
+    expect(
+      withoutWorkspaceRoot(`${workspaceRoot}node_modules/pg/lib/index.js`)
+    ).toMatch(forbiddenServerDependencies);
+    expect(
+      withoutWorkspaceRoot(
+        `${workspaceRootUrl}node_modules/drizzle-orm/index.js`
+      )
+    ).toMatch(forbiddenServerDependencies);
+  });
+
   it("keeps the root export limited to the dependency-free client module", async () => {
     const manifest = JSON.parse(
       await readFile(new URL("../package.json", import.meta.url), "utf8")
