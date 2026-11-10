@@ -113,7 +113,7 @@
   ],
   "scripts": {
     "test:unit": "pnpm exec vitest run --config ../../vitest.config.ts --project unit .",
-    "typecheck": "tsc --noEmit -p tsconfig.json"
+    "typecheck": "tsrs --noEmit -p tsconfig.json"
   },
   "dependencies": {
     "@fontsource-variable/geist": "catalog:",
