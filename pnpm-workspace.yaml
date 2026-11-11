@@ -25,7 +25,7 @@ overrides:
 
 catalog:
   "@axe-core/playwright": 4.13.0
-  "@better-auth/drizzle-adapter": 1.7.6
+  "@better-auth/drizzle-adapter": 1.7.7
   "@biomejs/biome": 2.5.15
   "@cloudflare/vite-plugin": 1.61.0
   "@vitest/coverage-v8": 5.0.2
