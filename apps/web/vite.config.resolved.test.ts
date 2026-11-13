@@ -70,8 +70,6 @@ describe("resolved Vite environment optimizer contract", () => {
     expect(client?.exclude).toEqual(
       expect.arrayContaining(["vinext", "next/link"])
     );
-    // vinext keeps its next/* shims out of the client optimizer.
-    expect(client?.include).not.toContain("next/router");
     expect(client?.exclude).not.toContain("lucide-react");
     expect(new Set(client?.include).size).toBe(client?.include?.length);
     expect(new Set(client?.exclude).size).toBe(client?.exclude?.length);

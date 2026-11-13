@@ -163,6 +163,12 @@ describe("Vite application plugin contract", () => {
       "@tanstack/react-form"
     );
     expect(clientEnvironment.optimizeDeps.include).toContain("lucide-react");
+    // vinext keeps its next/* shims out of the client optimizer.
+    expect(
+      clientEnvironment.optimizeDeps.include.some((entry) =>
+        entry.startsWith("next/")
+      )
+    ).toBe(false);
     expect(clientEnvironment.optimizeDeps.exclude).not.toContain(
       "lucide-react"
     );
