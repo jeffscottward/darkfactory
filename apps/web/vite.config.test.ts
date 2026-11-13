@@ -2,7 +2,10 @@ import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import ts from "typescript-api";
 import { describe, expect, it, vi } from "vitest";
-import viteConfig, { keepFontFilesExternal } from "./vite.config";
+import viteConfig, {
+  keepFontFilesExternal,
+  legalAliasRedirects,
+} from "./vite.config";
 
 const LINE_BREAK_PATTERN = /\r?\n/u;
 
@@ -79,8 +82,15 @@ describe("Vite application plugin contract", () => {
       {
         nextConfig: {
           pageExtensions: ["tsx", "ts", "jsx", "js"],
+          redirects: legalAliasRedirects,
         },
       },
+    ]);
+    // Config redirects answer 307 before render; a page redirect() under a
+    // loading boundary would stream as a 200.
+    expect(legalAliasRedirects()).toEqual([
+      { destination: "/legal/privacy", permanent: false, source: "/privacy" },
+      { destination: "/legal/terms", permanent: false, source: "/terms" },
     ]);
     expect(importCalls.cloudflare).toContainEqual([
       {

@@ -70,6 +70,16 @@ const FONT_FILE_PATTERN = /\.(?:woff2?|ttf|otf|eot)$/iu;
 export const keepFontFilesExternal = (filePath: string): false | undefined =>
   FONT_FILE_PATTERN.test(filePath) ? false : undefined;
 
+// Short legal aliases answer with a plain 307 before any render. A redirect()
+// from a page under the (public) loading boundary streams as a 200 with a
+// meta refresh since vinext 1.1, as in Next.js.
+const LEGAL_ALIAS_REDIRECTS = [
+  { destination: "/legal/privacy", permanent: false, source: "/privacy" },
+  { destination: "/legal/terms", permanent: false, source: "/terms" },
+] as const;
+export const legalAliasRedirects = () =>
+  LEGAL_ALIAS_REDIRECTS.map((redirect) => ({ ...redirect }));
+
 const environmentOptimizerPolicy = (): Plugin => ({
   name: "darkfactory:environment-optimizer-policy",
   enforce: "post",
@@ -144,6 +154,7 @@ export default defineConfig({
     vinext({
       nextConfig: {
         pageExtensions: ["tsx", "ts", "jsx", "js"],
+        redirects: legalAliasRedirects,
       },
     }),
     cloudflare({

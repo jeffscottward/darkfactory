@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { access } from "node:fs/promises";
 import { Button } from "@darkfactory/ui";
-import { notFound, redirect } from "next/navigation";
+import { notFound } from "next/navigation";
 import {
   Children,
   createElement,
@@ -23,16 +23,17 @@ const repositoryBase = (
 ).repository.url.replace(/\.git$/u, "");
 
 vi.mock("next/navigation", () => ({
-  redirect: vi.fn((href: string): never => {
-    throw new Error(`redirect:${href}`);
-  }),
   notFound: vi.fn((): never => {
     throw new Error("not-found");
+  }),
+  redirect: vi.fn((href: string): never => {
+    throw new Error(`redirect:${href}`);
   }),
 }));
 vi.mock("next/link", () => ({ default: "a" }));
 
 import { PublicShell } from "../../components/public-shell.tsx";
+import RootNotFound from "../not-found.tsx";
 import AboutPage from "./about/page.tsx";
 import PublicError, { PublicErrorContent } from "./error.tsx";
 import ErrorSmokePage from "./error-smoke/page.tsx";
@@ -45,10 +46,8 @@ import PublicLoading from "./loading.tsx";
 import LoadingSmokePage from "./loading-smoke/page.tsx";
 import PublicNotFound from "./not-found.tsx";
 import HomePage from "./page.tsx";
-import PrivacyPage from "./privacy/page.ts";
 import ResourcesPage from "./resources/page.tsx";
 import SolutionsPage from "./solutions/page.tsx";
-import TermsPage from "./terms/page.ts";
 
 const markup = (
   component: Parameters<typeof renderToStaticMarkup>[0]
@@ -96,16 +95,16 @@ const findFocusableSection = (
 };
 
 const publicPages = [
-  { route: "/", Page: HomePage },
-  { route: "/features", Page: FeaturesPage },
-  { route: "/solutions", Page: SolutionsPage },
-  { route: "/resources", Page: ResourcesPage },
-  { route: "/about", Page: AboutPage },
+  { Page: HomePage, route: "/" },
+  { Page: FeaturesPage, route: "/features" },
+  { Page: SolutionsPage, route: "/solutions" },
+  { Page: ResourcesPage, route: "/resources" },
+  { Page: AboutPage, route: "/about" },
 ] as const;
 
 const legalPages = [
-  { route: "/legal/privacy", Page: LegalPrivacyPage },
-  { route: "/legal/terms", Page: LegalTermsPage },
+  { Page: LegalPrivacyPage, route: "/legal/privacy" },
+  { Page: LegalTermsPage, route: "/legal/terms" },
 ] as const;
 
 const internalDestinations = new Set([
@@ -230,7 +229,7 @@ describe("public resource and legal contracts", () => {
     return expect(pageHeader).not.toContain('target="_blank"');
   });
 
-  it("marks both canonical legal documents as starters requiring legal review", () => {
+  return it("marks both canonical legal documents as starters requiring legal review", () => {
     for (const { Page, route } of legalPages) {
       const html = renderPage(Page);
       assertHeadingHierarchy(html);
@@ -244,15 +243,6 @@ describe("public resource and legal contracts", () => {
     return expect(renderPage(LegalPrivacyPage)).not.toBe(
       renderPage(LegalTermsPage)
     );
-  });
-
-  return it("redirects short legal aliases to one canonical page each", () => {
-    const redirectMock = vi.mocked(redirect);
-    redirectMock.mockClear();
-    expect(() => PrivacyPage()).toThrow("redirect:/legal/privacy");
-    expect(redirectMock).toHaveBeenLastCalledWith("/legal/privacy");
-    expect(() => TermsPage()).toThrow("redirect:/legal/terms");
-    return expect(redirectMock).toHaveBeenLastCalledWith("/legal/terms");
   });
 });
 
@@ -292,6 +282,13 @@ describe("public route states", () => {
     assertLinksResolve(notFound);
     assertLinksResolve(error);
     expect(notFound).toContain("404");
+    // Unmatched URLs render the root not-found: the same page inside the shell.
+    const rootNotFound = RootNotFound();
+    expect(rootNotFound.type).toBe(PublicLayout);
+    const rootNotFoundChild: unknown = rootNotFound.props.children;
+    expect(
+      isValidElement(rootNotFoundChild) ? rootNotFoundChild.type : undefined
+    ).toBe(PublicNotFound);
     expect(error).toContain('role="alert"');
     expect(error).toContain("Recovery options are ready.");
     expect(error).toContain('tabindex="-1"');

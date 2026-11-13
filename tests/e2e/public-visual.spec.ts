@@ -9,6 +9,7 @@ import {
   test,
   waitForContactPreview,
 } from "./fixtures.ts";
+import { clientChunkPath } from "./helpers/client-chunks.ts";
 import { clearContactThrottle } from "./helpers/database.ts";
 
 const PUBLIC_ROUTES = [
@@ -329,7 +330,7 @@ for (const viewport of RESPONSIVE_VIEWPORTS) {
       })
     ).toBeVisible({ timeout: 15_000 });
 
-    await page.addInitScript(() => {
+    await page.addInitScript((fixtureChunkPath) => {
       const state = window as typeof window & {
         __DARKFACTORY_E2E_FALSE_ERROR_SUCCESS__?: boolean;
         __DARKFACTORY_E2E_EXPECTED_ERROR_CONSOLES__?: number;
@@ -361,7 +362,7 @@ for (const viewport of RESPONSIVE_VIEWPORTS) {
           typeof first === "string" &&
           first.startsWith("The above error occurred in a React component:") &&
           (first.includes("at RecoverableErrorFixture") ||
-            first.includes("/recoverable-error-fixture-"));
+            first.includes(fixtureChunkPath));
         if (isFixtureComponentError) {
           fixtureFollowupPending = false;
           console.error = reportConsoleError;
@@ -397,7 +398,7 @@ for (const viewport of RESPONSIVE_VIEWPORTS) {
         },
         { once: true }
       );
-    });
+    }, clientChunkPath("recoverable-error-fixture"));
     browserErrors.allowConsoleError({
       message: "Error: E2E recoverable public error fixture",
       pathname: "/error-smoke",
