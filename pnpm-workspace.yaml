@@ -21,13 +21,12 @@ overrides:
   "sharp@<0.35.5": ^0.35.5
   "smol-toml@<1.9.0": ^1.9.0
   "source-map-js@<1.2.2": ^1.2.2
-  "undici@>=7.0.0 <7.30.1": ^7.30.1
 
 catalog:
   "@axe-core/playwright": 4.13.0
   "@better-auth/drizzle-adapter": 1.7.22
   "@biomejs/biome": 2.5.15
-  "@cloudflare/vite-plugin": 1.61.0
+  "@cloudflare/vite-plugin": 1.69.1
   "@vitest/coverage-v8": 5.0.3
   "@fontsource-variable/geist": 5.3.0
   "@fontsource-variable/geist-mono": 5.3.0
@@ -85,7 +84,8 @@ catalog:
   vinext: 1.0.0
   vite: 8.3.3
   vitest: 5.0.3
-  wrangler: 4.142.0
+  # Keep equal to the exact wrangler pin of @cloudflare/vite-plugin; another version installs a second wrangler, miniflare and workerd.
+  wrangler: 4.160.0
   xstate: 5.33.2
   yaml: 2.9.1
   zod: 4.6.5
