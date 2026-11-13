@@ -29,7 +29,7 @@ const PINNED_MANIFESTS: Readonly<Record<string, string>> = {
   "node_modules/@playwright/test/package.json": "1.63.0",
   "apps/web/node_modules/vinext/package.json": "1.0.0",
   "apps/web/node_modules/@vinext/cloudflare/package.json": "1.0.0",
-  "apps/web/node_modules/vite/package.json": "8.3.8",
+  "apps/web/node_modules/vite/package.json": "8.3.3",
 };
 
 const files = (
