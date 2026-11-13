@@ -31,6 +31,8 @@ if (isIP(host) === 0 && !isHostname) {
 
 // Pre-bundle lucide-react. When it is excluded, its barrel export makes the
 // dev browser fetch about 1,900 icon modules (12 MB) on each cold page load.
+// vinext (1.4 and later) keeps its next/* shims out of the optimizer and
+// removes them from this list, so do not add them here.
 const CLIENT_OPTIMIZE_DEPS_INCLUDE = [
   "@tanstack/react-form",
   "@darkfactory/auth > better-auth/client",
@@ -40,7 +42,6 @@ const CLIENT_OPTIMIZE_DEPS_INCLUDE = [
   "@darkfactory/ui > radix-ui",
   "@darkfactory/ui > sonner",
   "lucide-react",
-  "next/router",
 ] as const;
 const CLIENT_OPTIMIZE_DEPS_EXCLUDE = ["next/link"] as const;
 const SERVER_OPTIMIZE_DEPS_INCLUDE = [
