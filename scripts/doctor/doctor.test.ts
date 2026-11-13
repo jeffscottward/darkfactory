@@ -25,11 +25,11 @@ const PINNED_BUN_VERSION = "1.4.2";
 const PINNED_MANIFESTS: Readonly<Record<string, string>> = {
   "node_modules/typescript/package.json": "7.0.2",
   "node_modules/turbo/package.json": "2.11.5",
-  "node_modules/vitest/package.json": "5.0.2",
+  "node_modules/vitest/package.json": "5.0.3",
   "node_modules/@playwright/test/package.json": "1.63.0",
   "apps/web/node_modules/vinext/package.json": "1.0.0",
   "apps/web/node_modules/@vinext/cloudflare/package.json": "1.0.0",
-  "apps/web/node_modules/vite/package.json": "8.3.1",
+  "apps/web/node_modules/vite/package.json": "8.3.3",
 };
 
 const files = (
