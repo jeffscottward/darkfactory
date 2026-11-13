@@ -1,9 +1,13 @@
 import { readFileSync } from "node:fs";
+import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 
 // vinext 1.3 and later emit hash-only client chunk names, so the E2E suites
 // find a client module's chunk through the client build manifest.
-export const CLIENT_BUILD_MANIFEST_PATH =
-  "apps/web/dist/client/.vite/manifest.json";
+export const CLIENT_BUILD_MANIFEST_PATH = join(
+  fileURLToPath(new URL("../../../", import.meta.url)),
+  "apps/web/dist/client/.vite/manifest.json"
+);
 
 export const clientChunkPathFromManifest = (
   manifest: unknown,

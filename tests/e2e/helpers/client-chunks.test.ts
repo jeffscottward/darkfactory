@@ -1,6 +1,7 @@
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -11,19 +12,19 @@ import {
 } from "./client-chunks.ts";
 
 const manifest = {
-  "virtual:vinext-client-reference-module/c978f93aa3f9/portal-shell": {
-    file: "_next/static/chunks/xhkCXCEO.js",
-    isDynamicEntry: true,
-    name: "portal-shell",
-  },
+  _shared: { file: "_next/static/chunks/0zTnLW7-.js", name: "portal-shell" },
+  broken: null,
   "virtual:vinext-client-reference-module/92e396dd588d/recoverable-error-fixture":
     {
       file: "_next/static/chunks/B2xaQLwJ.js",
       isDynamicEntry: true,
       name: "recoverable-error-fixture",
     },
-  _shared: { file: "_next/static/chunks/0zTnLW7-.js", name: "portal-shell" },
-  broken: null,
+  "virtual:vinext-client-reference-module/c978f93aa3f9/portal-shell": {
+    file: "_next/static/chunks/xhkCXCEO.js",
+    isDynamicEntry: true,
+    name: "portal-shell",
+  },
 };
 
 describe("client chunk lookup", () => {
@@ -58,7 +59,12 @@ describe("client chunk lookup", () => {
 
   it("reads the manifest file, by default from the web client build", () => {
     expect(CLIENT_BUILD_MANIFEST_PATH).toBe(
-      "apps/web/dist/client/.vite/manifest.json"
+      fileURLToPath(
+        new URL(
+          "../../../apps/web/dist/client/.vite/manifest.json",
+          import.meta.url
+        )
+      )
     );
     const directory = mkdtempSync(join(tmpdir(), "client-chunks-"));
     try {

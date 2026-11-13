@@ -317,7 +317,7 @@ test.describe
       await page.route(
         // Built at the call: the client build manifest exists only after `bun run build`.
         new RegExp(
-          `(?:/src/components/portal-shell\\.tsx|${escapeRegExp(clientChunkPath("portal-shell"))})(?:\\?.*)?$`,
+          `${escapeRegExp(clientChunkPath("portal-shell"))}(?:\\?.*)?$`,
           "u"
         ),
         async (route) => {
