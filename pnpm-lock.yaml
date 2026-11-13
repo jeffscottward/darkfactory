@@ -212,7 +212,7 @@ overrides:
   fflate@>=0.7.0 <0.7.5: ^0.7.5
   image-size@<2.0.3: ^2.0.3
   katex@>=0.11.0 <0.18.2: ^0.18.2
-  seroval@<1.6.3: ^1.6.3
+  seroval@<1.6.11: ~1.6.11
   sharp@<0.35.5: ^0.35.5
   smol-toml@<1.9.0: ^1.9.0
   source-map-js@<1.2.2: ^1.2.2
@@ -5335,10 +5335,10 @@ packages:
     resolution: {integrity: sha512-HXuLAX2pu/UByPpaeo/TaMfvMIi+1QqIoPJYCcAtU8QkVNwgR6MPlGuCQTErV1JwraaMbYaWVIBX7mppzGLATQ==}
     engines: {node: '>=10'}
     peerDependencies:
-      seroval: ^1.6.3
+      seroval: ~1.6.11
 
-  seroval@1.6.9:
-    resolution: {integrity: sha512-UeEzHwAK+yl0YLbsvROV1t5yMYEwZZ0CfKYxDvUgS2fO9Vxdf8djqVIB+OuVpuawRNPqw68LE1Du/GMsW2ZPqA==}
+  seroval@1.6.12:
+    resolution: {integrity: sha512-CqbIVfk/7GL3ITwZI55lcPbpQbjHZ2DD5cUj4iH7E9YsCfHNJV1mx7yNp86Z84w5IpmkZZS/2s5vPOWmVWSdQg==}
     engines: {node: '>=10'}
 
   set-cookie-parser@3.1.2:
@@ -10062,12 +10062,12 @@ snapshots:
 
   semver@7.8.5: {}
 
-  seroval-plugins@1.5.6(seroval@1.6.9):
+  seroval-plugins@1.5.6(seroval@1.6.12):
     dependencies:
-      seroval: 1.6.9
+      seroval: 1.6.12
     optional: true
 
-  seroval@1.6.9:
+  seroval@1.6.12:
     optional: true
 
   set-cookie-parser@3.1.2: {}
@@ -10121,8 +10121,8 @@ snapshots:
   solid-js@1.9.14:
     dependencies:
       csstype: 3.2.3
-      seroval: 1.6.9
-      seroval-plugins: 1.5.6(seroval@1.6.9)
+      seroval: 1.6.12
+      seroval-plugins: 1.5.6(seroval@1.6.12)
     optional: true
 
   sonner@2.0.8(@types/react@19.3.0)(react-dom@19.3.1(react@19.3.1))(react@19.3.1):
