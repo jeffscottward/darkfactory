@@ -31,6 +31,8 @@ if (isIP(host) === 0 && !isHostname) {
 
 // Pre-bundle lucide-react. When it is excluded, its barrel export makes the
 // dev browser fetch about 1,900 icon modules (12 MB) on each cold page load.
+// vinext (1.4 and later) keeps its next/* shims out of the optimizer and
+// removes them from this list, so do not add them here.
 const CLIENT_OPTIMIZE_DEPS_INCLUDE = [
   "@tanstack/react-form",
   "@darkfactory/auth > better-auth/client",
@@ -40,7 +42,6 @@ const CLIENT_OPTIMIZE_DEPS_INCLUDE = [
   "@darkfactory/ui > radix-ui",
   "@darkfactory/ui > sonner",
   "lucide-react",
-  "next/router",
 ] as const;
 const CLIENT_OPTIMIZE_DEPS_EXCLUDE = ["next/link"] as const;
 const SERVER_OPTIMIZE_DEPS_INCLUDE = [
@@ -68,6 +69,16 @@ const FONT_FILE_PATTERN = /\.(?:woff2?|ttf|otf|eot)$/iu;
 // every stylesheet, even when its unicode-range never matches the page text.
 export const keepFontFilesExternal = (filePath: string): false | undefined =>
   FONT_FILE_PATTERN.test(filePath) ? false : undefined;
+
+// Short legal aliases answer with a plain 307 before any render. A redirect()
+// from a page under the (public) loading boundary streams as a 200 with a
+// meta refresh since vinext 1.1, as in Next.js.
+const LEGAL_ALIAS_REDIRECTS = [
+  { destination: "/legal/privacy", permanent: false, source: "/privacy" },
+  { destination: "/legal/terms", permanent: false, source: "/terms" },
+] as const;
+export const legalAliasRedirects = () =>
+  LEGAL_ALIAS_REDIRECTS.map((redirect) => ({ ...redirect }));
 
 const environmentOptimizerPolicy = (): Plugin => ({
   name: "darkfactory:environment-optimizer-policy",
@@ -143,6 +154,7 @@ export default defineConfig({
     vinext({
       nextConfig: {
         pageExtensions: ["tsx", "ts", "jsx", "js"],
+        redirects: legalAliasRedirects,
       },
     }),
     cloudflare({

@@ -10,6 +10,7 @@ import type {
 } from "@playwright/test";
 
 import { E2E_IDENTITIES, expect, signInAs, test } from "./fixtures.ts";
+import { clientChunkPath, escapeRegExp } from "./helpers/client-chunks.ts";
 import { resetDatabase } from "./helpers/database.ts";
 
 // Each file starts from the seeded identities, whatever ran before it.
@@ -20,8 +21,6 @@ const BOB_SEED_ITEM = "Bob example item";
 const ADMIN_SEED_ITEM = "Admin example item";
 const BOB_SEED_ITEM_ID = "30000000-0000-4000-8000-000000000003";
 const MOBILE_VIEWPORT = { height: 812, width: 375 } as const;
-const PORTAL_CLIENT_MODULE_PATH_PATTERN =
-  /(?:\/src\/components\/portal-shell\.tsx|\/_next\/static\/chunks\/portal-shell-[^/?]+\.js)(?:\?.*)?$/u;
 const FEATURE_LIST_PATH = "/api/orpc/featureItems/list";
 const FEATURE_GET_PATH = "/api/orpc/featureItems/get";
 const FEATURE_ITEM_ID_PATTERN =
@@ -316,7 +315,11 @@ test.describe
         signal: AbortSignal.timeout(15_000),
       });
       await page.route(
-        PORTAL_CLIENT_MODULE_PATH_PATTERN,
+        // Built at the call: the client build manifest exists only after `bun run build`.
+        new RegExp(
+          `${escapeRegExp(clientChunkPath("portal-shell"))}(?:\\?.*)?$`,
+          "u"
+        ),
         async (route) => {
           portalModuleGate.emit("route-ready");
           await once(portalModuleGate, "release");

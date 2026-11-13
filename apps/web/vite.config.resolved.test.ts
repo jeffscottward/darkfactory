@@ -65,7 +65,6 @@ describe("resolved Vite environment optimizer contract", () => {
         "@darkfactory/auth > better-auth/client/plugins",
         "@darkfactory/ui > sonner",
         "lucide-react",
-        "next/router",
       ])
     );
     expect(client?.exclude).toEqual(
