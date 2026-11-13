@@ -31,7 +31,7 @@
     }
   },
   "scripts": {
-    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "typecheck": "tsrs --noEmit -p tsconfig.json",
     "test:unit": "pnpm exec vitest run --config ../../vitest.config.ts --project unit .",
     "db:generate": "bunx --bun --no-install drizzle-kit generate --config drizzle.config.ts",
     "db:check": "bunx --bun --no-install drizzle-kit check --config drizzle.config.ts",

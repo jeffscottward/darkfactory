@@ -92,7 +92,7 @@
     }
   },
   "scripts": {
-    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "typecheck": "tsrs --noEmit -p tsconfig.json",
     "test:unit": "pnpm exec vitest run --config ../../vitest.config.ts --project unit .",
     "worker:pilot": "bun --env-file=../../.env src/server/pilot-worker-cli.ts",
     "verifier:image:setup": "bun src/server/verifier-image.ts setup",

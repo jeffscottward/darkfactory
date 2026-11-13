@@ -40,7 +40,7 @@
   "scripts": {
     "auth:schema:generate": "bun scripts/check-auth-schema.ts --write",
     "auth:schema:check": "bun scripts/check-auth-schema.ts",
-    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "typecheck": "tsrs --noEmit -p tsconfig.json",
     "test:unit": "pnpm exec vitest run --config ../../vitest.config.ts --project unit ."
   },
   "engines": {

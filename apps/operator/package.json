@@ -17,7 +17,7 @@
     "dev": "node --env-file-if-exists=.dev.vars ./node_modules/vinext/dist/cli.js dev",
     "build": "node --env-file-if-exists=.dev.vars ./node_modules/vinext/dist/cli.js build",
     "start": "vite preview",
-    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "typecheck": "tsrs --noEmit -p tsconfig.json",
     "test:unit": "pnpm exec vitest run --config ../../vitest.config.ts --project unit ."
   },
   "dependencies": {
@@ -44,7 +44,7 @@
     "@vitejs/plugin-rsc": "catalog:",
     "esbuild": "catalog:",
     "jsdom": "^30.1.1",
-    "typescript": "catalog:",
+    "tsrs": "^0.23.0-ts7.1.0-beta",
     "vite": "catalog:",
     "vitest": "catalog:"
   }
