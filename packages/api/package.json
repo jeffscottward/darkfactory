@@ -27,7 +27,7 @@
     }
   },
   "scripts": {
-    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "typecheck": "tsrs --noEmit -p tsconfig.json",
     "test:unit": "pnpm exec vitest run --config ../../vitest.config.ts --project unit .",
     "openapi:generate": "bun scripts/openapi.ts --write",
     "openapi:check": "bun scripts/openapi.ts"
